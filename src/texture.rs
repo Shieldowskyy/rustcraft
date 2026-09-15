@@ -1,0 +1,240 @@
+// Basic procedural 16x16 textures, generated once at startup with simple
+// deterministic hash-based noise (no image files, no external assets).
+// Each texture is a flat Vec<[f32;3]> of 16*16 RGB texels in row-major
+// order (row 0 = top). The renderer samples these with nearest-neighbor
+// filtering using UV coordinates baked into the mesh.
+
+pub const TEX_SIZE: usize = 16;
+
+#[derive(Clone)]
+pub struct Texture {
+    pub texels: Vec<[f32; 3]>, // len == TEX_SIZE * TEX_SIZE
+}
+
+impl Texture {
+    pub fn sample(&self, u: f32, v: f32) -> [f32; 3] {
+        let mut x = (u * TEX_SIZE as f32) as i32;
+        let mut y = (v * TEX_SIZE as f32) as i32;
+        x = x.rem_euclid(TEX_SIZE as i32);
+        y = y.rem_euclid(TEX_SIZE as i32);
+        self.texels[(y as usize) * TEX_SIZE + (x as usize)]
+    }
+}
+
+fn hash(mut n: u32) -> u32 {
+    n = (n ^ 61) ^ (n >> 16);
+    n = n.wrapping_add(n << 3);
+    n ^= n >> 4;
+    n = n.wrapping_mul(0x27d4eb2d);
+    n ^= n >> 15;
+    n
+}
+
+/// Deterministic per-texel pseudo-random value in [0, 1), seeded by texel
+/// coordinates and a texture-specific seed so every block gets a distinct,
+/// stable pattern.
+fn rand_at(x: usize, y: usize, seed: u32) -> f32 {
+    let h = hash((x as u32).wrapping_mul(1973).wrapping_add((y as u32).wrapping_mul(9277)).wrapping_add(seed.wrapping_mul(26699)));
+    (h % 10000) as f32 / 10000.0
+}
+
+fn mix(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
+    [
+        a[0] + (b[0] - a[0]) * t,
+        a[1] + (b[1] - a[1]) * t,
+        a[2] + (b[2] - a[2]) * t,
+    ]
+}
+
+fn speckled(base: [f32; 3], variance: f32, seed: u32) -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let n = rand_at(x, y, seed) - 0.5; // [-0.5, 0.5)
+            let shade = 1.0 + n * variance;
+            texels[y * TEX_SIZE + x] = [
+                (base[0] * shade).clamp(0.0, 1.0),
+                (base[1] * shade).clamp(0.0, 1.0),
+                (base[2] * shade).clamp(0.0, 1.0),
+            ];
+        }
+    }
+    Texture { texels }
+}
+
+/// Grass top: green speckled with small lighter tufts.
+fn grass_top() -> Texture {
+    let base = [0.36, 0.68, 0.24];
+    let light = [0.48, 0.80, 0.32];
+    let mut tex = speckled(base, 0.18, 11);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if rand_at(x, y, 42) > 0.86 {
+                tex.texels[y * TEX_SIZE + x] = light;
+            }
+        }
+    }
+    tex
+}
+
+/// Grass side: dirt base with a strip of grass-green along the top edge,
+/// and a jagged (noisy) boundary between the two, like classic Minecraft.
+fn grass_side() -> Texture {
+    let dirt = [0.45, 0.33, 0.20];
+    let grass = [0.36, 0.68, 0.24];
+    let mut tex = speckled(dirt, 0.15, 7);
+    for x in 0..TEX_SIZE {
+        let edge = 3 + (rand_at(x, 0, 99) * 3.0) as usize; // 3..6 texels of grass
+        for y in 0..edge.min(TEX_SIZE) {
+            let n = rand_at(x, y, 13) - 0.5;
+            let shade = 1.0 + n * 0.18;
+            tex.texels[y * TEX_SIZE + x] = [
+                (grass[0] * shade).clamp(0.0, 1.0),
+                (grass[1] * shade).clamp(0.0, 1.0),
+                (grass[2] * shade).clamp(0.0, 1.0),
+            ];
+        }
+    }
+    tex
+}
+
+fn dirt() -> Texture {
+    speckled([0.45, 0.33, 0.20], 0.20, 3)
+}
+
+/// Stone with darker speckles and a few faint "cracks" for texture.
+fn stone() -> Texture {
+    let base = [0.55, 0.55, 0.55];
+    let mut tex = speckled(base, 0.14, 21);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if rand_at(x, y, 71) > 0.93 {
+                tex.texels[y * TEX_SIZE + x] = mix(tex.texels[y * TEX_SIZE + x], [0.3, 0.3, 0.3], 0.6);
+            }
+        }
+    }
+    tex
+}
+
+fn sand() -> Texture {
+    speckled([0.87, 0.80, 0.55], 0.12, 5)
+}
+
+/// Wood top/bottom: concentric-ish rings using distance from center.
+fn wood_top() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let center = TEX_SIZE as f32 / 2.0 - 0.5;
+    let base = [0.55, 0.42, 0.25];
+    let dark = [0.40, 0.28, 0.15];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let dx = x as f32 - center;
+            let dy = y as f32 - center;
+            let dist = (dx * dx + dy * dy).sqrt();
+            let ring = (dist * 1.6).sin() * 0.5 + 0.5;
+            let noise = (rand_at(x, y, 61) - 0.5) * 0.08;
+            texels[y * TEX_SIZE + x] = mix(base, dark, (ring + noise).clamp(0.0, 1.0));
+        }
+    }
+    Texture { texels }
+}
+
+/// Wood side: vertical bark stripes.
+fn wood_side() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let base = [0.42, 0.30, 0.16];
+    let dark = [0.32, 0.22, 0.11];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let stripe = ((x as f32 * 0.9).sin() * 0.5 + 0.5 + (rand_at(x, y, 88) - 0.5) * 0.15).clamp(0.0, 1.0);
+            texels[y * TEX_SIZE + x] = mix(base, dark, stripe);
+        }
+    }
+    Texture { texels }
+}
+
+/// Leaves: green with random small gaps of a darker shade for a "leafy"
+/// look, and occasional tiny fully-see-through-looking dark specks.
+fn leaves() -> Texture {
+    let base = [0.20, 0.50, 0.16];
+    let mut tex = speckled(base, 0.35, 33);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if rand_at(x, y, 200) > 0.90 {
+                tex.texels[y * TEX_SIZE + x] = [0.10, 0.30, 0.08];
+            }
+        }
+    }
+    tex
+}
+
+/// Water: blue with soft horizontal wave banding.
+fn water() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let base = [0.15, 0.35, 0.75];
+    let light = [0.25, 0.48, 0.85];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let wave = ((y as f32 * 0.8 + x as f32 * 0.2).sin() * 0.5 + 0.5) * 0.5
+                + (rand_at(x, y, 55) * 0.15);
+            texels[y * TEX_SIZE + x] = mix(base, light, wave.clamp(0.0, 1.0));
+        }
+    }
+    Texture { texels }
+}
+
+/// All textures needed to render the world, indexed by `TextureId`.
+pub struct TextureAtlas {
+    pub grass_top: Texture,
+    pub grass_side: Texture,
+    pub dirt: Texture,
+    pub stone: Texture,
+    pub sand: Texture,
+    pub wood_top: Texture,
+    pub wood_side: Texture,
+    pub leaves: Texture,
+    pub water: Texture,
+}
+
+impl TextureAtlas {
+    pub fn generate() -> TextureAtlas {
+        TextureAtlas {
+            grass_top: grass_top(),
+            grass_side: grass_side(),
+            dirt: dirt(),
+            stone: stone(),
+            sand: sand(),
+            wood_top: wood_top(),
+            wood_side: wood_side(),
+            leaves: leaves(),
+            water: water(),
+        }
+    }
+
+    pub fn get(&self, id: TextureId) -> &Texture {
+        match id {
+            TextureId::GrassTop => &self.grass_top,
+            TextureId::GrassSide => &self.grass_side,
+            TextureId::Dirt => &self.dirt,
+            TextureId::Stone => &self.stone,
+            TextureId::Sand => &self.sand,
+            TextureId::WoodTop => &self.wood_top,
+            TextureId::WoodSide => &self.wood_side,
+            TextureId::Leaves => &self.leaves,
+            TextureId::Water => &self.water,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum TextureId {
+    GrassTop,
+    GrassSide,
+    Dirt,
+    Stone,
+    Sand,
+    WoodTop,
+    WoodSide,
+    Leaves,
+    Water,
+}

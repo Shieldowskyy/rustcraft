@@ -1,0 +1,152 @@
+// Block type definitions and their solid colors.
+// (No textures - colors are used since this is a software rasterizer demo.)
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum BlockId {
+    Air,
+    Grass,
+    Dirt,
+    Stone,
+    Sand,
+    Wood,
+    Leaves,
+    Water,
+}
+
+impl BlockId {
+    pub fn from_u8(v: u8) -> BlockId {
+        match v {
+            1 => BlockId::Grass,
+            2 => BlockId::Dirt,
+            3 => BlockId::Stone,
+            4 => BlockId::Sand,
+            5 => BlockId::Wood,
+            6 => BlockId::Leaves,
+            7 => BlockId::Water,
+            _ => BlockId::Air,
+        }
+    }
+
+    pub fn to_u8(self) -> u8 {
+        match self {
+            BlockId::Air => 0,
+            BlockId::Grass => 1,
+            BlockId::Dirt => 2,
+            BlockId::Stone => 3,
+            BlockId::Sand => 4,
+            BlockId::Wood => 5,
+            BlockId::Leaves => 6,
+            BlockId::Water => 7,
+        }
+    }
+
+    pub fn is_solid(self) -> bool {
+        !matches!(self, BlockId::Air | BlockId::Water)
+    }
+
+    pub fn is_transparent(self) -> bool {
+        matches!(self, BlockId::Air | BlockId::Water | BlockId::Leaves)
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            BlockId::Air => "powietrze",
+            BlockId::Grass => "trawa",
+            BlockId::Dirt => "ziemia",
+            BlockId::Stone => "kamien",
+            BlockId::Sand => "piasek",
+            BlockId::Wood => "drewno",
+            BlockId::Leaves => "liscie",
+            BlockId::Water => "woda",
+        }
+    }
+
+    /// Base RGB color for each face; grass has a green top and dirt sides.
+    /// Used as a lighting/tint multiplier on top of the procedural texture.
+    pub fn face_color(self, face: Face) -> [f32; 3] {
+        match self {
+            BlockId::Grass => match face {
+                Face::Top => [0.36, 0.68, 0.24],
+                Face::Bottom => [0.45, 0.33, 0.20],
+                _ => [0.42, 0.34, 0.20],
+            },
+            BlockId::Dirt => [0.45, 0.33, 0.20],
+            BlockId::Stone => [0.55, 0.55, 0.55],
+            BlockId::Sand => [0.87, 0.80, 0.55],
+            BlockId::Wood => match face {
+                Face::Top | Face::Bottom => [0.55, 0.42, 0.25],
+                _ => [0.42, 0.30, 0.16],
+            },
+            BlockId::Leaves => [0.20, 0.50, 0.16],
+            BlockId::Water => [0.15, 0.35, 0.75],
+            BlockId::Air => [0.0, 0.0, 0.0],
+        }
+    }
+
+    /// Which procedural texture to use for a given face of this block.
+    pub fn texture_id(self, face: Face) -> crate::texture::TextureId {
+        use crate::texture::TextureId;
+        match self {
+            BlockId::Grass => match face {
+                Face::Top => TextureId::GrassTop,
+                Face::Bottom => TextureId::Dirt,
+                _ => TextureId::GrassSide,
+            },
+            BlockId::Dirt => TextureId::Dirt,
+            BlockId::Stone => TextureId::Stone,
+            BlockId::Sand => TextureId::Sand,
+            BlockId::Wood => match face {
+                Face::Top | Face::Bottom => TextureId::WoodTop,
+                _ => TextureId::WoodSide,
+            },
+            BlockId::Leaves => TextureId::Leaves,
+            BlockId::Water => TextureId::Water,
+            BlockId::Air => TextureId::Stone, // never sampled
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Face {
+    Top,
+    Bottom,
+    North, // -Z
+    South, // +Z
+    East,  // +X
+    West,  // -X
+}
+
+impl Face {
+    pub const ALL: [Face; 6] = [
+        Face::Top,
+        Face::Bottom,
+        Face::North,
+        Face::South,
+        Face::East,
+        Face::West,
+    ];
+
+    /// Simple directional-light shading factor per face, to fake depth
+    /// without a real lighting pass (classic "ambient occlusion by face").
+    pub fn shade(self) -> f32 {
+        match self {
+            Face::Top => 1.0,
+            Face::North => 0.85,
+            Face::South => 0.85,
+            Face::East => 0.7,
+            Face::West => 0.7,
+            Face::Bottom => 0.5,
+        }
+    }
+
+    pub fn normal(self) -> crate::math::IVec3 {
+        match self {
+            Face::Top => crate::math::IVec3::new(0, 1, 0),
+            Face::Bottom => crate::math::IVec3::new(0, -1, 0),
+            Face::North => crate::math::IVec3::new(0, 0, -1),
+            Face::South => crate::math::IVec3::new(0, 0, 1),
+            Face::East => crate::math::IVec3::new(1, 0, 0),
+            Face::West => crate::math::IVec3::new(-1, 0, 0),
+        }
+    }
+}
