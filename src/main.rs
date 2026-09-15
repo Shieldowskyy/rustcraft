@@ -182,6 +182,10 @@ fn main() {
     let mut current_player_height = STANDING_HEIGHT;
 
     let mut state = GameState::MainMenu;
+    let mut save_slots: [bool; MAX_SAVE_SLOTS as usize] = std::array::from_fn(|index| {
+        let path = save_path(index as u8 + 1);
+        std::path::Path::new(&path).exists()
+    });
 
     let mut particles = ParticleSystem::new();
     let mut total_time = 0.0f32;
@@ -271,6 +275,7 @@ fn main() {
                 }
                 let click_button = if !clicked_world && left_down && !left_was_down { hovered_idx } else { None };
                 if enter_down && !enter_was_down || click_button == Some(0) {
+                    seed = generate_random_seed();
                     world = World::new_with_seed(seed);
                     camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
                     state = GameState::Playing;
@@ -289,10 +294,6 @@ fn main() {
                 } else if q_down && !q_was_down || click_button == Some(2) {
                     break;
                 }
-                let save_slots: [bool; MAX_SAVE_SLOTS as usize] = std::array::from_fn(|index| {
-                    let path = save_path(index as u8 + 1);
-                    std::path::Path::new(&path).exists()
-                });
                 renderer.draw_main_menu(seed, save_slot, &save_slots, hovered_idx);
                 enter_was_down = enter_down;
                 load_was_down = load_down;
@@ -560,7 +561,7 @@ fn main() {
                     walk_phase += dt * (5.0 + hand_speed * 0.9);
                 }
                 material_timer += dt;
-                if material_timer >= 0.12 {
+                if material_timer >= 0.25 {
                     material_timer = 0.0;
                     world.simulate_materials(camera.position);
                 }
@@ -651,6 +652,7 @@ fn main() {
                         Some(2) => {
                             // Return to main menu
                             let _ = save_current_world(&mut world, &camera, save_slot);
+                            save_slots[save_slot as usize - 1] = true;
                             state = GameState::MainMenu;
                             mouse_capture.set_captured(false);
                             window.set_cursor_visibility(true);
@@ -682,6 +684,7 @@ fn main() {
                 let m_down = window.is_key_down(Key::M);
                 if m_down && !m_was_down {
                     let _ = save_current_world(&mut world, &camera, save_slot);
+                    save_slots[save_slot as usize - 1] = true;
                     state = GameState::MainMenu;
                     mouse_capture.set_captured(false);
                     window.set_cursor_visibility(true);
@@ -762,6 +765,19 @@ fn parse_renderer_choice() -> &'static str {
     choice
 }
 
+fn generate_random_seed() -> u32 {
+    let mut buf = [0u8; 4];
+    getrandom::getrandom(&mut buf).unwrap_or_else(|_| {
+        // Fallback: use nanoseconds from system time as entropy.
+        let ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0x1337_1337);
+        buf = ns.to_le_bytes();
+    });
+    u32::from_le_bytes(buf)
+}
+
 fn parse_seed() -> u32 {
     let args: Vec<String> = std::env::args().collect();
     for index in 1..args.len() {
@@ -774,7 +790,7 @@ fn parse_seed() -> u32 {
                 });
         }
     }
-    world::DEFAULT_WORLD_SEED
+    generate_random_seed()
 }
 
 fn save_path(slot: u8) -> String {

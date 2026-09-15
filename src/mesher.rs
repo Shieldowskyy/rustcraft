@@ -26,8 +26,6 @@ pub struct Triangle {
     pub v1: Vertex,
     pub v2: Vertex,
     pub texture: TextureId,
-    #[allow(dead_code)]
-    pub tint: [f32; 3],
 }
 
 /// Builds a mesh (list of triangles, in world space) for a single chunk.
@@ -50,13 +48,32 @@ pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
                 let wx = base_x + lx;
                 let wy = ly;
                 let wz = base_z + lz;
+                let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
 
                 for face in Face::ALL {
                     let n = face.normal();
                     let neighbor = sample_block(chunk, world, lx + n.x, ly + n.y, lz + n.z, base_x, base_z);
 
-                    let visible = if block == BlockId::Water {
-                        neighbor == BlockId::Air
+                    let visible = if is_fluid {
+                        match face {
+                            Face::Top => neighbor != block,
+                            Face::Bottom => neighbor != block && (neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)),
+                            _ => {
+                                if neighbor != block {
+                                    neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)
+                                } else {
+                                    // If adjacent block is the same fluid, only render a step face if neighbor has lower fluid level
+                                    let above_neighbor = sample_block(chunk, world, lx + n.x, ly + 1, lz + n.z, base_x, base_z);
+                                    if above_neighbor != block {
+                                        let my_lvl = world.fluid_level(crate::math::IVec3::new(wx, wy, wz));
+                                        let neighbor_lvl = world.fluid_level(crate::math::IVec3::new(wx + n.x, wy, wz + n.z));
+                                        my_lvl > neighbor_lvl
+                                    } else {
+                                        false
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         neighbor == BlockId::Air
                             || (neighbor.is_transparent() && neighbor != block)
@@ -75,6 +92,7 @@ pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
 
 /// Samples a block at local coordinates that may spill into a neighboring
 /// chunk (used only for X/Z since chunks aren't stacked vertically).
+#[inline(always)]
 fn sample_block(
     chunk: &Chunk,
     world: &World,
@@ -84,10 +102,10 @@ fn sample_block(
     base_x: i32,
     base_z: i32,
 ) -> BlockId {
-    if lx >= 0 && lx < CHUNK_SIZE_X && lz >= 0 && lz < CHUNK_SIZE_Z {
+    if (lx as u32) < CHUNK_SIZE_X as u32 && (lz as u32) < CHUNK_SIZE_Z as u32 && (ly as u32) < CHUNK_SIZE_Y as u32 {
         return chunk.get_local(lx, ly, lz);
     }
-    if ly < 0 || ly >= CHUNK_SIZE_Y {
+    if (ly as u32) >= CHUNK_SIZE_Y as u32 {
         return BlockId::Air;
     }
     let wx = base_x + lx;
@@ -96,11 +114,13 @@ fn sample_block(
 }
 
 /// Returns true if the block at the given local offset is solid (used for AO).
+#[inline(always)]
 fn solid_at(chunk: &Chunk, world: &World, base_x: i32, base_z: i32, lx: i32, ly: i32, lz: i32) -> bool {
     sample_block(chunk, world, lx, ly, lz, base_x, base_z).is_solid()
 }
 
 /// Classic Minecraft per-vertex AO from the 3 neighboring blocks at a corner.
+#[inline(always)]
 fn vertex_ao(side1: bool, side2: bool, corner: bool) -> f32 {
     let count = side1 as u8 + side2 as u8 + (corner && !(side1 && side2)) as u8;
     match count {
@@ -111,7 +131,7 @@ fn vertex_ao(side1: bool, side2: bool, corner: bool) -> f32 {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[inline]
 fn emit_face(
     tris: &mut Vec<Triangle>,
     wx: i32, wy: i32, wz: i32,
@@ -128,26 +148,37 @@ fn emit_face(
     let x = wx as f32;
     let y = wy as f32;
     let z = wz as f32;
-    let top_y = if matches!(block, BlockId::Water | BlockId::Lava) {
-        y + world.fluid_level(crate::math::IVec3::new(wx, wy, wz)) as f32 / 8.0
+    let lx = wx - base_x;
+    let lz = wz - base_z;
+    let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
+
+    let top_y = if is_fluid {
+        let above = sample_block(chunk, world, lx, wy + 1, lz, base_x, base_z);
+        if above == block {
+            y + 1.0
+        } else {
+            let lvl = world.fluid_level(crate::math::IVec3::new(wx, wy, wz));
+            if lvl >= 8 {
+                y + 0.90
+            } else {
+                y + (lvl as f32 / 8.0) * 0.85 + 0.05
+            }
+        }
     } else {
         y + 1.0
     };
 
     // Cube corners
-    let c000 = Vec3::new(x,       y,       z);
-    let c100 = Vec3::new(x + 1.0, y,       z);
+    let c000 = Vec3::new(x,       y,     z);
+    let c100 = Vec3::new(x + 1.0, y,     z);
     let c010 = Vec3::new(x,       top_y, z);
     let c110 = Vec3::new(x + 1.0, top_y, z);
-    let c001 = Vec3::new(x,       y,       z + 1.0);
-    let c101 = Vec3::new(x + 1.0, y,       z + 1.0);
+    let c001 = Vec3::new(x,       y,     z + 1.0);
+    let c101 = Vec3::new(x + 1.0, y,     z + 1.0);
     let c011 = Vec3::new(x,       top_y, z + 1.0);
     let c111 = Vec3::new(x + 1.0, top_y, z + 1.0);
 
-    let lx = wx - base_x;
-    let lz = wz - base_z;
-    let ly = wy;
-    let s = |dx: i32, dy: i32, dz: i32| solid_at(chunk, world, base_x, base_z, lx+dx, ly+dy, lz+dz);
+    let s = |dx: i32, dy: i32, dz: i32| solid_at(chunk, world, base_x, base_z, lx+dx, wy+dy, lz+dz);
 
     // 4 corners of the face with AO factor each (winding matches original)
     let (a, ao_a, b, ao_b, c, ao_c, d, ao_d) = match face {
@@ -196,10 +227,10 @@ fn emit_face(
 
     // Flip the diagonal based on AO sum to avoid gradient artifacts
     if (ao_a + ao_c) > (ao_b + ao_d) {
-        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture, tint: [shade * ao_a; 3] });
-        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture, tint: [shade * ao_a; 3] });
+        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture });
+        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture });
     } else {
-        tris.push(Triangle { v0: va, v1: vb, v2: vd, texture, tint: [shade * ao_b; 3] });
-        tris.push(Triangle { v0: vb, v1: vc, v2: vd, texture, tint: [shade * ao_b; 3] });
+        tris.push(Triangle { v0: va, v1: vb, v2: vd, texture });
+        tris.push(Triangle { v0: vb, v1: vc, v2: vd, texture });
     }
 }

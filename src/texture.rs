@@ -12,12 +12,13 @@ pub struct Texture {
 }
 
 impl Texture {
+    #[inline(always)]
     pub fn sample(&self, u: f32, v: f32) -> [f32; 3] {
-        let mut x = (u * TEX_SIZE as f32) as i32;
-        let mut y = (v * TEX_SIZE as f32) as i32;
-        x = x.rem_euclid(TEX_SIZE as i32);
-        y = y.rem_euclid(TEX_SIZE as i32);
-        self.texels[(y as usize) * TEX_SIZE + (x as usize)]
+        let x = (u * TEX_SIZE as f32) as i32;
+        let y = (v * TEX_SIZE as f32) as i32;
+        let ux = x.rem_euclid(TEX_SIZE as i32) as usize;
+        let uy = y.rem_euclid(TEX_SIZE as i32) as usize;
+        self.texels[uy * TEX_SIZE + ux]
     }
 }
 

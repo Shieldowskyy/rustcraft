@@ -11,22 +11,27 @@ pub struct Vec3 {
 }
 
 impl Vec3 {
+    #[inline(always)]
     pub const fn new(x: f32, y: f32, z: f32) -> Self {
         Vec3 { x, y, z }
     }
 
+    #[inline(always)]
     pub const fn zero() -> Self {
         Vec3::new(0.0, 0.0, 0.0)
     }
 
+    #[inline(always)]
     pub fn length(&self) -> f32 {
         self.length_sq().sqrt()
     }
 
+    #[inline(always)]
     pub fn length_sq(&self) -> f32 {
         self.x * self.x + self.y * self.y + self.z * self.z
     }
 
+    #[inline(always)]
     pub fn normalized(&self) -> Vec3 {
         let len = self.length();
         if len < 1e-8 {
@@ -36,10 +41,12 @@ impl Vec3 {
         }
     }
 
+    #[inline(always)]
     pub fn dot(&self, o: Vec3) -> f32 {
         self.x * o.x + self.y * o.y + self.z * o.z
     }
 
+    #[inline(always)]
     pub fn cross(&self, o: Vec3) -> Vec3 {
         Vec3::new(
             self.y * o.z - self.z * o.y,
@@ -48,7 +55,7 @@ impl Vec3 {
         )
     }
 
-    #[allow(dead_code)]
+    #[inline(always)]
     pub fn floor_to_ivec(&self) -> IVec3 {
         IVec3::new(
             self.x.floor() as i32,
@@ -57,6 +64,7 @@ impl Vec3 {
         )
     }
 
+    #[inline(always)]
     pub fn lerp(self, target: Vec3, t: f32) -> Vec3 {
         Vec3::new(
             self.x + (target.x - self.x) * t,
@@ -68,24 +76,28 @@ impl Vec3 {
 
 impl Add for Vec3 {
     type Output = Vec3;
+    #[inline(always)]
     fn add(self, o: Vec3) -> Vec3 {
         Vec3::new(self.x + o.x, self.y + o.y, self.z + o.z)
     }
 }
 impl Sub for Vec3 {
     type Output = Vec3;
+    #[inline(always)]
     fn sub(self, o: Vec3) -> Vec3 {
         Vec3::new(self.x - o.x, self.y - o.y, self.z - o.z)
     }
 }
 impl Mul<f32> for Vec3 {
     type Output = Vec3;
+    #[inline(always)]
     fn mul(self, s: f32) -> Vec3 {
         Vec3::new(self.x * s, self.y * s, self.z * s)
     }
 }
 impl Neg for Vec3 {
     type Output = Vec3;
+    #[inline(always)]
     fn neg(self) -> Vec3 {
         Vec3::new(-self.x, -self.y, -self.z)
     }
@@ -99,6 +111,7 @@ pub struct IVec3 {
 }
 
 impl IVec3 {
+    #[inline(always)]
     pub const fn new(x: i32, y: i32, z: i32) -> Self {
         IVec3 { x, y, z }
     }
@@ -106,12 +119,14 @@ impl IVec3 {
 
 impl Add for IVec3 {
     type Output = IVec3;
+    #[inline(always)]
     fn add(self, o: IVec3) -> IVec3 {
         IVec3::new(self.x + o.x, self.y + o.y, self.z + o.z)
     }
 }
 impl Sub for IVec3 {
     type Output = IVec3;
+    #[inline(always)]
     fn sub(self, o: IVec3) -> IVec3 {
         IVec3::new(self.x - o.x, self.y - o.y, self.z - o.z)
     }
@@ -123,8 +138,15 @@ pub struct Mat4 {
     pub m: [f32; 16],
 }
 
+impl Default for Mat4 {
+    #[inline(always)]
+    fn default() -> Self {
+        Self::identity()
+    }
+}
+
 impl Mat4 {
-    #[allow(dead_code)]
+    #[inline(always)]
     pub fn identity() -> Self {
         let mut m = [0.0f32; 16];
         m[0] = 1.0;
@@ -178,6 +200,7 @@ impl Mat4 {
     }
 
     /// Multiply two column-major matrices: result = self * other
+    #[inline]
     pub fn mul(&self, o: &Mat4) -> Mat4 {
         let a = &self.m;
         let b = &o.m;
@@ -195,6 +218,7 @@ impl Mat4 {
     }
 
     /// Transform a point (x,y,z,1) and return the resulting homogeneous vec4.
+    #[inline(always)]
     pub fn transform_point(&self, p: Vec3) -> [f32; 4] {
         let m = &self.m;
         let x = p.x;

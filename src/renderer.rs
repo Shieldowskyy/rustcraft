@@ -1,6 +1,4 @@
-// Software and Vulkan renderers share the same world mesh and texture data.
-
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::camera::Camera;
 use crate::font;
@@ -18,6 +16,9 @@ pub struct Renderer {
     selected_block: u8,
     textures: TextureAtlas,
     vulkan: Option<VulkanContext>,
+    loaded_keys: Vec<(i32, i32)>,
+    dirty_keys: HashSet<(i32, i32)>,
+    visible_keys: Vec<(i32, i32)>,
 }
 
 /// A triangle vertex after the view-projection transform, still in
@@ -53,6 +54,9 @@ impl Renderer {
             selected_block: 1,
             textures: TextureAtlas::generate(),
             vulkan: None,
+            loaded_keys: Vec::with_capacity(128),
+            dirty_keys: HashSet::with_capacity(64),
+            visible_keys: Vec::with_capacity(128),
         }
     }
 
@@ -100,26 +104,22 @@ impl Renderer {
     }
 
     pub fn render_frame(&mut self, world: &mut World, camera: &Camera) {
-        self.clear(camera.pitch);
+        if self.vulkan.is_none() {
+            self.clear(camera.pitch);
+        }
 
         let aspect = self.width as f32 / self.height as f32;
         let view = camera.view_matrix();
         let proj = camera.projection_matrix(aspect);
         let view_proj = proj.mul(&view);
 
-        // Drop cached meshes for chunks that are no longer loaded.
-        let loaded_keys: std::collections::HashSet<(i32, i32)> =
-            world.chunks.keys().copied().collect();
-        self.mesh_cache.retain(|k, _| loaded_keys.contains(k));
-        let mut dirty_keys = std::collections::HashSet::new();
+        // Update loaded and dirty keys
+        self.loaded_keys.clear();
+        self.loaded_keys.extend(world.chunks.keys().copied());
+        self.mesh_cache.retain(|k, _| world.chunks.contains_key(k));
+        self.dirty_keys.clear();
 
-        let mut keys: Vec<(i32, i32)> = world.chunks.keys().copied().collect();
-        keys.sort_unstable();
-
-        // Rebuild meshes for chunks that are new or were edited since last
-        // time we meshed them (tracked via each chunk's `dirty` flag, which
-        // World::set_block flips to true on edits).
-        for key in &keys {
+        for key in &self.loaded_keys {
             let chunk = world.chunks.get(key).unwrap();
             let already_built_clean = self.mesh_cache.contains_key(key) && !chunk.dirty;
             if !already_built_clean {
@@ -128,40 +128,62 @@ impl Renderer {
                 if let Some(chunk) = world.chunks.get_mut(key) {
                     chunk.dirty = false;
                 }
-                dirty_keys.insert(*key);
+                self.dirty_keys.insert(*key);
             }
         }
 
         if let Some(vulkan) = self.vulkan.as_mut() {
-            let visible_keys: std::collections::HashSet<(i32, i32)> = keys.iter()
-                .copied()
-                .filter(|key| Self::chunk_visible(*key, &view_proj))
-                .collect();
-            let (color_buffer, depth_buffer) = vulkan.render_world(
+            self.visible_keys.clear();
+            for key in &self.loaded_keys {
+                if Self::chunk_visible(*key, &view_proj) {
+                    self.visible_keys.push(*key);
+                }
+            }
+
+            vulkan.render_world(
                 &self.mesh_cache,
-                &loaded_keys,
-                &dirty_keys,
-                &visible_keys,
+                &self.loaded_keys,
+                &self.dirty_keys,
+                &self.visible_keys,
                 &view_proj,
                 camera.position,
                 camera.pitch,
+                &mut self.color_buffer,
+                &mut self.depth_buffer,
             );
-            self.color_buffer = color_buffer;
-            self.depth_buffer = depth_buffer;
             return;
         }
 
-        for key in &keys {
-            if !Self::chunk_visible(*key, &view_proj) {
-                continue;
-            }
-            // Take the triangle list out temporarily so we can mutably
-            // borrow `self` (for the depth/color buffers) while iterating.
-            if let Some(tris) = self.mesh_cache.remove(key) {
-                for tri in &tris {
-                    self.raster_triangle(tri, &view_proj);
+        // Collect visible chunk keys into a temporary Vec to avoid borrow conflicts.
+        let visible: Vec<(i32, i32)> = (0..self.loaded_keys.len())
+            .filter(|&i| Self::chunk_visible(self.loaded_keys[i], &view_proj))
+            .map(|i| self.loaded_keys[i])
+            .collect();
+
+        // Pass 1: Opaque geometry (writes to depth buffer)
+        for key in &visible {
+            if let Some(tris) = self.mesh_cache.get(key) {
+                // SAFETY-of-logic: we copy the triangles to avoid a two-field borrow.
+                let tri_ptrs: Vec<_> = tris.iter()
+                    .filter(|t| !matches!(t.texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass))
+                    .cloned()
+                    .collect();
+                for tri in tri_ptrs {
+                    self.raster_triangle(&tri, &view_proj);
                 }
-                self.mesh_cache.insert(*key, tris);
+            }
+        }
+
+        // Pass 2: Transparent geometry (Water, Glass) — alpha-blended over opaque scene.
+        for key in &visible {
+            if let Some(tris) = self.mesh_cache.get(key) {
+                let tri_ptrs: Vec<_> = tris.iter()
+                    .filter(|t| matches!(t.texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass))
+                    .cloned()
+                    .collect();
+                for tri in tri_ptrs {
+                    self.raster_triangle(&tri, &view_proj);
+                }
             }
         }
     }
@@ -250,59 +272,77 @@ impl Renderer {
 
         let inv_area = 1.0 / area;
         let tex = self.textures.get(texture);
+        let transparent = matches!(texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass);
+
+        let dx0 = c.x - b.x;
+        let dy0 = c.y - b.y;
+        let dx1 = a.x - c.x;
+        let dy1 = a.y - c.y;
+        let dx2 = b.x - a.x;
+        let dy2 = b.y - a.y;
+
+        let fx0 = min_x as f32 + 0.5;
+        let fy0 = min_y as f32 + 0.5;
+
+        let mut w0_row = edge(b.x, b.y, c.x, c.y, fx0, fy0);
+        let mut w1_row = edge(c.x, c.y, a.x, a.y, fx0, fy0);
+        let mut w2_row = edge(a.x, a.y, b.x, b.y, fx0, fy0);
 
         for py in min_y..=max_y {
-            let fy = py as f32 + 0.5;
+            let mut w0 = w0_row;
+            let mut w1 = w1_row;
+            let mut w2 = w2_row;
+            let row_idx = (py as usize) * self.width;
+
             for px in min_x..=max_x {
-                let fx = px as f32 + 0.5;
-
-                let w0 = edge(b.x, b.y, c.x, c.y, fx, fy);
-                let w1 = edge(c.x, c.y, a.x, a.y, fx, fy);
-                let w2 = edge(a.x, a.y, b.x, b.y, fx, fy);
-
                 if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
                     let l0 = w0 * inv_area;
                     let l1 = w1 * inv_area;
                     let l2 = w2 * inv_area;
 
                     let inv_w = l0 * a.inv_w + l1 * b.inv_w + l2 * c.inv_w;
-                    if inv_w <= 0.0 { continue; }
-                    let depth = 1.0 / inv_w;
+                    if inv_w > 0.0 {
+                        let depth = 1.0 / inv_w;
+                        let idx = row_idx + (px as usize);
 
-                    let idx = (py as usize) * self.width + (px as usize);
-                    let transparent = matches!(texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass);
-                    if depth < self.depth_buffer[idx] {
-                        if !transparent {
-                            self.depth_buffer[idx] = depth;
-                        }
+                        if depth < self.depth_buffer[idx] {
+                            if !transparent {
+                                self.depth_buffer[idx] = depth;
+                            }
 
-                        let u = (l0 * a.uv_over_w.0 + l1 * b.uv_over_w.0 + l2 * c.uv_over_w.0) * depth;
-                        let v = (l0 * a.uv_over_w.1 + l1 * b.uv_over_w.1 + l2 * c.uv_over_w.1) * depth;
-                        // Perspective-correct AO interpolation
-                        let ao = (l0 * a.ao_over_w + l1 * b.ao_over_w + l2 * c.ao_over_w) * depth;
+                            let u = (l0 * a.uv_over_w.0 + l1 * b.uv_over_w.0 + l2 * c.uv_over_w.0) * depth;
+                            let v = (l0 * a.uv_over_w.1 + l1 * b.uv_over_w.1 + l2 * c.uv_over_w.1) * depth;
+                            let ao = (l0 * a.ao_over_w + l1 * b.ao_over_w + l2 * c.ao_over_w) * depth;
 
-                        let texel = tex.sample(u, v);
-                        let r = texel[0] * ao;
-                        let g = texel[1] * ao;
-                        let bl = texel[2] * ao;
+                            let texel = tex.sample(u, v);
+                            let r = texel[0] * ao;
+                            let g = texel[1] * ao;
+                            let bl = texel[2] * ao;
 
-                        // Distance fog
-                        let fog_t = (depth / 180.0).clamp(0.0, 1.0);
-                        let fog = (0.75f32, 0.85f32, 1.0f32);
-                        let fr = r * (1.0 - fog_t) + fog.0 * fog_t;
-                        let fg = g * (1.0 - fog_t) + fog.1 * fog_t;
-                        let fb = bl * (1.0 - fog_t) + fog.2 * fog_t;
+                            // Distance fog
+                            let fog_t = (depth / 180.0).clamp(0.0, 1.0);
+                            let fog = (0.75f32, 0.85f32, 1.0f32);
+                            let fr = r * (1.0 - fog_t) + fog.0 * fog_t;
+                            let fg = g * (1.0 - fog_t) + fog.1 * fog_t;
+                            let fb = bl * (1.0 - fog_t) + fog.2 * fog_t;
 
-                        if transparent {
-                            let (br, bg, bb) = unpack_color(self.color_buffer[idx]);
-                            let alpha = 0.48;
-                            self.color_buffer[idx] = pack_color(fr * alpha + br * (1.0 - alpha), fg * alpha + bg * (1.0 - alpha), fb * alpha + bb * (1.0 - alpha));
-                        } else {
-                            self.color_buffer[idx] = pack_color(fr, fg, fb);
+                            if transparent {
+                                let (br, bg, bb) = unpack_color(self.color_buffer[idx]);
+                                let alpha = 0.48;
+                                self.color_buffer[idx] = pack_color(fr * alpha + br * (1.0 - alpha), fg * alpha + bg * (1.0 - alpha), fb * alpha + bb * (1.0 - alpha));
+                            } else {
+                                self.color_buffer[idx] = pack_color(fr, fg, fb);
+                            }
                         }
                     }
                 }
+                w0 += dy0;
+                w1 += dy1;
+                w2 += dy2;
             }
+            w0_row -= dx0;
+            w1_row -= dx1;
+            w2_row -= dx2;
         }
     }
 
@@ -567,12 +607,12 @@ impl Renderer {
                 Vertex { pos: corners[2], uv: (1.0, 0.0), ao: 1.0 },
                 Vertex { pos: corners[3], uv: (0.0, 0.0), ao: 1.0 },
             ];
-            let first = Triangle { v0: vertices[0], v1: vertices[1], v2: vertices[2], texture, tint: [1.0; 3] };
-            let second = Triangle { v0: vertices[0], v1: vertices[2], v2: vertices[3], texture, tint: [1.0; 3] };
+            let first = Triangle { v0: vertices[0], v1: vertices[1], v2: vertices[2], texture };
+            let second = Triangle { v0: vertices[0], v1: vertices[2], v2: vertices[3], texture };
             self.raster_triangle(&first, view_proj);
             self.raster_triangle(&second, view_proj);
-            self.raster_triangle(&Triangle { v0: first.v2, v1: first.v1, v2: first.v0, texture, tint: [1.0; 3] }, view_proj);
-            self.raster_triangle(&Triangle { v0: second.v2, v1: second.v1, v2: second.v0, texture, tint: [1.0; 3] }, view_proj);
+            self.raster_triangle(&Triangle { v0: first.v2, v1: first.v1, v2: first.v0, texture }, view_proj);
+            self.raster_triangle(&Triangle { v0: second.v2, v1: second.v1, v2: second.v0, texture }, view_proj);
         }
     }
 
@@ -981,14 +1021,17 @@ fn clip_near_ao(verts: &[ClipVertAO; 3]) -> Vec<ClipVertAO> {
 }
 
 
+#[inline(always)]
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 
+#[inline(always)]
 fn edge(ax: f32, ay: f32, bx: f32, by: f32, px: f32, py: f32) -> f32 {
     (px - ax) * (by - ay) - (py - ay) * (bx - ax)
 }
 
+#[inline(always)]
 fn pack_color(r: f32, g: f32, b: f32) -> u32 {
     let r = (r.clamp(0.0, 1.0) * 255.0) as u32;
     let g = (g.clamp(0.0, 1.0) * 255.0) as u32;
@@ -996,6 +1039,7 @@ fn pack_color(r: f32, g: f32, b: f32) -> u32 {
     (r << 16) | (g << 8) | b
 }
 
+#[inline(always)]
 fn unpack_color(c: u32) -> (f32, f32, f32) {
     let r = ((c >> 16) & 0xFF) as f32 / 255.0;
     let g = ((c >> 8) & 0xFF) as f32 / 255.0;

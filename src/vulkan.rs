@@ -41,6 +41,8 @@ pub struct VulkanContext {
     width: u32,
     height: u32,
     padded_bytes_per_row: u32,
+    opaque_scratch: Vec<GpuVertex>,
+    trans_scratch: Vec<GpuVertex>,
 }
 
 struct GpuChunk {
@@ -230,80 +232,156 @@ impl VulkanContext {
             multisample: Default::default(), multiview: None,
         });
         let (target, target_view, depth_texture, depth_view, readback, depth_readback, padded_bytes_per_row) = create_targets(&device, width as u32, height as u32);
-        Ok(Self { device, queue, pipeline, transparent_pipeline, sky_pipeline, bind_group, globals_buffer, chunk_buffers: HashMap::new(), target, target_view, depth_texture, depth_view, readback, depth_readback, width: width as u32, height: height as u32, padded_bytes_per_row })
+        Ok(Self {
+            device,
+            queue,
+            pipeline,
+            transparent_pipeline,
+            sky_pipeline,
+            bind_group,
+            globals_buffer,
+            chunk_buffers: HashMap::new(),
+            target,
+            target_view,
+            depth_texture,
+            depth_view,
+            readback,
+            depth_readback,
+            width: width as u32,
+            height: height as u32,
+            padded_bytes_per_row,
+            opaque_scratch: Vec::with_capacity(4096),
+            trans_scratch: Vec::with_capacity(1024),
+        })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn render_world(
         &mut self,
         mesh_cache: &HashMap<(i32, i32), Vec<Triangle>>,
-        loaded_keys: &HashSet<(i32, i32)>,
+        loaded_keys: &[(i32, i32)],
         dirty_keys: &HashSet<(i32, i32)>,
-        visible_keys: &HashSet<(i32, i32)>,
+        visible_keys: &[(i32, i32)],
         view_proj: &Mat4,
         camera: Vec3,
         pitch: f32,
-    ) -> (Vec<u32>, Vec<f32>) {
+        out_pixels: &mut [u32],
+        out_depths: &mut [f32],
+    ) {
         self.chunk_buffers.retain(|key, _| loaded_keys.contains(key));
         for key in loaded_keys {
             if !dirty_keys.contains(key) && self.chunk_buffers.contains_key(key) {
                 continue;
             }
             let triangles = mesh_cache.get(key).map(Vec::as_slice).unwrap_or(&[]);
-            let transparent_texture = |triangle: &Triangle| matches!(triangle.texture, TextureId::Water | TextureId::Glass);
-            let vertices: Vec<GpuVertex> = triangles.iter().filter(|triangle| !transparent_texture(triangle)).flat_map(|triangle| {
-                [triangle.v0, triangle.v1, triangle.v2].into_iter().map(|vertex| GpuVertex { position: [vertex.pos.x, vertex.pos.y, vertex.pos.z], uv: [vertex.uv.0, vertex.uv.1], ao: vertex.ao, texture_layer: texture_layer(triangle.texture) })
-            }).collect();
-            let transparent_vertices: Vec<GpuVertex> = triangles.iter().filter(|triangle| transparent_texture(triangle)).flat_map(|triangle| {
-                [triangle.v0, triangle.v1, triangle.v2].into_iter().map(|vertex| GpuVertex { position: [vertex.pos.x, vertex.pos.y, vertex.pos.z], uv: [vertex.uv.0, vertex.uv.1], ao: vertex.ao, texture_layer: texture_layer(triangle.texture) })
-            }).collect();
+            self.opaque_scratch.clear();
+            self.trans_scratch.clear();
+
+            for triangle in triangles {
+                let layer = texture_layer(triangle.texture);
+                let is_trans = matches!(triangle.texture, TextureId::Water | TextureId::Glass);
+                let dest = if is_trans { &mut self.trans_scratch } else { &mut self.opaque_scratch };
+                dest.push(GpuVertex {
+                    position: [triangle.v0.pos.x, triangle.v0.pos.y, triangle.v0.pos.z],
+                    uv: [triangle.v0.uv.0, triangle.v0.uv.1],
+                    ao: triangle.v0.ao,
+                    texture_layer: layer,
+                });
+                dest.push(GpuVertex {
+                    position: [triangle.v1.pos.x, triangle.v1.pos.y, triangle.v1.pos.z],
+                    uv: [triangle.v1.uv.0, triangle.v1.uv.1],
+                    ao: triangle.v1.ao,
+                    texture_layer: layer,
+                });
+                dest.push(GpuVertex {
+                    position: [triangle.v2.pos.x, triangle.v2.pos.y, triangle.v2.pos.z],
+                    uv: [triangle.v2.uv.0, triangle.v2.uv.1],
+                    ao: triangle.v2.ao,
+                    texture_layer: layer,
+                });
+            }
+
             let empty_vertex = GpuVertex::zeroed();
-            let vertex_bytes: &[u8] = if vertices.is_empty() {
+            let vertex_bytes: &[u8] = if self.opaque_scratch.is_empty() {
                 bytemuck::bytes_of(&empty_vertex)
             } else {
-                bytemuck::cast_slice(&vertices)
+                bytemuck::cast_slice(&self.opaque_scratch)
             };
             let buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("RustCraft chunk vertex buffer"),
                 contents: vertex_bytes,
                 usage: wgpu::BufferUsages::VERTEX,
             });
-            let transparent_bytes = if transparent_vertices.is_empty() { bytemuck::bytes_of(&empty_vertex) } else { bytemuck::cast_slice(&transparent_vertices) };
-            let transparent = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("RustCraft transparent chunk buffer"), contents: transparent_bytes, usage: wgpu::BufferUsages::VERTEX });
-            self.chunk_buffers.insert(*key, GpuChunk { opaque: buffer, opaque_count: vertices.len() as u32, transparent, transparent_count: transparent_vertices.len() as u32 });
+            let transparent_bytes: &[u8] = if self.trans_scratch.is_empty() {
+                bytemuck::bytes_of(&empty_vertex)
+            } else {
+                bytemuck::cast_slice(&self.trans_scratch)
+            };
+            let transparent = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("RustCraft transparent chunk buffer"),
+                contents: transparent_bytes,
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+            self.chunk_buffers.insert(*key, GpuChunk {
+                opaque: buffer,
+                opaque_count: self.opaque_scratch.len() as u32,
+                transparent,
+                transparent_count: self.trans_scratch.len() as u32,
+            });
         }
         let globals = Globals {
-            view_proj: [[view_proj.m[0], view_proj.m[1], view_proj.m[2], view_proj.m[3]], [view_proj.m[4], view_proj.m[5], view_proj.m[6], view_proj.m[7]], [view_proj.m[8], view_proj.m[9], view_proj.m[10], view_proj.m[11]], [view_proj.m[12], view_proj.m[13], view_proj.m[14], view_proj.m[15]]],
-            camera_position: [camera.x, camera.y, camera.z, 1.0], camera_pitch: [pitch, 0.0, 0.0, 0.0],
+            view_proj: [
+                [view_proj.m[0], view_proj.m[1], view_proj.m[2], view_proj.m[3]],
+                [view_proj.m[4], view_proj.m[5], view_proj.m[6], view_proj.m[7]],
+                [view_proj.m[8], view_proj.m[9], view_proj.m[10], view_proj.m[11]],
+                [view_proj.m[12], view_proj.m[13], view_proj.m[14], view_proj.m[15]],
+            ],
+            camera_position: [camera.x, camera.y, camera.z, 1.0],
+            camera_pitch: [pitch, 0.0, 0.0, 0.0],
         };
         self.queue.write_buffer(&self.globals_buffer, 0, bytemuck::bytes_of(&globals));
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RustCraft Vulkan frame") });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("RustCraft world pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &self.target_view, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: &self.depth_view, depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }), stencil_ops: None }),
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &self.target_view, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: &self.depth_view, depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }), stencil_ops: None }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
-            pass.set_pipeline(&self.sky_pipeline); pass.set_bind_group(0, &self.bind_group, &[]); pass.draw(0..3, 0..1);
+            pass.set_pipeline(&self.sky_pipeline);
+            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.draw(0..3, 0..1);
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
-            for (key, chunk) in &self.chunk_buffers {
-                if !visible_keys.contains(key) { continue; }
-                if chunk.opaque_count == 0 { continue; }
-                pass.set_vertex_buffer(0, chunk.opaque.slice(..));
-                pass.draw(0..chunk.opaque_count, 0..1);
+            for key in visible_keys {
+                if let Some(chunk) = self.chunk_buffers.get(key) {
+                    if chunk.opaque_count > 0 {
+                        pass.set_vertex_buffer(0, chunk.opaque.slice(..));
+                        pass.draw(0..chunk.opaque_count, 0..1);
+                    }
+                }
             }
             pass.set_pipeline(&self.transparent_pipeline);
-            for (key, chunk) in &self.chunk_buffers {
-                if !visible_keys.contains(key) { continue; }
-                if chunk.transparent_count == 0 { continue; }
-                pass.set_vertex_buffer(0, chunk.transparent.slice(..));
-                pass.draw(0..chunk.transparent_count, 0..1);
+            for key in visible_keys {
+                if let Some(chunk) = self.chunk_buffers.get(key) {
+                    if chunk.transparent_count > 0 {
+                        pass.set_vertex_buffer(0, chunk.transparent.slice(..));
+                        pass.draw(0..chunk.transparent_count, 0..1);
+                    }
+                }
             }
         }
-        encoder.copy_texture_to_buffer(wgpu::ImageCopyTexture { texture: &self.target, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All }, wgpu::ImageCopyBuffer { buffer: &self.readback, layout: wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(self.padded_bytes_per_row), rows_per_image: Some(self.height) } }, wgpu::Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 });
-        encoder.copy_texture_to_buffer(wgpu::ImageCopyTexture { texture: &self.depth_texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::DepthOnly }, wgpu::ImageCopyBuffer { buffer: &self.depth_readback, layout: wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(self.padded_bytes_per_row), rows_per_image: Some(self.height) } }, wgpu::Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 });
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture { texture: &self.target, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::ImageCopyBuffer { buffer: &self.readback, layout: wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(self.padded_bytes_per_row), rows_per_image: Some(self.height) } },
+            wgpu::Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 },
+        );
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture { texture: &self.depth_texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::DepthOnly },
+            wgpu::ImageCopyBuffer { buffer: &self.depth_readback, layout: wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(self.padded_bytes_per_row), rows_per_image: Some(self.height) } },
+            wgpu::Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 },
+        );
         self.queue.submit(Some(encoder.finish()));
         let slice = self.readback.slice(..);
         let depth_slice = self.depth_readback.slice(..);
@@ -313,28 +391,46 @@ impl VulkanContext {
 
         let mapped = slice.get_mapped_range();
         let depth_mapped = depth_slice.get_mapped_range();
-        let mut pixels = vec![0u32; (self.width * self.height) as usize];
-        for y in 0..self.height as usize {
-            let row = &mapped[y * self.padded_bytes_per_row as usize..];
-            for x in 0..self.width as usize {
-                let pixel = &row[x * 4..x * 4 + 4];
-                pixels[y * self.width as usize + x] =
-                    ((pixel[0] as u32) << 16) | ((pixel[1] as u32) << 8) | pixel[2] as u32;
+
+        if self.padded_bytes_per_row == self.width * 4 {
+            for (out, chunk) in out_pixels.iter_mut().zip(mapped.chunks_exact(4)) {
+                *out = ((chunk[0] as u32) << 16) | ((chunk[1] as u32) << 8) | (chunk[2] as u32);
+            }
+        } else {
+            for y in 0..self.height as usize {
+                let row = &mapped[y * self.padded_bytes_per_row as usize..];
+                let out_row = &mut out_pixels[y * self.width as usize..(y + 1) * self.width as usize];
+                for (x, out) in out_row.iter_mut().enumerate() {
+                    let offset = x * 4;
+                    *out = ((row[offset] as u32) << 16) | ((row[offset + 1] as u32) << 8) | (row[offset + 2] as u32);
+                }
             }
         }
 
-        let mut depths = vec![f32::INFINITY; (self.width * self.height) as usize];
-        for y in 0..self.height as usize {
-            let row = &depth_mapped[y * self.padded_bytes_per_row as usize..];
-            for x in 0..self.width as usize {
-                let offset = x * 4;
-                let depth = f32::from_le_bytes([
-                    row[offset], row[offset + 1], row[offset + 2], row[offset + 3],
-                ]);
+        const NEAR_FAR: f32 = 0.05 * 400.0;
+        const FAR: f32 = 400.0;
+        const FAR_MINUS_NEAR: f32 = 400.0 - 0.05;
+
+        if self.padded_bytes_per_row == self.width * 4 {
+            let depth_f32s: &[f32] = bytemuck::cast_slice(&depth_mapped);
+            for (out, &depth) in out_depths.iter_mut().zip(depth_f32s) {
                 if depth < 1.0 {
-                    let near = 0.05f32;
-                    let far = 400.0f32;
-                    depths[y * self.width as usize + x] = near * far / (far - depth * (far - near));
+                    *out = NEAR_FAR / (FAR - depth * FAR_MINUS_NEAR);
+                } else {
+                    *out = f32::INFINITY;
+                }
+            }
+        } else {
+            for y in 0..self.height as usize {
+                let row_bytes = &depth_mapped[y * self.padded_bytes_per_row as usize..y * self.padded_bytes_per_row as usize + (self.width * 4) as usize];
+                let depth_f32s: &[f32] = bytemuck::cast_slice(row_bytes);
+                let out_row = &mut out_depths[y * self.width as usize..(y + 1) * self.width as usize];
+                for (out, &depth) in out_row.iter_mut().zip(depth_f32s) {
+                    if depth < 1.0 {
+                        *out = NEAR_FAR / (FAR - depth * FAR_MINUS_NEAR);
+                    } else {
+                        *out = f32::INFINITY;
+                    }
                 }
             }
         }
@@ -343,34 +439,125 @@ impl VulkanContext {
         drop(mapped);
         self.readback.unmap();
         self.depth_readback.unmap();
-        (pixels, depths)
     }
 }
 
 fn create_texture_array(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &TextureAtlas) -> wgpu::Texture {
-    let texture = device.create_texture(&wgpu::TextureDescriptor { label: Some("RustCraft texture array"), size: wgpu::Extent3d { width: TEX_SIZE as u32, height: TEX_SIZE as u32, depth_or_array_layers: 21 }, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rgba8Unorm, usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, view_formats: &[] });
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("RustCraft texture array"),
+        size: wgpu::Extent3d { width: TEX_SIZE as u32, height: TEX_SIZE as u32, depth_or_array_layers: 21 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
     for layer in 0..21u32 {
-        let bytes: Vec<u8> = atlas.get(texture_id_from_layer(layer)).texels.iter().flat_map(|color| [(color[0] * 255.0) as u8, (color[1] * 255.0) as u8, (color[2] * 255.0) as u8, 255]).collect();
-        queue.write_texture(wgpu::ImageCopyTexture { texture: &texture, mip_level: 0, origin: wgpu::Origin3d { x: 0, y: 0, z: layer }, aspect: wgpu::TextureAspect::All }, &bytes, wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some((TEX_SIZE * 4) as u32), rows_per_image: Some(TEX_SIZE as u32) }, wgpu::Extent3d { width: TEX_SIZE as u32, height: TEX_SIZE as u32, depth_or_array_layers: 1 });
+        let bytes: Vec<u8> = atlas.get(texture_id_from_layer(layer)).texels.iter().flat_map(|color| [
+            (color[0] * 255.0) as u8,
+            (color[1] * 255.0) as u8,
+            (color[2] * 255.0) as u8,
+            255,
+        ]).collect();
+        queue.write_texture(
+            wgpu::ImageCopyTexture { texture: &texture, mip_level: 0, origin: wgpu::Origin3d { x: 0, y: 0, z: layer }, aspect: wgpu::TextureAspect::All },
+            &bytes,
+            wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some((TEX_SIZE * 4) as u32), rows_per_image: Some(TEX_SIZE as u32) },
+            wgpu::Extent3d { width: TEX_SIZE as u32, height: TEX_SIZE as u32, depth_or_array_layers: 1 },
+        );
     }
     texture
 }
 
 fn create_targets(device: &wgpu::Device, width: u32, height: u32) -> (wgpu::Texture, wgpu::TextureView, wgpu::Texture, wgpu::TextureView, wgpu::Buffer, wgpu::Buffer, u32) {
-    let target = device.create_texture(&wgpu::TextureDescriptor { label: Some("RustCraft color target"), size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 }, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rgba8Unorm, usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC, view_formats: &[] });
-    let depth = device.create_texture(&wgpu::TextureDescriptor { label: Some("RustCraft depth target"), size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 }, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Depth32Float, usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC, view_formats: &[] });
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("RustCraft color target"),
+        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let depth = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("RustCraft depth target"),
+        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
     let padded_bytes_per_row = ((width * 4 + 255) / 256) * 256;
-    let readback = device.create_buffer(&wgpu::BufferDescriptor { label: Some("RustCraft frame readback"), size: padded_bytes_per_row as u64 * height as u64, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });
-    let depth_readback = device.create_buffer(&wgpu::BufferDescriptor { label: Some("RustCraft depth readback"), size: padded_bytes_per_row as u64 * height as u64, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("RustCraft frame readback"),
+        size: padded_bytes_per_row as u64 * height as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let depth_readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("RustCraft depth readback"),
+        size: padded_bytes_per_row as u64 * height as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
     let target_view = target.create_view(&Default::default());
     let depth_view = depth.create_view(&Default::default());
     (target, target_view, depth, depth_view, readback, depth_readback, padded_bytes_per_row)
 }
 
-fn texture_layer(id: TextureId) -> u32 {
-    match id { TextureId::GrassTop => 0, TextureId::GrassSide => 1, TextureId::Dirt => 2, TextureId::Stone => 3, TextureId::Sand => 4, TextureId::WoodTop => 5, TextureId::WoodSide => 6, TextureId::Leaves => 7, TextureId::Water => 8, TextureId::Snow => 9, TextureId::CactusTop => 10, TextureId::CactusSide => 11, TextureId::CoalOre => 12, TextureId::IronOre => 13, TextureId::Bedrock => 14, TextureId::Lava => 15, TextureId::SnowLeaves => 16, TextureId::Planks => 17, TextureId::Door => 18, TextureId::Glass => 19, TextureId::Ice => 20 }
+#[inline(always)]
+pub const fn texture_layer(id: TextureId) -> u32 {
+    match id {
+        TextureId::GrassTop => 0,
+        TextureId::GrassSide => 1,
+        TextureId::Dirt => 2,
+        TextureId::Stone => 3,
+        TextureId::Sand => 4,
+        TextureId::WoodTop => 5,
+        TextureId::WoodSide => 6,
+        TextureId::Leaves => 7,
+        TextureId::Water => 8,
+        TextureId::Snow => 9,
+        TextureId::CactusTop => 10,
+        TextureId::CactusSide => 11,
+        TextureId::CoalOre => 12,
+        TextureId::IronOre => 13,
+        TextureId::Bedrock => 14,
+        TextureId::Lava => 15,
+        TextureId::SnowLeaves => 16,
+        TextureId::Planks => 17,
+        TextureId::Door => 18,
+        TextureId::Glass => 19,
+        TextureId::Ice => 20,
+    }
 }
 
-fn texture_id_from_layer(layer: u32) -> TextureId {
-    match layer { 0 => TextureId::GrassTop, 1 => TextureId::GrassSide, 2 => TextureId::Dirt, 3 => TextureId::Stone, 4 => TextureId::Sand, 5 => TextureId::WoodTop, 6 => TextureId::WoodSide, 7 => TextureId::Leaves, 8 => TextureId::Water, 9 => TextureId::Snow, 10 => TextureId::CactusTop, 11 => TextureId::CactusSide, 12 => TextureId::CoalOre, 13 => TextureId::IronOre, 14 => TextureId::Bedrock, 15 => TextureId::Lava, 16 => TextureId::SnowLeaves, 17 => TextureId::Planks, 18 => TextureId::Door, 19 => TextureId::Glass, _ => TextureId::Ice }
+pub const fn texture_id_from_layer(layer: u32) -> TextureId {
+    match layer {
+        0 => TextureId::GrassTop,
+        1 => TextureId::GrassSide,
+        2 => TextureId::Dirt,
+        3 => TextureId::Stone,
+        4 => TextureId::Sand,
+        5 => TextureId::WoodTop,
+        6 => TextureId::WoodSide,
+        7 => TextureId::Leaves,
+        8 => TextureId::Water,
+        9 => TextureId::Snow,
+        10 => TextureId::CactusTop,
+        11 => TextureId::CactusSide,
+        12 => TextureId::CoalOre,
+        13 => TextureId::IronOre,
+        14 => TextureId::Bedrock,
+        15 => TextureId::Lava,
+        16 => TextureId::SnowLeaves,
+        17 => TextureId::Planks,
+        18 => TextureId::Door,
+        19 => TextureId::Glass,
+        _ => TextureId::Ice,
+    }
 }

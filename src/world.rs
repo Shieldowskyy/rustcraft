@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::block::BlockId;
 use crate::math::{IVec3, Vec3};
@@ -21,19 +21,22 @@ pub struct Chunk {
 }
 
 impl Chunk {
-    fn index(x: i32, y: i32, z: i32) -> usize {
+    #[inline(always)]
+    pub fn index(x: i32, y: i32, z: i32) -> usize {
         ((x * CHUNK_SIZE_Y + y) * CHUNK_SIZE_Z + z) as usize
     }
 
+    #[inline(always)]
     pub fn get_local(&self, x: i32, y: i32, z: i32) -> BlockId {
-        if x < 0 || x >= CHUNK_SIZE_X || y < 0 || y >= CHUNK_SIZE_Y || z < 0 || z >= CHUNK_SIZE_Z {
+        if (x as u32) >= CHUNK_SIZE_X as u32 || (y as u32) >= CHUNK_SIZE_Y as u32 || (z as u32) >= CHUNK_SIZE_Z as u32 {
             return BlockId::Air;
         }
         BlockId::from_u8(self.blocks[Chunk::index(x, y, z)])
     }
 
+    #[inline(always)]
     pub fn set_local(&mut self, x: i32, y: i32, z: i32, b: BlockId) {
-        if x < 0 || x >= CHUNK_SIZE_X || y < 0 || y >= CHUNK_SIZE_Y || z < 0 || z >= CHUNK_SIZE_Z {
+        if (x as u32) >= CHUNK_SIZE_X as u32 || (y as u32) >= CHUNK_SIZE_Y as u32 || (z as u32) >= CHUNK_SIZE_Z as u32 {
             return;
         }
         self.blocks[Chunk::index(x, y, z)] = b.to_u8();
@@ -318,11 +321,19 @@ pub struct World {
     pub seed: u32,
     pub player_position: Vec3,
     fluid_levels: HashMap<IVec3, u8>,
+    pub active_sand: HashSet<IVec3>,
+    pub sim_tick: u64,
 }
 
 pub struct RaycastHit {
     pub block_pos: IVec3,
     pub normal: IVec3,
+}
+
+impl Default for World {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl World {
@@ -336,6 +347,8 @@ impl World {
             seed,
             player_position: Vec3::new(8.0, 90.0, 8.0),
             fluid_levels: HashMap::new(),
+            active_sand: HashSet::new(),
+            sim_tick: 0,
         }
     }
 
@@ -371,7 +384,7 @@ impl World {
             return Err("nieznany format pliku świata".to_owned());
         }
         let seed = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap());
-        let player_position = if format == b"RUSTCRAFT2" {
+        let player_position = if format == b"RUSTCRAFT2" || format == b"RUSTCRAFT3" {
             Vec3::new(
                 f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
                 f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
@@ -409,6 +422,7 @@ impl World {
         Ok(world)
     }
 
+    #[inline(always)]
     fn world_to_chunk(wx: i32, wz: i32) -> (i32, i32, i32, i32) {
         let cx = wx.div_euclid(CHUNK_SIZE_X);
         let cz = wz.div_euclid(CHUNK_SIZE_Z);
@@ -417,8 +431,9 @@ impl World {
         (cx, cz, lx, lz)
     }
 
+    #[inline(always)]
     pub fn get_block(&self, pos: IVec3) -> BlockId {
-        if pos.y < 0 || pos.y >= CHUNK_SIZE_Y {
+        if (pos.y as u32) >= CHUNK_SIZE_Y as u32 {
             return BlockId::Air;
         }
         let (cx, cz, lx, lz) = World::world_to_chunk(pos.x, pos.z);
@@ -428,6 +443,7 @@ impl World {
         }
     }
 
+    #[inline(always)]
     pub fn fluid_level(&self, pos: IVec3) -> u8 {
         self.fluid_levels.get(&pos).copied().unwrap_or(8)
     }
@@ -448,6 +464,29 @@ impl World {
             } else {
                 self.fluid_levels.remove(&pos);
             }
+
+            if block == BlockId::Sand {
+                self.active_sand.insert(pos);
+            } else {
+                self.active_sand.remove(&pos);
+            }
+
+            // Awakening neighbors: when any block is placed or destroyed,
+            // awaken adjacent sand blocks so they can respond to gravity if unsupported.
+            for offset in [
+                IVec3::new(1, 0, 0),
+                IVec3::new(-1, 0, 0),
+                IVec3::new(0, 1, 0),
+                IVec3::new(0, -1, 0),
+                IVec3::new(0, 0, 1),
+                IVec3::new(0, 0, -1),
+            ] {
+                let neighbor = pos + offset;
+                if self.get_block(neighbor) == BlockId::Sand {
+                    self.active_sand.insert(neighbor);
+                }
+            }
+
             // Mark neighbor chunks dirty too if we edited a boundary block,
             // so seams re-mesh correctly.
             if lx == 0 {
@@ -501,58 +540,137 @@ impl World {
     /// Small, bounded material simulation around the player. It deliberately
     /// runs on a timer from the game loop, not once per render frame.
     pub fn simulate_materials(&mut self, player_pos: Vec3) {
+        self.sim_tick = self.sim_tick.wrapping_add(1);
         let px = player_pos.x.floor() as i32;
         let py = player_pos.y.floor() as i32;
         let pz = player_pos.z.floor() as i32;
         let radius = 10i32;
         let min_y = (py - 12).max(1);
         let max_y = (py + 8).min(CHUNK_SIZE_Y - 1);
-        let mut moves: Vec<(IVec3, IVec3, u8, bool)> = Vec::new();
+
+        // 1. Fluid simulation (water & lava)
+        // Lava updates every 3 material ticks (slower, viscous)
+        let sim_lava = self.sim_tick % 3 == 0;
+        let mut fluid_spawns: Vec<(IVec3, BlockId, u8)> = Vec::new();
+        let mut fluid_despawns: Vec<IVec3> = Vec::new();
+        let mut solidifications: Vec<(IVec3, BlockId)> = Vec::new();
 
         for y in (min_y..=max_y).rev() {
             for z in (pz - radius)..=(pz + radius) {
                 for x in (px - radius)..=(px + radius) {
                     let pos = IVec3::new(x, y, z);
                     let block = self.get_block(pos);
+                    if block != BlockId::Water && block != BlockId::Lava {
+                        continue;
+                    }
+                    if block == BlockId::Lava && !sim_lava {
+                        continue;
+                    }
+
+                    let level = self.fluid_level(pos);
                     let below = IVec3::new(x, y - 1, z);
-                    if block == BlockId::Sand && self.get_block(below) == BlockId::Air {
-                        moves.push((pos, below, 0, false));
-                    } else if block == BlockId::Water || block == BlockId::Lava {
-                        let level = self.fluid_level(pos);
-                        if self.get_block(below) == BlockId::Air {
-                            moves.push((pos, below, level, false));
-                        } else if level > 1 {
-                            let directions = if block == BlockId::Lava {
-                                [IVec3::new(0, 0, 1), IVec3::new(1, 0, 0)]
-                            } else if (x + z + y).rem_euclid(2) == 0 {
-                                [IVec3::new(1, 0, 0), IVec3::new(-1, 0, 0)]
-                            } else {
-                                [IVec3::new(0, 0, 1), IVec3::new(0, 0, -1)]
-                            };
-                            for direction in directions {
-                                let target = pos + direction;
-                                if self.get_block(target) == BlockId::Air {
-                                    // Horizontal flow keeps the source block,
-                                    // allowing a reservoir to fill connected space.
-                                    moves.push((pos, target, level - 1, true));
-                                    break;
+                    let below_block = self.get_block(below);
+
+                    let cardinals = [
+                        IVec3::new(x + 1, y, z),
+                        IVec3::new(x - 1, y, z),
+                        IVec3::new(x, y, z + 1),
+                        IVec3::new(x, y, z - 1),
+                        IVec3::new(x, y + 1, z),
+                    ];
+
+                    // Water + Lava reaction: Lava touching Water solidifies into Stone
+                    if block == BlockId::Lava {
+                        let touches_water = below_block == BlockId::Water
+                            || cardinals.iter().any(|&p| self.get_block(p) == BlockId::Water);
+                        if touches_water {
+                            solidifications.push((pos, BlockId::Stone));
+                            continue;
+                        }
+                    }
+
+                    // A. Downward flow: gravity flows into air below
+                    if below.y >= 0 && below_block == BlockId::Air {
+                        fluid_spawns.push((below, block, 8));
+                    } else if block == BlockId::Water && below_block == BlockId::Lava {
+                        solidifications.push((below, BlockId::Stone));
+                    } else {
+                        // B. Horizontal spreading
+                        // Step size: 2 for Water (spreads up to 4 blocks: 8->6->4->2), 4 for Lava (spreads up to 2 blocks: 8->4)
+                        let step = if block == BlockId::Lava { 4 } else { 2 };
+                        if level > step {
+                            let new_level = level - step;
+                            for &npos in &cardinals[0..4] {
+                                let nblock = self.get_block(npos);
+                                if nblock == BlockId::Air {
+                                    fluid_spawns.push((npos, block, new_level));
+                                } else if block == BlockId::Water && nblock == BlockId::Lava {
+                                    solidifications.push((npos, BlockId::Stone));
                                 }
                             }
+                        }
+                    }
+
+                    // C. Fluid decay: flowing fluid (level < 8) with no parent above or higher-level neighbor dries up
+                    if level < 8 {
+                        let above_block = self.get_block(IVec3::new(x, y + 1, z));
+                        let has_parent_above = above_block == block;
+                        let has_higher_neighbor = cardinals[0..4].iter().any(|&p| {
+                            self.get_block(p) == block && self.fluid_level(p) > level
+                        });
+                        if !has_parent_above && !has_higher_neighbor {
+                            fluid_despawns.push(pos);
                         }
                     }
                 }
             }
         }
 
-        for (from, to, level, preserve_source) in moves {
-            if self.get_block(from) != BlockId::Air && self.get_block(to) == BlockId::Air {
-                let block = self.get_block(from);
-                if !preserve_source {
-                    self.set_block(from, BlockId::Air);
+        for (pos, stone) in solidifications {
+            self.set_block(pos, stone);
+        }
+        for (pos, block, level) in fluid_spawns {
+            if self.get_block(pos) == BlockId::Air {
+                self.set_block(pos, block);
+                self.set_fluid_level(pos, level);
+            }
+        }
+        for pos in fluid_despawns {
+            if matches!(self.get_block(pos), BlockId::Water | BlockId::Lava) && self.fluid_level(pos) < 8 {
+                self.set_block(pos, BlockId::Air);
+            }
+        }
+
+        // 2. Sand gravity simulation (only awakened sand blocks)
+        if !self.active_sand.is_empty() {
+            let mut sand_moves: Vec<(IVec3, IVec3)> = Vec::new();
+            let mut sand_stopped: Vec<IVec3> = Vec::new();
+
+            // Sort ascending by Y so lowest sand blocks fall first
+            let mut active_list: Vec<IVec3> = self.active_sand.iter().copied().collect();
+            active_list.sort_unstable_by_key(|p| p.y);
+
+            for pos in active_list {
+                if self.get_block(pos) != BlockId::Sand {
+                    sand_stopped.push(pos);
+                    continue;
                 }
-                self.set_block(to, block);
-                if block == BlockId::Water || block == BlockId::Lava {
-                    self.set_fluid_level(to, if level == 0 { 8 } else { level });
+                let below = IVec3::new(pos.x, pos.y - 1, pos.z);
+                if below.y >= 0 && self.get_block(below) == BlockId::Air {
+                    sand_moves.push((pos, below));
+                } else {
+                    sand_stopped.push(pos);
+                }
+            }
+
+            for pos in sand_stopped {
+                self.active_sand.remove(&pos);
+            }
+
+            for (from, to) in sand_moves {
+                if self.get_block(from) == BlockId::Sand && self.get_block(to) == BlockId::Air {
+                    self.set_block(from, BlockId::Air);
+                    self.set_block(to, BlockId::Sand);
                 }
             }
         }
@@ -686,5 +804,50 @@ mod tests {
         assert_eq!(loaded.get_block(IVec3::new(8, 32, 8)), BlockId::Cactus);
         assert_eq!(loaded.chunks.len(), original.chunks.len());
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn natural_sand_does_not_fall_until_neighbor_is_modified() {
+        let mut world = World::new_with_seed(12345);
+        world.update(Vec3::new(8.0, 32.0, 8.0));
+
+        // Directly place a floating sand block in chunk without set_block (simulating natural generation)
+        let chunk = world.chunks.get_mut(&(0, 0)).unwrap();
+        chunk.set_local(5, 30, 5, BlockId::Sand);
+        chunk.set_local(5, 29, 5, BlockId::Air); // Air below
+        chunk.set_local(5, 31, 5, BlockId::Stone); // Block above
+
+        // Without block updates, sand must remain floating
+        world.simulate_materials(Vec3::new(5.0, 30.0, 5.0));
+        assert_eq!(world.get_block(IVec3::new(5, 30, 5)), BlockId::Sand);
+        assert_eq!(world.get_block(IVec3::new(5, 29, 5)), BlockId::Air);
+
+        // Player destroys the stone block above the sand -> awakens the sand
+        world.set_block(IVec3::new(5, 31, 5), BlockId::Air);
+
+        // Now simulate_materials must trigger gravity for the awakened sand
+        world.simulate_materials(Vec3::new(5.0, 30.0, 5.0));
+        assert_eq!(world.get_block(IVec3::new(5, 30, 5)), BlockId::Air);
+        assert_eq!(world.get_block(IVec3::new(5, 29, 5)), BlockId::Sand);
+    }
+
+    #[test]
+    fn water_flows_downwards_and_solidifies_lava() {
+        let mut world = World::new_with_seed(12345);
+        world.update(Vec3::new(8.0, 32.0, 8.0));
+
+        // Place water source at (5, 30, 5) with air below at (5, 29, 5) and lava at (5, 28, 5)
+        world.set_block(IVec3::new(5, 30, 5), BlockId::Water);
+        world.set_block(IVec3::new(5, 29, 5), BlockId::Air);
+        world.set_block(IVec3::new(5, 28, 5), BlockId::Lava);
+
+        // First tick: water flows into (5, 29, 5) while source at (5, 30, 5) remains
+        world.simulate_materials(Vec3::new(5.0, 30.0, 5.0));
+        assert_eq!(world.get_block(IVec3::new(5, 30, 5)), BlockId::Water);
+        assert_eq!(world.get_block(IVec3::new(5, 29, 5)), BlockId::Water);
+
+        // Second tick: water touches lava below -> lava solidifies into stone
+        world.simulate_materials(Vec3::new(5.0, 30.0, 5.0));
+        assert_eq!(world.get_block(IVec3::new(5, 28, 5)), BlockId::Stone);
     }
 }
