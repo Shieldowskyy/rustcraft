@@ -355,7 +355,10 @@ fn main() {
 
                 if interact_left && !left_was_down {
                     if let Some(hit) = world.raycast(camera.position, camera.forward(), 8.0) {
-                        world.set_block(hit.block_pos, block::BlockId::Air);
+                        // Bedrock jest niezniszczalny
+                        if !world.get_block(hit.block_pos).is_bedrock() {
+                            world.set_block(hit.block_pos, block::BlockId::Air);
+                        }
                     }
                 }
                 if interact_right && !right_was_down {

@@ -271,6 +271,68 @@ fn iron_ore() -> Texture {
     tex
 }
 
+/// Bedrock: very dark grey with a cracked/irregular pattern.
+fn bedrock() -> Texture {
+    let base = [0.20, 0.20, 0.20];
+    let crack = [0.10, 0.10, 0.10];
+    let light = [0.30, 0.30, 0.30];
+    let mut tex = speckled(base, 0.12, 191);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let n1 = rand_at(x, y, 311);
+            let n2 = rand_at((x + 3) % TEX_SIZE, (y + 5) % TEX_SIZE, 413);
+            if n1 > 0.88 || n2 > 0.88 {
+                tex.texels[y * TEX_SIZE + x] = crack;
+            } else if n1 < 0.06 {
+                tex.texels[y * TEX_SIZE + x] = light;
+            }
+        }
+    }
+    tex
+}
+
+/// Lava: glowing orange-red with molten rock veins.
+fn lava() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let hot = [1.0, 0.55, 0.05];
+    let dark = [0.55, 0.10, 0.02];
+    let bright = [1.0, 0.85, 0.20];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let wave = ((x as f32 * 0.7 + y as f32 * 0.5).sin() * 0.5 + 0.5)
+                + ((x as f32 * 0.3 - y as f32 * 0.9).cos() * 0.3);
+            let n = rand_at(x, y, 777) * 0.25;
+            let t = (wave + n).clamp(0.0, 1.0);
+            let col = if t > 0.80 {
+                mix(hot, bright, (t - 0.80) / 0.20)
+            } else {
+                mix(dark, hot, t / 0.80)
+            };
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
+/// Snow Leaves: icy blue-green winter foliage.
+fn snow_leaves() -> Texture {
+    let base = [0.50, 0.68, 0.72];
+    let light = [0.70, 0.85, 0.90];
+    let dark = [0.35, 0.52, 0.60];
+    let mut tex = speckled(base, 0.22, 444);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let r = rand_at(x, y, 555);
+            if r > 0.88 {
+                tex.texels[y * TEX_SIZE + x] = light;
+            } else if r < 0.10 {
+                tex.texels[y * TEX_SIZE + x] = dark;
+            }
+        }
+    }
+    tex
+}
+
 /// All textures needed to render the world, indexed by `TextureId`.
 pub struct TextureAtlas {
     pub grass_top: Texture,
@@ -287,6 +349,9 @@ pub struct TextureAtlas {
     pub cactus_side: Texture,
     pub coal_ore: Texture,
     pub iron_ore: Texture,
+    pub bedrock: Texture,
+    pub lava: Texture,
+    pub snow_leaves: Texture,
 }
 
 impl TextureAtlas {
@@ -306,6 +371,9 @@ impl TextureAtlas {
             cactus_side: cactus_side(),
             coal_ore: coal_ore(),
             iron_ore: iron_ore(),
+            bedrock: bedrock(),
+            lava: lava(),
+            snow_leaves: snow_leaves(),
         }
     }
 
@@ -325,6 +393,9 @@ impl TextureAtlas {
             TextureId::CactusSide => &self.cactus_side,
             TextureId::CoalOre => &self.coal_ore,
             TextureId::IronOre => &self.iron_ore,
+            TextureId::Bedrock => &self.bedrock,
+            TextureId::Lava => &self.lava,
+            TextureId::SnowLeaves => &self.snow_leaves,
         }
     }
 }
@@ -345,4 +416,7 @@ pub enum TextureId {
     CactusSide,
     CoalOre,
     IronOre,
+    Bedrock,
+    Lava,
+    SnowLeaves,
 }

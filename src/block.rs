@@ -15,6 +15,9 @@ pub enum BlockId {
     Cactus,
     CoalOre,
     IronOre,
+    Bedrock,
+    Lava,
+    SnowLeaves,
 }
 
 impl BlockId {
@@ -31,6 +34,9 @@ impl BlockId {
             9 => BlockId::CoalOre,
             10 => BlockId::IronOre,
             11 => BlockId::Water,
+            12 => BlockId::Bedrock,
+            13 => BlockId::Lava,
+            14 => BlockId::SnowLeaves,
             _ => BlockId::Air,
         }
     }
@@ -49,15 +55,22 @@ impl BlockId {
             BlockId::CoalOre => 9,
             BlockId::IronOre => 10,
             BlockId::Water => 11,
+            BlockId::Bedrock => 12,
+            BlockId::Lava => 13,
+            BlockId::SnowLeaves => 14,
         }
     }
 
     pub fn is_solid(self) -> bool {
-        !matches!(self, BlockId::Air | BlockId::Water)
+        !matches!(self, BlockId::Air | BlockId::Water | BlockId::Lava)
+    }
+
+    pub fn is_bedrock(self) -> bool {
+        matches!(self, BlockId::Bedrock)
     }
 
     pub fn is_transparent(self) -> bool {
-        matches!(self, BlockId::Air | BlockId::Water | BlockId::Leaves)
+        matches!(self, BlockId::Air | BlockId::Water | BlockId::Lava | BlockId::Leaves | BlockId::SnowLeaves)
     }
 
     pub fn name(self) -> &'static str {
@@ -74,6 +87,9 @@ impl BlockId {
             BlockId::Cactus => "kaktus",
             BlockId::CoalOre => "wegiel",
             BlockId::IronOre => "zelazo",
+            BlockId::Bedrock => "bedrock",
+            BlockId::Lava => "lawa",
+            BlockId::SnowLeaves => "liscie zimowe",
         }
     }
 
@@ -102,6 +118,9 @@ impl BlockId {
             },
             BlockId::CoalOre => [0.48, 0.48, 0.48],
             BlockId::IronOre => [0.60, 0.55, 0.50],
+            BlockId::Bedrock => [0.22, 0.22, 0.22],
+            BlockId::Lava => [0.95, 0.42, 0.05],
+            BlockId::SnowLeaves => [0.55, 0.72, 0.80],
             BlockId::Air => [0.0, 0.0, 0.0],
         }
     }
@@ -131,6 +150,9 @@ impl BlockId {
             },
             BlockId::CoalOre => TextureId::CoalOre,
             BlockId::IronOre => TextureId::IronOre,
+            BlockId::Bedrock => TextureId::Bedrock,
+            BlockId::Lava => TextureId::Lava,
+            BlockId::SnowLeaves => TextureId::SnowLeaves,
             BlockId::Air => TextureId::Stone, // never sampled
         }
     }

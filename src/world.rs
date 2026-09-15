@@ -79,8 +79,18 @@ impl Chunk {
 
                 for y in 0..CHUNK_SIZE_Y {
                     if y == 0 {
-                        // Bedrock / solid floor
-                        blocks[Chunk::index(lx, y, lz)] = BlockId::Stone.to_u8();
+                        // Bedrock - niezniszczalna warstwa dna
+                        blocks[Chunk::index(lx, y, lz)] = BlockId::Bedrock.to_u8();
+                        continue;
+                    }
+                    if y == 1 {
+                        // Warstwa mieszana bedrock/stone na Y=1
+                        let h = hash_coords_3d(wx, y, wz);
+                        blocks[Chunk::index(lx, y, lz)] = if h % 3 == 0 {
+                            BlockId::Bedrock.to_u8()
+                        } else {
+                            BlockId::Stone.to_u8()
+                        };
                         continue;
                     }
 
@@ -142,7 +152,12 @@ impl Chunk {
                         let c2 = fractal_noise3(wx as f32 * 0.045, y as f32 * 0.065, wz as f32 * 0.045, WORLD_SEED + 9265, 2, 0.5);
                         let is_cave = (c1 * c1 + c2 * c2) < 0.024;
                         if is_cave {
-                            blocks[Chunk::index(lx, y, lz)] = BlockId::Air.to_u8();
+                            // Bardzo głęboko: wypełnij lawą zamiast powietrzem
+                            if y <= 7 {
+                                blocks[Chunk::index(lx, y, lz)] = BlockId::Lava.to_u8();
+                            } else {
+                                blocks[Chunk::index(lx, y, lz)] = BlockId::Air.to_u8();
+                            }
                         }
                     }
                 }
@@ -244,10 +259,12 @@ fn place_pine_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
                 }
                 let idx = Chunk::index(x, y, z);
                 if blocks[idx] == BlockId::Air.to_u8() {
-                    let block = if dy == trunk_height + 1 || (dy >= trunk_height && (dx != 0 || dz != 0)) {
-                        BlockId::Snow
+                    let block = if dy == trunk_height + 1 {
+                        BlockId::SnowLeaves // wierzchołek: zimowe liście z lodem
+                    } else if dy >= trunk_height && (dx != 0 || dz != 0) {
+                        BlockId::SnowLeaves // zewnętrzne: zimowe liście
                     } else {
-                        BlockId::Leaves
+                        BlockId::SnowLeaves // wszystkie: zimowa zieleń
                     };
                     blocks[idx] = block.to_u8();
                 }
