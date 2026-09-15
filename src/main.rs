@@ -732,7 +732,7 @@ fn main() {
 
 fn parse_renderer_choice() -> &'static str {
     let args: Vec<String> = std::env::args().collect();
-    let mut choice = "software";
+    let mut choice = "vulkan";
     let mut index = 1;
     while index < args.len() {
         match args[index].as_str() {
