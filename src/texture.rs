@@ -183,6 +183,94 @@ fn water() -> Texture {
     Texture { texels }
 }
 
+/// Snow: clean bright white with subtle cool blue-white crystalline flecks.
+fn snow() -> Texture {
+    let base = [0.94, 0.96, 0.99];
+    let light = [1.0, 1.0, 1.0];
+    let shadow = [0.86, 0.90, 0.96];
+    let mut tex = speckled(base, 0.08, 77);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let r = rand_at(x, y, 105);
+            if r > 0.90 {
+                tex.texels[y * TEX_SIZE + x] = light;
+            } else if r < 0.10 {
+                tex.texels[y * TEX_SIZE + x] = shadow;
+            }
+        }
+    }
+    tex
+}
+
+/// Cactus top: green with concentric ring and dark central core.
+fn cactus_top() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let center = TEX_SIZE as f32 / 2.0 - 0.5;
+    let base = [0.18, 0.55, 0.15];
+    let dark = [0.12, 0.40, 0.10];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let dx = x as f32 - center;
+            let dy = y as f32 - center;
+            let dist = (dx * dx + dy * dy).sqrt();
+            let n = rand_at(x, y, 44) * 0.1;
+            let factor = (dist / 8.0 + n).clamp(0.0, 1.0);
+            texels[y * TEX_SIZE + x] = mix(dark, base, factor);
+        }
+    }
+    Texture { texels }
+}
+
+/// Cactus side: vertical green ribs with dark needle/spine clusters.
+fn cactus_side() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let light_green = [0.22, 0.58, 0.16];
+    let dark_green = [0.13, 0.42, 0.10];
+    let spine = [0.08, 0.20, 0.06];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let rib = (x as f32 * 1.6).sin() * 0.5 + 0.5;
+            let mut col = mix(dark_green, light_green, rib);
+            // Add spine dots every 4 pixels vertically on ridges
+            if (x % 4 == 1 || x % 4 == 2) && (y % 4 == 1) {
+                col = spine;
+            }
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
+/// Coal ore: stone with embedded rough black/charcoal nuggets.
+fn coal_ore() -> Texture {
+    let mut tex = stone();
+    let coal_color = [0.10, 0.10, 0.12];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let n = rand_at(x, y, 312);
+            if n > 0.72 {
+                tex.texels[y * TEX_SIZE + x] = mix(tex.texels[y * TEX_SIZE + x], coal_color, 0.90);
+            }
+        }
+    }
+    tex
+}
+
+/// Iron ore: stone with embedded rust-orange/tan ore veins.
+fn iron_ore() -> Texture {
+    let mut tex = stone();
+    let iron_color = [0.78, 0.60, 0.45];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let n = rand_at(x, y, 521);
+            if n > 0.75 {
+                tex.texels[y * TEX_SIZE + x] = mix(tex.texels[y * TEX_SIZE + x], iron_color, 0.85);
+            }
+        }
+    }
+    tex
+}
+
 /// All textures needed to render the world, indexed by `TextureId`.
 pub struct TextureAtlas {
     pub grass_top: Texture,
@@ -194,6 +282,11 @@ pub struct TextureAtlas {
     pub wood_side: Texture,
     pub leaves: Texture,
     pub water: Texture,
+    pub snow: Texture,
+    pub cactus_top: Texture,
+    pub cactus_side: Texture,
+    pub coal_ore: Texture,
+    pub iron_ore: Texture,
 }
 
 impl TextureAtlas {
@@ -208,6 +301,11 @@ impl TextureAtlas {
             wood_side: wood_side(),
             leaves: leaves(),
             water: water(),
+            snow: snow(),
+            cactus_top: cactus_top(),
+            cactus_side: cactus_side(),
+            coal_ore: coal_ore(),
+            iron_ore: iron_ore(),
         }
     }
 
@@ -222,6 +320,11 @@ impl TextureAtlas {
             TextureId::WoodSide => &self.wood_side,
             TextureId::Leaves => &self.leaves,
             TextureId::Water => &self.water,
+            TextureId::Snow => &self.snow,
+            TextureId::CactusTop => &self.cactus_top,
+            TextureId::CactusSide => &self.cactus_side,
+            TextureId::CoalOre => &self.coal_ore,
+            TextureId::IronOre => &self.iron_ore,
         }
     }
 }
@@ -237,4 +340,9 @@ pub enum TextureId {
     WoodSide,
     Leaves,
     Water,
+    Snow,
+    CactusTop,
+    CactusSide,
+    CoalOre,
+    IronOre,
 }

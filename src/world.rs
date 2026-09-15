@@ -41,6 +41,8 @@ impl Chunk {
     }
 
     fn generate(cx: i32, cz: i32) -> Chunk {
+        use crate::noise::fractal_noise3;
+
         let mut blocks = vec![0u8; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize];
 
         for lx in 0..CHUNK_SIZE_X {
@@ -48,40 +50,127 @@ impl Chunk {
                 let wx = cx * CHUNK_SIZE_X + lx;
                 let wz = cz * CHUNK_SIZE_Z + lz;
 
-                let n = fractal_noise2(wx as f32 * 0.02, wz as f32 * 0.02, WORLD_SEED, 4, 0.5);
-                let height = (28.0 + n * 14.0) as i32;
-                let height = height.clamp(1, CHUNK_SIZE_Y - 10);
+                // --- Biome noise sampling ---
+                // Temperature: < -0.2 -> Snowy, > 0.3 -> Desert
+                let temp = fractal_noise2(wx as f32 * 0.006, wz as f32 * 0.006, WORLD_SEED + 500, 3, 0.5);
+                // Humidity: > 0.15 -> Forest
+                let humidity = fractal_noise2(wx as f32 * 0.006, wz as f32 * 0.006, WORLD_SEED + 1500, 3, 0.5);
+                // Mountain factor: > 0.35 -> Mountains
+                let mountain_factor = fractal_noise2(wx as f32 * 0.008, wz as f32 * 0.008, WORLD_SEED + 2500, 3, 0.5);
+
+                let is_mountain = mountain_factor > 0.32;
+                let is_snowy = !is_mountain && temp < -0.18;
+                let is_desert = !is_mountain && !is_snowy && temp > 0.28 && humidity < -0.05;
+                let is_forest = !is_mountain && !is_snowy && !is_desert && humidity > 0.15;
+
+                // Base height calculation per biome
+                let n = fractal_noise2(wx as f32 * 0.015, wz as f32 * 0.015, WORLD_SEED, 4, 0.5);
+                let height = if is_mountain {
+                    let m_extra = ((mountain_factor - 0.32) / 0.68).clamp(0.0, 1.0);
+                    let m_height = 36.0 + n * 12.0 + m_extra * 16.0;
+                    (m_height as i32).clamp(1, CHUNK_SIZE_Y - 4)
+                } else if is_desert {
+                    let d_height = 26.0 + n * 10.0;
+                    (d_height as i32).clamp(1, CHUNK_SIZE_Y - 10)
+                } else {
+                    let p_height = 28.0 + n * 12.0;
+                    (p_height as i32).clamp(1, CHUNK_SIZE_Y - 10)
+                };
 
                 for y in 0..CHUNK_SIZE_Y {
+                    if y == 0 {
+                        // Bedrock / solid floor
+                        blocks[Chunk::index(lx, y, lz)] = BlockId::Stone.to_u8();
+                        continue;
+                    }
+
                     let block = if y > height {
                         if y <= 20 {
-                            BlockId::Water
+                            if is_snowy && y == 20 {
+                                // Ice on top of frozen lakes in snow biome
+                                BlockId::Snow
+                            } else {
+                                BlockId::Water
+                            }
                         } else {
                             BlockId::Air
                         }
                     } else if y == height {
                         if height <= 21 {
                             BlockId::Sand
+                        } else if is_snowy {
+                            BlockId::Snow
+                        } else if is_desert {
+                            BlockId::Sand
+                        } else if is_mountain {
+                            if height >= 48 {
+                                BlockId::Snow
+                            } else if height >= 38 {
+                                BlockId::Stone
+                            } else {
+                                BlockId::Grass
+                            }
                         } else {
                             BlockId::Grass
                         }
                     } else if y > height - 4 {
-                        if height <= 21 {
+                        if height <= 21 || is_desert {
                             BlockId::Sand
+                        } else if is_mountain && height >= 38 {
+                            BlockId::Stone
                         } else {
                             BlockId::Dirt
                         }
                     } else {
-                        BlockId::Stone
+                        // Underground stone with ores
+                        let ore_h = hash_coords_3d(wx, y, wz);
+                        if ore_h % 37 == 0 {
+                            BlockId::CoalOre
+                        } else if ore_h % 67 == 0 && y < 30 {
+                            BlockId::IronOre
+                        } else {
+                            BlockId::Stone
+                        }
                     };
+
                     blocks[Chunk::index(lx, y, lz)] = block.to_u8();
+
+                    // --- 3D Cave generation ---
+                    // Carve hollow worm tunnels & caverns through solid terrain
+                    if y > 1 && y < height - 1 && block != BlockId::Water && block != BlockId::Air {
+                        let c1 = fractal_noise3(wx as f32 * 0.045, y as f32 * 0.065, wz as f32 * 0.045, WORLD_SEED + 3141, 2, 0.5);
+                        let c2 = fractal_noise3(wx as f32 * 0.045, y as f32 * 0.065, wz as f32 * 0.045, WORLD_SEED + 9265, 2, 0.5);
+                        let is_cave = (c1 * c1 + c2 * c2) < 0.024;
+                        if is_cave {
+                            blocks[Chunk::index(lx, y, lz)] = BlockId::Air.to_u8();
+                        }
+                    }
                 }
 
-                // Sparse tree placement using deterministic hashing of world coords.
+                // --- Vegetation & features (Trees, Cacti, Pine Trees) ---
                 if height > 21 {
                     let h = hash_coords(wx, wz);
-                    if h % 137 == 0 {
-                        place_tree(&mut blocks, lx, height + 1, lz);
+                    if is_desert {
+                        // Cacti in desert
+                        if h % 167 == 0 {
+                            let c_height = 2 + (h % 2) as i32;
+                            place_cactus(&mut blocks, lx, height + 1, lz, c_height);
+                        }
+                    } else if is_snowy {
+                        // Pine / Spruce trees in Snowy Taiga
+                        if h % 113 == 0 {
+                            place_pine_tree(&mut blocks, lx, height + 1, lz);
+                        }
+                    } else if is_forest {
+                        // Dense oak trees in Forest
+                        if h % 47 == 0 {
+                            place_tree(&mut blocks, lx, height + 1, lz);
+                        }
+                    } else if !is_mountain {
+                        // Occasional oak trees in Plains
+                        if h % 137 == 0 {
+                            place_tree(&mut blocks, lx, height + 1, lz);
+                        }
                     }
                 }
             }
@@ -102,6 +191,69 @@ fn hash_coords(x: i32, z: i32) -> u32 {
         .wrapping_add((z as u32).wrapping_mul(668265263));
     h = (h ^ (h >> 13)).wrapping_mul(1274126177);
     h ^ (h >> 16)
+}
+
+fn hash_coords_3d(x: i32, y: i32, z: i32) -> u32 {
+    let mut h: u32 = (x as u32)
+        .wrapping_mul(374761393)
+        .wrapping_add((y as u32).wrapping_mul(1103515245))
+        .wrapping_add((z as u32).wrapping_mul(668265263));
+    h = (h ^ (h >> 13)).wrapping_mul(1274126177);
+    h ^ (h >> 16)
+}
+
+fn place_cactus(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32, height: i32) {
+    for i in 0..height {
+        let y = base_y + i;
+        if y >= 0 && y < CHUNK_SIZE_Y {
+            blocks[Chunk::index(lx, y, lz)] = BlockId::Cactus.to_u8();
+        }
+    }
+}
+
+fn place_pine_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
+    let trunk_height = 6;
+    for i in 0..trunk_height {
+        let y = base_y + i;
+        if y >= 0 && y < CHUNK_SIZE_Y {
+            blocks[Chunk::index(lx, y, lz)] = BlockId::Wood.to_u8();
+        }
+    }
+    // Conical pine canopy with snow on top
+    for dy in 2..=trunk_height + 1 {
+        let radius: i32 = if dy == trunk_height + 1 {
+            0
+        } else if dy >= trunk_height - 1 {
+            1
+        } else if dy % 2 == 0 {
+            2
+        } else {
+            1
+        };
+
+        for dx in -radius..=radius {
+            for dz in -radius..=radius {
+                let x = lx + dx;
+                let y = base_y + dy;
+                let z = lz + dz;
+                if x < 0 || x >= CHUNK_SIZE_X || z < 0 || z >= CHUNK_SIZE_Z || y < 0 || y >= CHUNK_SIZE_Y {
+                    continue;
+                }
+                if dx == 0 && dz == 0 && dy < trunk_height {
+                    continue;
+                }
+                let idx = Chunk::index(x, y, z);
+                if blocks[idx] == BlockId::Air.to_u8() {
+                    let block = if dy == trunk_height + 1 || (dy >= trunk_height && (dx != 0 || dz != 0)) {
+                        BlockId::Snow
+                    } else {
+                        BlockId::Leaves
+                    };
+                    blocks[idx] = block.to_u8();
+                }
+            }
+        }
+    }
 }
 
 fn place_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {

@@ -321,15 +321,15 @@ fn main() {
                     vertical_velocity = vertical_velocity.min(0.0);
                 }
 
-                // Block selection via keys (1-6) and scroll wheel
+                // Block selection via keys (1-9) and scroll wheel
                 let mut selected_block = renderer.selected_block();
                 if let Some((_sx, sy)) = window.get_scroll_wheel() {
                     if sy > 0.0 {
-                        // Scroll up -> next slot
-                        selected_block = if selected_block >= 6 { 1 } else { selected_block + 1 };
+                        // Scroll up -> next slot (1..=9)
+                        selected_block = if selected_block >= 9 { 1 } else { selected_block + 1 };
                     } else if sy < 0.0 {
                         // Scroll down -> previous slot
-                        selected_block = if selected_block <= 1 { 6 } else { selected_block - 1 };
+                        selected_block = if selected_block <= 1 { 9 } else { selected_block - 1 };
                     }
                 }
                 for (key, id) in [
@@ -339,6 +339,9 @@ fn main() {
                     (Key::Key4, 4),
                     (Key::Key5, 5),
                     (Key::Key6, 6),
+                    (Key::Key7, 7),
+                    (Key::Key8, 8),
+                    (Key::Key9, 9),
                 ] {
                     if window.is_key_down(key) {
                         selected_block = id;

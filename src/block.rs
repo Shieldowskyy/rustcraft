@@ -11,6 +11,10 @@ pub enum BlockId {
     Wood,
     Leaves,
     Water,
+    Snow,
+    Cactus,
+    CoalOre,
+    IronOre,
 }
 
 impl BlockId {
@@ -22,7 +26,11 @@ impl BlockId {
             4 => BlockId::Sand,
             5 => BlockId::Wood,
             6 => BlockId::Leaves,
-            7 => BlockId::Water,
+            7 => BlockId::Snow,
+            8 => BlockId::Cactus,
+            9 => BlockId::CoalOre,
+            10 => BlockId::IronOre,
+            11 => BlockId::Water,
             _ => BlockId::Air,
         }
     }
@@ -36,7 +44,11 @@ impl BlockId {
             BlockId::Sand => 4,
             BlockId::Wood => 5,
             BlockId::Leaves => 6,
-            BlockId::Water => 7,
+            BlockId::Snow => 7,
+            BlockId::Cactus => 8,
+            BlockId::CoalOre => 9,
+            BlockId::IronOre => 10,
+            BlockId::Water => 11,
         }
     }
 
@@ -58,6 +70,10 @@ impl BlockId {
             BlockId::Wood => "drewno",
             BlockId::Leaves => "liscie",
             BlockId::Water => "woda",
+            BlockId::Snow => "snieg",
+            BlockId::Cactus => "kaktus",
+            BlockId::CoalOre => "wegiel",
+            BlockId::IronOre => "zelazo",
         }
     }
 
@@ -79,6 +95,13 @@ impl BlockId {
             },
             BlockId::Leaves => [0.20, 0.50, 0.16],
             BlockId::Water => [0.15, 0.35, 0.75],
+            BlockId::Snow => [0.93, 0.95, 0.98],
+            BlockId::Cactus => match face {
+                Face::Top | Face::Bottom => [0.18, 0.55, 0.15],
+                _ => [0.15, 0.48, 0.12],
+            },
+            BlockId::CoalOre => [0.48, 0.48, 0.48],
+            BlockId::IronOre => [0.60, 0.55, 0.50],
             BlockId::Air => [0.0, 0.0, 0.0],
         }
     }
@@ -101,6 +124,13 @@ impl BlockId {
             },
             BlockId::Leaves => TextureId::Leaves,
             BlockId::Water => TextureId::Water,
+            BlockId::Snow => TextureId::Snow,
+            BlockId::Cactus => match face {
+                Face::Top | Face::Bottom => TextureId::CactusTop,
+                _ => TextureId::CactusSide,
+            },
+            BlockId::CoalOre => TextureId::CoalOre,
+            BlockId::IronOre => TextureId::IronOre,
             BlockId::Air => TextureId::Stone, // never sampled
         }
     }

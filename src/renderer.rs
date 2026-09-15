@@ -256,15 +256,15 @@ impl Renderer {
     }
 
     pub fn draw_hotbar(&mut self) {
-        let slot_size = 32i32;
-        let margin = 4i32;
-        let total_slots = 6i32;
+        let slot_size = 28i32;
+        let margin = 3i32;
+        let total_slots = 9i32;
         let total_w = total_slots * (slot_size + margin) - margin;
         let start_x = (self.width as i32 - total_w) / 2;
-        let y = self.height as i32 - slot_size - 14;
+        let y = self.height as i32 - slot_size - 12;
 
         // Backing bar behind all slots for readability.
-        self.fill_rect_alpha(start_x - 6, y - 6, total_w + 12, slot_size + 12, pack_color(0.0, 0.0, 0.0), 0.35);
+        self.fill_rect_alpha(start_x - 6, y - 6, total_w + 12, slot_size + 12, pack_color(0.0, 0.0, 0.0), 0.40);
 
         for i in 0..total_slots {
             let id = (i + 1) as u8;
@@ -276,13 +276,13 @@ impl Renderer {
             let border_color = if is_selected {
                 pack_color(1.0, 1.0, 0.2)
             } else {
-                pack_color(0.15, 0.15, 0.15)
+                pack_color(0.20, 0.20, 0.20)
             };
 
             self.fill_rect(x - 2, y - 2, slot_size + 4, slot_size + 4, border_color);
             self.fill_rect(x, y, slot_size, slot_size, pack_color(color[0], color[1], color[2]));
 
-            // Slot number label (1-6) in the corner of each swatch.
+            // Slot number label (1-9) in the corner of each swatch.
             let label = format!("{}", id);
             self.draw_text_shadowed(&label, x + 2, y + 2, 1, 1);
         }
