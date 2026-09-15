@@ -185,6 +185,9 @@ fn main() {
 
     let mut particles = ParticleSystem::new();
     let mut total_time = 0.0f32;
+    let mut material_timer = 0.0f32;
+    let mut hand_animation = 0.0f32;
+    let mut walk_phase = 0.0f32;
 
     println!("Sterowanie:");
     println!("  Kliknij w okno - zablokuj/przechwyc mysz");
@@ -205,6 +208,7 @@ fn main() {
         let dt = (now - last_time).as_secs_f32().min(0.1);
         last_time = now;
         total_time += dt;
+        hand_animation = (hand_animation - dt * 3.5).max(0.0);
 
         // Dynamic window resizing / maximizing support
         let cur_size = window.get_size();
@@ -436,8 +440,14 @@ fn main() {
                 } else {
                     // Smooth horizontal velocity interpolation (acceleration + friction)
                     let target_horiz = wish_dir * move_speed;
+                    let feet_block = world.get_block(Vec3::new(
+                        camera.position.x,
+                        camera.position.y - current_eye_offset - 0.08,
+                        camera.position.z,
+                    ).floor_to_ivec());
+                    let on_ice = feet_block == block::BlockId::Ice;
                     let damping = if on_ground {
-                        if is_crouching { 18.0 } else { 14.0 }
+                        if on_ice { 2.0 } else if is_crouching { 18.0 } else { 14.0 }
                     } else {
                         4.5
                     };
@@ -481,10 +491,10 @@ fn main() {
                 if let Some((_sx, sy)) = window.get_scroll_wheel() {
                     if sy > 0.0 {
                         // Scroll up -> next slot (1..=9)
-                        selected_block = if selected_block >= 9 { 1 } else { selected_block + 1 };
+                        selected_block = if selected_block >= 17 { 1 } else { selected_block + 1 };
                     } else if sy < 0.0 {
                         // Scroll down -> previous slot
-                        selected_block = if selected_block <= 1 { 9 } else { selected_block - 1 };
+                        selected_block = if selected_block <= 1 { 17 } else { selected_block - 1 };
                     }
                 }
                 for (key, id) in [
@@ -497,6 +507,11 @@ fn main() {
                     (Key::Key7, 7),
                     (Key::Key8, 8),
                     (Key::Key9, 9),
+                    (Key::Key0, 15),
+                    (Key::F1, 16),
+                    (Key::F2, 17),
+                    (Key::F3, 18),
+                    (Key::I, 18),
                 ] {
                     if window.is_key_down(key) {
                         selected_block = id;
@@ -509,6 +524,7 @@ fn main() {
                 let interact_right = mouse_capture.is_captured() && right_down;
 
                 if interact_left && !left_was_down {
+                    hand_animation = 1.0;
                     if let Some(hit) = world.raycast(camera.position, camera.forward(), 8.0) {
                         // Bedrock jest niezniszczalny
                         if !world.get_block(hit.block_pos).is_bedrock() {
@@ -523,6 +539,7 @@ fn main() {
                     }
                 }
                 if interact_right && !right_was_down {
+                    hand_animation = 1.0;
                     if let Some(hit) = world.raycast(camera.position, camera.forward(), 8.0) {
                         let place_pos = hit.block_pos + hit.normal;
                         // Prevent placing block inside player's bounding box
@@ -534,6 +551,19 @@ fn main() {
 
                 // Update world
                 world.update(camera.position);
+                let hand_speed = if fly_mode {
+                    fly_velocity.length()
+                } else {
+                    horiz_velocity.length()
+                };
+                if hand_speed > 0.05 {
+                    walk_phase += dt * (5.0 + hand_speed * 0.9);
+                }
+                material_timer += dt;
+                if material_timer >= 0.12 {
+                    material_timer = 0.0;
+                    world.simulate_materials(camera.position);
+                }
                 particles.update(dt);
 
                 // Compute view-projection for this frame (needed for particles & clouds)
@@ -545,12 +575,17 @@ fn main() {
 
                 // Clouds (drawn after world, before HUD)
                 renderer.draw_clouds(camera.position, &view_proj, total_time);
+                let block_at_camera = world.get_block(camera.position.floor_to_ivec());
+                if block_at_camera == block::BlockId::Water {
+                    renderer.draw_underwater_overlay(total_time);
+                }
 
                 // Particles
                 for p in &particles.particles {
                     renderer.draw_billboard(p.pos, p.size, p.color, &camera, &view_proj);
                 }
                 renderer.draw_crosshair();
+                renderer.draw_hand_3d(&camera, &view_proj, renderer.selected_block(), walk_phase, hand_speed, hand_animation);
                 renderer.draw_hotbar();
 
                 let mode_str = if fly_mode {

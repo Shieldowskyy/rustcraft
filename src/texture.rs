@@ -299,8 +299,10 @@ fn lava() -> Texture {
     let bright = [1.0, 0.85, 0.20];
     for y in 0..TEX_SIZE {
         for x in 0..TEX_SIZE {
-            let wave = ((x as f32 * 0.7 + y as f32 * 0.5).sin() * 0.5 + 0.5)
-                + ((x as f32 * 0.3 - y as f32 * 0.9).cos() * 0.3);
+            let px = x as f32 / TEX_SIZE as f32 * std::f32::consts::TAU;
+            let py = y as f32 / TEX_SIZE as f32 * std::f32::consts::TAU;
+            let wave = ((px.sin() + py.cos()) * 0.5 + 0.5)
+                + (((px * 2.0 + py).sin()) * 0.3);
             let n = rand_at(x, y, 777) * 0.25;
             let t = (wave + n).clamp(0.0, 1.0);
             let col = if t > 0.80 {
@@ -352,6 +354,10 @@ pub struct TextureAtlas {
     pub bedrock: Texture,
     pub lava: Texture,
     pub snow_leaves: Texture,
+    pub planks: Texture,
+    pub door: Texture,
+    pub glass: Texture,
+    pub ice: Texture,
 }
 
 impl TextureAtlas {
@@ -374,6 +380,10 @@ impl TextureAtlas {
             bedrock: bedrock(),
             lava: lava(),
             snow_leaves: snow_leaves(),
+            planks: speckled([0.62, 0.42, 0.20], 0.12, 901),
+            door: speckled([0.50, 0.30, 0.12], 0.10, 902),
+            glass: glass(),
+            ice: speckled([0.70, 0.88, 1.0], 0.08, 903),
         }
     }
 
@@ -396,6 +406,10 @@ impl TextureAtlas {
             TextureId::Bedrock => &self.bedrock,
             TextureId::Lava => &self.lava,
             TextureId::SnowLeaves => &self.snow_leaves,
+            TextureId::Planks => &self.planks,
+            TextureId::Door => &self.door,
+            TextureId::Glass => &self.glass,
+            TextureId::Ice => &self.ice,
         }
     }
 }
@@ -419,4 +433,19 @@ pub enum TextureId {
     Bedrock,
     Lava,
     SnowLeaves,
+    Planks,
+    Door,
+    Glass,
+    Ice,
+}
+
+fn glass() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let line = x == y || x + y == TEX_SIZE - 1;
+            texels[y * TEX_SIZE + x] = if line { [0.72, 0.95, 1.0] } else { [0.40, 0.72, 0.88] };
+        }
+    }
+    Texture { texels }
 }

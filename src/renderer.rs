@@ -133,10 +133,15 @@ impl Renderer {
         }
 
         if let Some(vulkan) = self.vulkan.as_mut() {
+            let visible_keys: std::collections::HashSet<(i32, i32)> = keys.iter()
+                .copied()
+                .filter(|key| Self::chunk_visible(*key, &view_proj))
+                .collect();
             let (color_buffer, depth_buffer) = vulkan.render_world(
                 &self.mesh_cache,
                 &loaded_keys,
                 &dirty_keys,
+                &visible_keys,
                 &view_proj,
                 camera.position,
                 camera.pitch,
@@ -265,8 +270,11 @@ impl Renderer {
                     let depth = 1.0 / inv_w;
 
                     let idx = (py as usize) * self.width + (px as usize);
+                    let transparent = matches!(texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass);
                     if depth < self.depth_buffer[idx] {
-                        self.depth_buffer[idx] = depth;
+                        if !transparent {
+                            self.depth_buffer[idx] = depth;
+                        }
 
                         let u = (l0 * a.uv_over_w.0 + l1 * b.uv_over_w.0 + l2 * c.uv_over_w.0) * depth;
                         let v = (l0 * a.uv_over_w.1 + l1 * b.uv_over_w.1 + l2 * c.uv_over_w.1) * depth;
@@ -285,7 +293,13 @@ impl Renderer {
                         let fg = g * (1.0 - fog_t) + fog.1 * fog_t;
                         let fb = bl * (1.0 - fog_t) + fog.2 * fog_t;
 
-                        self.color_buffer[idx] = pack_color(fr, fg, fb);
+                        if transparent {
+                            let (br, bg, bb) = unpack_color(self.color_buffer[idx]);
+                            let alpha = 0.48;
+                            self.color_buffer[idx] = pack_color(fr * alpha + br * (1.0 - alpha), fg * alpha + bg * (1.0 - alpha), fb * alpha + bb * (1.0 - alpha));
+                        } else {
+                            self.color_buffer[idx] = pack_color(fr, fg, fb);
+                        }
                     }
                 }
             }
@@ -498,10 +512,49 @@ impl Renderer {
         }
     }
 
+    pub fn draw_hand_3d(
+        &mut self,
+        camera: &crate::camera::Camera,
+        view_proj: &crate::math::Mat4,
+        block_id: u8,
+        walk_phase: f32,
+        speed: f32,
+        attack_animation: f32,
+    ) {
+        let forward = camera.forward();
+        let right = camera.right_flat();
+        let up = crate::math::Vec3::new(0.0, 1.0, 0.0);
+        let movement = (speed / 8.5).clamp(0.0, 1.0);
+        let swing = walk_phase.sin() * 0.10 * movement;
+        let attack = (attack_animation * std::f32::consts::PI).sin();
+        let swing = swing + attack * 0.16;
+        let bob = (walk_phase * 2.0).cos() * 0.035 * movement - attack.abs() * 0.08;
+        let hand_pos = camera.position
+            + forward * 0.72
+            + right * (0.42 + swing)
+            + up * (-0.34 + bob);
+        let arm_pos = hand_pos - right * 0.12 - up * 0.16;
+        let block = crate::block::BlockId::from_u8(block_id);
+        let color = block.face_color(crate::block::Face::Top);
+
+        self.draw_billboard(arm_pos, 0.22, [0.78, 0.48, 0.28], camera, view_proj);
+        self.draw_billboard(hand_pos, 0.34, color, camera, view_proj);
+    }
+
+    pub fn draw_underwater_overlay(&mut self, time: f32) {
+        self.fill_rect_alpha(0, 0, self.width as i32, self.height as i32, pack_color(0.04, 0.28, 0.48), 0.34);
+        let wave = ((time * 1.8).sin() * 3.0) as i32;
+        for y in (18 + wave)..self.height as i32 {
+            if y % 31 == 0 {
+                self.fill_rect_alpha(0, y, self.width as i32, 1, pack_color(0.25, 0.65, 0.80), 0.08);
+            }
+        }
+    }
+
     pub fn draw_hotbar(&mut self) {
         let slot_size = 28i32;
         let margin = 3i32;
-        let total_slots = 9i32;
+        let total_slots = 18i32;
         let total_w = total_slots * (slot_size + margin) - margin;
         let start_x = (self.width as i32 - total_w) / 2;
         let y = self.height as i32 - slot_size - 12;

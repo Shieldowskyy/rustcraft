@@ -164,6 +164,11 @@ impl Chunk {
 
                 // --- Vegetation & features (Trees, Cacti, Pine Trees) ---
                 if height > 21 {
+                    // Keep multi-block features inside their owning chunk so
+                    // neighboring chunks cannot clip or duplicate their crowns.
+                    if lx < 3 || lx >= CHUNK_SIZE_X - 3 || lz < 3 || lz >= CHUNK_SIZE_Z - 3 {
+                        continue;
+                    }
                     let h = hash_coords(wx, wz, seed);
                     if is_desert {
                         // Cacti in desert
@@ -312,6 +317,7 @@ pub struct World {
     pub chunks: HashMap<(i32, i32), Chunk>,
     pub seed: u32,
     pub player_position: Vec3,
+    fluid_levels: HashMap<IVec3, u8>,
 }
 
 pub struct RaycastHit {
@@ -329,12 +335,13 @@ impl World {
             chunks: HashMap::new(),
             seed,
             player_position: Vec3::new(8.0, 90.0, 8.0),
+            fluid_levels: HashMap::new(),
         }
     }
 
     pub fn save(&self, path: &str) -> Result<(), String> {
         let mut bytes = Vec::with_capacity(16 + self.chunks.len() * 4);
-        bytes.extend_from_slice(b"RUSTCRAFT2");
+        bytes.extend_from_slice(b"RUSTCRAFT3");
         bytes.extend_from_slice(&self.seed.to_le_bytes());
         bytes.extend_from_slice(&self.player_position.x.to_le_bytes());
         bytes.extend_from_slice(&self.player_position.y.to_le_bytes());
@@ -346,6 +353,13 @@ impl World {
             bytes.extend_from_slice(&(chunk.blocks.len() as u32).to_le_bytes());
             bytes.extend_from_slice(&chunk.blocks);
         }
+        bytes.extend_from_slice(&(self.fluid_levels.len() as u32).to_le_bytes());
+        for (pos, level) in &self.fluid_levels {
+            bytes.extend_from_slice(&pos.x.to_le_bytes());
+            bytes.extend_from_slice(&pos.y.to_le_bytes());
+            bytes.extend_from_slice(&pos.z.to_le_bytes());
+            bytes.push(*level);
+        }
         std::fs::write(path, bytes).map_err(|error| format!("nie udało się zapisać świata: {error}"))
     }
 
@@ -353,7 +367,7 @@ impl World {
         let bytes = std::fs::read(path).map_err(|error| format!("nie udało się odczytać świata: {error}"))?;
         let mut cursor = 0usize;
         let format = read_bytes(&bytes, &mut cursor, 10)?;
-        if format != b"RUSTCRAFT1" && format != b"RUSTCRAFT2" {
+        if format != b"RUSTCRAFT1" && format != b"RUSTCRAFT2" && format != b"RUSTCRAFT3" {
             return Err("nieznany format pliku świata".to_owned());
         }
         let seed = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap());
@@ -380,6 +394,18 @@ impl World {
             let blocks = read_bytes(&bytes, &mut cursor, block_len)?.to_vec();
             world.chunks.insert((cx, cz), Chunk { cx, cz, blocks, dirty: true });
         }
+        if format == b"RUSTCRAFT3" {
+            let fluid_count = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()) as usize;
+            for _ in 0..fluid_count {
+                let pos = IVec3::new(
+                    i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
+                    i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
+                    i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
+                );
+                let level = read_bytes(&bytes, &mut cursor, 1)?[0].clamp(1, 8);
+                world.fluid_levels.insert(pos, level);
+            }
+        }
         Ok(world)
     }
 
@@ -402,13 +428,26 @@ impl World {
         }
     }
 
+    pub fn fluid_level(&self, pos: IVec3) -> u8 {
+        self.fluid_levels.get(&pos).copied().unwrap_or(8)
+    }
+
+    fn set_fluid_level(&mut self, pos: IVec3, level: u8) {
+        self.fluid_levels.insert(pos, level.clamp(1, 8));
+    }
+
     pub fn set_block(&mut self, pos: IVec3, block: BlockId) {
         if pos.y < 0 || pos.y >= CHUNK_SIZE_Y {
             return;
         }
         let (cx, cz, lx, lz) = World::world_to_chunk(pos.x, pos.z);
-        if let Some(chunk) = self.chunks.get_mut(&(cx, cz)) {
-            chunk.set_local(lx, pos.y, lz, block);
+        if self.chunks.contains_key(&(cx, cz)) {
+            self.chunks.get_mut(&(cx, cz)).unwrap().set_local(lx, pos.y, lz, block);
+            if matches!(block, BlockId::Water | BlockId::Lava) {
+                self.set_fluid_level(pos, 8);
+            } else {
+                self.fluid_levels.remove(&pos);
+            }
             // Mark neighbor chunks dirty too if we edited a boundary block,
             // so seams re-mesh correctly.
             if lx == 0 {
@@ -457,6 +496,66 @@ impl World {
             let ddz = cz - pcz;
             ddx * ddx + ddz * ddz <= unload_dist * unload_dist
         });
+    }
+
+    /// Small, bounded material simulation around the player. It deliberately
+    /// runs on a timer from the game loop, not once per render frame.
+    pub fn simulate_materials(&mut self, player_pos: Vec3) {
+        let px = player_pos.x.floor() as i32;
+        let py = player_pos.y.floor() as i32;
+        let pz = player_pos.z.floor() as i32;
+        let radius = 10i32;
+        let min_y = (py - 12).max(1);
+        let max_y = (py + 8).min(CHUNK_SIZE_Y - 1);
+        let mut moves: Vec<(IVec3, IVec3, u8, bool)> = Vec::new();
+
+        for y in (min_y..=max_y).rev() {
+            for z in (pz - radius)..=(pz + radius) {
+                for x in (px - radius)..=(px + radius) {
+                    let pos = IVec3::new(x, y, z);
+                    let block = self.get_block(pos);
+                    let below = IVec3::new(x, y - 1, z);
+                    if block == BlockId::Sand && self.get_block(below) == BlockId::Air {
+                        moves.push((pos, below, 0, false));
+                    } else if block == BlockId::Water || block == BlockId::Lava {
+                        let level = self.fluid_level(pos);
+                        if self.get_block(below) == BlockId::Air {
+                            moves.push((pos, below, level, false));
+                        } else if level > 1 {
+                            let directions = if block == BlockId::Lava {
+                                [IVec3::new(0, 0, 1), IVec3::new(1, 0, 0)]
+                            } else if (x + z + y).rem_euclid(2) == 0 {
+                                [IVec3::new(1, 0, 0), IVec3::new(-1, 0, 0)]
+                            } else {
+                                [IVec3::new(0, 0, 1), IVec3::new(0, 0, -1)]
+                            };
+                            for direction in directions {
+                                let target = pos + direction;
+                                if self.get_block(target) == BlockId::Air {
+                                    // Horizontal flow keeps the source block,
+                                    // allowing a reservoir to fill connected space.
+                                    moves.push((pos, target, level - 1, true));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (from, to, level, preserve_source) in moves {
+            if self.get_block(from) != BlockId::Air && self.get_block(to) == BlockId::Air {
+                let block = self.get_block(from);
+                if !preserve_source {
+                    self.set_block(from, BlockId::Air);
+                }
+                self.set_block(to, block);
+                if block == BlockId::Water || block == BlockId::Lava {
+                    self.set_fluid_level(to, if level == 0 { 8 } else { level });
+                }
+            }
+        }
     }
 
     /// Voxel DDA raycast; returns the first solid block hit and the face

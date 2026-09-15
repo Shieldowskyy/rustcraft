@@ -128,16 +128,21 @@ fn emit_face(
     let x = wx as f32;
     let y = wy as f32;
     let z = wz as f32;
+    let top_y = if matches!(block, BlockId::Water | BlockId::Lava) {
+        y + world.fluid_level(crate::math::IVec3::new(wx, wy, wz)) as f32 / 8.0
+    } else {
+        y + 1.0
+    };
 
     // Cube corners
     let c000 = Vec3::new(x,       y,       z);
     let c100 = Vec3::new(x + 1.0, y,       z);
-    let c010 = Vec3::new(x,       y + 1.0, z);
-    let c110 = Vec3::new(x + 1.0, y + 1.0, z);
+    let c010 = Vec3::new(x,       top_y, z);
+    let c110 = Vec3::new(x + 1.0, top_y, z);
     let c001 = Vec3::new(x,       y,       z + 1.0);
     let c101 = Vec3::new(x + 1.0, y,       z + 1.0);
-    let c011 = Vec3::new(x,       y + 1.0, z + 1.0);
-    let c111 = Vec3::new(x + 1.0, y + 1.0, z + 1.0);
+    let c011 = Vec3::new(x,       top_y, z + 1.0);
+    let c111 = Vec3::new(x + 1.0, top_y, z + 1.0);
 
     let lx = wx - base_x;
     let lz = wz - base_z;

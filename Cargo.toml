@@ -27,6 +27,7 @@ x11-dl = "2.21"
 
 [profile.release]
 opt-level = 3
-lto = true
-codegen-units = 1
+lto = "thin"
+codegen-units = 8
+incremental = true
 panic = "abort"

@@ -87,6 +87,12 @@ cargo run --release
 | Prawy przycisk myszy | postaw wybrany blok |
 | 1–6 | wybierz typ bloku do stawiania |
 
+Dodatkowe bloki: deski (`0`), drzwi (`F1`), szyby (`F2`) i lód (`F3`). Woda i
+szyby są renderowane półprzezroczysto, lód zmniejsza tarcie gracza, a tekstury
+używają powtarzalnego próbkowania nearest-neighbor, więc dobrze się tilują na
+ścianach. Piasek spada, a woda i lawa rozlewają się lokalnie w czasie gry,
+z zachowaniem źródeł przy przepływie poziomym.
+
 ## Przechwytywanie myszy
 
 `minifb` nie ma żadnego wbudowanego API do "zablokowania"/"warpowania"

@@ -27,6 +27,7 @@ pub struct VulkanContext {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
+    transparent_pipeline: wgpu::RenderPipeline,
     sky_pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
     globals_buffer: wgpu::Buffer,
@@ -43,8 +44,10 @@ pub struct VulkanContext {
 }
 
 struct GpuChunk {
-    buffer: wgpu::Buffer,
-    vertex_count: u32,
+    opaque: wgpu::Buffer,
+    opaque_count: u32,
+    transparent: wgpu::Buffer,
+    transparent_count: u32,
 }
 
 const SHADER: &str = r#"
@@ -90,7 +93,8 @@ fn world_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
     let lit = texel.rgb * input.ao;
     let distance_to_camera = distance(input.world_position, globals.camera_position.xyz);
     let fog_t = clamp(distance_to_camera / 180.0, 0.0, 1.0);
-    return vec4<f32>(mix(lit, vec3<f32>(0.75, 0.85, 1.0), fog_t), 1.0);
+    let alpha = select(1.0, 0.48, input.texture_layer == 8u || input.texture_layer == 19u);
+    return vec4<f32>(mix(lit, vec3<f32>(0.75, 0.85, 1.0), fog_t), alpha);
 }
 
 struct SkyOutput {
@@ -146,7 +150,7 @@ impl VulkanContext {
         let texture = create_texture_array(&device, &queue, atlas);
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
-            array_layer_count: Some(17),
+            array_layer_count: Some(21),
             ..Default::default()
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -193,10 +197,20 @@ impl VulkanContext {
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("RustCraft Vulkan world pipeline"),
             layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState { module: &shader, entry_point: "world_vertex", buffers: &[vertex_layout] },
+            vertex: wgpu::VertexState { module: &shader, entry_point: "world_vertex", buffers: &[vertex_layout.clone()] },
             fragment: Some(wgpu::FragmentState { module: &shader, entry_point: "world_fragment", targets: &[Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: None, write_mask: wgpu::ColorWrites::ALL })] }),
             primitive: wgpu::PrimitiveState { cull_mode: Some(wgpu::Face::Back), ..Default::default() },
             depth_stencil: Some(wgpu::DepthStencilState { format: wgpu::TextureFormat::Depth32Float, depth_write_enabled: true, depth_compare: wgpu::CompareFunction::Less, stencil: Default::default(), bias: Default::default() }),
+            multisample: Default::default(),
+            multiview: None,
+        });
+        let transparent_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("RustCraft transparent pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState { module: &shader, entry_point: "world_vertex", buffers: &[vertex_layout] },
+            fragment: Some(wgpu::FragmentState { module: &shader, entry_point: "world_fragment", targets: &[Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })] }),
+            primitive: wgpu::PrimitiveState { cull_mode: Some(wgpu::Face::Back), ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState { format: wgpu::TextureFormat::Depth32Float, depth_write_enabled: false, depth_compare: wgpu::CompareFunction::LessEqual, stencil: Default::default(), bias: Default::default() }),
             multisample: Default::default(),
             multiview: None,
         });
@@ -216,7 +230,7 @@ impl VulkanContext {
             multisample: Default::default(), multiview: None,
         });
         let (target, target_view, depth_texture, depth_view, readback, depth_readback, padded_bytes_per_row) = create_targets(&device, width as u32, height as u32);
-        Ok(Self { device, queue, pipeline, sky_pipeline, bind_group, globals_buffer, chunk_buffers: HashMap::new(), target, target_view, depth_texture, depth_view, readback, depth_readback, width: width as u32, height: height as u32, padded_bytes_per_row })
+        Ok(Self { device, queue, pipeline, transparent_pipeline, sky_pipeline, bind_group, globals_buffer, chunk_buffers: HashMap::new(), target, target_view, depth_texture, depth_view, readback, depth_readback, width: width as u32, height: height as u32, padded_bytes_per_row })
     }
 
     pub fn render_world(
@@ -224,6 +238,7 @@ impl VulkanContext {
         mesh_cache: &HashMap<(i32, i32), Vec<Triangle>>,
         loaded_keys: &HashSet<(i32, i32)>,
         dirty_keys: &HashSet<(i32, i32)>,
+        visible_keys: &HashSet<(i32, i32)>,
         view_proj: &Mat4,
         camera: Vec3,
         pitch: f32,
@@ -234,7 +249,11 @@ impl VulkanContext {
                 continue;
             }
             let triangles = mesh_cache.get(key).map(Vec::as_slice).unwrap_or(&[]);
-            let vertices: Vec<GpuVertex> = triangles.iter().flat_map(|triangle| {
+            let transparent_texture = |triangle: &Triangle| matches!(triangle.texture, TextureId::Water | TextureId::Glass);
+            let vertices: Vec<GpuVertex> = triangles.iter().filter(|triangle| !transparent_texture(triangle)).flat_map(|triangle| {
+                [triangle.v0, triangle.v1, triangle.v2].into_iter().map(|vertex| GpuVertex { position: [vertex.pos.x, vertex.pos.y, vertex.pos.z], uv: [vertex.uv.0, vertex.uv.1], ao: vertex.ao, texture_layer: texture_layer(triangle.texture) })
+            }).collect();
+            let transparent_vertices: Vec<GpuVertex> = triangles.iter().filter(|triangle| transparent_texture(triangle)).flat_map(|triangle| {
                 [triangle.v0, triangle.v1, triangle.v2].into_iter().map(|vertex| GpuVertex { position: [vertex.pos.x, vertex.pos.y, vertex.pos.z], uv: [vertex.uv.0, vertex.uv.1], ao: vertex.ao, texture_layer: texture_layer(triangle.texture) })
             }).collect();
             let empty_vertex = GpuVertex::zeroed();
@@ -248,7 +267,9 @@ impl VulkanContext {
                 contents: vertex_bytes,
                 usage: wgpu::BufferUsages::VERTEX,
             });
-            self.chunk_buffers.insert(*key, GpuChunk { buffer, vertex_count: vertices.len() as u32 });
+            let transparent_bytes = if transparent_vertices.is_empty() { bytemuck::bytes_of(&empty_vertex) } else { bytemuck::cast_slice(&transparent_vertices) };
+            let transparent = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("RustCraft transparent chunk buffer"), contents: transparent_bytes, usage: wgpu::BufferUsages::VERTEX });
+            self.chunk_buffers.insert(*key, GpuChunk { opaque: buffer, opaque_count: vertices.len() as u32, transparent, transparent_count: transparent_vertices.len() as u32 });
         }
         let globals = Globals {
             view_proj: [[view_proj.m[0], view_proj.m[1], view_proj.m[2], view_proj.m[3]], [view_proj.m[4], view_proj.m[5], view_proj.m[6], view_proj.m[7]], [view_proj.m[8], view_proj.m[9], view_proj.m[10], view_proj.m[11]], [view_proj.m[12], view_proj.m[13], view_proj.m[14], view_proj.m[15]]],
@@ -267,10 +288,18 @@ impl VulkanContext {
             pass.set_pipeline(&self.sky_pipeline); pass.set_bind_group(0, &self.bind_group, &[]); pass.draw(0..3, 0..1);
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
-            for chunk in self.chunk_buffers.values() {
-                if chunk.vertex_count == 0 { continue; }
-                pass.set_vertex_buffer(0, chunk.buffer.slice(..));
-                pass.draw(0..chunk.vertex_count, 0..1);
+            for (key, chunk) in &self.chunk_buffers {
+                if !visible_keys.contains(key) { continue; }
+                if chunk.opaque_count == 0 { continue; }
+                pass.set_vertex_buffer(0, chunk.opaque.slice(..));
+                pass.draw(0..chunk.opaque_count, 0..1);
+            }
+            pass.set_pipeline(&self.transparent_pipeline);
+            for (key, chunk) in &self.chunk_buffers {
+                if !visible_keys.contains(key) { continue; }
+                if chunk.transparent_count == 0 { continue; }
+                pass.set_vertex_buffer(0, chunk.transparent.slice(..));
+                pass.draw(0..chunk.transparent_count, 0..1);
             }
         }
         encoder.copy_texture_to_buffer(wgpu::ImageCopyTexture { texture: &self.target, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All }, wgpu::ImageCopyBuffer { buffer: &self.readback, layout: wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(self.padded_bytes_per_row), rows_per_image: Some(self.height) } }, wgpu::Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 });
@@ -319,8 +348,8 @@ impl VulkanContext {
 }
 
 fn create_texture_array(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &TextureAtlas) -> wgpu::Texture {
-    let texture = device.create_texture(&wgpu::TextureDescriptor { label: Some("RustCraft texture array"), size: wgpu::Extent3d { width: TEX_SIZE as u32, height: TEX_SIZE as u32, depth_or_array_layers: 17 }, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rgba8Unorm, usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, view_formats: &[] });
-    for layer in 0..17u32 {
+    let texture = device.create_texture(&wgpu::TextureDescriptor { label: Some("RustCraft texture array"), size: wgpu::Extent3d { width: TEX_SIZE as u32, height: TEX_SIZE as u32, depth_or_array_layers: 21 }, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rgba8Unorm, usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, view_formats: &[] });
+    for layer in 0..21u32 {
         let bytes: Vec<u8> = atlas.get(texture_id_from_layer(layer)).texels.iter().flat_map(|color| [(color[0] * 255.0) as u8, (color[1] * 255.0) as u8, (color[2] * 255.0) as u8, 255]).collect();
         queue.write_texture(wgpu::ImageCopyTexture { texture: &texture, mip_level: 0, origin: wgpu::Origin3d { x: 0, y: 0, z: layer }, aspect: wgpu::TextureAspect::All }, &bytes, wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some((TEX_SIZE * 4) as u32), rows_per_image: Some(TEX_SIZE as u32) }, wgpu::Extent3d { width: TEX_SIZE as u32, height: TEX_SIZE as u32, depth_or_array_layers: 1 });
     }
@@ -339,9 +368,9 @@ fn create_targets(device: &wgpu::Device, width: u32, height: u32) -> (wgpu::Text
 }
 
 fn texture_layer(id: TextureId) -> u32 {
-    match id { TextureId::GrassTop => 0, TextureId::GrassSide => 1, TextureId::Dirt => 2, TextureId::Stone => 3, TextureId::Sand => 4, TextureId::WoodTop => 5, TextureId::WoodSide => 6, TextureId::Leaves => 7, TextureId::Water => 8, TextureId::Snow => 9, TextureId::CactusTop => 10, TextureId::CactusSide => 11, TextureId::CoalOre => 12, TextureId::IronOre => 13, TextureId::Bedrock => 14, TextureId::Lava => 15, TextureId::SnowLeaves => 16 }
+    match id { TextureId::GrassTop => 0, TextureId::GrassSide => 1, TextureId::Dirt => 2, TextureId::Stone => 3, TextureId::Sand => 4, TextureId::WoodTop => 5, TextureId::WoodSide => 6, TextureId::Leaves => 7, TextureId::Water => 8, TextureId::Snow => 9, TextureId::CactusTop => 10, TextureId::CactusSide => 11, TextureId::CoalOre => 12, TextureId::IronOre => 13, TextureId::Bedrock => 14, TextureId::Lava => 15, TextureId::SnowLeaves => 16, TextureId::Planks => 17, TextureId::Door => 18, TextureId::Glass => 19, TextureId::Ice => 20 }
 }
 
 fn texture_id_from_layer(layer: u32) -> TextureId {
-    match layer { 0 => TextureId::GrassTop, 1 => TextureId::GrassSide, 2 => TextureId::Dirt, 3 => TextureId::Stone, 4 => TextureId::Sand, 5 => TextureId::WoodTop, 6 => TextureId::WoodSide, 7 => TextureId::Leaves, 8 => TextureId::Water, 9 => TextureId::Snow, 10 => TextureId::CactusTop, 11 => TextureId::CactusSide, 12 => TextureId::CoalOre, 13 => TextureId::IronOre, 14 => TextureId::Bedrock, 15 => TextureId::Lava, _ => TextureId::SnowLeaves }
+    match layer { 0 => TextureId::GrassTop, 1 => TextureId::GrassSide, 2 => TextureId::Dirt, 3 => TextureId::Stone, 4 => TextureId::Sand, 5 => TextureId::WoodTop, 6 => TextureId::WoodSide, 7 => TextureId::Leaves, 8 => TextureId::Water, 9 => TextureId::Snow, 10 => TextureId::CactusTop, 11 => TextureId::CactusSide, 12 => TextureId::CoalOre, 13 => TextureId::IronOre, 14 => TextureId::Bedrock, 15 => TextureId::Lava, 16 => TextureId::SnowLeaves, 17 => TextureId::Planks, 18 => TextureId::Door, 19 => TextureId::Glass, _ => TextureId::Ice }
 }

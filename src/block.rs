@@ -18,6 +18,10 @@ pub enum BlockId {
     Bedrock,
     Lava,
     SnowLeaves,
+    Planks,
+    Door,
+    Glass,
+    Ice,
 }
 
 impl BlockId {
@@ -37,6 +41,10 @@ impl BlockId {
             12 => BlockId::Bedrock,
             13 => BlockId::Lava,
             14 => BlockId::SnowLeaves,
+            15 => BlockId::Planks,
+            16 => BlockId::Door,
+            17 => BlockId::Glass,
+            18 => BlockId::Ice,
             _ => BlockId::Air,
         }
     }
@@ -58,6 +66,10 @@ impl BlockId {
             BlockId::Bedrock => 12,
             BlockId::Lava => 13,
             BlockId::SnowLeaves => 14,
+            BlockId::Planks => 15,
+            BlockId::Door => 16,
+            BlockId::Glass => 17,
+            BlockId::Ice => 18,
         }
     }
 
@@ -70,7 +82,7 @@ impl BlockId {
     }
 
     pub fn is_transparent(self) -> bool {
-        matches!(self, BlockId::Air | BlockId::Water | BlockId::Lava | BlockId::Leaves | BlockId::SnowLeaves)
+        matches!(self, BlockId::Air | BlockId::Water | BlockId::Lava | BlockId::Leaves | BlockId::SnowLeaves | BlockId::Glass)
     }
 
     pub fn name(self) -> &'static str {
@@ -90,6 +102,10 @@ impl BlockId {
             BlockId::Bedrock => "bedrock",
             BlockId::Lava => "lawa",
             BlockId::SnowLeaves => "liscie zimowe",
+            BlockId::Planks => "deski",
+            BlockId::Door => "drzwi",
+            BlockId::Glass => "szyba",
+            BlockId::Ice => "lod",
         }
     }
 
@@ -121,6 +137,10 @@ impl BlockId {
             BlockId::Bedrock => [0.22, 0.22, 0.22],
             BlockId::Lava => [0.95, 0.42, 0.05],
             BlockId::SnowLeaves => [0.55, 0.72, 0.80],
+            BlockId::Planks => [0.62, 0.42, 0.20],
+            BlockId::Door => [0.50, 0.30, 0.12],
+            BlockId::Glass => [0.55, 0.82, 0.95],
+            BlockId::Ice => [0.70, 0.88, 1.0],
             BlockId::Air => [0.0, 0.0, 0.0],
         }
     }
@@ -153,6 +173,10 @@ impl BlockId {
             BlockId::Bedrock => TextureId::Bedrock,
             BlockId::Lava => TextureId::Lava,
             BlockId::SnowLeaves => TextureId::SnowLeaves,
+            BlockId::Planks => TextureId::Planks,
+            BlockId::Door => TextureId::Door,
+            BlockId::Glass => TextureId::Glass,
+            BlockId::Ice => TextureId::Ice,
             BlockId::Air => TextureId::Stone, // never sampled
         }
     }
