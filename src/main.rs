@@ -228,7 +228,7 @@ fn main() {
     println!("  Ctrl (lewy)    - bieg (z plynna zmiana FOV)");
     println!("  F              - przelacz tryb lotu (bez kolizji/grawitacji)");
     println!("  Mysz           - rozgladanie sie (gdy przechwycona)");
-    println!("  LPM            - niszcz blok / kliknij przycisk w menu");
+    println!("  LPM            - niszcz blok / uderz TNT aby podpalic / kliknij przycisk");
     println!("  PPM            - stawiaj blok");
     println!("  Scroll / 1-9, F1-F4 - wybor typu bloku do stawiania");
     println!("  Q              - wyjscie z gry w menu pauzy");
@@ -536,8 +536,10 @@ fn main() {
                 if interact_left && !left_was_down {
                     hand_animation = 1.0;
                     if let Some(hit) = world.raycast(camera.position, camera.forward(), 8.0) {
-                        if !world.get_block(hit.block_pos).is_bedrock() {
-                            let broken_block = world.get_block(hit.block_pos);
+                        let broken_block = world.get_block(hit.block_pos);
+                        if broken_block == block::BlockId::Tnt {
+                            world.prime_tnt(hit.block_pos);
+                        } else if !broken_block.is_bedrock() {
                             let bx = hit.block_pos.x as f32;
                             let by = hit.block_pos.y as f32;
                             let bz = hit.block_pos.z as f32;
@@ -572,6 +574,9 @@ fn main() {
                     world.simulate_materials(camera.position);
                 }
 
+                // Odliczanie czasu i fizyka zapalonych TNT
+                world.update_primed_tnts(dt);
+
                 // Generowanie efektów cząsteczkowych wybuchów z kolejek w świecie
                 for exp_pos in world.pending_explosions.drain(..) {
                     particles.spawn_explosion(exp_pos);
@@ -583,6 +588,10 @@ fn main() {
                 let view_proj = camera.projection_matrix(aspect).mul(&camera.view_matrix());
 
                 renderer.render_frame(&mut world, &camera);
+
+                for tnt in &world.primed_tnts {
+                    renderer.draw_tnt_cube(tnt.pos, tnt.fuse, &camera, &view_proj);
+                }
 
                 renderer.draw_clouds(camera.position, &view_proj, total_time);
                 let block_at_camera = world.get_block(camera.position.floor_to_ivec());

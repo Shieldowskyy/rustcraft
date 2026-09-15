@@ -8,16 +8,14 @@ pub const CHUNK_SIZE_X: i32 = 16;
 pub const CHUNK_SIZE_Y: i32 = 64;
 pub const CHUNK_SIZE_Z: i32 = 16;
 
-/// View distance in chunks (radius around the player).
 pub const VIEW_DISTANCE: i32 = 4;
-
 pub const DEFAULT_WORLD_SEED: u32 = 1337;
 
 pub struct Chunk {
     pub cx: i32,
     pub cz: i32,
-    pub blocks: Vec<u8>, // flattened [x][y][z], BlockId as u8
-    pub dirty: bool,     // needs remeshing
+    pub blocks: Vec<u8>,
+    pub dirty: bool,
 }
 
 impl Chunk {
@@ -288,6 +286,14 @@ fn place_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
     }
 }
 
+/// Aktywny obiekt TNT odliczający czas do wybuchu
+#[derive(Clone)]
+pub struct PrimedTnt {
+    pub pos: Vec3,
+    pub velocity: Vec3,
+    pub fuse: f32, // Czas w sekundach do wybuchu (domyślnie ~3.5-4s)
+}
+
 pub struct World {
     pub chunks: HashMap<(i32, i32), Chunk>,
     pub seed: u32,
@@ -295,7 +301,8 @@ pub struct World {
     fluid_levels: HashMap<IVec3, u8>,
     pub active_sand: HashSet<IVec3>,
     pub sim_tick: u64,
-    pub pending_explosions: Vec<Vec3>, // Lista pozycji do wygenerowania cząsteczek eksplozji
+    pub pending_explosions: Vec<Vec3>,
+    pub primed_tnts: Vec<PrimedTnt>,
 }
 
 pub struct RaycastHit {
@@ -323,6 +330,7 @@ impl World {
             active_sand: HashSet::new(),
             sim_tick: 0,
             pending_explosions: Vec::new(),
+            primed_tnts: Vec::new(),
         }
     }
 
@@ -474,13 +482,65 @@ impl World {
         }
     }
 
-    /// Wyzwala eksplozję w określonym punkcie świata, niszcząc pobliskie bloki.
+    /// Uzbraja podany blok TNT (zamienia go na obiekt opadający z timerem)
+    pub fn prime_tnt(&mut self, pos: IVec3) {
+        if self.get_block(pos) == BlockId::Tnt {
+            self.set_block(pos, BlockId::Air);
+            self.primed_tnts.push(PrimedTnt {
+                pos: Vec3::new(pos.x as f32 + 0.5, pos.y as f32, pos.z as f32 + 0.5),
+                                  velocity: Vec3::new(0.0, 2.0, 0.0), // Lekki wyskok w górę jak w MC
+                                  fuse: 3.5,                          // ~3.5 sekundy odliczania
+            });
+        }
+    }
+
+    /// Aktualizuje pozycje i timery uzbrojonych obiektów TNT
+    pub fn update_primed_tnts(&mut self, dt: f32) {
+        let mut exploded_positions = Vec::new();
+
+        for i in 0..self.primed_tnts.len() {
+            self.primed_tnts[i].fuse -= dt;
+
+            // Grawitacja
+            self.primed_tnts[i].velocity.y -= 20.0 * dt;
+
+            let dy = self.primed_tnts[i].velocity.y * dt;
+            let mut new_pos = self.primed_tnts[i].pos;
+            new_pos.y += dy;
+
+            // Sprawdzanie kolizji spodu kostki z blokami pod spodem
+            let box_min = Vec3::new(new_pos.x - 0.49, new_pos.y, new_pos.z - 0.49);
+            let box_max = Vec3::new(new_pos.x + 0.49, new_pos.y + 0.99, new_pos.z + 0.49);
+
+            if self.box_collides(box_min, box_max) {
+                // Lądowanie na podłożu
+                self.primed_tnts[i].velocity = Vec3::zero();
+                self.primed_tnts[i].pos.y = self.primed_tnts[i].pos.y.floor();
+            } else {
+                self.primed_tnts[i].pos = new_pos;
+            }
+
+            if self.primed_tnts[i].fuse <= 0.0 {
+                exploded_positions.push(IVec3::new(
+                    self.primed_tnts[i].pos.x.floor() as i32,
+                                                   self.primed_tnts[i].pos.y.floor() as i32,
+                                                   self.primed_tnts[i].pos.z.floor() as i32,
+                ));
+            }
+        }
+
+        self.primed_tnts.retain(|tnt| tnt.fuse > 0.0);
+
+        for center in exploded_positions {
+            self.explode(center, 3.5);
+        }
+    }
+
+    /// Wyzwala eksplozję, niszczy teren i uzbraja sąsiadujące TNT (reakcja łańcuchowa z odliczaniem)
     pub fn explode(&mut self, center: IVec3, radius: f32) {
         let r_int = radius.ceil() as i32;
         let r_sq = radius * radius;
-
-        // Kolekcja na kolejne TNT do zdetonowania w reakcji łańcuchowej
-        let mut chain_tnts: Vec<IVec3> = Vec::new();
+        let mut tnts_to_prime = Vec::new();
 
         for dx in -r_int..=r_int {
             for dy in -r_int..=r_int {
@@ -489,13 +549,12 @@ impl World {
                     if dist_sq <= r_sq {
                         let target_pos = center + IVec3::new(dx, dy, dz);
                         let b = self.get_block(target_pos);
-
                         if b != BlockId::Air && !b.is_bedrock() {
-                            // Jeśli trafiliśmy na kolejne TNT, dodajemy je do reakcji łańcuchowej
-                            if b == BlockId::Tnt && target_pos != center {
-                                chain_tnts.push(target_pos);
+                            if b == BlockId::Tnt {
+                                tnts_to_prime.push(target_pos);
+                            } else {
+                                self.set_block(target_pos, BlockId::Air);
                             }
-                            self.set_block(target_pos, BlockId::Air);
                         }
                     }
                 }
@@ -504,9 +563,9 @@ impl World {
 
         self.pending_explosions.push(Vec3::new(center.x as f32, center.y as f32, center.z as f32));
 
-        // Detonacja sąsiednich TNT
-        for chain_pos in chain_tnts {
-            self.explode(chain_pos, radius);
+        // Uzbrajamy odnalezione w zasięgu TNT
+        for tnt_pos in tnts_to_prime {
+            self.prime_tnt(tnt_pos);
         }
     }
 
@@ -549,8 +608,8 @@ impl World {
         let min_y = (py - 12).max(1);
         let max_y = (py + 8).min(CHUNK_SIZE_Y - 1);
 
-        // 1. TNT ignite & detonation detection from nearby lava
-        let mut tnt_explosions: Vec<IVec3> = Vec::new();
+        // 1. Reakcja TNT z lawą (uzbrojenie od lawy)
+        let mut tnts_to_prime = Vec::new();
 
         for y in min_y..=max_y {
             for z in (pz - radius)..=(pz + radius) {
@@ -566,15 +625,15 @@ impl World {
                             IVec3::new(x, y, z - 1),
                         ];
                         if neighbors.iter().any(|&p| self.get_block(p) == BlockId::Lava) {
-                            tnt_explosions.push(pos);
+                            tnts_to_prime.push(pos);
                         }
                     }
                 }
             }
         }
 
-        for tnt_pos in tnt_explosions {
-            self.explode(tnt_pos, 3.5);
+        for tnt_pos in tnts_to_prime {
+            self.prime_tnt(tnt_pos);
         }
 
         // 2. Fluid simulation

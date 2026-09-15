@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::camera::Camera;
 use crate::font;
+use crate::math::{Mat4, Vec3};
 use crate::mesher::{build_chunk_mesh, Triangle, Vertex};
 use crate::texture::TextureAtlas;
 use crate::vulkan::VulkanContext;
@@ -51,6 +52,97 @@ impl Renderer {
             loaded_keys: Vec::with_capacity(128),
             dirty_keys: HashSet::with_capacity(64),
             visible_keys: Vec::with_capacity(128),
+        }
+    }
+
+    /// Rysuje pojedynczą ściankę bloku 3D w podanej pozycji
+    pub fn draw_block_face(
+        &mut self,
+        pos: Vec3,
+        face: crate::block::Face,
+        _color: [f32; 3],
+        _camera: &Camera,
+        view_proj: &Mat4,
+    ) {
+        use crate::block::Face;
+
+        let (v0, v1, v2, v3) = match face {
+            Face::Top => (
+                Vec3::new(pos.x, pos.y + 1.0, pos.z + 1.0),
+                          Vec3::new(pos.x + 1.0, pos.y + 1.0, pos.z + 1.0),
+                          Vec3::new(pos.x + 1.0, pos.y + 1.0, pos.z),
+                          Vec3::new(pos.x, pos.y + 1.0, pos.z),
+            ),
+            Face::Bottom => (
+                Vec3::new(pos.x, pos.y, pos.z),
+                             Vec3::new(pos.x + 1.0, pos.y, pos.z),
+                             Vec3::new(pos.x + 1.0, pos.y, pos.z + 1.0),
+                             Vec3::new(pos.x, pos.y, pos.z + 1.0),
+            ),
+            Face::North => (
+                Vec3::new(pos.x + 1.0, pos.y, pos.z),
+                            Vec3::new(pos.x, pos.y, pos.z),
+                            Vec3::new(pos.x, pos.y + 1.0, pos.z),
+                            Vec3::new(pos.x + 1.0, pos.y + 1.0, pos.z),
+            ),
+            Face::South => (
+                Vec3::new(pos.x, pos.y, pos.z + 1.0),
+                            Vec3::new(pos.x + 1.0, pos.y, pos.z + 1.0),
+                            Vec3::new(pos.x + 1.0, pos.y + 1.0, pos.z + 1.0),
+                            Vec3::new(pos.x, pos.y + 1.0, pos.z + 1.0),
+            ),
+            Face::West => (
+                Vec3::new(pos.x, pos.y, pos.z),
+                           Vec3::new(pos.x, pos.y, pos.z + 1.0),
+                           Vec3::new(pos.x, pos.y + 1.0, pos.z + 1.0),
+                           Vec3::new(pos.x, pos.y + 1.0, pos.z),
+            ),
+            Face::East => (
+                Vec3::new(pos.x + 1.0, pos.y, pos.z + 1.0),
+                           Vec3::new(pos.x + 1.0, pos.y, pos.z),
+                           Vec3::new(pos.x + 1.0, pos.y + 1.0, pos.z),
+                           Vec3::new(pos.x + 1.0, pos.y + 1.0, pos.z + 1.0),
+            ),
+        };
+
+        let tex_id = match face {
+            Face::Top | Face::Bottom => crate::texture::TextureId::TntTop,
+            _ => crate::texture::TextureId::TntSide,
+        };
+
+        let t1 = Triangle {
+            v0: Vertex { pos: v0, uv: (0.0, 0.0), ao: 1.0 },
+            v1: Vertex { pos: v1, uv: (1.0, 0.0), ao: 1.0 },
+            v2: Vertex { pos: v2, uv: (1.0, 1.0), ao: 1.0 },
+            texture: tex_id,
+        };
+        let t2 = Triangle {
+            v0: Vertex { pos: v0, uv: (0.0, 0.0), ao: 1.0 },
+            v1: Vertex { pos: v2, uv: (1.0, 1.0), ao: 1.0 },
+            v2: Vertex { pos: v3, uv: (0.0, 1.0), ao: 1.0 },
+            texture: tex_id,
+        };
+
+        self.raster_triangle(&t1, view_proj);
+        self.raster_triangle(&t2, view_proj);
+    }
+
+    /// Rysuje blok TNT jako siatkę 3D w dowolnej pozycji świata (dla Primed TNT)
+    pub fn draw_tnt_cube(&mut self, pos: Vec3, fuse: f32, camera: &Camera, view_proj: &Mat4) {
+        use crate::block::{BlockId, Face};
+
+        let flash = (fuse * 12.0).sin().abs() * 0.6;
+        let white_tint = Vec3::new(flash, flash, flash);
+
+        for face in [Face::Top, Face::Bottom, Face::North, Face::South, Face::East, Face::West] {
+            let color_base = BlockId::Tnt.face_color(face);
+            let color = [
+                (color_base[0] + white_tint.x).min(1.0),
+                (color_base[1] + white_tint.y).min(1.0),
+                (color_base[2] + white_tint.z).min(1.0),
+            ];
+
+            self.draw_block_face(pos, face, color, camera, view_proj);
         }
     }
 
@@ -592,7 +684,7 @@ impl Renderer {
     pub fn draw_hotbar(&mut self) {
         let slot_size = 28i32;
         let margin = 3i32;
-        let total_slots = 19i32; // Zwiększone dla TNT
+        let total_slots = 19i32;
         let total_w = total_slots * (slot_size + margin) - margin;
         let start_x = (self.width as i32 - total_w) / 2;
         let y = self.height as i32 - slot_size - 12;
