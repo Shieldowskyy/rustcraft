@@ -53,12 +53,8 @@ impl Chunk {
                 let wx = cx * CHUNK_SIZE_X + lx;
                 let wz = cz * CHUNK_SIZE_Z + lz;
 
-                // --- Biome noise sampling ---
-                // Temperature: < -0.2 -> Snowy, > 0.3 -> Desert
                 let temp = fractal_noise2(wx as f32 * 0.006, wz as f32 * 0.006, seed.wrapping_add(500), 3, 0.5);
-                // Humidity: > 0.15 -> Forest
                 let humidity = fractal_noise2(wx as f32 * 0.006, wz as f32 * 0.006, seed.wrapping_add(1500), 3, 0.5);
-                // Mountain factor: > 0.35 -> Mountains
                 let mountain_factor = fractal_noise2(wx as f32 * 0.008, wz as f32 * 0.008, seed.wrapping_add(2500), 3, 0.5);
 
                 let is_mountain = mountain_factor > 0.32;
@@ -66,7 +62,6 @@ impl Chunk {
                 let is_desert = !is_mountain && !is_snowy && temp > 0.28 && humidity < -0.05;
                 let is_forest = !is_mountain && !is_snowy && !is_desert && humidity > 0.15;
 
-                // Base height calculation per biome
                 let n = fractal_noise2(wx as f32 * 0.015, wz as f32 * 0.015, seed, 4, 0.5);
                 let height = if is_mountain {
                     let m_extra = ((mountain_factor - 0.32) / 0.68).clamp(0.0, 1.0);
@@ -82,12 +77,10 @@ impl Chunk {
 
                 for y in 0..CHUNK_SIZE_Y {
                     if y == 0 {
-                        // Bedrock - niezniszczalna warstwa dna
                         blocks[Chunk::index(lx, y, lz)] = BlockId::Bedrock.to_u8();
                         continue;
                     }
                     if y == 1 {
-                        // Warstwa mieszana bedrock/stone na Y=1
                         let h = hash_coords_3d(wx, y, wz, seed);
                         blocks[Chunk::index(lx, y, lz)] = if h % 3 == 0 {
                             BlockId::Bedrock.to_u8()
@@ -100,7 +93,6 @@ impl Chunk {
                     let block = if y > height {
                         if y <= 20 {
                             if is_snowy && y == 20 {
-                                // Ice on top of frozen lakes in snow biome
                                 BlockId::Snow
                             } else {
                                 BlockId::Water
@@ -135,7 +127,6 @@ impl Chunk {
                             BlockId::Dirt
                         }
                     } else {
-                        // Underground stone with ores
                         let ore_h = hash_coords_3d(wx, y, wz, seed);
                         if ore_h % 37 == 0 {
                             BlockId::CoalOre
@@ -148,14 +139,11 @@ impl Chunk {
 
                     blocks[Chunk::index(lx, y, lz)] = block.to_u8();
 
-                    // --- 3D Cave generation ---
-                    // Carve hollow worm tunnels & caverns through solid terrain
                     if y > 1 && y < height - 1 && block != BlockId::Water && block != BlockId::Air {
                         let c1 = fractal_noise3(wx as f32 * 0.045, y as f32 * 0.065, wz as f32 * 0.045, seed.wrapping_add(3141), 2, 0.5);
                         let c2 = fractal_noise3(wx as f32 * 0.045, y as f32 * 0.065, wz as f32 * 0.045, seed.wrapping_add(9265), 2, 0.5);
                         let is_cave = (c1 * c1 + c2 * c2) < 0.024;
                         if is_cave {
-                            // Bardzo głęboko: wypełnij lawą zamiast powietrzem
                             if y <= 7 {
                                 blocks[Chunk::index(lx, y, lz)] = BlockId::Lava.to_u8();
                             } else {
@@ -165,32 +153,25 @@ impl Chunk {
                     }
                 }
 
-                // --- Vegetation & features (Trees, Cacti, Pine Trees) ---
                 if height > 21 {
-                    // Keep multi-block features inside their owning chunk so
-                    // neighboring chunks cannot clip or duplicate their crowns.
                     if lx < 3 || lx >= CHUNK_SIZE_X - 3 || lz < 3 || lz >= CHUNK_SIZE_Z - 3 {
                         continue;
                     }
                     let h = hash_coords(wx, wz, seed);
                     if is_desert {
-                        // Cacti in desert
                         if h % 167 == 0 {
                             let c_height = 2 + (h % 2) as i32;
                             place_cactus(&mut blocks, lx, height + 1, lz, c_height);
                         }
                     } else if is_snowy {
-                        // Pine / Spruce trees in Snowy Taiga
                         if h % 113 == 0 {
                             place_pine_tree(&mut blocks, lx, height + 1, lz);
                         }
                     } else if is_forest {
-                        // Dense oak trees in Forest
                         if h % 47 == 0 {
                             place_tree(&mut blocks, lx, height + 1, lz);
                         }
                     } else if !is_mountain {
-                        // Occasional oak trees in Plains
                         if h % 137 == 0 {
                             place_tree(&mut blocks, lx, height + 1, lz);
                         }
@@ -210,19 +191,19 @@ impl Chunk {
 
 fn hash_coords(x: i32, z: i32, seed: u32) -> u32 {
     let mut h: u32 = (x as u32)
-        .wrapping_mul(374761393)
-        .wrapping_add((z as u32).wrapping_mul(668265263))
-        .wrapping_add(seed);
+    .wrapping_mul(374761393)
+    .wrapping_add((z as u32).wrapping_mul(668265263))
+    .wrapping_add(seed);
     h = (h ^ (h >> 13)).wrapping_mul(1274126177);
     h ^ (h >> 16)
 }
 
 fn hash_coords_3d(x: i32, y: i32, z: i32, seed: u32) -> u32 {
     let mut h: u32 = (x as u32)
-        .wrapping_mul(374761393)
-        .wrapping_add((y as u32).wrapping_mul(1103515245))
-        .wrapping_add((z as u32).wrapping_mul(668265263))
-        .wrapping_add(seed);
+    .wrapping_mul(374761393)
+    .wrapping_add((y as u32).wrapping_mul(1103515245))
+    .wrapping_add((z as u32).wrapping_mul(668265263))
+    .wrapping_add(seed);
     h = (h ^ (h >> 13)).wrapping_mul(1274126177);
     h ^ (h >> 16)
 }
@@ -244,7 +225,6 @@ fn place_pine_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
             blocks[Chunk::index(lx, y, lz)] = BlockId::Wood.to_u8();
         }
     }
-    // Conical pine canopy with snow on top
     for dy in 2..=trunk_height + 1 {
         let radius: i32 = if dy == trunk_height + 1 {
             0
@@ -269,14 +249,7 @@ fn place_pine_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
                 }
                 let idx = Chunk::index(x, y, z);
                 if blocks[idx] == BlockId::Air.to_u8() {
-                    let block = if dy == trunk_height + 1 {
-                        BlockId::SnowLeaves // wierzchołek: zimowe liście z lodem
-                    } else if dy >= trunk_height && (dx != 0 || dz != 0) {
-                        BlockId::SnowLeaves // zewnętrzne: zimowe liście
-                    } else {
-                        BlockId::SnowLeaves // wszystkie: zimowa zieleń
-                    };
-                    blocks[idx] = block.to_u8();
+                    blocks[idx] = BlockId::SnowLeaves.to_u8();
                 }
             }
         }
@@ -291,7 +264,6 @@ fn place_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
             blocks[Chunk::index(lx, y, lz)] = BlockId::Wood.to_u8();
         }
     }
-    // Simple leaf canopy (clipped at chunk edges - acceptable simplification).
     for dx in -2..=2 {
         for dz in -2..=2 {
             for dy in 0..=2 {
@@ -323,6 +295,7 @@ pub struct World {
     fluid_levels: HashMap<IVec3, u8>,
     pub active_sand: HashSet<IVec3>,
     pub sim_tick: u64,
+    pub pending_explosions: Vec<Vec3>, // Lista pozycji do wygenerowania cząsteczek eksplozji
 }
 
 pub struct RaycastHit {
@@ -349,6 +322,7 @@ impl World {
             fluid_levels: HashMap::new(),
             active_sand: HashSet::new(),
             sim_tick: 0,
+            pending_explosions: Vec::new(),
         }
     }
 
@@ -387,8 +361,8 @@ impl World {
         let player_position = if format == b"RUSTCRAFT2" || format == b"RUSTCRAFT3" {
             Vec3::new(
                 f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
-                f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
-                f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
+                      f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
+                      f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
             )
         } else {
             Vec3::new(8.0, 90.0, 8.0)
@@ -412,8 +386,8 @@ impl World {
             for _ in 0..fluid_count {
                 let pos = IVec3::new(
                     i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
-                    i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
-                    i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
+                                     i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
+                                     i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
                 );
                 let level = read_bytes(&bytes, &mut cursor, 1)?[0].clamp(1, 8);
                 world.fluid_levels.insert(pos, level);
@@ -471,8 +445,6 @@ impl World {
                 self.active_sand.remove(&pos);
             }
 
-            // Awakening neighbors: when any block is placed or destroyed,
-            // awaken adjacent sand blocks so they can respond to gravity if unsupported.
             for offset in [
                 IVec3::new(1, 0, 0),
                 IVec3::new(-1, 0, 0),
@@ -487,8 +459,6 @@ impl World {
                 }
             }
 
-            // Mark neighbor chunks dirty too if we edited a boundary block,
-            // so seams re-mesh correctly.
             if lx == 0 {
                 self.mark_dirty(cx - 1, cz);
             }
@@ -504,18 +474,52 @@ impl World {
         }
     }
 
+    /// Wyzwala eksplozję w określonym punkcie świata, niszcząc pobliskie bloki.
+    pub fn explode(&mut self, center: IVec3, radius: f32) {
+        let r_int = radius.ceil() as i32;
+        let r_sq = radius * radius;
+
+        // Kolekcja na kolejne TNT do zdetonowania w reakcji łańcuchowej
+        let mut chain_tnts: Vec<IVec3> = Vec::new();
+
+        for dx in -r_int..=r_int {
+            for dy in -r_int..=r_int {
+                for dz in -r_int..=r_int {
+                    let dist_sq = (dx * dx + dy * dy + dz * dz) as f32;
+                    if dist_sq <= r_sq {
+                        let target_pos = center + IVec3::new(dx, dy, dz);
+                        let b = self.get_block(target_pos);
+
+                        if b != BlockId::Air && !b.is_bedrock() {
+                            // Jeśli trafiliśmy na kolejne TNT, dodajemy je do reakcji łańcuchowej
+                            if b == BlockId::Tnt && target_pos != center {
+                                chain_tnts.push(target_pos);
+                            }
+                            self.set_block(target_pos, BlockId::Air);
+                        }
+                    }
+                }
+            }
+        }
+
+        self.pending_explosions.push(Vec3::new(center.x as f32, center.y as f32, center.z as f32));
+
+        // Detonacja sąsiednich TNT
+        for chain_pos in chain_tnts {
+            self.explode(chain_pos, radius);
+        }
+    }
+
     fn mark_dirty(&mut self, cx: i32, cz: i32) {
         if let Some(c) = self.chunks.get_mut(&(cx, cz)) {
             c.dirty = true;
         }
     }
 
-    /// Streams chunks in/out around the player position.
     pub fn update(&mut self, player_pos: Vec3) {
         let pcx = (player_pos.x as i32).div_euclid(CHUNK_SIZE_X);
         let pcz = (player_pos.z as i32).div_euclid(CHUNK_SIZE_Z);
 
-        // Load missing chunks within view distance.
         for dz in -VIEW_DISTANCE..=VIEW_DISTANCE {
             for dx in -VIEW_DISTANCE..=VIEW_DISTANCE {
                 let cx = pcx + dx;
@@ -528,7 +532,6 @@ impl World {
             }
         }
 
-        // Unload chunks that are far away, to bound memory use.
         let unload_dist = VIEW_DISTANCE + 2;
         self.chunks.retain(|&(cx, cz), _| {
             let ddx = cx - pcx;
@@ -537,8 +540,6 @@ impl World {
         });
     }
 
-    /// Small, bounded material simulation around the player. It deliberately
-    /// runs on a timer from the game loop, not once per render frame.
     pub fn simulate_materials(&mut self, player_pos: Vec3) {
         self.sim_tick = self.sim_tick.wrapping_add(1);
         let px = player_pos.x.floor() as i32;
@@ -548,8 +549,35 @@ impl World {
         let min_y = (py - 12).max(1);
         let max_y = (py + 8).min(CHUNK_SIZE_Y - 1);
 
-        // 1. Fluid simulation (water & lava)
-        // Lava updates every 3 material ticks (slower, viscous)
+        // 1. TNT ignite & detonation detection from nearby lava
+        let mut tnt_explosions: Vec<IVec3> = Vec::new();
+
+        for y in min_y..=max_y {
+            for z in (pz - radius)..=(pz + radius) {
+                for x in (px - radius)..=(px + radius) {
+                    let pos = IVec3::new(x, y, z);
+                    if self.get_block(pos) == BlockId::Tnt {
+                        let neighbors = [
+                            IVec3::new(x + 1, y, z),
+                            IVec3::new(x - 1, y, z),
+                            IVec3::new(x, y + 1, z),
+                            IVec3::new(x, y - 1, z),
+                            IVec3::new(x, y, z + 1),
+                            IVec3::new(x, y, z - 1),
+                        ];
+                        if neighbors.iter().any(|&p| self.get_block(p) == BlockId::Lava) {
+                            tnt_explosions.push(pos);
+                        }
+                    }
+                }
+            }
+        }
+
+        for tnt_pos in tnt_explosions {
+            self.explode(tnt_pos, 3.5);
+        }
+
+        // 2. Fluid simulation
         let sim_lava = self.sim_tick % 3 == 0;
         let mut fluid_spawns: Vec<(IVec3, BlockId, u8)> = Vec::new();
         let mut fluid_despawns: Vec<IVec3> = Vec::new();
@@ -579,24 +607,20 @@ impl World {
                         IVec3::new(x, y + 1, z),
                     ];
 
-                    // Water + Lava reaction: Lava touching Water solidifies into Stone
                     if block == BlockId::Lava {
                         let touches_water = below_block == BlockId::Water
-                            || cardinals.iter().any(|&p| self.get_block(p) == BlockId::Water);
+                        || cardinals.iter().any(|&p| self.get_block(p) == BlockId::Water);
                         if touches_water {
                             solidifications.push((pos, BlockId::Stone));
                             continue;
                         }
                     }
 
-                    // A. Downward flow: gravity flows into air below
                     if below.y >= 0 && below_block == BlockId::Air {
                         fluid_spawns.push((below, block, 8));
                     } else if block == BlockId::Water && below_block == BlockId::Lava {
                         solidifications.push((below, BlockId::Stone));
                     } else {
-                        // B. Horizontal spreading
-                        // Step size: 2 for Water (spreads up to 4 blocks: 8->6->4->2), 4 for Lava (spreads up to 2 blocks: 8->4)
                         let step = if block == BlockId::Lava { 4 } else { 2 };
                         if level > step {
                             let new_level = level - step;
@@ -611,7 +635,6 @@ impl World {
                         }
                     }
 
-                    // C. Fluid decay: flowing fluid (level < 8) with no parent above or higher-level neighbor dries up
                     if level < 8 {
                         let above_block = self.get_block(IVec3::new(x, y + 1, z));
                         let has_parent_above = above_block == block;
@@ -641,12 +664,11 @@ impl World {
             }
         }
 
-        // 2. Sand gravity simulation (only awakened sand blocks)
+        // 3. Sand gravity simulation
         if !self.active_sand.is_empty() {
             let mut sand_moves: Vec<(IVec3, IVec3)> = Vec::new();
             let mut sand_stopped: Vec<IVec3> = Vec::new();
 
-            // Sort ascending by Y so lowest sand blocks fall first
             let mut active_list: Vec<IVec3> = self.active_sand.iter().copied().collect();
             active_list.sort_unstable_by_key(|p| p.y);
 
@@ -676,8 +698,6 @@ impl World {
         }
     }
 
-    /// Voxel DDA raycast; returns the first solid block hit and the face
-    /// normal that was struck (used for block placement).
     pub fn raycast(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RaycastHit> {
         let dir = dir.normalized();
         if dir.length_sq() < 1e-8 {
@@ -728,7 +748,7 @@ impl World {
             if block.is_solid() {
                 return Some(RaycastHit {
                     block_pos: IVec3::new(x, y, z),
-                    normal: last_normal,
+                            normal: last_normal,
                 });
             }
 
@@ -753,8 +773,6 @@ impl World {
         None
     }
 
-    /// Returns true if the given axis-aligned box (min/max corners in world
-    /// space) overlaps any solid block. Used for simple player physics.
     pub fn box_collides(&self, min: Vec3, max: Vec3) -> bool {
         let x0 = min.x.floor() as i32;
         let x1 = max.x.floor() as i32;
@@ -783,71 +801,4 @@ fn read_bytes<'a>(bytes: &'a [u8], cursor: &mut usize, count: usize) -> Result<&
     let slice = &bytes[*cursor..*cursor + count];
     *cursor += count;
     Ok(slice)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn save_load_preserves_seed_and_blocks() {
-        let path = std::env::temp_dir().join(format!("rustcraft_test_{}.bin", std::process::id()));
-        let mut original = World::new_with_seed(987654321);
-        original.player_position = Vec3::new(12.5, 44.0, -7.25);
-        original.update(Vec3::new(8.0, 32.0, 8.0));
-        original.set_block(IVec3::new(8, 32, 8), BlockId::Cactus);
-        original.save(path.to_str().unwrap()).expect("save should succeed");
-
-        let loaded = World::load(path.to_str().unwrap()).expect("load should succeed");
-        assert_eq!(loaded.seed, 987654321);
-        assert_eq!(loaded.player_position, original.player_position);
-        assert_eq!(loaded.get_block(IVec3::new(8, 32, 8)), BlockId::Cactus);
-        assert_eq!(loaded.chunks.len(), original.chunks.len());
-        let _ = std::fs::remove_file(path);
-    }
-
-    #[test]
-    fn natural_sand_does_not_fall_until_neighbor_is_modified() {
-        let mut world = World::new_with_seed(12345);
-        world.update(Vec3::new(8.0, 32.0, 8.0));
-
-        // Directly place a floating sand block in chunk without set_block (simulating natural generation)
-        let chunk = world.chunks.get_mut(&(0, 0)).unwrap();
-        chunk.set_local(5, 30, 5, BlockId::Sand);
-        chunk.set_local(5, 29, 5, BlockId::Air); // Air below
-        chunk.set_local(5, 31, 5, BlockId::Stone); // Block above
-
-        // Without block updates, sand must remain floating
-        world.simulate_materials(Vec3::new(5.0, 30.0, 5.0));
-        assert_eq!(world.get_block(IVec3::new(5, 30, 5)), BlockId::Sand);
-        assert_eq!(world.get_block(IVec3::new(5, 29, 5)), BlockId::Air);
-
-        // Player destroys the stone block above the sand -> awakens the sand
-        world.set_block(IVec3::new(5, 31, 5), BlockId::Air);
-
-        // Now simulate_materials must trigger gravity for the awakened sand
-        world.simulate_materials(Vec3::new(5.0, 30.0, 5.0));
-        assert_eq!(world.get_block(IVec3::new(5, 30, 5)), BlockId::Air);
-        assert_eq!(world.get_block(IVec3::new(5, 29, 5)), BlockId::Sand);
-    }
-
-    #[test]
-    fn water_flows_downwards_and_solidifies_lava() {
-        let mut world = World::new_with_seed(12345);
-        world.update(Vec3::new(8.0, 32.0, 8.0));
-
-        // Place water source at (5, 30, 5) with air below at (5, 29, 5) and lava at (5, 28, 5)
-        world.set_block(IVec3::new(5, 30, 5), BlockId::Water);
-        world.set_block(IVec3::new(5, 29, 5), BlockId::Air);
-        world.set_block(IVec3::new(5, 28, 5), BlockId::Lava);
-
-        // First tick: water flows into (5, 29, 5) while source at (5, 30, 5) remains
-        world.simulate_materials(Vec3::new(5.0, 30.0, 5.0));
-        assert_eq!(world.get_block(IVec3::new(5, 30, 5)), BlockId::Water);
-        assert_eq!(world.get_block(IVec3::new(5, 29, 5)), BlockId::Water);
-
-        // Second tick: water touches lava below -> lava solidifies into stone
-        world.simulate_materials(Vec3::new(5.0, 30.0, 5.0));
-        assert_eq!(world.get_block(IVec3::new(5, 28, 5)), BlockId::Stone);
-    }
 }

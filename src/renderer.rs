@@ -21,9 +21,6 @@ pub struct Renderer {
     visible_keys: Vec<(i32, i32)>,
 }
 
-/// A triangle vertex after the view-projection transform, still in
-/// homogeneous clip space (x, y, z, w) plus its texture coordinate and
-/// per-vertex AO factor.
 #[derive(Clone, Copy)]
 struct ClipVertAO {
     clip: [f32; 4],
@@ -31,9 +28,6 @@ struct ClipVertAO {
     ao: f32,
 }
 
-/// A vertex fully resolved for rasterization: screen-space (x, y), the
-/// reciprocal of view-space w (used for perspective-correct interpolation
-/// and depth testing), UV pre-divided by w, and AO pre-divided by w.
 #[derive(Clone, Copy)]
 struct ScreenVertAO {
     x: f32,
@@ -83,7 +77,6 @@ impl Renderer {
     }
 
     fn clear(&mut self, camera_pitch: f32) {
-        // Vertical sky gradient, computed entirely on the CPU.
         for y in 0..self.height {
             let t = y as f32 / self.height.max(1) as f32;
             let t = (t + camera_pitch * 0.05).clamp(0.0, 1.0);
@@ -113,7 +106,6 @@ impl Renderer {
         let proj = camera.projection_matrix(aspect);
         let view_proj = proj.mul(&view);
 
-        // Update loaded and dirty keys
         self.loaded_keys.clear();
         self.loaded_keys.extend(world.chunks.keys().copied());
         self.mesh_cache.retain(|k, _| world.chunks.contains_key(k));
@@ -154,33 +146,31 @@ impl Renderer {
             return;
         }
 
-        // Collect visible chunk keys into a temporary Vec to avoid borrow conflicts.
         let visible: Vec<(i32, i32)> = (0..self.loaded_keys.len())
-            .filter(|&i| Self::chunk_visible(self.loaded_keys[i], &view_proj))
-            .map(|i| self.loaded_keys[i])
-            .collect();
+        .filter(|&i| Self::chunk_visible(self.loaded_keys[i], &view_proj))
+        .map(|i| self.loaded_keys[i])
+        .collect();
 
-        // Pass 1: Opaque geometry (writes to depth buffer)
+        // Pass 1: Opaque geometry
         for key in &visible {
             if let Some(tris) = self.mesh_cache.get(key) {
-                // SAFETY-of-logic: we copy the triangles to avoid a two-field borrow.
                 let tri_ptrs: Vec<_> = tris.iter()
-                    .filter(|t| !matches!(t.texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass))
-                    .cloned()
-                    .collect();
+                .filter(|t| !matches!(t.texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass))
+                .cloned()
+                .collect();
                 for tri in tri_ptrs {
                     self.raster_triangle(&tri, &view_proj);
                 }
             }
         }
 
-        // Pass 2: Transparent geometry (Water, Glass) — alpha-blended over opaque scene.
+        // Pass 2: Transparent geometry
         for key in &visible {
             if let Some(tris) = self.mesh_cache.get(key) {
                 let tri_ptrs: Vec<_> = tris.iter()
-                    .filter(|t| matches!(t.texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass))
-                    .cloned()
-                    .collect();
+                .filter(|t| matches!(t.texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass))
+                .cloned()
+                .collect();
                 for tri in tri_ptrs {
                     self.raster_triangle(&tri, &view_proj);
                 }
@@ -188,8 +178,6 @@ impl Renderer {
         }
     }
 
-    /// Conservative frustum test for a whole chunk. Testing one sphere is
-    /// much cheaper than transforming and rejecting every triangle in it.
     fn chunk_visible(key: (i32, i32), view_proj: &crate::math::Mat4) -> bool {
         let center = crate::math::Vec3::new(
             key.0 as f32 * CHUNK_SIZE_X as f32 + CHUNK_SIZE_X as f32 * 0.5,
@@ -197,8 +185,8 @@ impl Renderer {
             key.1 as f32 * CHUNK_SIZE_Z as f32 + CHUNK_SIZE_Z as f32 * 0.5,
         );
         let radius = ((CHUNK_SIZE_X * CHUNK_SIZE_X
-            + CHUNK_SIZE_Y * CHUNK_SIZE_Y
-            + CHUNK_SIZE_Z * CHUNK_SIZE_Z) as f32).sqrt() * 0.5;
+        + CHUNK_SIZE_Y * CHUNK_SIZE_Y
+        + CHUNK_SIZE_Z * CHUNK_SIZE_Z) as f32).sqrt() * 0.5;
         let clip = view_proj.transform_point(center);
         let m = &view_proj.m;
         let x_radius = radius * (m[0] * m[0] + m[4] * m[4] + m[8] * m[8]).sqrt();
@@ -207,11 +195,11 @@ impl Renderer {
         let w_radius = radius * (m[3] * m[3] + m[7] * m[7] + m[11] * m[11]).sqrt();
 
         clip[0] + clip[3] + x_radius + w_radius >= 0.0
-            && clip[3] - clip[0] + x_radius + w_radius >= 0.0
-            && clip[1] + clip[3] + y_radius + w_radius >= 0.0
-            && clip[3] - clip[1] + y_radius + w_radius >= 0.0
-            && clip[2] + clip[3] + z_radius + w_radius >= 0.0
-            && clip[3] - clip[2] + z_radius + w_radius >= 0.0
+        && clip[3] - clip[0] + x_radius + w_radius >= 0.0
+        && clip[1] + clip[3] + y_radius + w_radius >= 0.0
+        && clip[3] - clip[1] + y_radius + w_radius >= 0.0
+        && clip[2] + clip[3] + z_radius + w_radius >= 0.0
+        && clip[3] - clip[2] + z_radius + w_radius >= 0.0
     }
 
     fn raster_triangle(&mut self, tri: &Triangle, view_proj: &crate::math::Mat4) {
@@ -224,8 +212,6 @@ impl Renderer {
             return;
         }
 
-        // Fan-triangulate the (convex) clip polygon, then rasterize each
-        // resulting triangle.
         for i in 1..clipped.len() - 1 {
             let sa = self.project_to_screen_ao(&clipped[0]);
             let sb = self.project_to_screen_ao(&clipped[i]);
@@ -319,7 +305,6 @@ impl Renderer {
                             let g = texel[1] * ao;
                             let bl = texel[2] * ao;
 
-                            // Distance fog
                             let fog_t = (depth / 180.0).clamp(0.0, 1.0);
                             let fog = (0.75f32, 0.85f32, 1.0f32);
                             let fr = r * (1.0 - fog_t) + fog.0 * fog_t;
@@ -346,7 +331,6 @@ impl Renderer {
         }
     }
 
-    /// Renders a world-space billboard quad as a colored square (used for particles).
     pub fn draw_billboard(
         &mut self,
         pos: crate::math::Vec3,
@@ -355,7 +339,6 @@ impl Renderer {
         camera: &crate::camera::Camera,
         view_proj: &crate::math::Mat4,
     ) {
-        // Build camera right/up vectors for billboarding
         let right = camera.right_flat();
         let up = crate::math::Vec3::new(0.0, 1.0, 0.0);
         let h = size * 0.5;
@@ -367,7 +350,6 @@ impl Renderer {
             pos - right * h + up * h,
         ];
 
-        // Project each corner
         let project = |p: crate::math::Vec3| -> Option<(f32, f32, f32)> {
             let c = view_proj.transform_point(p);
             if c[3] <= 1e-4 { return None; }
@@ -380,7 +362,6 @@ impl Renderer {
         let pts: Vec<_> = corners.iter().filter_map(|&p| project(p)).collect();
         if pts.len() < 4 { return; }
 
-        // Rasterize as two triangles (no texture, solid color)
         let depth_at_pos = {
             let c = view_proj.transform_point(pos);
             if c[3] <= 1e-4 { return; }
@@ -388,7 +369,6 @@ impl Renderer {
         };
 
         let packed = pack_color(color[0], color[1], color[2]);
-        // Draw filled quad as two triangles via scanline
         for &tri_idx in &[(0usize,1usize,2usize),(0usize,2usize,3usize)] {
             let (ai, bi, ci) = tri_idx;
             let (ax, ay, _) = pts[ai];
@@ -420,7 +400,6 @@ impl Renderer {
         }
     }
 
-    /// Renders a horizontal cloud layer at world-space height `cloud_y`.
     pub fn draw_clouds(
         &mut self,
         player_pos: crate::math::Vec3,
@@ -429,10 +408,9 @@ impl Renderer {
     ) {
         let cloud_y = 75.0f32;
         let cloud_color = [0.97f32, 0.97f32, 1.0f32];
-        let cloud_size = 8.0f32;   // each cloud patch width
-        let scroll = time * 1.5;   // drift speed
+        let cloud_size = 8.0f32;
+        let scroll = time * 1.5;
 
-        // Draw a grid of cloud patches around the player
         let cx = (player_pos.x / cloud_size).floor() as i32;
         let cz = (player_pos.z / cloud_size).floor() as i32;
 
@@ -441,19 +419,15 @@ impl Renderer {
                 let wx = (cx + dx) as f32 * cloud_size + (scroll % cloud_size);
                 let wz = (cz + dz) as f32 * cloud_size;
 
-                // Simple hash to decide if there's a cloud here
                 let hx = (cx + dx).wrapping_mul(374761393i32);
                 let hz = (cz + dz).wrapping_mul(668265263i32);
                 let h = (hx ^ hz ^ hx.wrapping_mul(hz >> 3)) as u32;
-                if h % 3 != 0 { continue; } // ~33% cloud coverage
+                if h % 3 != 0 { continue; }
 
-                // Vary cloud size slightly
                 let scale = cloud_size * (0.6 + (h % 100) as f32 / 250.0);
 
-                // Only render if cloud is above or near player
                 if (cloud_y - player_pos.y).abs() > 80.0 { continue; }
 
-                // Build a horizontal quad for this cloud patch
                 let half = scale * 0.5;
                 let corners = [
                     crate::math::Vec3::new(wx - half, cloud_y, wz - half),
@@ -462,7 +436,6 @@ impl Renderer {
                     crate::math::Vec3::new(wx - half, cloud_y, wz + half),
                 ];
 
-                // Project corners and rasterize
                 let mut pts = [(0.0f32, 0.0f32, 0.0f32); 4];
                 let mut all_valid = true;
                 for (i, &p) in corners.iter().enumerate() {
@@ -471,8 +444,8 @@ impl Renderer {
                     let inv_w = 1.0 / c[3];
                     pts[i] = (
                         (c[0] * inv_w * 0.5 + 0.5) * self.width as f32,
-                        (1.0 - (c[1] * inv_w * 0.5 + 0.5)) * self.height as f32,
-                        inv_w,
+                              (1.0 - (c[1] * inv_w * 0.5 + 0.5)) * self.height as f32,
+                              inv_w,
                     );
                 }
                 if !all_valid { continue; }
@@ -483,7 +456,6 @@ impl Renderer {
                     c[3]
                 };
 
-                // Soft alpha for clouds (only color, no depth write to avoid blocking world)
                 let packed = pack_color(cloud_color[0], cloud_color[1], cloud_color[2]);
                 let alpha = 0.72f32;
 
@@ -511,16 +483,12 @@ impl Renderer {
                             };
                             if inside {
                                 let idx = py as usize * self.width + px as usize;
-                                // The world depth buffer stores clip.w. Interpolate
-                                // reciprocal w here, then convert back to the same
-                                // depth metric instead of comparing 1/w to w.
                                 let w0n = w0 / area;
                                 let w1n = w1 / area;
                                 let w2n = w2 / area;
                                 let inv_w = w0n * pts[ai].2 + w1n * pts[bi].2 + w2n * pts[ci].2;
                                 let cloud_depth = if inv_w > 1e-6 { 1.0 / inv_w } else { depth_center };
                                 if cloud_depth < self.depth_buffer[idx] {
-                                    // Alpha blend cloud color
                                     let (cr, cg, cb) = unpack_color(packed);
                                     let (br, bg, bb) = unpack_color(self.color_buffer[idx]);
                                     let r = cr * alpha + br * (1.0 - alpha);
@@ -535,11 +503,6 @@ impl Renderer {
             }
         }
     }
-
-    // ---------------------------------------------------------------
-    // Basic UI / HUD drawing. Everything below is 2D and drawn directly
-    // into the color buffer after the 3D scene, still 100% on the CPU.
-    // ---------------------------------------------------------------
 
     pub fn draw_crosshair(&mut self) {
         let cx = self.width as i32 / 2;
@@ -570,9 +533,9 @@ impl Renderer {
         let swing = swing + attack * 0.16;
         let bob = (walk_phase * 2.0).cos() * 0.035 * movement - attack.abs() * 0.08;
         let hand_pos = camera.position
-            + forward * 0.68
-            + right * (0.53 + swing)
-            + up * (-0.40 + bob);
+        + forward * 0.68
+        + right * (0.53 + swing)
+        + up * (-0.40 + bob);
         let arm_pos = hand_pos - right * 0.10 - up * 0.13;
         let block = crate::block::BlockId::from_u8(block_id);
         self.draw_cube_3d(arm_pos, right, up, forward, [0.085, 0.085, 0.12], crate::texture::TextureId::Dirt, view_proj);
@@ -585,9 +548,9 @@ impl Renderer {
         right: crate::math::Vec3,
         up: crate::math::Vec3,
         forward: crate::math::Vec3,
-        half: [f32; 3],
-        texture: crate::texture::TextureId,
-        view_proj: &crate::math::Mat4,
+            half: [f32; 3],
+            texture: crate::texture::TextureId,
+            view_proj: &crate::math::Mat4,
     ) {
         let corner = |x: f32, y: f32, z: f32| {
             center + right * (x * half[0]) + up * (y * half[1]) + forward * (z * half[2])
@@ -629,12 +592,11 @@ impl Renderer {
     pub fn draw_hotbar(&mut self) {
         let slot_size = 28i32;
         let margin = 3i32;
-        let total_slots = 18i32;
+        let total_slots = 19i32; // Zwiększone dla TNT
         let total_w = total_slots * (slot_size + margin) - margin;
         let start_x = (self.width as i32 - total_w) / 2;
         let y = self.height as i32 - slot_size - 12;
 
-        // Backing bar behind all slots for readability.
         self.fill_rect_alpha(start_x - 6, y - 6, total_w + 12, slot_size + 12, pack_color(0.0, 0.0, 0.0), 0.40);
 
         for i in 0..total_slots {
@@ -653,24 +615,21 @@ impl Renderer {
             self.fill_rect(x - 2, y - 2, slot_size + 4, slot_size + 4, border_color);
             self.fill_rect(x, y, slot_size, slot_size, pack_color(color[0], color[1], color[2]));
 
-            // Slot number label (1-9) in the corner of each swatch.
             let label = format!("{}", id);
             self.draw_text_shadowed(&label, x + 2, y + 2, 1, 1);
         }
     }
 
-    /// Small debug/info overlay in the top-left: FPS, position, selected
-    /// block name, and whether the mouse is currently captured.
     pub fn draw_debug_panel(&mut self, lines: &[String]) {
         let scale = 2;
         let line_h = (font::GLYPH_H as i32) * scale + 4;
         let padding = 6;
 
         let max_w = lines
-            .iter()
-            .map(|l| font::measure_text(l, scale, 1))
-            .max()
-            .unwrap_or(0);
+        .iter()
+        .map(|l| font::measure_text(l, scale, 1))
+        .max()
+        .unwrap_or(0);
 
         let panel_w = max_w + padding * 2;
         let panel_h = lines.len() as i32 * line_h + padding * 2 - 4;
@@ -683,8 +642,6 @@ impl Renderer {
         }
     }
 
-    /// A centered overlay shown while the mouse is not captured, telling
-    /// the player how to grab it. Dims the screen slightly behind the text.
     pub fn draw_capture_prompt(&mut self, native_capture: bool) {
         self.fill_rect_alpha(0, 0, self.width as i32, self.height as i32, pack_color(0.0, 0.0, 0.0), 0.35);
 
@@ -763,7 +720,7 @@ impl Renderer {
         let buttons = [
             "NOWY SWIAT",
             if save_slots[save_slot as usize - 1] { "WCZYTAJ ZAPIS" } else { "WCZYTAJ ZAPIS (BRAK)" },
-            "WYJDZ Z GRY",
+                "WYJDZ Z GRY",
         ];
         let rects = self.main_menu_button_rects();
         for (i, (&label, &(bx, by, bw, bh))) in buttons.iter().zip(rects.iter()).enumerate() {
@@ -810,7 +767,6 @@ impl Renderer {
         }
     }
 
-    /// Computes the button bounding boxes (in renderer pixel coordinates) for the pause menu.
     pub fn pause_menu_button_rects(&self) -> [(i32, i32, i32, i32); 4] {
         let btn_w = 340;
         let btn_h = 36;
@@ -826,15 +782,12 @@ impl Renderer {
         ]
     }
 
-    /// Renders a full Minecraft-style pause menu overlay with interactive buttons.
     pub fn draw_pause_menu(&mut self, fly_mode: bool, hovered_idx: Option<usize>) {
-        // Dim the world background
         self.fill_rect_alpha(0, 0, self.width as i32, self.height as i32, pack_color(0.0, 0.0, 0.0), 0.65);
 
         let cx = self.width as i32 / 2;
         let cy = self.height as i32 / 2;
 
-        // Title
         let title = "MENU GRY";
         let t_scale = 4;
         let t_w = font::measure_text(title, t_scale, 2);
@@ -843,8 +796,8 @@ impl Renderer {
         let buttons = [
             "WZNOW GRE (ESC)",
             if fly_mode { "TRYB LOTU: WLACZONY (F)" } else { "TRYB LOTU: WYLACZONY (F)" },
-            "MENU GLOWNE (M)",
-            "WYJDZ Z GRY (Q)",
+                "MENU GLOWNE (M)",
+                "WYJDZ Z GRY (Q)",
         ];
 
         let rects = self.pause_menu_button_rects();
@@ -852,7 +805,6 @@ impl Renderer {
         for (i, (&label, &(bx, by, bw, bh))) in buttons.iter().zip(rects.iter()).enumerate() {
             let is_hover = hovered_idx == Some(i);
 
-            // Button body
             let body_color = if is_hover {
                 pack_color(0.35, 0.45, 0.65)
             } else {
@@ -860,7 +812,6 @@ impl Renderer {
             };
             self.fill_rect(bx, by, bw, bh, body_color);
 
-            // 3D bevel borders
             let top_left = if is_hover {
                 pack_color(0.75, 0.85, 1.0)
             } else {
@@ -872,14 +823,11 @@ impl Renderer {
                 pack_color(0.10, 0.10, 0.12)
             };
 
-            // Top and left highlight border
             self.fill_rect(bx, by, bw, 2, top_left);
             self.fill_rect(bx, by, 2, bh, top_left);
-            // Bottom and right shadow border
             self.fill_rect(bx, by + bh - 2, bw, 2, bottom_right);
             self.fill_rect(bx + bw - 2, by, 2, bh, bottom_right);
 
-            // Text
             let scale = 2;
             let tw = font::measure_text(label, scale, 1);
             let tx = bx + (bw - tw) / 2;
@@ -892,7 +840,6 @@ impl Renderer {
             }
         }
 
-        // Helpful controls reminder at the bottom of the pause menu
         let footer1 = "STEROWANIE: WASD - RUCH | SHIFT - KUCANIE | CTRL - BIEG | SPACJA - SKOK";
         let footer2 = "LPM - NISZCZ | PPM - STAWIAJ | SCROLL / 1-6 - WYBOR BLOKU";
         let f_scale = 1;
@@ -928,8 +875,6 @@ impl Renderer {
         let h = self.height as i32;
         let buf = &mut self.color_buffer;
 
-        // Shadow pass (offset by 1px) then foreground pass on top, for
-        // legibility against any background.
         font::draw_text(text, x + 1, y + 1, scale, spacing, |px, py| {
             if px >= 0 && py >= 0 && px < w && py < h {
                 buf[(py as usize) * (w as usize) + (px as usize)] = shadow;
@@ -950,7 +895,6 @@ impl Renderer {
         }
     }
 
-    /// Alpha-blended rectangle fill, used for semi-transparent UI panels.
     fn fill_rect_alpha(&mut self, x: i32, y: i32, w: i32, h: i32, color: u32, alpha: f32) {
         let (cr, cg, cb) = unpack_color(color);
         let min_x = x.max(0);
@@ -983,10 +927,6 @@ fn to_clip_ao(v: Vertex, view_proj: &crate::math::Mat4) -> ClipVertAO {
     ClipVertAO { clip: c, uv: v.uv, ao: v.ao }
 }
 
-/// Clips a single triangle against the near plane (w > epsilon), using the
-/// Sutherland-Hodgman algorithm against one plane. Since a triangle clipped
-/// against a single plane produces at most a quad, the result has 0, 3, or
-/// 4 vertices. The AO factor is also linearly interpolated during clipping.
 fn clip_near_ao(verts: &[ClipVertAO; 3]) -> Vec<ClipVertAO> {
     const EPS: f32 = 1e-4;
     let inside = |v: &ClipVertAO| v.clip[3] > EPS;
@@ -1011,7 +951,7 @@ fn clip_near_ao(verts: &[ClipVertAO; 3]) -> Vec<ClipVertAO> {
             ];
             let uv = (
                 lerp(cur.uv.0, next.uv.0, t),
-                lerp(cur.uv.1, next.uv.1, t),
+                      lerp(cur.uv.1, next.uv.1, t),
             );
             let ao = lerp(cur.ao, next.ao, t);
             output.push(ClipVertAO { clip, uv, ao });
@@ -1019,7 +959,6 @@ fn clip_near_ao(verts: &[ClipVertAO; 3]) -> Vec<ClipVertAO> {
     }
     output
 }
-
 
 #[inline(always)]
 fn lerp(a: f32, b: f32, t: f32) -> f32 {

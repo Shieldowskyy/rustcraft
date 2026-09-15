@@ -22,6 +22,7 @@ pub enum BlockId {
     Door,
     Glass,
     Ice,
+    Tnt,
 }
 
 impl BlockId {
@@ -45,6 +46,7 @@ impl BlockId {
             16 => BlockId::Door,
             17 => BlockId::Glass,
             18 => BlockId::Ice,
+            19 => BlockId::Tnt,
             _ => BlockId::Air,
         }
     }
@@ -70,6 +72,7 @@ impl BlockId {
             BlockId::Door => 16,
             BlockId::Glass => 17,
             BlockId::Ice => 18,
+            BlockId::Tnt => 19,
         }
     }
 
@@ -106,6 +109,7 @@ impl BlockId {
             BlockId::Door => "drzwi",
             BlockId::Glass => "szyba",
             BlockId::Ice => "lod",
+            BlockId::Tnt => "TNT",
         }
     }
 
@@ -141,6 +145,10 @@ impl BlockId {
             BlockId::Door => [0.50, 0.30, 0.12],
             BlockId::Glass => [0.55, 0.82, 0.95],
             BlockId::Ice => [0.70, 0.88, 1.0],
+            BlockId::Tnt => match face {
+                Face::Top | Face::Bottom => [0.75, 0.70, 0.60],
+                _ => [0.85, 0.15, 0.10],
+            },
             BlockId::Air => [0.0, 0.0, 0.0],
         }
     }
@@ -177,6 +185,10 @@ impl BlockId {
             BlockId::Door => TextureId::Door,
             BlockId::Glass => TextureId::Glass,
             BlockId::Ice => TextureId::Ice,
+            BlockId::Tnt => match face {
+                Face::Top | Face::Bottom => TextureId::TntTop,
+                _ => TextureId::TntSide,
+            },
             BlockId::Air => TextureId::Stone, // never sampled
         }
     }
@@ -202,8 +214,6 @@ impl Face {
         Face::West,
     ];
 
-    /// Simple directional-light shading factor per face, to fake depth
-    /// without a real lighting pass (classic "ambient occlusion by face").
     pub fn shade(self) -> f32 {
         match self {
             Face::Top => 1.0,

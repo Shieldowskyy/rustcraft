@@ -177,7 +177,7 @@ fn water() -> Texture {
     for y in 0..TEX_SIZE {
         for x in 0..TEX_SIZE {
             let wave = ((y as f32 * 0.8 + x as f32 * 0.2).sin() * 0.5 + 0.5) * 0.5
-                + (rand_at(x, y, 55) * 0.15);
+            + (rand_at(x, y, 55) * 0.15);
             texels[y * TEX_SIZE + x] = mix(base, light, wave.clamp(0.0, 1.0));
         }
     }
@@ -232,7 +232,6 @@ fn cactus_side() -> Texture {
         for x in 0..TEX_SIZE {
             let rib = (x as f32 * 1.6).sin() * 0.5 + 0.5;
             let mut col = mix(dark_green, light_green, rib);
-            // Add spine dots every 4 pixels vertically on ridges
             if (x % 4 == 1 || x % 4 == 2) && (y % 4 == 1) {
                 col = spine;
             }
@@ -303,7 +302,7 @@ fn lava() -> Texture {
             let px = x as f32 / TEX_SIZE as f32 * std::f32::consts::TAU;
             let py = y as f32 / TEX_SIZE as f32 * std::f32::consts::TAU;
             let wave = ((px.sin() + py.cos()) * 0.5 + 0.5)
-                + (((px * 2.0 + py).sin()) * 0.3);
+            + (((px * 2.0 + py).sin()) * 0.3);
             let n = rand_at(x, y, 777) * 0.25;
             let t = (wave + n).clamp(0.0, 1.0);
             let col = if t > 0.80 {
@@ -336,6 +335,66 @@ fn snow_leaves() -> Texture {
     tex
 }
 
+/// Side texture for TNT: red body with white center strip and black markings.
+fn tnt_side() -> Texture {
+    let red = [0.85, 0.15, 0.10];
+    let white = [0.90, 0.90, 0.88];
+    let black = [0.10, 0.10, 0.10];
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let mut col = red;
+            // Central white band
+            if y >= 5 && y <= 10 {
+                col = white;
+                // Simple pixel art pattern resembling "TNT" lettering
+                let is_text_pixel = match (x, y) {
+                    // 'T'
+                    (2, 6) | (3, 6) | (4, 6) | (3, 7) | (3, 8) | (3, 9) => true,
+                    // 'N'
+                    (6, 6) | (6, 7) | (6, 8) | (6, 9) |
+                    (7, 7) | (8, 8) |
+                    (9, 6) | (9, 7) | (9, 8) | (9, 9) => true,
+                    // 'T'
+                    (11, 6) | (12, 6) | (13, 6) | (12, 7) | (12, 8) | (12, 9) => true,
+                    _ => false,
+                };
+                if is_text_pixel {
+                    col = black;
+                }
+            }
+            let n = rand_at(x, y, 808) * 0.08 - 0.04;
+            texels[y * TEX_SIZE + x] = [
+                (col[0] + n).clamp(0.0, 1.0),
+                (col[1] + n).clamp(0.0, 1.0),
+                (col[2] + n).clamp(0.0, 1.0),
+            ];
+        }
+    }
+    Texture { texels }
+}
+
+/// Top/Bottom texture for TNT: gunpowder surface with inner square/fuse markings.
+fn tnt_top() -> Texture {
+    let base = [0.75, 0.70, 0.60];
+    let dark = [0.45, 0.40, 0.35];
+    let red = [0.85, 0.15, 0.10];
+    let mut tex = speckled(base, 0.10, 809);
+
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if x == 3 || x == 12 || y == 3 || y == 12 {
+                tex.texels[y * TEX_SIZE + x] = dark;
+            }
+            if (x >= 6 && x <= 9) && (y >= 6 && y <= 9) {
+                tex.texels[y * TEX_SIZE + x] = red;
+            }
+        }
+    }
+    tex
+}
+
 /// All textures needed to render the world, indexed by `TextureId`.
 pub struct TextureAtlas {
     pub grass_top: Texture,
@@ -359,6 +418,8 @@ pub struct TextureAtlas {
     pub door: Texture,
     pub glass: Texture,
     pub ice: Texture,
+    pub tnt_top: Texture,
+    pub tnt_side: Texture,
 }
 
 impl TextureAtlas {
@@ -385,6 +446,8 @@ impl TextureAtlas {
             door: speckled([0.50, 0.30, 0.12], 0.10, 902),
             glass: glass(),
             ice: speckled([0.70, 0.88, 1.0], 0.08, 903),
+            tnt_top: tnt_top(),
+            tnt_side: tnt_side(),
         }
     }
 
@@ -411,6 +474,8 @@ impl TextureAtlas {
             TextureId::Door => &self.door,
             TextureId::Glass => &self.glass,
             TextureId::Ice => &self.ice,
+            TextureId::TntTop => &self.tnt_top,
+            TextureId::TntSide => &self.tnt_side,
         }
     }
 }
@@ -438,6 +503,8 @@ pub enum TextureId {
     Door,
     Glass,
     Ice,
+    TntTop,
+    TntSide,
 }
 
 fn glass() -> Texture {

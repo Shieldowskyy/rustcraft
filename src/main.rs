@@ -32,7 +32,6 @@ const MAX_SAVE_SLOTS: u8 = 32;
 
 // --- Particle system ---
 struct Particle {
-
     pos: Vec3,
     vel: Vec3,
     color: [f32; 3],
@@ -67,10 +66,44 @@ impl ParticleSystem {
             let brightness = 0.75 + next() * 0.5;
             self.particles.push(Particle {
                 pos: Vec3::new(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5),
-                vel: Vec3::new(vx, vy, vz),
-                color: [color[0] * brightness, color[1] * brightness, color[2] * brightness],
-                life: 0.4 + next() * 0.3,
-                size: 0.05 + next() * 0.06,
+                                vel: Vec3::new(vx, vy, vz),
+                                color: [color[0] * brightness, color[1] * brightness, color[2] * brightness],
+                                life: 0.4 + next() * 0.3,
+                                size: 0.05 + next() * 0.06,
+            });
+        }
+    }
+
+    /// Efektowna eksplozja ogniowo-dymna
+    fn spawn_explosion(&mut self, pos: Vec3) {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut rng = {
+            let mut h = DefaultHasher::new();
+            (pos.x as i32, pos.y as i32, pos.z as i32).hash(&mut h);
+            h.finish()
+        };
+        let mut next = || -> f32 {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((rng >> 33) as f32) / (u32::MAX as f32)
+        };
+
+        for _ in 0..60 {
+            let vx = (next() - 0.5) * 16.0;
+            let vy = (next() - 0.2) * 16.0;
+            let vz = (next() - 0.5) * 16.0;
+            let is_fire = next() > 0.3;
+            let color = if is_fire {
+                [1.0, 0.3 + next() * 0.5, 0.05]
+            } else {
+                [0.25, 0.25, 0.25]
+            };
+            self.particles.push(Particle {
+                pos: Vec3::new(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5),
+                                vel: Vec3::new(vx, vy, vz),
+                                color,
+                                life: 0.5 + next() * 0.6,
+                                size: 0.12 + next() * 0.15,
             });
         }
     }
@@ -87,14 +120,14 @@ impl ParticleSystem {
 }
 
 // --- Player physics constants ---
-const GRAVITY: f32 = 24.0; // blocks/sec^2
-const TERMINAL_VELOCITY: f32 = 40.0; // blocks/sec
-const JUMP_SPEED: f32 = 8.5; // blocks/sec, initial upward velocity
-const PLAYER_HALF_WIDTH: f32 = 0.3; // player collision box half-extent on X/Z
-const STANDING_HEIGHT: f32 = 1.8; // standing collision box height
-const STANDING_EYE_OFFSET: f32 = 1.6; // eye height above player's feet when standing
-const CROUCH_HEIGHT: f32 = 1.4; // crouched collision box height
-const CROUCH_EYE_OFFSET: f32 = 1.25; // eye height above player's feet when crouching
+const GRAVITY: f32 = 24.0;
+const TERMINAL_VELOCITY: f32 = 40.0;
+const JUMP_SPEED: f32 = 8.5;
+const PLAYER_HALF_WIDTH: f32 = 0.3;
+const STANDING_HEIGHT: f32 = 1.8;
+const STANDING_EYE_OFFSET: f32 = 1.6;
+const CROUCH_HEIGHT: f32 = 1.4;
+const CROUCH_EYE_OFFSET: f32 = 1.25;
 
 const BASE_FOV_DEG: f32 = 70.0;
 const SPRINT_FOV_DEG: f32 = 83.0;
@@ -110,8 +143,6 @@ enum GameState {
 fn main() {
     let renderer_choice = parse_renderer_choice();
     let mut seed = parse_seed();
-    // If DISPLAY is set on Linux, prefer X11 over Wayland for minifb so that
-    // hardware/X11 pointer grabbing and warping (XGrabPointer, XWarpPointer) works.
     #[cfg(target_os = "linux")]
     if std::env::var_os("DISPLAY").is_some() {
         std::env::remove_var("WAYLAND_DISPLAY");
@@ -119,12 +150,12 @@ fn main() {
 
     let mut window = Window::new(
         &format!("RustCraft - {} renderer", renderer_choice),
-        WIDTH,
-        HEIGHT,
-        WindowOptions {
-            resize: true,
-            ..WindowOptions::default()
-        },
+                                 WIDTH,
+                                 HEIGHT,
+                                 WindowOptions {
+                                     resize: true,
+                                     ..WindowOptions::default()
+                                 },
     )
     .expect("Nie udało się utworzyć okna");
 
@@ -146,19 +177,15 @@ fn main() {
     let mut camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
 
     let mut mouse_capture = MouseCapture::new(&window, win_size.0 as i32, win_size.1 as i32);
-    // Start un-captured so the player sees the window and clicks to begin,
-    // matching the expected FPS-game convention.
     mouse_capture.set_captured(false);
 
     let mut last_time = Instant::now();
     let mut last_mouse: Option<(f32, f32)> = None;
 
-    // Frame counter shown in the title bar as a simple FPS indicator.
     let mut fps_timer = Instant::now();
     let mut frame_count = 0u32;
     let mut fps_display = 0u32;
 
-    // Debounce flags so a single key/click doesn't trigger multiple times.
     let mut left_was_down = false;
     let mut right_was_down = false;
     let mut escape_was_down = false;
@@ -172,7 +199,6 @@ fn main() {
     let mut slot_right_was_down = false;
     let mut save_slot: u8 = 1;
 
-    // --- Player physics state ---
     let mut vertical_velocity: f32 = 0.0;
     let mut horiz_velocity = Vec3::zero();
     let mut fly_velocity = Vec3::zero();
@@ -204,7 +230,7 @@ fn main() {
     println!("  Mysz           - rozgladanie sie (gdy przechwycona)");
     println!("  LPM            - niszcz blok / kliknij przycisk w menu");
     println!("  PPM            - stawiaj blok");
-    println!("  Scroll / 1-6   - wybor typu bloku do stawiania");
+    println!("  Scroll / 1-9, F1-F4 - wybor typu bloku do stawiania");
     println!("  Q              - wyjscie z gry w menu pauzy");
 
     while window.is_open() {
@@ -214,7 +240,6 @@ fn main() {
         total_time += dt;
         hand_animation = (hand_animation - dt * 3.5).max(0.0);
 
-        // Dynamic window resizing / maximizing support
         let cur_size = window.get_size();
         if cur_size != win_size {
             win_size = cur_size;
@@ -308,7 +333,6 @@ fn main() {
                         Err(error) => eprintln!("{error}"),
                     }
                 }
-                // Escape opens the Pause Menu
                 if escape_down && !escape_was_down {
                     state = GameState::Paused;
                     mouse_capture.set_captured(false);
@@ -317,7 +341,6 @@ fn main() {
                     fly_velocity = Vec3::zero();
                 }
 
-                // Click to capture mouse when prompt is visible
                 let any_click = left_down || right_down;
                 if any_click && !mouse_capture.is_captured() {
                     mouse_capture.set_captured(true);
@@ -327,7 +350,6 @@ fn main() {
                     right_was_down = right_down;
                 }
 
-                // Mouse look
                 if mouse_capture.is_captured() {
                     if mouse_capture.has_native_capture() {
                         let (dx, dy) = mouse_capture.poll_delta();
@@ -342,7 +364,6 @@ fn main() {
                     }
                 }
 
-                // Direction vectors
                 let forward = camera.forward_flat();
                 let right = camera.right_flat();
                 let mut wish_dir = Vec3::zero();
@@ -365,19 +386,16 @@ fn main() {
                     wish_dir = wish_dir.normalized();
                 }
 
-                // Toggle fly mode with F
                 if f_down && !fly_key_was_down {
                     fly_mode = !fly_mode;
                     horiz_velocity = Vec3::zero();
                     fly_velocity = Vec3::zero();
                 }
 
-                // Crouching state (in survival/normal mode)
                 let is_crouching = !fly_mode
-                    && mouse_capture.is_captured()
-                    && (window.is_key_down(Key::LeftShift) || window.is_key_down(Key::C));
+                && mouse_capture.is_captured()
+                && (window.is_key_down(Key::LeftShift) || window.is_key_down(Key::C));
 
-                // Smooth eye height & bounding box transition for crouching
                 let target_eye = if is_crouching { CROUCH_EYE_OFFSET } else { STANDING_EYE_OFFSET };
                 let target_h = if is_crouching { CROUCH_HEIGHT } else { STANDING_HEIGHT };
                 let t_eye = 1.0 - (-14.0 * dt).exp();
@@ -389,13 +407,11 @@ fn main() {
                     camera.position.y += current_eye_offset - old_eye;
                 }
 
-                // Sprinting state
                 let is_sprinting = !is_crouching
-                    && mouse_capture.is_captured()
-                    && window.is_key_down(Key::LeftCtrl)
-                    && wish_dir.length_sq() > 0.01;
+                && mouse_capture.is_captured()
+                && window.is_key_down(Key::LeftCtrl)
+                && wish_dir.length_sq() > 0.01;
 
-                // Dynamic smooth FOV interpolation
                 let target_fov_deg = if is_sprinting {
                     SPRINT_FOV_DEG
                 } else if is_crouching {
@@ -429,7 +445,6 @@ fn main() {
                         move_dir = move_dir.normalized();
                     }
 
-                    // Smooth fly velocity interpolation
                     let target_fly = move_dir * (move_speed * 1.6);
                     let fly_damping = 12.0;
                     let t_fly = 1.0 - (-fly_damping * dt).exp();
@@ -439,7 +454,6 @@ fn main() {
                     vertical_velocity = 0.0;
                     horiz_velocity = Vec3::zero();
                 } else {
-                    // Smooth horizontal velocity interpolation (acceleration + friction)
                     let target_horiz = wish_dir * move_speed;
                     let feet_block = world.get_block(Vec3::new(
                         camera.position.x,
@@ -455,7 +469,6 @@ fn main() {
                     let t_horiz = 1.0 - (-damping * dt).exp();
                     horiz_velocity = horiz_velocity.lerp(target_horiz, t_horiz);
 
-                    // Gravity
                     vertical_velocity -= GRAVITY * dt;
                     if vertical_velocity < -TERMINAL_VELOCITY {
                         vertical_velocity = -TERMINAL_VELOCITY;
@@ -477,7 +490,6 @@ fn main() {
                     );
                 }
 
-                // Safety clamp
                 if camera.position.y < -32.0 {
                     camera.position.y = 80.0;
                     vertical_velocity = 0.0;
@@ -487,15 +499,12 @@ fn main() {
                     vertical_velocity = vertical_velocity.min(0.0);
                 }
 
-                // Block selection via keys (1-9) and scroll wheel
                 let mut selected_block = renderer.selected_block();
                 if let Some((_sx, sy)) = window.get_scroll_wheel() {
                     if sy > 0.0 {
-                        // Scroll up -> next slot (1..=9)
-                        selected_block = if selected_block >= 17 { 1 } else { selected_block + 1 };
+                        selected_block = if selected_block >= 19 { 1 } else { selected_block + 1 };
                     } else if sy < 0.0 {
-                        // Scroll down -> previous slot
-                        selected_block = if selected_block <= 1 { 17 } else { selected_block - 1 };
+                        selected_block = if selected_block <= 1 { 19 } else { selected_block - 1 };
                     }
                 }
                 for (key, id) in [
@@ -512,6 +521,7 @@ fn main() {
                     (Key::F1, 16),
                     (Key::F2, 17),
                     (Key::F3, 18),
+                    (Key::F4, 19),
                     (Key::I, 18),
                 ] {
                     if window.is_key_down(key) {
@@ -520,14 +530,12 @@ fn main() {
                 }
                 renderer.set_selected_block(selected_block);
 
-                // Block interaction
                 let interact_left = mouse_capture.is_captured() && left_down;
                 let interact_right = mouse_capture.is_captured() && right_down;
 
                 if interact_left && !left_was_down {
                     hand_animation = 1.0;
                     if let Some(hit) = world.raycast(camera.position, camera.forward(), 8.0) {
-                        // Bedrock jest niezniszczalny
                         if !world.get_block(hit.block_pos).is_bedrock() {
                             let broken_block = world.get_block(hit.block_pos);
                             let bx = hit.block_pos.x as f32;
@@ -543,14 +551,12 @@ fn main() {
                     hand_animation = 1.0;
                     if let Some(hit) = world.raycast(camera.position, camera.forward(), 8.0) {
                         let place_pos = hit.block_pos + hit.normal;
-                        // Prevent placing block inside player's bounding box
                         if !block_intersects_player(place_pos, camera.position, current_eye_offset, current_player_height) {
                             world.set_block(place_pos, block::BlockId::from_u8(selected_block));
                         }
                     }
                 }
 
-                // Update world
                 world.update(camera.position);
                 let hand_speed = if fly_mode {
                     fly_velocity.length()
@@ -565,23 +571,25 @@ fn main() {
                     material_timer = 0.0;
                     world.simulate_materials(camera.position);
                 }
+
+                // Generowanie efektów cząsteczkowych wybuchów z kolejek w świecie
+                for exp_pos in world.pending_explosions.drain(..) {
+                    particles.spawn_explosion(exp_pos);
+                }
+
                 particles.update(dt);
 
-                // Compute view-projection for this frame (needed for particles & clouds)
                 let aspect = WIDTH as f32 / HEIGHT as f32;
                 let view_proj = camera.projection_matrix(aspect).mul(&camera.view_matrix());
 
-                // Render world and in-game HUD
                 renderer.render_frame(&mut world, &camera);
 
-                // Clouds (drawn after world, before HUD)
                 renderer.draw_clouds(camera.position, &view_proj, total_time);
                 let block_at_camera = world.get_block(camera.position.floor_to_ivec());
                 if block_at_camera == block::BlockId::Water {
                     renderer.draw_underwater_overlay(total_time);
                 }
 
-                // Particles
                 for p in &particles.particles {
                     renderer.draw_billboard(p.pos, p.size, p.color, &camera, &view_proj);
                 }
@@ -601,12 +609,12 @@ fn main() {
 
                 let debug_lines = vec![
                     format!("FPS: {}", fps_display),
-                    format!(
-                        "POZYCJA X:{} Y:{} Z:{}",
-                        camera.position.x as i32, camera.position.y as i32, camera.position.z as i32
-                    ),
-                    format!("BLOK: {}", block::BlockId::from_u8(selected_block).name().to_uppercase()),
-                    format!("TRYB: {}", mode_str),
+                        format!(
+                            "POZYCJA X:{} Y:{} Z:{}",
+                            camera.position.x as i32, camera.position.y as i32, camera.position.z as i32
+                        ),
+                        format!("BLOK: {}", block::BlockId::from_u8(selected_block).name().to_uppercase()),
+                            format!("TRYB: {}", mode_str),
                 ];
                 renderer.draw_debug_panel(&debug_lines);
 
@@ -617,11 +625,9 @@ fn main() {
             GameState::Paused => {
                 window.set_cursor_visibility(true);
 
-                // Gently return FOV to standard when paused
                 let t_fov = 1.0 - (-8.0 * dt).exp();
                 camera.fov_y += (BASE_FOV_DEG.to_radians() - camera.fov_y) * t_fov;
 
-                // Compute hovered button in pause menu using scaled mouse coordinates
                 let rects = renderer.pause_menu_button_rects();
                 let mut hovered_idx = None;
                 if let Some((mx, my)) = mouse_pos {
@@ -635,22 +641,18 @@ fn main() {
                     }
                 }
 
-                // Click interaction on buttons
                 if left_down && !left_was_down {
                     match hovered_idx {
                         Some(0) => {
-                            // Resume
                             state = GameState::Playing;
                             mouse_capture.set_captured(true);
                             window.set_cursor_visibility(false);
                             last_mouse = None;
                         }
                         Some(1) => {
-                            // Toggle fly mode
                             fly_mode = !fly_mode;
                         }
                         Some(2) => {
-                            // Return to main menu
                             let _ = save_current_world(&mut world, &camera, save_slot);
                             save_slots[save_slot as usize - 1] = true;
                             state = GameState::MainMenu;
@@ -658,7 +660,6 @@ fn main() {
                             window.set_cursor_visibility(true);
                         }
                         Some(3) => {
-                            // Quit game
                             let _ = save_current_world(&mut world, &camera, save_slot);
                             break;
                         }
@@ -666,9 +667,7 @@ fn main() {
                     }
                 }
 
-                // Keyboard shortcuts in pause menu
                 if escape_down && !escape_was_down {
-                    // Resume
                     state = GameState::Playing;
                     mouse_capture.set_captured(true);
                     window.set_cursor_visibility(false);
@@ -690,7 +689,6 @@ fn main() {
                     window.set_cursor_visibility(true);
                 }
 
-                // Render current frame with pause menu overlay
                 renderer.render_frame(&mut world, &camera);
                 renderer.draw_pause_menu(fly_mode, hovered_idx);
             }
@@ -705,10 +703,9 @@ fn main() {
         save_was_down = f5_down;
 
         window
-            .update_with_buffer(renderer.pixel_buffer(), WIDTH, HEIGHT)
-            .expect("Blad podczas aktualizacji bufora okna");
+        .update_with_buffer(renderer.pixel_buffer(), WIDTH, HEIGHT)
+        .expect("Blad podczas aktualizacji bufora okna");
 
-        // --- FPS counter in title ---
         frame_count += 1;
         if fps_timer.elapsed().as_secs_f32() >= 0.5 {
             fps_display = (frame_count as f32 / fps_timer.elapsed().as_secs_f32()) as u32;
@@ -718,10 +715,10 @@ fn main() {
         window.set_title(&format!(
             "RustCraft [{} renderer] - {} FPS - blok: {}{}{}",
             renderer.backend_name(),
-            fps_display,
-            block::BlockId::from_u8(renderer.selected_block()).name(),
-            if fly_mode { " - [LOT]" } else { "" },
-            if state == GameState::Paused { " - [PAUZA]" } else { "" }
+                                  fps_display,
+                                  block::BlockId::from_u8(renderer.selected_block()).name(),
+                                  if fly_mode { " - [LOT]" } else { "" },
+                                      if state == GameState::Paused { " - [PAUZA]" } else { "" }
         ));
     }
 
@@ -768,11 +765,10 @@ fn parse_renderer_choice() -> &'static str {
 fn generate_random_seed() -> u32 {
     let mut buf = [0u8; 4];
     getrandom::getrandom(&mut buf).unwrap_or_else(|_| {
-        // Fallback: use nanoseconds from system time as entropy.
         let ns = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.subsec_nanos())
-            .unwrap_or(0x1337_1337);
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0x1337_1337);
         buf = ns.to_le_bytes();
     });
     u32::from_le_bytes(buf)
@@ -783,11 +779,11 @@ fn parse_seed() -> u32 {
     for index in 1..args.len() {
         if args[index] == "--seed" {
             return args.get(index + 1)
-                .and_then(|value| value.parse::<u32>().ok())
-                .unwrap_or_else(|| {
-                    eprintln!("Seed musi być liczbą: --seed LICZBA");
-                    std::process::exit(2);
-                });
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or_else(|| {
+                eprintln!("Seed musi być liczbą: --seed LICZBA");
+                std::process::exit(2);
+            });
         }
     }
     generate_random_seed()
@@ -807,7 +803,6 @@ fn world_slot_for_row(selected_slot: u8, row: usize) -> u8 {
     ((selected_slot as i32 - 1 + row as i32 + 32 - 2).rem_euclid(32) + 1) as u8
 }
 
-/// Checks if a placed block's 1x1x1 volume intersects the player's bounding box.
 fn block_intersects_player(place_pos: crate::math::IVec3, eye_pos: Vec3, eye_offset: f32, height: f32) -> bool {
     let half = PLAYER_HALF_WIDTH;
     let feet_y = eye_pos.y - eye_offset;
@@ -826,25 +821,19 @@ fn block_intersects_player(place_pos: crate::math::IVec3, eye_pos: Vec3, eye_off
     let b_max_z = (place_pos.z + 1) as f32;
 
     p_min_x < b_max_x
-        && p_max_x > b_min_x
-        && p_min_y < b_max_y
-        && p_max_y > b_min_y
-        && p_min_z < b_max_z
-        && p_max_z > b_min_z
+    && p_max_x > b_min_x
+    && p_min_y < b_max_y
+    && p_max_y > b_min_y
+    && p_min_z < b_max_z
+    && p_max_z > b_min_z
 }
 
-/// Checks if there is solid ground beneath the player's feet box.
 fn has_ground_below(world: &World, feet: Vec3, half: f32) -> bool {
     let min = Vec3::new(feet.x - half, feet.y - 0.4, feet.z - half);
     let max = Vec3::new(feet.x + half, feet.y + 0.05, feet.z + half);
     world.box_collides(min, max)
 }
 
-/// Moves the player (whose `eye_pos` is the camera position, i.e. feet +
-/// `player_eye_offset`) by `motion`, resolving collisions against solid
-/// blocks one axis at a time (X, then Y, then Z) so the player slides along
-/// walls/floors instead of just stopping dead on any contact. Returns
-/// whether the player ended the move standing on solid ground.
 fn move_player_with_collision(
     world: &World,
     eye_pos: &mut Vec3,
@@ -862,29 +851,25 @@ fn move_player_with_collision(
     let aabb = |feet: Vec3| -> (Vec3, Vec3) {
         (
             Vec3::new(feet.x - half, feet.y, feet.z - half),
-            Vec3::new(feet.x + half, feet.y + height, feet.z + half),
+         Vec3::new(feet.x + half, feet.y + height, feet.z + half),
         )
     };
 
-    // Move on X axis
     feet.x += motion.x;
     if world.box_collides(aabb(feet).0, aabb(feet).1)
         || (is_crouching && !has_ground_below(world, feet, half))
-    {
-        feet.x -= motion.x;
-    }
+        {
+            feet.x -= motion.x;
+        }
 
-    // Move on Z axis
-    feet.z += motion.z;
+        feet.z += motion.z;
     if world.box_collides(aabb(feet).0, aabb(feet).1)
         || (is_crouching && !has_ground_below(world, feet, half))
-    {
-        feet.z -= motion.z;
-    }
+        {
+            feet.z -= motion.z;
+        }
 
-    // Move on Y axis (gravity / jumping), tracked separately so we can
-    // detect ground contact and zero out vertical velocity on landing.
-    let mut on_ground = false;
+        let mut on_ground = false;
     feet.y += motion.y;
     {
         let (min, max) = aabb(feet);

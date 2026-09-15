@@ -9,14 +9,10 @@ use crate::math::Vec3;
 use crate::texture::TextureId;
 use crate::world::{Chunk, World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
 
-/// A single world-space triangle vertex: position, texture coordinate, and
-/// a per-vertex AO factor baked at mesh-build time so the renderer can
-/// interpolate it smoothly without per-pixel lighting.
 #[derive(Copy, Clone)]
 pub struct Vertex {
     pub pos: Vec3,
     pub uv: (f32, f32),
-    /// Per-vertex AO * directional shade factor [0.5..1.0]
     pub ao: f32,
 }
 
@@ -28,9 +24,6 @@ pub struct Triangle {
     pub texture: TextureId,
 }
 
-/// Builds a mesh (list of triangles, in world space) for a single chunk.
-/// `world` is used to sample neighboring chunks so faces on chunk borders
-/// are culled correctly against adjacent chunk contents.
 pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
     let mut tris = Vec::new();
 
@@ -62,7 +55,6 @@ pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
                                 if neighbor != block {
                                     neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)
                                 } else {
-                                    // If adjacent block is the same fluid, only render a step face if neighbor has lower fluid level
                                     let above_neighbor = sample_block(chunk, world, lx + n.x, ly + 1, lz + n.z, base_x, base_z);
                                     if above_neighbor != block {
                                         let my_lvl = world.fluid_level(crate::math::IVec3::new(wx, wy, wz));
@@ -76,7 +68,7 @@ pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
                         }
                     } else {
                         neighbor == BlockId::Air
-                            || (neighbor.is_transparent() && neighbor != block)
+                        || (neighbor.is_transparent() && neighbor != block)
                     };
 
                     if visible {
@@ -90,8 +82,6 @@ pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
     tris
 }
 
-/// Samples a block at local coordinates that may spill into a neighboring
-/// chunk (used only for X/Z since chunks aren't stacked vertically).
 #[inline(always)]
 fn sample_block(
     chunk: &Chunk,
@@ -113,13 +103,11 @@ fn sample_block(
     world.get_block(crate::math::IVec3::new(wx, ly, wz))
 }
 
-/// Returns true if the block at the given local offset is solid (used for AO).
 #[inline(always)]
 fn solid_at(chunk: &Chunk, world: &World, base_x: i32, base_z: i32, lx: i32, ly: i32, lz: i32) -> bool {
     sample_block(chunk, world, lx, ly, lz, base_x, base_z).is_solid()
 }
 
-/// Classic Minecraft per-vertex AO from the 3 neighboring blocks at a corner.
 #[inline(always)]
 fn vertex_ao(side1: bool, side2: bool, corner: bool) -> f32 {
     let count = side1 as u8 + side2 as u8 + (corner && !(side1 && side2)) as u8;
@@ -168,7 +156,6 @@ fn emit_face(
         y + 1.0
     };
 
-    // Cube corners
     let c000 = Vec3::new(x,       y,     z);
     let c100 = Vec3::new(x + 1.0, y,     z);
     let c010 = Vec3::new(x,       top_y, z);
@@ -180,43 +167,42 @@ fn emit_face(
 
     let s = |dx: i32, dy: i32, dz: i32| solid_at(chunk, world, base_x, base_z, lx+dx, wy+dy, lz+dz);
 
-    // 4 corners of the face with AO factor each (winding matches original)
     let (a, ao_a, b, ao_b, c, ao_c, d, ao_d) = match face {
         Face::Top => (
             c010, vertex_ao(s(-1,1,0), s(0,1,-1), s(-1,1,-1)),
-            c011, vertex_ao(s(-1,1,0), s(0,1, 1), s(-1,1, 1)),
-            c111, vertex_ao(s( 1,1,0), s(0,1, 1), s( 1,1, 1)),
-            c110, vertex_ao(s( 1,1,0), s(0,1,-1), s( 1,1,-1)),
+                      c011, vertex_ao(s(-1,1,0), s(0,1, 1), s(-1,1, 1)),
+                      c111, vertex_ao(s( 1,1,0), s(0,1, 1), s( 1,1, 1)),
+                      c110, vertex_ao(s( 1,1,0), s(0,1,-1), s( 1,1,-1)),
         ),
         Face::Bottom => (
             c001, vertex_ao(s(-1,-1,0), s(0,-1, 1), s(-1,-1, 1)),
-            c000, vertex_ao(s(-1,-1,0), s(0,-1,-1), s(-1,-1,-1)),
-            c100, vertex_ao(s( 1,-1,0), s(0,-1,-1), s( 1,-1,-1)),
-            c101, vertex_ao(s( 1,-1,0), s(0,-1, 1), s( 1,-1, 1)),
+                         c000, vertex_ao(s(-1,-1,0), s(0,-1,-1), s(-1,-1,-1)),
+                         c100, vertex_ao(s( 1,-1,0), s(0,-1,-1), s( 1,-1,-1)),
+                         c101, vertex_ao(s( 1,-1,0), s(0,-1, 1), s( 1,-1, 1)),
         ),
         Face::North => (
             c100, vertex_ao(s( 1,0,-1), s(0,-1,-1), s( 1,-1,-1)),
-            c000, vertex_ao(s(-1,0,-1), s(0,-1,-1), s(-1,-1,-1)),
-            c010, vertex_ao(s(-1,0,-1), s(0, 1,-1), s(-1, 1,-1)),
-            c110, vertex_ao(s( 1,0,-1), s(0, 1,-1), s( 1, 1,-1)),
+                        c000, vertex_ao(s(-1,0,-1), s(0,-1,-1), s(-1,-1,-1)),
+                        c010, vertex_ao(s(-1,0,-1), s(0, 1,-1), s(-1, 1,-1)),
+                        c110, vertex_ao(s( 1,0,-1), s(0, 1,-1), s( 1, 1,-1)),
         ),
         Face::South => (
             c001, vertex_ao(s(-1,0,1), s(0,-1,1), s(-1,-1,1)),
-            c101, vertex_ao(s( 1,0,1), s(0,-1,1), s( 1,-1,1)),
-            c111, vertex_ao(s( 1,0,1), s(0, 1,1), s( 1, 1,1)),
-            c011, vertex_ao(s(-1,0,1), s(0, 1,1), s(-1, 1,1)),
+                        c101, vertex_ao(s( 1,0,1), s(0,-1,1), s( 1,-1,1)),
+                        c111, vertex_ao(s( 1,0,1), s(0, 1,1), s( 1, 1,1)),
+                        c011, vertex_ao(s(-1,0,1), s(0, 1,1), s(-1, 1,1)),
         ),
         Face::East => (
             c101, vertex_ao(s(1,0, 1), s(1,-1,0), s(1,-1, 1)),
-            c100, vertex_ao(s(1,0,-1), s(1,-1,0), s(1,-1,-1)),
-            c110, vertex_ao(s(1,0,-1), s(1, 1,0), s(1, 1,-1)),
-            c111, vertex_ao(s(1,0, 1), s(1, 1,0), s(1, 1, 1)),
+                       c100, vertex_ao(s(1,0,-1), s(1,-1,0), s(1,-1,-1)),
+                       c110, vertex_ao(s(1,0,-1), s(1, 1,0), s(1, 1,-1)),
+                       c111, vertex_ao(s(1,0, 1), s(1, 1,0), s(1, 1, 1)),
         ),
         Face::West => (
             c000, vertex_ao(s(-1,0,-1), s(-1,-1,0), s(-1,-1,-1)),
-            c001, vertex_ao(s(-1,0, 1), s(-1,-1,0), s(-1,-1, 1)),
-            c011, vertex_ao(s(-1,0, 1), s(-1, 1,0), s(-1, 1, 1)),
-            c010, vertex_ao(s(-1,0,-1), s(-1, 1,0), s(-1, 1,-1)),
+                       c001, vertex_ao(s(-1,0, 1), s(-1,-1,0), s(-1,-1, 1)),
+                       c011, vertex_ao(s(-1,0, 1), s(-1, 1,0), s(-1, 1, 1)),
+                       c010, vertex_ao(s(-1,0,-1), s(-1, 1,0), s(-1, 1,-1)),
         ),
     };
 
@@ -225,7 +211,6 @@ fn emit_face(
     let vc = Vertex { pos: c, uv: (1.0, 0.0), ao: shade * ao_c };
     let vd = Vertex { pos: d, uv: (0.0, 0.0), ao: shade * ao_d };
 
-    // Flip the diagonal based on AO sum to avoid gradient artifacts
     if (ao_a + ao_c) > (ao_b + ao_d) {
         tris.push(Triangle { v0: va, v1: vb, v2: vc, texture });
         tris.push(Triangle { v0: va, v1: vc, v2: vd, texture });
