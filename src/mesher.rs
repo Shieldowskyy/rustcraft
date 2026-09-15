@@ -5,7 +5,7 @@
 // software-render scale.
 
 use crate::block::{BlockId, Face};
-use crate::math::{IVec3, Vec3};
+use crate::math::Vec3;
 use crate::texture::TextureId;
 use crate::world::{Chunk, World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
 
@@ -26,6 +26,7 @@ pub struct Triangle {
     pub v1: Vertex,
     pub v2: Vertex,
     pub texture: TextureId,
+    #[allow(dead_code)]
     pub tint: [f32; 3],
 }
 

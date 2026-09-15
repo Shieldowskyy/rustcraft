@@ -1,10 +1,4 @@
-// 100% software renderer: no GPU draw calls of any kind.
-// Pipeline: world-space triangles -> view/projection transform -> near-plane
-// clipping -> perspective divide -> viewport transform -> scanline
-// rasterization with a per-pixel depth buffer and texture sampling ->
-// pixel buffer (u32 RGB) that main.rs blits into the OS window via minifb
-// (minifb does NOT render anything itself; it just owns the window and
-// copies our finished buffer to the screen).
+// Software and Vulkan renderers share the same world mesh and texture data.
 
 use std::collections::HashMap;
 
@@ -12,7 +6,8 @@ use crate::camera::Camera;
 use crate::font;
 use crate::mesher::{build_chunk_mesh, Triangle, Vertex};
 use crate::texture::TextureAtlas;
-use crate::world::World;
+use crate::vulkan::VulkanContext;
+use crate::world::{World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
 
 pub struct Renderer {
     width: usize,
@@ -22,6 +17,7 @@ pub struct Renderer {
     mesh_cache: HashMap<(i32, i32), Vec<Triangle>>,
     selected_block: u8,
     textures: TextureAtlas,
+    vulkan: Option<VulkanContext>,
 }
 
 /// A triangle vertex after the view-projection transform, still in
@@ -56,7 +52,18 @@ impl Renderer {
             mesh_cache: HashMap::new(),
             selected_block: 1,
             textures: TextureAtlas::generate(),
+            vulkan: None,
         }
+    }
+
+    pub fn new_vulkan(width: usize, height: usize) -> Result<Self, String> {
+        let mut renderer = Self::new(width, height);
+        renderer.vulkan = Some(VulkanContext::new(width, height, &renderer.textures)?);
+        Ok(renderer)
+    }
+
+    pub fn backend_name(&self) -> &'static str {
+        if self.vulkan.is_some() { "vulkan" } else { "software" }
     }
 
     pub fn pixel_buffer(&self) -> &[u32] {
@@ -92,7 +99,7 @@ impl Renderer {
         }
     }
 
-    pub fn render_frame(&mut self, world: &World, camera: &Camera) {
+    pub fn render_frame(&mut self, world: &mut World, camera: &Camera) {
         self.clear(camera.pitch);
 
         let aspect = self.width as f32 / self.height as f32;
@@ -104,6 +111,7 @@ impl Renderer {
         let loaded_keys: std::collections::HashSet<(i32, i32)> =
             world.chunks.keys().copied().collect();
         self.mesh_cache.retain(|k, _| loaded_keys.contains(k));
+        let mut dirty_keys = std::collections::HashSet::new();
 
         let mut keys: Vec<(i32, i32)> = world.chunks.keys().copied().collect();
         keys.sort_unstable();
@@ -117,10 +125,31 @@ impl Renderer {
             if !already_built_clean {
                 let mesh = build_chunk_mesh(chunk, world);
                 self.mesh_cache.insert(*key, mesh);
+                if let Some(chunk) = world.chunks.get_mut(key) {
+                    chunk.dirty = false;
+                }
+                dirty_keys.insert(*key);
             }
         }
 
+        if let Some(vulkan) = self.vulkan.as_mut() {
+            let (color_buffer, depth_buffer) = vulkan.render_world(
+                &self.mesh_cache,
+                &loaded_keys,
+                &dirty_keys,
+                &view_proj,
+                camera.position,
+                camera.pitch,
+            );
+            self.color_buffer = color_buffer;
+            self.depth_buffer = depth_buffer;
+            return;
+        }
+
         for key in &keys {
+            if !Self::chunk_visible(*key, &view_proj) {
+                continue;
+            }
             // Take the triangle list out temporarily so we can mutably
             // borrow `self` (for the depth/color buffers) while iterating.
             if let Some(tris) = self.mesh_cache.remove(key) {
@@ -130,6 +159,32 @@ impl Renderer {
                 self.mesh_cache.insert(*key, tris);
             }
         }
+    }
+
+    /// Conservative frustum test for a whole chunk. Testing one sphere is
+    /// much cheaper than transforming and rejecting every triangle in it.
+    fn chunk_visible(key: (i32, i32), view_proj: &crate::math::Mat4) -> bool {
+        let center = crate::math::Vec3::new(
+            key.0 as f32 * CHUNK_SIZE_X as f32 + CHUNK_SIZE_X as f32 * 0.5,
+            CHUNK_SIZE_Y as f32 * 0.5,
+            key.1 as f32 * CHUNK_SIZE_Z as f32 + CHUNK_SIZE_Z as f32 * 0.5,
+        );
+        let radius = ((CHUNK_SIZE_X * CHUNK_SIZE_X
+            + CHUNK_SIZE_Y * CHUNK_SIZE_Y
+            + CHUNK_SIZE_Z * CHUNK_SIZE_Z) as f32).sqrt() * 0.5;
+        let clip = view_proj.transform_point(center);
+        let m = &view_proj.m;
+        let x_radius = radius * (m[0] * m[0] + m[4] * m[4] + m[8] * m[8]).sqrt();
+        let y_radius = radius * (m[1] * m[1] + m[5] * m[5] + m[9] * m[9]).sqrt();
+        let z_radius = radius * (m[2] * m[2] + m[6] * m[6] + m[10] * m[10]).sqrt();
+        let w_radius = radius * (m[3] * m[3] + m[7] * m[7] + m[11] * m[11]).sqrt();
+
+        clip[0] + clip[3] + x_radius + w_radius >= 0.0
+            && clip[3] - clip[0] + x_radius + w_radius >= 0.0
+            && clip[1] + clip[3] + y_radius + w_radius >= 0.0
+            && clip[3] - clip[1] + y_radius + w_radius >= 0.0
+            && clip[2] + clip[3] + z_radius + w_radius >= 0.0
+            && clip[3] - clip[2] + z_radius + w_radius >= 0.0
     }
 
     fn raster_triangle(&mut self, tri: &Triangle, view_proj: &crate::math::Mat4) {
@@ -275,12 +330,12 @@ impl Renderer {
         let depth_at_pos = {
             let c = view_proj.transform_point(pos);
             if c[3] <= 1e-4 { return; }
-            1.0 / c[3]
+            c[3]
         };
 
         let packed = pack_color(color[0], color[1], color[2]);
         // Draw filled quad as two triangles via scanline
-        for &(tri_idx) in &[(0usize,1usize,2usize),(0usize,2usize,3usize)] {
+        for &tri_idx in &[(0usize,1usize,2usize),(0usize,2usize,3usize)] {
             let (ai, bi, ci) = tri_idx;
             let (ax, ay, _) = pts[ai];
             let (bx, by, _) = pts[bi];
@@ -371,7 +426,7 @@ impl Renderer {
                 let depth_center = {
                     let c = view_proj.transform_point(crate::math::Vec3::new(wx, cloud_y, wz));
                     if c[3] <= 1e-4 { continue; }
-                    1.0 / c[3]
+                    c[3]
                 };
 
                 // Soft alpha for clouds (only color, no depth write to avoid blocking world)
@@ -402,7 +457,15 @@ impl Renderer {
                             };
                             if inside {
                                 let idx = py as usize * self.width + px as usize;
-                                if depth_center < self.depth_buffer[idx] {
+                                // The world depth buffer stores clip.w. Interpolate
+                                // reciprocal w here, then convert back to the same
+                                // depth metric instead of comparing 1/w to w.
+                                let w0n = w0 / area;
+                                let w1n = w1 / area;
+                                let w2n = w2 / area;
+                                let inv_w = w0n * pts[ai].2 + w1n * pts[bi].2 + w2n * pts[ci].2;
+                                let cloud_depth = if inv_w > 1e-6 { 1.0 / inv_w } else { depth_center };
+                                if cloud_depth < self.depth_buffer[idx] {
                                     // Alpha blend cloud color
                                     let (cr, cg, cb) = unpack_color(packed);
                                     let (br, bg, bb) = unpack_color(self.color_buffer[idx]);

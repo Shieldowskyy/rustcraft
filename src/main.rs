@@ -1,5 +1,4 @@
-// RustCraft - a tiny Minecraft-like voxel game with a 100% software renderer.
-// No GPU APIs (no OpenGL/Vulkan/DirectX/wgpu) are used for rendering.
+// RustCraft - a tiny Minecraft-like voxel game with selectable software/Vulkan backends.
 // All rasterization (triangles, depth-buffer, lighting) happens on the CPU
 // into a plain pixel buffer, which is then blitted to a window via `minifb`.
 // `minifb` is used ONLY for creating an OS window and reading keyboard/mouse
@@ -15,6 +14,7 @@ mod noise;
 mod texture;
 mod font;
 mod mouse_capture;
+mod vulkan;
 
 use minifb::{Key, MouseButton, MouseMode, Window, WindowOptions, CursorStyle};
 use std::time::Instant;
@@ -27,6 +27,7 @@ use world::World;
 
 const WIDTH: usize = 960;
 const HEIGHT: usize = 540;
+const TARGET_FPS: usize = 165;
 
 // --- Particle system ---
 struct Particle {
@@ -105,6 +106,7 @@ enum GameState {
 }
 
 fn main() {
+    let renderer_choice = parse_renderer_choice();
     // If DISPLAY is set on Linux, prefer X11 over Wayland for minifb so that
     // hardware/X11 pointer grabbing and warping (XGrabPointer, XWarpPointer) works.
     #[cfg(target_os = "linux")]
@@ -113,7 +115,7 @@ fn main() {
     }
 
     let mut window = Window::new(
-        "RustCraft - Software Rendered Voxel Engine",
+        &format!("RustCraft - {} renderer", renderer_choice),
         WIDTH,
         HEIGHT,
         WindowOptions {
@@ -123,13 +125,20 @@ fn main() {
     )
     .expect("Nie udało się utworzyć okna");
 
-    window.set_target_fps(60);
+    window.set_target_fps(TARGET_FPS);
     window.set_cursor_visibility(false);
     let _ = window.set_cursor_style(CursorStyle::Crosshair);
 
     let mut win_size = window.get_size();
 
-    let mut renderer = Renderer::new(WIDTH, HEIGHT);
+    let mut renderer = match renderer_choice {
+        "software" => Renderer::new(WIDTH, HEIGHT),
+        "vulkan" => Renderer::new_vulkan(WIDTH, HEIGHT).unwrap_or_else(|error| {
+            eprintln!("Nie można uruchomić renderera Vulkan: {error}");
+            std::process::exit(1);
+        }),
+        _ => unreachable!(),
+    };
     let mut world = World::new();
     let mut camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
 
@@ -446,7 +455,7 @@ fn main() {
                 let view_proj = camera.projection_matrix(aspect).mul(&camera.view_matrix());
 
                 // Render world and in-game HUD
-                renderer.render_frame(&world, &camera);
+                renderer.render_frame(&mut world, &camera);
 
                 // Clouds (drawn after world, before HUD)
                 renderer.draw_clouds(camera.position, &view_proj, total_time);
@@ -542,7 +551,7 @@ fn main() {
                 }
 
                 // Render current frame with pause menu overlay
-                renderer.render_frame(&world, &camera);
+                renderer.render_frame(&mut world, &camera);
                 renderer.draw_pause_menu(fly_mode, hovered_idx);
             }
         }
@@ -565,13 +574,48 @@ fn main() {
             fps_timer = Instant::now();
         }
         window.set_title(&format!(
-            "RustCraft [software renderer] - {} FPS - blok: {}{}{}",
+            "RustCraft [{} renderer] - {} FPS - blok: {}{}{}",
+            renderer.backend_name(),
             fps_display,
             block::BlockId::from_u8(renderer.selected_block()).name(),
             if fly_mode { " - [LOT]" } else { "" },
             if state == GameState::Paused { " - [PAUZA]" } else { "" }
         ));
     }
+}
+
+fn parse_renderer_choice() -> &'static str {
+    let args: Vec<String> = std::env::args().collect();
+    let mut choice = "software";
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--renderer" => {
+                let value = args.get(index + 1).map(String::as_str).unwrap_or("");
+                choice = match value {
+                    "software" => "software",
+                    "vulkan" => "vulkan",
+                    _ => {
+                        eprintln!("Użycie: rustcraft [--renderer software|vulkan]");
+                        std::process::exit(2);
+                    }
+                };
+                index += 1;
+            }
+            "--vulkan" => choice = "vulkan",
+            "--software" => choice = "software",
+            "--help" | "-h" => {
+                println!("Użycie: rustcraft [--renderer software|vulkan]");
+                std::process::exit(0);
+            }
+            unknown => {
+                eprintln!("Nieznany argument: {unknown}\nUżycie: rustcraft [--renderer software|vulkan]");
+                std::process::exit(2);
+            }
+        }
+        index += 1;
+    }
+    choice
 }
 
 /// Checks if a placed block's 1x1x1 volume intersects the player's bounding box.

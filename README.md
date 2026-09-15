@@ -1,9 +1,11 @@
-# RustCraft — wokselowa gra Minecraft-podobna ze 100% software renderingiem
+# RustCraft — wokselowa gra Minecraft-podobna z wybieralnym rendererem
 
-Mały silnik wokselowy w Rust, w którym **cały rendering odbywa się na CPU**:
+Mały silnik wokselowy w Rust z dwoma trybami uruchomienia. Renderer programowy
+wykonuje **cały rendering na CPU**:
 transformacje 3D, przycinanie (clipping), rasteryzacja trójkątów, bufor
 głębokości (z-buffer), oświetlenie per-face i mgła dystansowa — wszystko
-liczone ręcznie, piksel po pikselu, bez OpenGL/Vulkan/DirectX/wgpu.
+liczone ręcznie, piksel po pikselu. Tryb Vulkan inicjalizuje urządzenie Vulkan,
+zachowując tę samą prezentację okna i obsługę wejścia przez `minifb`.
 
 Biblioteka `minifb` jest użyta **wyłącznie** do stworzenia okna systemowego
 i odczytu klawiatury/myszy — nie renderuje niczego sama. Program co klatkę
@@ -24,21 +26,19 @@ cd rustcraft
 cargo run --release
 ```
 
-Pierwsza kompilacja pobierze i skompiluje zależności (tylko `minifb` i jego
-własne zależności do obsługi okna/wejścia — żadnych bibliotek graficznych).
+Domyślnie używany jest renderer programowy. Renderer Vulkan można wybrać przy
+uruchamianiu:
 
-# RustCraft — wokselowa gra Minecraft-podobna ze 100% software renderingiem
+```bash
+cargo run --release -- --renderer vulkan
+# skróty: --vulkan oraz --software
+```
 
-Mały silnik wokselowy w Rust, w którym **cały rendering odbywa się na CPU**:
-transformacje 3D, przycinanie (clipping), rasteryzacja trójkątów, bufor
-głębokości (z-buffer), próbkowanie tekstur, oświetlenie per-face, mgła
-dystansowa i UI — wszystko liczone ręcznie, piksel po pikselu, bez
-OpenGL/Vulkan/DirectX/wgpu.
+Tryb Vulkan wymaga zainstalowanego loadera Vulkan i urządzenia z kolejką
+graficzną. Bez obsługi Vulkan użyj `--renderer software`.
 
-Biblioteka `minifb` jest użyta **wyłącznie** do stworzenia okna systemowego
-i odczytu klawiatury/myszy — nie renderuje niczego sama. Program co klatkę
-sam wypełnia bufor pikseli (`Vec<u32>`) i przekazuje go do `minifb`, które
-tylko kopiuje go na ekran (`update_with_buffer`).
+Pierwsza kompilacja pobierze i skompiluje zależności, w tym `wgpu` z backendem Vulkan dla trybu
+Vulkan oraz `minifb` dla okna i wejścia.
 
 Na Linuksie/X11 dodatkowo używamy bezpośrednio Xlib (przez `x11-dl`, bez
 GPU) do **prawdziwego przechwycenia i ukrycia kursora myszy** w oknie gry —
