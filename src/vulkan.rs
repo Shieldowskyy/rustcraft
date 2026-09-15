@@ -268,7 +268,9 @@ var positions = array<vec2<f32>, 3>(
                             out_pixels: &mut [u32],
                             out_depths: &mut [f32],
         ) {
-            self.chunk_buffers.retain(|key, _| loaded_keys.contains(key));
+            // Optymalizacja: Sprawdzenie O(1) w hashmapie w zamian skanu O(N) po array slice.
+            self.chunk_buffers.retain(|key, _| mesh_cache.contains_key(key));
+
             for key in loaded_keys {
                 if !dirty_keys.contains(key) && self.chunk_buffers.contains_key(key) {
                     continue;
@@ -329,6 +331,7 @@ var positions = array<vec2<f32>, 3>(
                                           transparent_count: self.trans_scratch.len() as u32,
                 });
             }
+
             let globals = Globals {
                 view_proj: [
                     [view_proj.m[0], view_proj.m[1], view_proj.m[2], view_proj.m[3]],
@@ -340,6 +343,7 @@ var positions = array<vec2<f32>, 3>(
                 camera_pitch: [pitch, 0.0, 0.0, 0.0],
             };
             self.queue.write_buffer(&self.globals_buffer, 0, bytemuck::bytes_of(&globals));
+
             let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RustCraft Vulkan frame") });
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -372,6 +376,7 @@ var positions = array<vec2<f32>, 3>(
                     }
                 }
             }
+
             encoder.copy_texture_to_buffer(
                 wgpu::ImageCopyTexture { texture: &self.target, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
                 wgpu::ImageCopyBuffer { buffer: &self.readback, layout: wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(self.padded_bytes_per_row), rows_per_image: Some(self.height) } },
@@ -382,7 +387,9 @@ var positions = array<vec2<f32>, 3>(
                 wgpu::ImageCopyBuffer { buffer: &self.depth_readback, layout: wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(self.padded_bytes_per_row), rows_per_image: Some(self.height) } },
                                            wgpu::Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 },
             );
+
             self.queue.submit(Some(encoder.finish()));
+
             let slice = self.readback.slice(..);
             let depth_slice = self.depth_readback.slice(..);
             slice.map_async(wgpu::MapMode::Read, |_| {});
@@ -392,17 +399,19 @@ var positions = array<vec2<f32>, 3>(
             let mapped = slice.get_mapped_range();
             let depth_mapped = depth_slice.get_mapped_range();
 
+            // Optymalizacja: Błyskawiczne rzutowanie u8 do kolorów SIMD (bytemuck)
             if self.padded_bytes_per_row == self.width * 4 {
-                for (out, chunk) in out_pixels.iter_mut().zip(mapped.chunks_exact(4)) {
+                let mapped_chunks: &[[u8; 4]] = bytemuck::cast_slice(&mapped);
+                for (out, chunk) in out_pixels.iter_mut().zip(mapped_chunks) {
                     *out = ((chunk[0] as u32) << 16) | ((chunk[1] as u32) << 8) | (chunk[2] as u32);
                 }
             } else {
                 for y in 0..self.height as usize {
-                    let row = &mapped[y * self.padded_bytes_per_row as usize..];
+                    let row = &mapped[y * self.padded_bytes_per_row as usize..y * self.padded_bytes_per_row as usize + (self.width * 4) as usize];
+                    let mapped_chunks: &[[u8; 4]] = bytemuck::cast_slice(row);
                     let out_row = &mut out_pixels[y * self.width as usize..(y + 1) * self.width as usize];
-                    for (x, out) in out_row.iter_mut().enumerate() {
-                        let offset = x * 4;
-                        *out = ((row[offset] as u32) << 16) | ((row[offset + 1] as u32) << 8) | (row[offset + 2] as u32);
+                    for (out, chunk) in out_row.iter_mut().zip(mapped_chunks) {
+                        *out = ((chunk[0] as u32) << 16) | ((chunk[1] as u32) << 8) | (chunk[2] as u32);
                     }
                 }
             }

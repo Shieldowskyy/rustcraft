@@ -8,6 +8,16 @@ use crate::texture::TextureAtlas;
 use crate::vulkan::VulkanContext;
 use crate::world::{World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
 
+#[derive(Clone, Copy)]
+pub struct Particle {
+    pub pos: Vec3,
+    pub velocity: Vec3,
+    pub life: f32,
+    pub max_life: f32,
+    pub color: [f32; 3],
+    pub size: f32,
+}
+
 pub struct Renderer {
     width: usize,
     height: usize,
@@ -20,6 +30,7 @@ pub struct Renderer {
     loaded_keys: Vec<(i32, i32)>,
     dirty_keys: HashSet<(i32, i32)>,
     visible_keys: Vec<(i32, i32)>,
+    pub particles: Vec<Particle>,
 }
 
 #[derive(Clone, Copy)]
@@ -52,10 +63,10 @@ impl Renderer {
             loaded_keys: Vec::with_capacity(128),
             dirty_keys: HashSet::with_capacity(64),
             visible_keys: Vec::with_capacity(128),
+            particles: Vec::new(),
         }
     }
 
-    /// Rysuje pojedynczą ściankę bloku 3D w podanej pozycji
     pub fn draw_block_face(
         &mut self,
         pos: Vec3,
@@ -127,7 +138,6 @@ impl Renderer {
         self.raster_triangle(&t2, view_proj);
     }
 
-    /// Rysuje blok TNT jako siatkę 3D w dowolnej pozycji świata (dla Primed TNT)
     pub fn draw_tnt_cube(&mut self, pos: Vec3, fuse: f32, camera: &Camera, view_proj: &Mat4) {
         use crate::block::{BlockId, Face};
 
@@ -143,6 +153,57 @@ impl Renderer {
             ];
 
             self.draw_block_face(pos, face, color, camera, view_proj);
+        }
+    }
+
+    pub fn spawn_explosion(&mut self, center: Vec3) {
+        let mut rng_state = 12345u32;
+        let mut rand_f32 = || -> f32 {
+            rng_state = rng_state.wrapping_mul(1664525).wrapping_add(1013904223);
+            (rng_state as f32 / u32::MAX as f32) * 2.0 - 1.0 // -1.0 to 1.0
+        };
+
+        for _ in 0..40 {
+            let vx = rand_f32() * 6.0;
+            let vy = rand_f32() * 5.0 + 4.0;
+            let vz = rand_f32() * 6.0;
+
+            let life = (rand_f32() + 1.0) * 0.5 * 1.5 + 0.5; // 0.5 to 2.0 sekundy
+
+            let color_val = (rand_f32() + 1.0) * 0.5 * 0.5 + 0.5;
+            let color = if rand_f32() > 0.0 {
+                [1.0, color_val * 0.6, 0.1] // Ogień
+            } else {
+                [color_val, color_val, color_val] // Dym
+            };
+
+            self.particles.push(Particle {
+                pos: center,
+                velocity: Vec3::new(vx, vy, vz),
+                                life,
+                                max_life: life,
+                                color,
+                                size: 0.6 + rand_f32() * 0.4,
+            });
+        }
+    }
+
+    pub fn draw_particles(&mut self, camera: &Camera, view_proj: &Mat4, dt: f32) {
+        let mut i = 0;
+        while i < self.particles.len() {
+            self.particles[i].life -= dt;
+            if self.particles[i].life <= 0.0 {
+                self.particles.swap_remove(i);
+            } else {
+                self.particles[i].velocity.y -= 9.81 * dt;
+                self.particles[i].pos = self.particles[i].pos + self.particles[i].velocity * dt;
+
+                let p = self.particles[i];
+                let current_size = p.size * (p.life / p.max_life);
+
+                self.draw_billboard(p.pos, current_size, p.color, camera, view_proj);
+                i += 1;
+            }
         }
     }
 
@@ -178,10 +239,10 @@ impl Renderer {
             let g = top.1 + (bottom.1 - top.1) * t;
             let b = top.2 + (bottom.2 - top.2) * t;
             let color = pack_color(r, g, b);
+
             let row_start = y * self.width;
-            for x in 0..self.width {
-                self.color_buffer[row_start + x] = color;
-            }
+            // Optymalizacja: szybkie uzupełnianie wiersza (SIMD .fill)
+            self.color_buffer[row_start..row_start + self.width].fill(color);
         }
         for d in self.depth_buffer.iter_mut() {
             *d = f32::INFINITY;
@@ -238,32 +299,42 @@ impl Renderer {
             return;
         }
 
-        let visible: Vec<(i32, i32)> = (0..self.loaded_keys.len())
+        let mut visible: Vec<(i32, i32)> = (0..self.loaded_keys.len())
         .filter(|&i| Self::chunk_visible(self.loaded_keys[i], &view_proj))
         .map(|i| self.loaded_keys[i])
         .collect();
 
+        // Optymalizacja: szybkie przeliczanie distansu
+        let cam_x = camera.position.x - CHUNK_SIZE_X as f32 * 0.5;
+        let cam_z = camera.position.z - CHUNK_SIZE_Z as f32 * 0.5;
+
+        visible.sort_unstable_by(|a, b| {
+            let dx_a = a.0 as f32 * CHUNK_SIZE_X as f32 - cam_x;
+            let dz_a = a.1 as f32 * CHUNK_SIZE_Z as f32 - cam_z;
+            let dx_b = b.0 as f32 * CHUNK_SIZE_X as f32 - cam_x;
+            let dz_b = b.1 as f32 * CHUNK_SIZE_Z as f32 - cam_z;
+
+            (dx_a * dx_a + dz_a * dz_a).partial_cmp(&(dx_b * dx_b + dz_b * dz_b)).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         // Pass 1: Opaque geometry
+        // Optymalizacja: Ominięcie alokacji Vec oraz problemu z Borrow Checkerem przez iterację po indeksach
         for key in &visible {
-            if let Some(tris) = self.mesh_cache.get(key) {
-                let tri_ptrs: Vec<_> = tris.iter()
-                .filter(|t| !matches!(t.texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass))
-                .cloned()
-                .collect();
-                for tri in tri_ptrs {
+            let len = self.mesh_cache.get(key).map_or(0, |tris| tris.len());
+            for i in 0..len {
+                let tri = self.mesh_cache.get(key).unwrap()[i].clone();
+                if !matches!(tri.texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass) {
                     self.raster_triangle(&tri, &view_proj);
                 }
             }
         }
 
         // Pass 2: Transparent geometry
-        for key in &visible {
-            if let Some(tris) = self.mesh_cache.get(key) {
-                let tri_ptrs: Vec<_> = tris.iter()
-                .filter(|t| matches!(t.texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass))
-                .cloned()
-                .collect();
-                for tri in tri_ptrs {
+        for key in visible.iter().rev() {
+            let len = self.mesh_cache.get(key).map_or(0, |tris| tris.len());
+            for i in 0..len {
+                let tri = self.mesh_cache.get(key).unwrap()[i].clone();
+                if matches!(tri.texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass) {
                     self.raster_triangle(&tri, &view_proj);
                 }
             }
@@ -271,27 +342,39 @@ impl Renderer {
     }
 
     fn chunk_visible(key: (i32, i32), view_proj: &crate::math::Mat4) -> bool {
-        let center = crate::math::Vec3::new(
-            key.0 as f32 * CHUNK_SIZE_X as f32 + CHUNK_SIZE_X as f32 * 0.5,
-            CHUNK_SIZE_Y as f32 * 0.5,
-            key.1 as f32 * CHUNK_SIZE_Z as f32 + CHUNK_SIZE_Z as f32 * 0.5,
-        );
-        let radius = ((CHUNK_SIZE_X * CHUNK_SIZE_X
-        + CHUNK_SIZE_Y * CHUNK_SIZE_Y
-        + CHUNK_SIZE_Z * CHUNK_SIZE_Z) as f32).sqrt() * 0.5;
-        let clip = view_proj.transform_point(center);
-        let m = &view_proj.m;
-        let x_radius = radius * (m[0] * m[0] + m[4] * m[4] + m[8] * m[8]).sqrt();
-        let y_radius = radius * (m[1] * m[1] + m[5] * m[5] + m[9] * m[9]).sqrt();
-        let z_radius = radius * (m[2] * m[2] + m[6] * m[6] + m[10] * m[10]).sqrt();
-        let w_radius = radius * (m[3] * m[3] + m[7] * m[7] + m[11] * m[11]).sqrt();
+        let min_x = key.0 as f32 * CHUNK_SIZE_X as f32;
+        let min_y = 0.0;
+        let min_z = key.1 as f32 * CHUNK_SIZE_Z as f32;
+        let max_x = min_x + CHUNK_SIZE_X as f32;
+        let max_y = CHUNK_SIZE_Y as f32;
+        let max_z = min_z + CHUNK_SIZE_Z as f32;
 
-        clip[0] + clip[3] + x_radius + w_radius >= 0.0
-        && clip[3] - clip[0] + x_radius + w_radius >= 0.0
-        && clip[1] + clip[3] + y_radius + w_radius >= 0.0
-        && clip[3] - clip[1] + y_radius + w_radius >= 0.0
-        && clip[2] + clip[3] + z_radius + w_radius >= 0.0
-        && clip[3] - clip[2] + z_radius + w_radius >= 0.0
+        let corners = [
+            crate::math::Vec3::new(min_x, min_y, min_z),
+            crate::math::Vec3::new(max_x, min_y, min_z),
+            crate::math::Vec3::new(min_x, max_y, min_z),
+            crate::math::Vec3::new(max_x, max_y, min_z),
+            crate::math::Vec3::new(min_x, min_y, max_z),
+            crate::math::Vec3::new(max_x, min_y, max_z),
+            crate::math::Vec3::new(min_x, max_y, max_z),
+            crate::math::Vec3::new(max_x, max_y, max_z),
+        ];
+
+        let mut out_x_pos = 0; let mut out_x_neg = 0;
+        let mut out_y_pos = 0; let mut out_y_neg = 0;
+        let mut out_z_pos = 0; let mut out_z_neg = 0;
+
+        for &corner in &corners {
+            let clip = view_proj.transform_point(corner);
+            if clip[0] > clip[3] { out_x_pos += 1; }
+            if clip[0] < -clip[3] { out_x_neg += 1; }
+            if clip[1] > clip[3] { out_y_pos += 1; }
+            if clip[1] < -clip[3] { out_y_neg += 1; }
+            if clip[2] > clip[3] { out_z_pos += 1; }
+            if clip[2] < -clip[3] { out_z_neg += 1; }
+        }
+
+        !(out_x_pos == 8 || out_x_neg == 8 || out_y_pos == 8 || out_y_neg == 8 || out_z_pos == 8 || out_z_neg == 8)
     }
 
     fn raster_triangle(&mut self, tri: &Triangle, view_proj: &crate::math::Mat4) {
@@ -548,7 +631,9 @@ impl Renderer {
                     c[3]
                 };
 
+                // Optymalizacja: Rozpakowanie stałych z góry pętli
                 let packed = pack_color(cloud_color[0], cloud_color[1], cloud_color[2]);
+                let (cr, cg, cb) = unpack_color(packed);
                 let alpha = 0.72f32;
 
                 for &(ai, bi, ci) in &[(0usize,1usize,2usize),(0usize,2usize,3usize)] {
@@ -581,7 +666,6 @@ impl Renderer {
                                 let inv_w = w0n * pts[ai].2 + w1n * pts[bi].2 + w2n * pts[ci].2;
                                 let cloud_depth = if inv_w > 1e-6 { 1.0 / inv_w } else { depth_center };
                                 if cloud_depth < self.depth_buffer[idx] {
-                                    let (cr, cg, cb) = unpack_color(packed);
                                     let (br, bg, bb) = unpack_color(self.color_buffer[idx]);
                                     let r = cr * alpha + br * (1.0 - alpha);
                                     let g = cg * alpha + bg * (1.0 - alpha);
@@ -979,11 +1063,17 @@ impl Renderer {
         });
     }
 
+    // Optymalizacja: Usprawnione iterowanie przez pamięć dla szybkich kwadratów UI
     fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: u32) {
-        for yy in y..y + h {
-            for xx in x..x + w {
-                self.set_px(xx, yy, color);
-            }
+        let min_x = x.max(0);
+        let min_y = y.max(0);
+        let max_x = (x + w).min(self.width as i32);
+        let max_y = (y + h).min(self.height as i32);
+        if min_x >= max_x || min_y >= max_y { return; }
+        for yy in min_y..max_y {
+            let start = yy as usize * self.width + min_x as usize;
+            let end = yy as usize * self.width + max_x as usize;
+            self.color_buffer[start..end].fill(color);
         }
     }
 
