@@ -27,7 +27,8 @@ use world::World;
 
 const WIDTH: usize = 960;
 const HEIGHT: usize = 540;
-const TARGET_FPS: usize = 165;
+const TARGET_FPS: usize = 300;
+const MAX_SAVE_SLOTS: u8 = 32;
 
 // --- Particle system ---
 struct Particle {
@@ -101,12 +102,14 @@ const CROUCH_FOV_DEG: f32 = 66.0;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum GameState {
+    MainMenu,
     Playing,
     Paused,
 }
 
 fn main() {
     let renderer_choice = parse_renderer_choice();
+    let mut seed = parse_seed();
     // If DISPLAY is set on Linux, prefer X11 over Wayland for minifb so that
     // hardware/X11 pointer grabbing and warping (XGrabPointer, XWarpPointer) works.
     #[cfg(target_os = "linux")]
@@ -139,7 +142,7 @@ fn main() {
         }),
         _ => unreachable!(),
     };
-    let mut world = World::new();
+    let mut world = World::new_with_seed(seed);
     let mut camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
 
     let mut mouse_capture = MouseCapture::new(&window, win_size.0 as i32, win_size.1 as i32);
@@ -161,6 +164,13 @@ fn main() {
     let mut escape_was_down = false;
     let mut fly_key_was_down = false;
     let mut q_was_down = false;
+    let mut m_was_down = false;
+    let mut enter_was_down = false;
+    let mut load_was_down = false;
+    let mut save_was_down = false;
+    let mut slot_left_was_down = false;
+    let mut slot_right_was_down = false;
+    let mut save_slot: u8 = 1;
 
     // --- Player physics state ---
     let mut vertical_velocity: f32 = 0.0;
@@ -171,7 +181,7 @@ fn main() {
     let mut current_eye_offset = STANDING_EYE_OFFSET;
     let mut current_player_height = STANDING_HEIGHT;
 
-    let mut state = GameState::Playing;
+    let mut state = GameState::MainMenu;
 
     let mut particles = ParticleSystem::new();
     let mut total_time = 0.0f32;
@@ -206,6 +216,7 @@ fn main() {
         let escape_down = window.is_key_down(Key::Escape);
         let f_down = window.is_key_down(Key::F);
         let q_down = window.is_key_down(Key::Q);
+        let f5_down = window.is_key_down(Key::F5);
         let (win_w, win_h) = window.get_size();
         let mouse_pos = window.get_mouse_pos(MouseMode::Pass).map(|(mx, my)| {
             let fx = if win_w > 0 { mx * (WIDTH as f32) / (win_w as f32) } else { mx };
@@ -216,7 +227,82 @@ fn main() {
         let right_down = window.get_mouse_down(MouseButton::Right);
 
         match state {
+            GameState::MainMenu => {
+                let enter_down = window.is_key_down(Key::Enter);
+                let load_down = window.is_key_down(Key::L);
+                let slot_left_down = window.is_key_down(Key::Left);
+                let slot_right_down = window.is_key_down(Key::Right);
+                let main_menu_rects = renderer.main_menu_button_rects();
+                let world_rects = renderer.main_menu_world_rects();
+                let mut hovered_idx = None;
+                if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    for (i, &(bx, by, bw, bh)) in main_menu_rects.iter().enumerate() {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            hovered_idx = Some(i);
+                            break;
+                        }
+                    }
+                }
+                let mut clicked_world = false;
+                if left_down && !left_was_down {
+                    if let Some((mx, my)) = mouse_pos {
+                        let px = mx as i32;
+                        let py = my as i32;
+                        for (row, &(bx, by, bw, bh)) in world_rects.iter().enumerate() {
+                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                                save_slot = world_slot_for_row(save_slot, row);
+                                clicked_world = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if slot_left_down && !slot_left_was_down {
+                    save_slot = if save_slot == 1 { MAX_SAVE_SLOTS } else { save_slot - 1 };
+                }
+                if slot_right_down && !slot_right_was_down {
+                    save_slot = if save_slot == MAX_SAVE_SLOTS { 1 } else { save_slot + 1 };
+                }
+                let click_button = if !clicked_world && left_down && !left_was_down { hovered_idx } else { None };
+                if enter_down && !enter_was_down || click_button == Some(0) {
+                    world = World::new_with_seed(seed);
+                    camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
+                    state = GameState::Playing;
+                } else if load_down && !load_was_down || click_button == Some(1) {
+                    let path = save_path(save_slot);
+                    match World::load(&path) {
+                        Ok(loaded_world) => {
+                            seed = loaded_world.seed;
+                            let loaded_position = loaded_world.player_position;
+                            world = loaded_world;
+                            camera = Camera::new(loaded_position);
+                            state = GameState::Playing;
+                        }
+                        Err(error) => eprintln!("{error}"),
+                    }
+                } else if q_down && !q_was_down || click_button == Some(2) {
+                    break;
+                }
+                let save_slots: [bool; MAX_SAVE_SLOTS as usize] = std::array::from_fn(|index| {
+                    let path = save_path(index as u8 + 1);
+                    std::path::Path::new(&path).exists()
+                });
+                renderer.draw_main_menu(seed, save_slot, &save_slots, hovered_idx);
+                enter_was_down = enter_down;
+                load_was_down = load_down;
+                slot_left_was_down = slot_left_down;
+                slot_right_was_down = slot_right_down;
+            }
             GameState::Playing => {
+                if f5_down && !save_was_down {
+                    let path = save_path(save_slot);
+                    match save_current_world(&mut world, &camera, save_slot) {
+                        Ok(()) => println!("Zapisano świat do {path}"),
+                        Err(error) => eprintln!("{error}"),
+                    }
+                }
                 // Escape opens the Pause Menu
                 if escape_down && !escape_was_down {
                     state = GameState::Paused;
@@ -528,7 +614,15 @@ fn main() {
                             fly_mode = !fly_mode;
                         }
                         Some(2) => {
+                            // Return to main menu
+                            let _ = save_current_world(&mut world, &camera, save_slot);
+                            state = GameState::MainMenu;
+                            mouse_capture.set_captured(false);
+                            window.set_cursor_visibility(true);
+                        }
+                        Some(3) => {
                             // Quit game
+                            let _ = save_current_world(&mut world, &camera, save_slot);
                             break;
                         }
                         _ => {}
@@ -547,7 +641,15 @@ fn main() {
                     fly_mode = !fly_mode;
                 }
                 if q_down && !q_was_down {
+                    let _ = save_current_world(&mut world, &camera, save_slot);
                     break;
+                }
+                let m_down = window.is_key_down(Key::M);
+                if m_down && !m_was_down {
+                    let _ = save_current_world(&mut world, &camera, save_slot);
+                    state = GameState::MainMenu;
+                    mouse_capture.set_captured(false);
+                    window.set_cursor_visibility(true);
                 }
 
                 // Render current frame with pause menu overlay
@@ -561,6 +663,8 @@ fn main() {
         escape_was_down = escape_down;
         fly_key_was_down = f_down;
         q_was_down = q_down;
+        m_was_down = window.is_key_down(Key::M);
+        save_was_down = f5_down;
 
         window
             .update_with_buffer(renderer.pixel_buffer(), WIDTH, HEIGHT)
@@ -582,6 +686,10 @@ fn main() {
             if state == GameState::Paused { " - [PAUZA]" } else { "" }
         ));
     }
+
+    if matches!(state, GameState::Playing | GameState::Paused) {
+        let _ = save_current_world(&mut world, &camera, save_slot);
+    }
 }
 
 fn parse_renderer_choice() -> &'static str {
@@ -596,7 +704,7 @@ fn parse_renderer_choice() -> &'static str {
                     "software" => "software",
                     "vulkan" => "vulkan",
                     _ => {
-                        eprintln!("Użycie: rustcraft [--renderer software|vulkan]");
+                        eprintln!("Użycie: rustcraft [--renderer software|vulkan] [--seed LICZBA]");
                         std::process::exit(2);
                     }
                 };
@@ -604,18 +712,48 @@ fn parse_renderer_choice() -> &'static str {
             }
             "--vulkan" => choice = "vulkan",
             "--software" => choice = "software",
+            "--seed" => index += 1,
             "--help" | "-h" => {
-                println!("Użycie: rustcraft [--renderer software|vulkan]");
+                println!("Użycie: rustcraft [--renderer software|vulkan] [--seed LICZBA]");
                 std::process::exit(0);
             }
             unknown => {
-                eprintln!("Nieznany argument: {unknown}\nUżycie: rustcraft [--renderer software|vulkan]");
+                eprintln!("Nieznany argument: {unknown}\nUżycie: rustcraft [--renderer software|vulkan] [--seed LICZBA]");
                 std::process::exit(2);
             }
         }
         index += 1;
     }
     choice
+}
+
+fn parse_seed() -> u32 {
+    let args: Vec<String> = std::env::args().collect();
+    for index in 1..args.len() {
+        if args[index] == "--seed" {
+            return args.get(index + 1)
+                .and_then(|value| value.parse::<u32>().ok())
+                .unwrap_or_else(|| {
+                    eprintln!("Seed musi być liczbą: --seed LICZBA");
+                    std::process::exit(2);
+                });
+        }
+    }
+    world::DEFAULT_WORLD_SEED
+}
+
+fn save_path(slot: u8) -> String {
+    format!("rustcraft_world_{slot:02}.bin")
+}
+
+fn save_current_world(world: &mut World, camera: &Camera, slot: u8) -> Result<(), String> {
+    world.player_position = camera.position;
+    let path = save_path(slot);
+    world.save(&path)
+}
+
+fn world_slot_for_row(selected_slot: u8, row: usize) -> u8 {
+    ((selected_slot as i32 - 1 + row as i32 + 32 - 2).rem_euclid(32) + 1) as u8
 }
 
 /// Checks if a placed block's 1x1x1 volume intersects the player's bounding box.

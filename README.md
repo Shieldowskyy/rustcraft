@@ -34,6 +34,18 @@ cargo run --release -- --renderer vulkan
 # skróty: --vulkan oraz --software
 ```
 
+Custom seed można podać przy uruchamianiu:
+
+```bash
+cargo run --release -- --seed 8675309
+cargo run --release -- --renderer vulkan --seed 8675309
+```
+
+Po uruchomieniu pojawia się menu główne. Strzałki `Left/Right` wybierają jeden
+z 32 slotów zapisu, `Enter` tworzy nowy świat, `L` wczytuje wybrany zapis,
+a `Q` kończy program. `F5` zapisuje aktywny świat, podobnie jak wyjście z
+pauzy. Pliki mają nazwy `rustcraft_world_01.bin` do `rustcraft_world_32.bin`.
+
 Tryb Vulkan wymaga zainstalowanego loadera Vulkan i urządzenia z kolejką
 graficzną. Bez obsługi Vulkan użyj `--renderer software`.
 

@@ -11,7 +11,7 @@ pub const CHUNK_SIZE_Z: i32 = 16;
 /// View distance in chunks (radius around the player).
 pub const VIEW_DISTANCE: i32 = 4;
 
-const WORLD_SEED: u32 = 1337;
+pub const DEFAULT_WORLD_SEED: u32 = 1337;
 
 pub struct Chunk {
     pub cx: i32,
@@ -40,7 +40,7 @@ impl Chunk {
         self.dirty = true;
     }
 
-    fn generate(cx: i32, cz: i32) -> Chunk {
+    fn generate(cx: i32, cz: i32, seed: u32) -> Chunk {
         use crate::noise::fractal_noise3;
 
         let mut blocks = vec![0u8; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize];
@@ -52,11 +52,11 @@ impl Chunk {
 
                 // --- Biome noise sampling ---
                 // Temperature: < -0.2 -> Snowy, > 0.3 -> Desert
-                let temp = fractal_noise2(wx as f32 * 0.006, wz as f32 * 0.006, WORLD_SEED + 500, 3, 0.5);
+                let temp = fractal_noise2(wx as f32 * 0.006, wz as f32 * 0.006, seed.wrapping_add(500), 3, 0.5);
                 // Humidity: > 0.15 -> Forest
-                let humidity = fractal_noise2(wx as f32 * 0.006, wz as f32 * 0.006, WORLD_SEED + 1500, 3, 0.5);
+                let humidity = fractal_noise2(wx as f32 * 0.006, wz as f32 * 0.006, seed.wrapping_add(1500), 3, 0.5);
                 // Mountain factor: > 0.35 -> Mountains
-                let mountain_factor = fractal_noise2(wx as f32 * 0.008, wz as f32 * 0.008, WORLD_SEED + 2500, 3, 0.5);
+                let mountain_factor = fractal_noise2(wx as f32 * 0.008, wz as f32 * 0.008, seed.wrapping_add(2500), 3, 0.5);
 
                 let is_mountain = mountain_factor > 0.32;
                 let is_snowy = !is_mountain && temp < -0.18;
@@ -64,7 +64,7 @@ impl Chunk {
                 let is_forest = !is_mountain && !is_snowy && !is_desert && humidity > 0.15;
 
                 // Base height calculation per biome
-                let n = fractal_noise2(wx as f32 * 0.015, wz as f32 * 0.015, WORLD_SEED, 4, 0.5);
+                let n = fractal_noise2(wx as f32 * 0.015, wz as f32 * 0.015, seed, 4, 0.5);
                 let height = if is_mountain {
                     let m_extra = ((mountain_factor - 0.32) / 0.68).clamp(0.0, 1.0);
                     let m_height = 36.0 + n * 12.0 + m_extra * 16.0;
@@ -85,7 +85,7 @@ impl Chunk {
                     }
                     if y == 1 {
                         // Warstwa mieszana bedrock/stone na Y=1
-                        let h = hash_coords_3d(wx, y, wz);
+                        let h = hash_coords_3d(wx, y, wz, seed);
                         blocks[Chunk::index(lx, y, lz)] = if h % 3 == 0 {
                             BlockId::Bedrock.to_u8()
                         } else {
@@ -133,7 +133,7 @@ impl Chunk {
                         }
                     } else {
                         // Underground stone with ores
-                        let ore_h = hash_coords_3d(wx, y, wz);
+                        let ore_h = hash_coords_3d(wx, y, wz, seed);
                         if ore_h % 37 == 0 {
                             BlockId::CoalOre
                         } else if ore_h % 67 == 0 && y < 30 {
@@ -148,8 +148,8 @@ impl Chunk {
                     // --- 3D Cave generation ---
                     // Carve hollow worm tunnels & caverns through solid terrain
                     if y > 1 && y < height - 1 && block != BlockId::Water && block != BlockId::Air {
-                        let c1 = fractal_noise3(wx as f32 * 0.045, y as f32 * 0.065, wz as f32 * 0.045, WORLD_SEED + 3141, 2, 0.5);
-                        let c2 = fractal_noise3(wx as f32 * 0.045, y as f32 * 0.065, wz as f32 * 0.045, WORLD_SEED + 9265, 2, 0.5);
+                        let c1 = fractal_noise3(wx as f32 * 0.045, y as f32 * 0.065, wz as f32 * 0.045, seed.wrapping_add(3141), 2, 0.5);
+                        let c2 = fractal_noise3(wx as f32 * 0.045, y as f32 * 0.065, wz as f32 * 0.045, seed.wrapping_add(9265), 2, 0.5);
                         let is_cave = (c1 * c1 + c2 * c2) < 0.024;
                         if is_cave {
                             // Bardzo głęboko: wypełnij lawą zamiast powietrzem
@@ -164,7 +164,7 @@ impl Chunk {
 
                 // --- Vegetation & features (Trees, Cacti, Pine Trees) ---
                 if height > 21 {
-                    let h = hash_coords(wx, wz);
+                    let h = hash_coords(wx, wz, seed);
                     if is_desert {
                         // Cacti in desert
                         if h % 167 == 0 {
@@ -200,19 +200,21 @@ impl Chunk {
     }
 }
 
-fn hash_coords(x: i32, z: i32) -> u32 {
+fn hash_coords(x: i32, z: i32, seed: u32) -> u32 {
     let mut h: u32 = (x as u32)
         .wrapping_mul(374761393)
-        .wrapping_add((z as u32).wrapping_mul(668265263));
+        .wrapping_add((z as u32).wrapping_mul(668265263))
+        .wrapping_add(seed);
     h = (h ^ (h >> 13)).wrapping_mul(1274126177);
     h ^ (h >> 16)
 }
 
-fn hash_coords_3d(x: i32, y: i32, z: i32) -> u32 {
+fn hash_coords_3d(x: i32, y: i32, z: i32, seed: u32) -> u32 {
     let mut h: u32 = (x as u32)
         .wrapping_mul(374761393)
         .wrapping_add((y as u32).wrapping_mul(1103515245))
-        .wrapping_add((z as u32).wrapping_mul(668265263));
+        .wrapping_add((z as u32).wrapping_mul(668265263))
+        .wrapping_add(seed);
     h = (h ^ (h >> 13)).wrapping_mul(1274126177);
     h ^ (h >> 16)
 }
@@ -308,6 +310,8 @@ fn place_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
 
 pub struct World {
     pub chunks: HashMap<(i32, i32), Chunk>,
+    pub seed: u32,
+    pub player_position: Vec3,
 }
 
 pub struct RaycastHit {
@@ -317,9 +321,66 @@ pub struct RaycastHit {
 
 impl World {
     pub fn new() -> Self {
+        Self::new_with_seed(DEFAULT_WORLD_SEED)
+    }
+
+    pub fn new_with_seed(seed: u32) -> Self {
         World {
             chunks: HashMap::new(),
+            seed,
+            player_position: Vec3::new(8.0, 90.0, 8.0),
         }
+    }
+
+    pub fn save(&self, path: &str) -> Result<(), String> {
+        let mut bytes = Vec::with_capacity(16 + self.chunks.len() * 4);
+        bytes.extend_from_slice(b"RUSTCRAFT2");
+        bytes.extend_from_slice(&self.seed.to_le_bytes());
+        bytes.extend_from_slice(&self.player_position.x.to_le_bytes());
+        bytes.extend_from_slice(&self.player_position.y.to_le_bytes());
+        bytes.extend_from_slice(&self.player_position.z.to_le_bytes());
+        bytes.extend_from_slice(&(self.chunks.len() as u32).to_le_bytes());
+        for chunk in self.chunks.values() {
+            bytes.extend_from_slice(&chunk.cx.to_le_bytes());
+            bytes.extend_from_slice(&chunk.cz.to_le_bytes());
+            bytes.extend_from_slice(&(chunk.blocks.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(&chunk.blocks);
+        }
+        std::fs::write(path, bytes).map_err(|error| format!("nie udało się zapisać świata: {error}"))
+    }
+
+    pub fn load(path: &str) -> Result<Self, String> {
+        let bytes = std::fs::read(path).map_err(|error| format!("nie udało się odczytać świata: {error}"))?;
+        let mut cursor = 0usize;
+        let format = read_bytes(&bytes, &mut cursor, 10)?;
+        if format != b"RUSTCRAFT1" && format != b"RUSTCRAFT2" {
+            return Err("nieznany format pliku świata".to_owned());
+        }
+        let seed = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap());
+        let player_position = if format == b"RUSTCRAFT2" {
+            Vec3::new(
+                f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
+                f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
+                f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
+            )
+        } else {
+            Vec3::new(8.0, 90.0, 8.0)
+        };
+        let chunk_count = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()) as usize;
+        let expected_len = (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize;
+        let mut world = Self::new_with_seed(seed);
+        world.player_position = player_position;
+        for _ in 0..chunk_count {
+            let cx = i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap());
+            let cz = i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap());
+            let block_len = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()) as usize;
+            if block_len != expected_len {
+                return Err("nieprawidłowy rozmiar chunka w pliku świata".to_owned());
+            }
+            let blocks = read_bytes(&bytes, &mut cursor, block_len)?.to_vec();
+            world.chunks.insert((cx, cz), Chunk { cx, cz, blocks, dirty: true });
+        }
+        Ok(world)
     }
 
     fn world_to_chunk(wx: i32, wz: i32) -> (i32, i32, i32, i32) {
@@ -384,7 +445,8 @@ impl World {
                 if dx * dx + dz * dz > VIEW_DISTANCE * VIEW_DISTANCE {
                     continue;
                 }
-                self.chunks.entry((cx, cz)).or_insert_with(|| Chunk::generate(cx, cz));
+                let seed = self.seed;
+                self.chunks.entry((cx, cz)).or_insert_with(|| Chunk::generate(cx, cz, seed));
             }
         }
 
@@ -494,5 +556,36 @@ impl World {
             }
         }
         false
+    }
+}
+
+fn read_bytes<'a>(bytes: &'a [u8], cursor: &mut usize, count: usize) -> Result<&'a [u8], String> {
+    if bytes.len().saturating_sub(*cursor) < count {
+        return Err("uszkodzony plik świata".to_owned());
+    }
+    let slice = &bytes[*cursor..*cursor + count];
+    *cursor += count;
+    Ok(slice)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_load_preserves_seed_and_blocks() {
+        let path = std::env::temp_dir().join(format!("rustcraft_test_{}.bin", std::process::id()));
+        let mut original = World::new_with_seed(987654321);
+        original.player_position = Vec3::new(12.5, 44.0, -7.25);
+        original.update(Vec3::new(8.0, 32.0, 8.0));
+        original.set_block(IVec3::new(8, 32, 8), BlockId::Cactus);
+        original.save(path.to_str().unwrap()).expect("save should succeed");
+
+        let loaded = World::load(path.to_str().unwrap()).expect("load should succeed");
+        assert_eq!(loaded.seed, 987654321);
+        assert_eq!(loaded.player_position, original.player_position);
+        assert_eq!(loaded.get_block(IVec3::new(8, 32, 8)), BlockId::Cactus);
+        assert_eq!(loaded.chunks.len(), original.chunks.len());
+        let _ = std::fs::remove_file(path);
     }
 }
