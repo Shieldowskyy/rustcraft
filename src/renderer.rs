@@ -522,23 +522,58 @@ impl Renderer {
         attack_animation: f32,
     ) {
         let forward = camera.forward();
-        let right = camera.right_flat();
-        let up = crate::math::Vec3::new(0.0, 1.0, 0.0);
+        let right = camera.forward().cross(crate::math::Vec3::new(0.0, 1.0, 0.0)).normalized();
+        let up = right.cross(forward).normalized();
         let movement = (speed / 8.5).clamp(0.0, 1.0);
         let swing = walk_phase.sin() * 0.10 * movement;
         let attack = (attack_animation * std::f32::consts::PI).sin();
         let swing = swing + attack * 0.16;
         let bob = (walk_phase * 2.0).cos() * 0.035 * movement - attack.abs() * 0.08;
         let hand_pos = camera.position
-            + forward * 0.72
-            + right * (0.42 + swing)
-            + up * (-0.34 + bob);
-        let arm_pos = hand_pos - right * 0.12 - up * 0.16;
+            + forward * 0.68
+            + right * (0.53 + swing)
+            + up * (-0.40 + bob);
+        let arm_pos = hand_pos - right * 0.10 - up * 0.13;
         let block = crate::block::BlockId::from_u8(block_id);
-        let color = block.face_color(crate::block::Face::Top);
+        self.draw_cube_3d(arm_pos, right, up, forward, [0.085, 0.085, 0.12], crate::texture::TextureId::Dirt, view_proj);
+        self.draw_cube_3d(hand_pos, right, up, forward, [0.13, 0.13, 0.13], block.texture_id(crate::block::Face::Top), view_proj);
+    }
 
-        self.draw_billboard(arm_pos, 0.22, [0.78, 0.48, 0.28], camera, view_proj);
-        self.draw_billboard(hand_pos, 0.34, color, camera, view_proj);
+    fn draw_cube_3d(
+        &mut self,
+        center: crate::math::Vec3,
+        right: crate::math::Vec3,
+        up: crate::math::Vec3,
+        forward: crate::math::Vec3,
+        half: [f32; 3],
+        texture: crate::texture::TextureId,
+        view_proj: &crate::math::Mat4,
+    ) {
+        let corner = |x: f32, y: f32, z: f32| {
+            center + right * (x * half[0]) + up * (y * half[1]) + forward * (z * half[2])
+        };
+        let faces = [
+            ([corner(-1.0, -1.0, 1.0), corner(1.0, -1.0, 1.0), corner(1.0, 1.0, 1.0), corner(-1.0, 1.0, 1.0)]),
+            ([corner(1.0, -1.0, -1.0), corner(-1.0, -1.0, -1.0), corner(-1.0, 1.0, -1.0), corner(1.0, 1.0, -1.0)]),
+            ([corner(-1.0, -1.0, -1.0), corner(-1.0, -1.0, 1.0), corner(-1.0, 1.0, 1.0), corner(-1.0, 1.0, -1.0)]),
+            ([corner(1.0, -1.0, 1.0), corner(1.0, -1.0, -1.0), corner(1.0, 1.0, -1.0), corner(1.0, 1.0, 1.0)]),
+            ([corner(-1.0, 1.0, 1.0), corner(1.0, 1.0, 1.0), corner(1.0, 1.0, -1.0), corner(-1.0, 1.0, -1.0)]),
+            ([corner(-1.0, -1.0, -1.0), corner(1.0, -1.0, -1.0), corner(1.0, -1.0, 1.0), corner(-1.0, -1.0, 1.0)]),
+        ];
+        for corners in faces {
+            let vertices = [
+                Vertex { pos: corners[0], uv: (0.0, 1.0), ao: 1.0 },
+                Vertex { pos: corners[1], uv: (1.0, 1.0), ao: 1.0 },
+                Vertex { pos: corners[2], uv: (1.0, 0.0), ao: 1.0 },
+                Vertex { pos: corners[3], uv: (0.0, 0.0), ao: 1.0 },
+            ];
+            let first = Triangle { v0: vertices[0], v1: vertices[1], v2: vertices[2], texture, tint: [1.0; 3] };
+            let second = Triangle { v0: vertices[0], v1: vertices[2], v2: vertices[3], texture, tint: [1.0; 3] };
+            self.raster_triangle(&first, view_proj);
+            self.raster_triangle(&second, view_proj);
+            self.raster_triangle(&Triangle { v0: first.v2, v1: first.v1, v2: first.v0, texture, tint: [1.0; 3] }, view_proj);
+            self.raster_triangle(&Triangle { v0: second.v2, v1: second.v1, v2: second.v0, texture, tint: [1.0; 3] }, view_proj);
+        }
     }
 
     pub fn draw_underwater_overlay(&mut self, time: f32) {
