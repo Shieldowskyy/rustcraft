@@ -28,6 +28,62 @@ use world::World;
 const WIDTH: usize = 960;
 const HEIGHT: usize = 540;
 
+// --- Particle system ---
+struct Particle {
+
+    pos: Vec3,
+    vel: Vec3,
+    color: [f32; 3],
+    life: f32,   // remaining lifetime in seconds
+    size: f32,
+}
+
+struct ParticleSystem {
+    particles: Vec<Particle>,
+}
+
+impl ParticleSystem {
+    fn new() -> Self { ParticleSystem { particles: Vec::new() } }
+
+    /// Spawn a burst of particles at `pos` with the block's face color.
+    fn spawn_block_break(&mut self, pos: Vec3, color: [f32; 3]) {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut rng = {
+            let mut h = DefaultHasher::new();
+            (pos.x as i32, pos.y as i32, pos.z as i32).hash(&mut h);
+            h.finish()
+        };
+        let mut next = || -> f32 {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((rng >> 33) as f32) / (u32::MAX as f32)
+        };
+        for _ in 0..12 {
+            let vx = (next() - 0.5) * 5.0;
+            let vy = next() * 5.0 + 1.0;
+            let vz = (next() - 0.5) * 5.0;
+            let brightness = 0.75 + next() * 0.5;
+            self.particles.push(Particle {
+                pos: Vec3::new(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5),
+                vel: Vec3::new(vx, vy, vz),
+                color: [color[0] * brightness, color[1] * brightness, color[2] * brightness],
+                life: 0.4 + next() * 0.3,
+                size: 0.05 + next() * 0.06,
+            });
+        }
+    }
+
+    fn update(&mut self, dt: f32) {
+        const GRAVITY: f32 = 12.0;
+        self.particles.retain_mut(|p| {
+            p.vel.y -= GRAVITY * dt;
+            p.pos = p.pos + p.vel * dt;
+            p.life -= dt;
+            p.life > 0.0
+        });
+    }
+}
+
 // --- Player physics constants ---
 const GRAVITY: f32 = 24.0; // blocks/sec^2
 const TERMINAL_VELOCITY: f32 = 40.0; // blocks/sec
@@ -108,6 +164,9 @@ fn main() {
 
     let mut state = GameState::Playing;
 
+    let mut particles = ParticleSystem::new();
+    let mut total_time = 0.0f32;
+
     println!("Sterowanie:");
     println!("  Kliknij w okno - zablokuj/przechwyc mysz");
     println!("  Esc            - Menu pauzy / zwolnij mysz (w pauzie: powrot do gry)");
@@ -126,6 +185,7 @@ fn main() {
         let now = Instant::now();
         let dt = (now - last_time).as_secs_f32().min(0.1);
         last_time = now;
+        total_time += dt;
 
         // Dynamic window resizing / maximizing support
         let cur_size = window.get_size();
@@ -357,6 +417,12 @@ fn main() {
                     if let Some(hit) = world.raycast(camera.position, camera.forward(), 8.0) {
                         // Bedrock jest niezniszczalny
                         if !world.get_block(hit.block_pos).is_bedrock() {
+                            let broken_block = world.get_block(hit.block_pos);
+                            let bx = hit.block_pos.x as f32;
+                            let by = hit.block_pos.y as f32;
+                            let bz = hit.block_pos.z as f32;
+                            let color = broken_block.face_color(block::Face::Top);
+                            particles.spawn_block_break(Vec3::new(bx, by, bz), color);
                             world.set_block(hit.block_pos, block::BlockId::Air);
                         }
                     }
@@ -373,9 +439,22 @@ fn main() {
 
                 // Update world
                 world.update(camera.position);
+                particles.update(dt);
+
+                // Compute view-projection for this frame (needed for particles & clouds)
+                let aspect = WIDTH as f32 / HEIGHT as f32;
+                let view_proj = camera.projection_matrix(aspect).mul(&camera.view_matrix());
 
                 // Render world and in-game HUD
                 renderer.render_frame(&world, &camera);
+
+                // Clouds (drawn after world, before HUD)
+                renderer.draw_clouds(camera.position, &view_proj, total_time);
+
+                // Particles
+                for p in &particles.particles {
+                    renderer.draw_billboard(p.pos, p.size, p.color, &camera, &view_proj);
+                }
                 renderer.draw_crosshair();
                 renderer.draw_hotbar();
 

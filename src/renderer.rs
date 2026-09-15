@@ -25,22 +25,25 @@ pub struct Renderer {
 }
 
 /// A triangle vertex after the view-projection transform, still in
-/// homogeneous clip space (x, y, z, w) plus its texture coordinate.
+/// homogeneous clip space (x, y, z, w) plus its texture coordinate and
+/// per-vertex AO factor.
 #[derive(Clone, Copy)]
-struct ClipVert {
+struct ClipVertAO {
     clip: [f32; 4],
     uv: (f32, f32),
+    ao: f32,
 }
 
 /// A vertex fully resolved for rasterization: screen-space (x, y), the
 /// reciprocal of view-space w (used for perspective-correct interpolation
-/// and depth testing), and UV pre-divided by w.
+/// and depth testing), UV pre-divided by w, and AO pre-divided by w.
 #[derive(Clone, Copy)]
-struct ScreenVert {
+struct ScreenVertAO {
     x: f32,
     y: f32,
     inv_w: f32,
     uv_over_w: (f32, f32),
+    ao_over_w: f32,
 }
 
 impl Renderer {
@@ -130,11 +133,11 @@ impl Renderer {
     }
 
     fn raster_triangle(&mut self, tri: &Triangle, view_proj: &crate::math::Mat4) {
-        let c0 = to_clip(tri.v0, view_proj);
-        let c1 = to_clip(tri.v1, view_proj);
-        let c2 = to_clip(tri.v2, view_proj);
+        let c0 = to_clip_ao(tri.v0, view_proj);
+        let c1 = to_clip_ao(tri.v1, view_proj);
+        let c2 = to_clip_ao(tri.v2, view_proj);
 
-        let clipped = clip_near(&[c0, c1, c2]);
+        let clipped = clip_near_ao(&[c0, c1, c2]);
         if clipped.len() < 3 {
             return;
         }
@@ -142,43 +145,38 @@ impl Renderer {
         // Fan-triangulate the (convex) clip polygon, then rasterize each
         // resulting triangle.
         for i in 1..clipped.len() - 1 {
-            let sa = self.project_to_screen(&clipped[0]);
-            let sb = self.project_to_screen(&clipped[i]);
-            let sc = self.project_to_screen(&clipped[i + 1]);
-            self.raster_screen_triangle(sa, sb, sc, tri.texture, tri.tint);
+            let sa = self.project_to_screen_ao(&clipped[0]);
+            let sb = self.project_to_screen_ao(&clipped[i]);
+            let sc = self.project_to_screen_ao(&clipped[i + 1]);
+            self.raster_screen_triangle_ao(sa, sb, sc, tri.texture);
         }
     }
 
-    fn project_to_screen(&self, v: &ClipVert) -> ScreenVert {
+    fn project_to_screen_ao(&self, v: &ClipVertAO) -> ScreenVertAO {
         let inv_w = 1.0 / v.clip[3];
         let ndc_x = v.clip[0] * inv_w;
         let ndc_y = v.clip[1] * inv_w;
         let screen_x = (ndc_x * 0.5 + 0.5) * self.width as f32;
         let screen_y = (1.0 - (ndc_y * 0.5 + 0.5)) * self.height as f32;
-        ScreenVert {
+        ScreenVertAO {
             x: screen_x,
             y: screen_y,
             inv_w,
             uv_over_w: (v.uv.0 * inv_w, v.uv.1 * inv_w),
+            ao_over_w: v.ao * inv_w,
         }
     }
 
-    fn raster_screen_triangle(
+    fn raster_screen_triangle_ao(
         &mut self,
-        a: ScreenVert,
-        b: ScreenVert,
-        c: ScreenVert,
+        a: ScreenVertAO,
+        b: ScreenVertAO,
+        c: ScreenVertAO,
         texture: crate::texture::TextureId,
-        tint: [f32; 3],
     ) {
-        // Signed area (screen space, y-down, x-right). With this convention,
-        // front-facing triangles (CCW winding in world space, as emitted by
-        // the mesher, viewed from outside the cube) project to a POSITIVE
-        // signed area here. Reject everything else (back-facing or
-        // degenerate) so we only ever draw outward-facing surfaces.
         let area = edge(a.x, a.y, b.x, b.y, c.x, c.y);
         if area <= 0.0 {
-            return; // back-facing or degenerate, cull it
+            return;
         }
 
         let min_x = a.x.min(b.x).min(c.x).floor().max(0.0) as i32;
@@ -208,9 +206,7 @@ impl Renderer {
                     let l2 = w2 * inv_area;
 
                     let inv_w = l0 * a.inv_w + l1 * b.inv_w + l2 * c.inv_w;
-                    if inv_w <= 0.0 {
-                        continue;
-                    }
+                    if inv_w <= 0.0 { continue; }
                     let depth = 1.0 / inv_w;
 
                     let idx = (py as usize) * self.width + (px as usize);
@@ -219,13 +215,15 @@ impl Renderer {
 
                         let u = (l0 * a.uv_over_w.0 + l1 * b.uv_over_w.0 + l2 * c.uv_over_w.0) * depth;
                         let v = (l0 * a.uv_over_w.1 + l1 * b.uv_over_w.1 + l2 * c.uv_over_w.1) * depth;
+                        // Perspective-correct AO interpolation
+                        let ao = (l0 * a.ao_over_w + l1 * b.ao_over_w + l2 * c.ao_over_w) * depth;
 
                         let texel = tex.sample(u, v);
-                        let r = texel[0] * tint[0];
-                        let g = texel[1] * tint[1];
-                        let bl = texel[2] * tint[2];
+                        let r = texel[0] * ao;
+                        let g = texel[1] * ao;
+                        let bl = texel[2] * ao;
 
-                        // Distance fog blended toward the sky/horizon color.
+                        // Distance fog
                         let fog_t = (depth / 180.0).clamp(0.0, 1.0);
                         let fog = (0.75f32, 0.85f32, 1.0f32);
                         let fr = r * (1.0 - fog_t) + fog.0 * fog_t;
@@ -233,6 +231,188 @@ impl Renderer {
                         let fb = bl * (1.0 - fog_t) + fog.2 * fog_t;
 
                         self.color_buffer[idx] = pack_color(fr, fg, fb);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Renders a world-space billboard quad as a colored square (used for particles).
+    pub fn draw_billboard(
+        &mut self,
+        pos: crate::math::Vec3,
+        size: f32,
+        color: [f32; 3],
+        camera: &crate::camera::Camera,
+        view_proj: &crate::math::Mat4,
+    ) {
+        // Build camera right/up vectors for billboarding
+        let right = camera.right_flat();
+        let up = crate::math::Vec3::new(0.0, 1.0, 0.0);
+        let h = size * 0.5;
+
+        let corners = [
+            pos - right * h - up * h,
+            pos + right * h - up * h,
+            pos + right * h + up * h,
+            pos - right * h + up * h,
+        ];
+
+        // Project each corner
+        let project = |p: crate::math::Vec3| -> Option<(f32, f32, f32)> {
+            let c = view_proj.transform_point(p);
+            if c[3] <= 1e-4 { return None; }
+            let inv_w = 1.0 / c[3];
+            let sx = (c[0] * inv_w * 0.5 + 0.5) * self.width as f32;
+            let sy = (1.0 - (c[1] * inv_w * 0.5 + 0.5)) * self.height as f32;
+            Some((sx, sy, 1.0 / c[3]))
+        };
+
+        let pts: Vec<_> = corners.iter().filter_map(|&p| project(p)).collect();
+        if pts.len() < 4 { return; }
+
+        // Rasterize as two triangles (no texture, solid color)
+        let depth_at_pos = {
+            let c = view_proj.transform_point(pos);
+            if c[3] <= 1e-4 { return; }
+            1.0 / c[3]
+        };
+
+        let packed = pack_color(color[0], color[1], color[2]);
+        // Draw filled quad as two triangles via scanline
+        for &(tri_idx) in &[(0usize,1usize,2usize),(0usize,2usize,3usize)] {
+            let (ai, bi, ci) = tri_idx;
+            let (ax, ay, _) = pts[ai];
+            let (bx, by, _) = pts[bi];
+            let (cx, cy, _) = pts[ci];
+            let area = edge(ax, ay, bx, by, cx, cy);
+            if area <= 0.0 { continue; }
+            let inv_area = 1.0 / area;
+            let min_x = ax.min(bx).min(cx).floor().max(0.0) as i32;
+            let max_x = ax.max(bx).max(cx).ceil().min(self.width as f32 - 1.0) as i32;
+            let min_y = ay.min(by).min(cy).floor().max(0.0) as i32;
+            let max_y = ay.max(by).max(cy).ceil().min(self.height as f32 - 1.0) as i32;
+            for py in min_y..=max_y {
+                for px in min_x..=max_x {
+                    let fx = px as f32 + 0.5;
+                    let fy = py as f32 + 0.5;
+                    let w0 = edge(bx, by, cx, cy, fx, fy);
+                    let w1 = edge(cx, cy, ax, ay, fx, fy);
+                    let w2 = edge(ax, ay, bx, by, fx, fy);
+                    if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
+                        let _ = inv_area;
+                        let idx = py as usize * self.width + px as usize;
+                        if depth_at_pos < self.depth_buffer[idx] {
+                            self.color_buffer[idx] = packed;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Renders a horizontal cloud layer at world-space height `cloud_y`.
+    pub fn draw_clouds(
+        &mut self,
+        player_pos: crate::math::Vec3,
+        view_proj: &crate::math::Mat4,
+        time: f32,
+    ) {
+        let cloud_y = 75.0f32;
+        let cloud_color = [0.97f32, 0.97f32, 1.0f32];
+        let cloud_size = 8.0f32;   // each cloud patch width
+        let scroll = time * 1.5;   // drift speed
+
+        // Draw a grid of cloud patches around the player
+        let cx = (player_pos.x / cloud_size).floor() as i32;
+        let cz = (player_pos.z / cloud_size).floor() as i32;
+
+        for dz in -6..=6 {
+            for dx in -6..=6 {
+                let wx = (cx + dx) as f32 * cloud_size + (scroll % cloud_size);
+                let wz = (cz + dz) as f32 * cloud_size;
+
+                // Simple hash to decide if there's a cloud here
+                let hx = (cx + dx).wrapping_mul(374761393i32);
+                let hz = (cz + dz).wrapping_mul(668265263i32);
+                let h = (hx ^ hz ^ hx.wrapping_mul(hz >> 3)) as u32;
+                if h % 3 != 0 { continue; } // ~33% cloud coverage
+
+                // Vary cloud size slightly
+                let scale = cloud_size * (0.6 + (h % 100) as f32 / 250.0);
+
+                // Only render if cloud is above or near player
+                if (cloud_y - player_pos.y).abs() > 80.0 { continue; }
+
+                // Build a horizontal quad for this cloud patch
+                let half = scale * 0.5;
+                let corners = [
+                    crate::math::Vec3::new(wx - half, cloud_y, wz - half),
+                    crate::math::Vec3::new(wx + half, cloud_y, wz - half),
+                    crate::math::Vec3::new(wx + half, cloud_y, wz + half),
+                    crate::math::Vec3::new(wx - half, cloud_y, wz + half),
+                ];
+
+                // Project corners and rasterize
+                let mut pts = [(0.0f32, 0.0f32, 0.0f32); 4];
+                let mut all_valid = true;
+                for (i, &p) in corners.iter().enumerate() {
+                    let c = view_proj.transform_point(p);
+                    if c[3] <= 1e-4 { all_valid = false; break; }
+                    let inv_w = 1.0 / c[3];
+                    pts[i] = (
+                        (c[0] * inv_w * 0.5 + 0.5) * self.width as f32,
+                        (1.0 - (c[1] * inv_w * 0.5 + 0.5)) * self.height as f32,
+                        inv_w,
+                    );
+                }
+                if !all_valid { continue; }
+
+                let depth_center = {
+                    let c = view_proj.transform_point(crate::math::Vec3::new(wx, cloud_y, wz));
+                    if c[3] <= 1e-4 { continue; }
+                    1.0 / c[3]
+                };
+
+                // Soft alpha for clouds (only color, no depth write to avoid blocking world)
+                let packed = pack_color(cloud_color[0], cloud_color[1], cloud_color[2]);
+                let alpha = 0.72f32;
+
+                for &(ai, bi, ci) in &[(0usize,1usize,2usize),(0usize,2usize,3usize)] {
+                    let (ax, ay, _) = pts[ai];
+                    let (bx, by, _) = pts[bi];
+                    let (cx, cy, _) = pts[ci];
+                    let area = edge(ax, ay, bx, by, cx, cy);
+                    if area.abs() < 0.5 { continue; }
+                    let min_x = ax.min(bx).min(cx).floor().max(0.0) as i32;
+                    let max_x = ax.max(bx).max(cx).ceil().min(self.width as f32 - 1.0) as i32;
+                    let min_y = ay.min(by).min(cy).floor().max(0.0) as i32;
+                    let max_y = ay.max(by).max(cy).ceil().min(self.height as f32 - 1.0) as i32;
+                    for py in min_y..=max_y {
+                        for px in min_x..=max_x {
+                            let fx = px as f32 + 0.5;
+                            let fy = py as f32 + 0.5;
+                            let w0 = edge(bx, by, cx, cy, fx, fy);
+                            let w1 = edge(cx, cy, ax, ay, fx, fy);
+                            let w2 = edge(ax, ay, bx, by, fx, fy);
+                            let inside = if area > 0.0 {
+                                w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0
+                            } else {
+                                w0 <= 0.0 && w1 <= 0.0 && w2 <= 0.0
+                            };
+                            if inside {
+                                let idx = py as usize * self.width + px as usize;
+                                if depth_center < self.depth_buffer[idx] {
+                                    // Alpha blend cloud color
+                                    let (cr, cg, cb) = unpack_color(packed);
+                                    let (br, bg, bb) = unpack_color(self.color_buffer[idx]);
+                                    let r = cr * alpha + br * (1.0 - alpha);
+                                    let g = cg * alpha + bg * (1.0 - alpha);
+                                    let b = cb * alpha + bb * (1.0 - alpha);
+                                    self.color_buffer[idx] = pack_color(r, g, b);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -502,20 +682,20 @@ impl Renderer {
     }
 }
 
-fn to_clip(v: Vertex, view_proj: &crate::math::Mat4) -> ClipVert {
+fn to_clip_ao(v: Vertex, view_proj: &crate::math::Mat4) -> ClipVertAO {
     let c = view_proj.transform_point(v.pos);
-    ClipVert { clip: c, uv: v.uv }
+    ClipVertAO { clip: c, uv: v.uv, ao: v.ao }
 }
 
 /// Clips a single triangle against the near plane (w > epsilon), using the
 /// Sutherland-Hodgman algorithm against one plane. Since a triangle clipped
 /// against a single plane produces at most a quad, the result has 0, 3, or
-/// 4 vertices.
-fn clip_near(verts: &[ClipVert; 3]) -> Vec<ClipVert> {
+/// 4 vertices. The AO factor is also linearly interpolated during clipping.
+fn clip_near_ao(verts: &[ClipVertAO; 3]) -> Vec<ClipVertAO> {
     const EPS: f32 = 1e-4;
-    let inside = |v: &ClipVert| v.clip[3] > EPS;
+    let inside = |v: &ClipVertAO| v.clip[3] > EPS;
 
-    let mut output: Vec<ClipVert> = Vec::with_capacity(4);
+    let mut output: Vec<ClipVertAO> = Vec::with_capacity(4);
     for i in 0..3 {
         let cur = verts[i];
         let next = verts[(i + 1) % 3];
@@ -537,11 +717,13 @@ fn clip_near(verts: &[ClipVert; 3]) -> Vec<ClipVert> {
                 lerp(cur.uv.0, next.uv.0, t),
                 lerp(cur.uv.1, next.uv.1, t),
             );
-            output.push(ClipVert { clip, uv });
+            let ao = lerp(cur.ao, next.ao, t);
+            output.push(ClipVertAO { clip, uv, ao });
         }
     }
     output
 }
+
 
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
