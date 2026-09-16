@@ -53,6 +53,54 @@ impl Chunk {
         }
         let mut decorations = Vec::new();
 
+        enum Structure {
+            DesertWell(i32, i32, i32),
+            StoneRuins(i32, i32, i32),
+            ForestCabin(i32, i32, i32),
+        }
+
+        // Biome sampling at chunk center (8, 8) to determine structure eligibility
+        let center_wx = cx * CHUNK_SIZE_X + 8;
+        let center_wz = cz * CHUNK_SIZE_Z + 8;
+        let c_temp = fractal_noise2(center_wx as f32 * 0.006, center_wz as f32 * 0.006, seed.wrapping_add(500), 3, 0.5);
+        let c_humidity = fractal_noise2(center_wx as f32 * 0.006, center_wz as f32 * 0.006, seed.wrapping_add(1500), 3, 0.5);
+        let c_mountain_factor = fractal_noise2(center_wx as f32 * 0.008, center_wz as f32 * 0.008, seed.wrapping_add(2500), 3, 0.5);
+
+        let c_is_mountain = c_mountain_factor > 0.32;
+        let c_is_snowy = !c_is_mountain && c_temp < -0.18;
+        let c_is_desert = !c_is_mountain && !c_is_snowy && c_temp > 0.28 && c_humidity < -0.05;
+        let c_is_forest = !c_is_mountain && !c_is_snowy && !c_is_desert && c_humidity > 0.15;
+
+        let c_n = fractal_noise2(center_wx as f32 * 0.015, center_wz as f32 * 0.015, seed, 4, 0.5);
+        let center_height = if c_is_mountain {
+            let m_extra = ((c_mountain_factor - 0.32) / 0.68).clamp(0.0, 1.0);
+            let m_height = 36.0 + c_n * 12.0 + m_extra * 16.0;
+            (m_height as i32).clamp(1, CHUNK_SIZE_Y - 4)
+        } else if c_is_desert {
+            let d_height = 26.0 + c_n * 10.0;
+            (d_height as i32).clamp(1, CHUNK_SIZE_Y - 10)
+        } else {
+            let p_height = 28.0 + c_n * 12.0;
+            (p_height as i32).clamp(1, CHUNK_SIZE_Y - 10)
+        };
+
+        let chunk_hash = hash_coords(cx, cz, seed.wrapping_add(77777));
+        let mut structure: Option<Structure> = None;
+        let mut struct_exclusion = (100, -100, 100, -100); // min_lx, max_lx, min_lz, max_lz
+
+        if center_height > 22 && center_height < CHUNK_SIZE_Y - 14 {
+            if c_is_desert && (chunk_hash % 71 == 0) {
+                structure = Some(Structure::DesertWell(8, center_height, 8));
+                struct_exclusion = (4, 12, 4, 12);
+            } else if c_is_mountain && (chunk_hash % 67 == 0) {
+                structure = Some(Structure::StoneRuins(8, center_height, 8));
+                struct_exclusion = (3, 13, 3, 13);
+            } else if c_is_forest && (chunk_hash % 79 == 0) {
+                structure = Some(Structure::ForestCabin(8, center_height, 8));
+                struct_exclusion = (3, 13, 3, 13);
+            }
+        }
+
         for lx in 0..CHUNK_SIZE_X {
             for lz in 0..CHUNK_SIZE_Z {
                 let wx = cx * CHUNK_SIZE_X + lx;
@@ -159,6 +207,11 @@ impl Chunk {
                 }
 
                 if height > 21 {
+                    // Do not place trees/cacti inside the structure's exclusion zone
+                    if lx >= struct_exclusion.0 && lx <= struct_exclusion.1 && lz >= struct_exclusion.2 && lz <= struct_exclusion.3 {
+                        continue;
+                    }
+
                     if lx >= 3 && lx < CHUNK_SIZE_X - 3 && lz >= 3 && lz < CHUNK_SIZE_Z - 3 {
                         let h = hash_coords(wx, wz, seed);
                         if is_desert {
@@ -181,6 +234,15 @@ impl Chunk {
                         }
                     }
                 }
+            }
+        }
+
+        // Pass 2: Place structures first, then decorations
+        if let Some(struct_type) = structure {
+            match struct_type {
+                Structure::DesertWell(cx, base_y, cz) => place_desert_well(&mut blocks, cx, base_y, cz),
+                Structure::StoneRuins(cx, base_y, cz) => place_stone_ruin(&mut blocks, cx, base_y, cz, seed),
+                Structure::ForestCabin(cx, base_y, cz) => place_forest_cabin(&mut blocks, cx, base_y, cz),
             }
         }
 
@@ -298,6 +360,209 @@ fn place_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
             }
         }
     }
+}
+
+fn place_desert_well(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32) {
+    let min_x = center_x - 2;
+    let max_x = center_x + 2;
+    let min_z = center_z - 2;
+    let max_z = center_z + 2;
+
+    let set = |blocks: &mut [u8], x: i32, y: i32, z: i32, b: BlockId| {
+        if x >= 0 && x < CHUNK_SIZE_X && y >= 0 && y < CHUNK_SIZE_Y && z >= 0 && z < CHUNK_SIZE_Z {
+            blocks[Chunk::index(x, y, z)] = b.to_u8();
+        }
+    };
+
+    // 1. Foundation down to ground and clear above
+    for x in min_x..=max_x {
+        for z in min_z..=max_z {
+            for y in (base_y - 4)..base_y {
+                set(blocks, x, y, z, BlockId::Sand);
+            }
+            for y in (base_y + 1)..=(base_y + 6) {
+                set(blocks, x, y, z, BlockId::Air);
+            }
+
+            let is_border = x == min_x || x == max_x || z == min_z || z == max_z;
+            if is_border {
+                set(blocks, x, base_y, z, BlockId::Sand);
+            } else {
+                set(blocks, x, base_y - 1, z, BlockId::Sand);
+                set(blocks, x, base_y, z, BlockId::Water);
+            }
+        }
+    }
+
+    // 2. Corner pillars
+    for &(cx, cz) in &[(min_x, min_z), (min_x, max_z), (max_x, min_z), (max_x, max_z)] {
+        for dy in 1..=3 {
+            set(blocks, cx, base_y + dy, cz, BlockId::Sand);
+        }
+    }
+
+    // 3. Roof
+    for x in min_x..=max_x {
+        for z in min_z..=max_z {
+            set(blocks, x, base_y + 4, z, BlockId::Sand);
+        }
+    }
+    set(blocks, center_x, base_y + 5, center_z, BlockId::Sand);
+}
+
+fn place_stone_ruin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32, seed: u32) {
+    let min_x = center_x - 3;
+    let max_x = center_x + 3;
+    let min_z = center_z - 3;
+    let max_z = center_z + 3;
+
+    let set = |blocks: &mut [u8], x: i32, y: i32, z: i32, b: BlockId| {
+        if x >= 0 && x < CHUNK_SIZE_X && y >= 0 && y < CHUNK_SIZE_Y && z >= 0 && z < CHUNK_SIZE_Z {
+            blocks[Chunk::index(x, y, z)] = b.to_u8();
+        }
+    };
+
+    // 1. Foundation and clear above
+    for x in min_x..=max_x {
+        for z in min_z..=max_z {
+            for y in (base_y - 4)..base_y {
+                set(blocks, x, y, z, BlockId::Stone);
+            }
+            for y in (base_y + 1)..=(base_y + 6) {
+                set(blocks, x, y, z, BlockId::Air);
+            }
+
+            let h = hash_coords_3d(x, base_y, z, seed);
+            let floor_b = if h % 11 == 0 {
+                BlockId::CoalOre
+            } else if h % 17 == 0 {
+                BlockId::IronOre
+            } else {
+                BlockId::Stone
+            };
+            set(blocks, x, base_y, z, floor_b);
+        }
+    }
+
+    // 2. Ruined perimeter walls
+    for x in min_x..=max_x {
+        for z in min_z..=max_z {
+            let is_border = x == min_x || x == max_x || z == min_z || z == max_z;
+            if !is_border {
+                continue;
+            }
+            if (x == center_x || x == center_x + 1) && z == min_z {
+                continue; // Opening
+            }
+            let wall_h = (hash_coords_3d(x, 101, z, seed) % 4) as i32;
+            for dy in 1..=wall_h {
+                set(blocks, x, base_y + dy, z, BlockId::Stone);
+            }
+        }
+    }
+
+    // 3. Pillars at corners
+    for &(cx, cz) in &[(min_x, min_z), (min_x, max_z), (max_x, min_z), (max_x, max_z)] {
+        let pil_h = 2 + (hash_coords_3d(cx, 137, cz, seed) % 3) as i32;
+        for dy in 1..=pil_h {
+            set(blocks, cx, base_y + dy, cz, BlockId::Stone);
+        }
+    }
+
+    // 4. Central altar with glowing relic
+    set(blocks, center_x, base_y + 1, center_z, BlockId::Stone);
+    set(blocks, center_x, base_y + 2, center_z, BlockId::Lava);
+    set(blocks, center_x - 1, base_y + 1, center_z, BlockId::Stone);
+    set(blocks, center_x + 1, base_y + 1, center_z, BlockId::Stone);
+    set(blocks, center_x, base_y + 1, center_z - 1, BlockId::Stone);
+    set(blocks, center_x, base_y + 1, center_z + 1, BlockId::Stone);
+}
+
+fn place_forest_cabin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32) {
+    let min_x = center_x - 3;
+    let max_x = center_x + 2;
+    let min_z = center_z - 3;
+    let max_z = center_z + 2;
+
+    let set = |blocks: &mut [u8], x: i32, y: i32, z: i32, b: BlockId| {
+        if x >= 0 && x < CHUNK_SIZE_X && y >= 0 && y < CHUNK_SIZE_Y && z >= 0 && z < CHUNK_SIZE_Z {
+            blocks[Chunk::index(x, y, z)] = b.to_u8();
+        }
+    };
+
+    // 1. Clear area around and above cabin
+    for x in (min_x - 1)..=(max_x + 1) {
+        for z in (min_z - 1)..=(max_z + 1) {
+            for y in (base_y + 1)..=(base_y + 8) {
+                set(blocks, x, y, z, BlockId::Air);
+            }
+        }
+    }
+
+    // 2. Foundation and floor
+    for x in min_x..=max_x {
+        for z in min_z..=max_z {
+            for y in (base_y - 4)..base_y {
+                set(blocks, x, y, z, BlockId::Wood);
+            }
+            set(blocks, x, base_y, z, BlockId::Planks);
+        }
+    }
+
+    // 3. Walls & corner wood logs
+    for x in min_x..=max_x {
+        for z in min_z..=max_z {
+            let is_corner = (x == min_x || x == max_x) && (z == min_z || z == max_z);
+            let is_border = x == min_x || x == max_x || z == min_z || z == max_z;
+
+            if is_corner {
+                for dy in 1..=3 {
+                    set(blocks, x, base_y + dy, z, BlockId::Wood);
+                }
+            } else if is_border {
+                for dy in 1..=3 {
+                    if x == center_x && z == min_z {
+                        // Front door opening
+                        if dy == 1 || dy == 2 {
+                            set(blocks, x, base_y + dy, z, BlockId::Door);
+                        } else {
+                            set(blocks, x, base_y + dy, z, BlockId::Planks);
+                        }
+                    } else if dy == 2
+                        && (((x == min_x || x == max_x) && (z == min_z + 2 || z == min_z + 3))
+                            || (z == max_z && (x == min_x + 2 || x == min_x + 3)))
+                    {
+                        // Glass windows on sides and back
+                        set(blocks, x, base_y + dy, z, BlockId::Glass);
+                    } else {
+                        set(blocks, x, base_y + dy, z, BlockId::Planks);
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Pitched roof
+    for x in (min_x - 1)..=(max_x + 1) {
+        for z in (min_z - 1)..=(max_z + 1) {
+            let is_edge = x == min_x - 1 || x == max_x + 1 || z == min_z - 1 || z == max_z + 1;
+            set(blocks, x, base_y + 4, z, if is_edge { BlockId::Wood } else { BlockId::Planks });
+        }
+    }
+    for x in min_x..=max_x {
+        for z in (min_z - 1)..=(max_z + 1) {
+            set(blocks, x, base_y + 5, z, BlockId::Planks);
+        }
+    }
+    for x in (center_x - 1)..=center_x {
+        for z in (min_z - 1)..=(max_z + 1) {
+            set(blocks, x, base_y + 6, z, BlockId::Wood);
+        }
+    }
+
+    // 5. Interior small table
+    set(blocks, min_x + 1, base_y + 1, max_z - 1, BlockId::Wood);
+    set(blocks, min_x + 1, base_y + 2, max_z - 1, BlockId::Planks);
 }
 
 /// Aktywny obiekt TNT odliczający czas do wybuchu

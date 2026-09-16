@@ -395,6 +395,197 @@ fn tnt_top() -> Texture {
     tex
 }
 
+/// Oak planks: 4 horizontal wooden planks with beveled shadow grooves,
+/// staggered vertical joints, nail studs, and oak wood grain.
+fn planks() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+
+    let plank_base_tones = [
+        [0.69, 0.53, 0.31], // Plank 0: warm medium oak
+        [0.64, 0.48, 0.28], // Plank 1: slightly darker oak
+        [0.72, 0.56, 0.34], // Plank 2: slightly lighter oak
+        [0.66, 0.50, 0.29], // Plank 3: golden oak
+    ];
+
+    let groove_color = [0.36, 0.24, 0.12];
+    let bevel_highlight = [0.77, 0.62, 0.38];
+    let nail_color = [0.24, 0.16, 0.08];
+
+    for y in 0..TEX_SIZE {
+        let plank_idx = y / 4;
+        let in_plank_y = y % 4;
+        let base_col = plank_base_tones[plank_idx];
+
+        let joint_x = match plank_idx {
+            0 => 8,
+            1 => 13,
+            2 => 4,
+            3 => 10,
+            _ => 8,
+        };
+
+        for x in 0..TEX_SIZE {
+            let mut col = base_col;
+
+            let grain = ((x as f32 * 0.4 + (y as f32 * 1.5).sin()).sin() * 0.5 + 0.5) * 0.06;
+            let noise = rand_at(x, y, 713) * 0.06 - 0.03;
+            col[0] = (col[0] + grain + noise).clamp(0.0, 1.0);
+            col[1] = (col[1] + grain * 0.8 + noise).clamp(0.0, 1.0);
+            col[2] = (col[2] + grain * 0.6 + noise).clamp(0.0, 1.0);
+
+            if in_plank_y == 0 && y > 0 {
+                col = mix(col, bevel_highlight, 0.45);
+            }
+
+            if in_plank_y == 3 {
+                col = groove_color;
+            }
+
+            if x == joint_x {
+                col = groove_color;
+            } else if x == (joint_x + 1) % 16 && in_plank_y > 0 && in_plank_y < 3 {
+                col = mix(col, bevel_highlight, 0.30);
+            }
+
+            let is_nail = (x == (joint_x + 1) % 16 && in_plank_y == 1)
+                || (x == (joint_x + 15) % 16 && in_plank_y == 2);
+            if is_nail {
+                col = nail_color;
+            }
+
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+
+    Texture { texels }
+}
+
+/// Top half of a 2-block wooden door: outer frame, 4 latticed window cutouts,
+/// center mullion, and upper portion of the door latch/handle.
+fn door_top() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+
+    let frame_color = [0.52, 0.36, 0.18];
+    let frame_dark = [0.38, 0.24, 0.12];
+    let frame_light = [0.65, 0.48, 0.26];
+    let glass_base = [0.62, 0.80, 0.88];
+    let glass_shine = [0.85, 0.95, 1.0];
+    let handle_color = [0.82, 0.72, 0.32]; // Brass handle
+
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let mut col = frame_color;
+
+            let grain = rand_at(x, y, 921) * 0.08 - 0.04;
+            col[0] = (col[0] + grain).clamp(0.0, 1.0);
+            col[1] = (col[1] + grain * 0.8).clamp(0.0, 1.0);
+            col[2] = (col[2] + grain * 0.6).clamp(0.0, 1.0);
+
+            let in_left_win1 = (x >= 2 && x <= 6) && (y >= 2 && y <= 6);
+            let in_right_win1 = (x >= 9 && x <= 13) && (y >= 2 && y <= 6);
+            let in_left_win2 = (x >= 2 && x <= 6) && (y >= 8 && y <= 12);
+            let in_right_win2 = (x >= 9 && x <= 13) && (y >= 8 && y <= 12);
+
+            let in_win = in_left_win1 || in_right_win1 || in_left_win2 || in_right_win2;
+
+            if in_win {
+                let is_win_border = (x == 2 || x == 6 || x == 9 || x == 13)
+                    || (y == 2 || y == 6 || y == 8 || y == 12);
+
+                if is_win_border {
+                    if y == 2 || y == 8 || x == 2 || x == 9 {
+                        col = frame_dark;
+                    } else {
+                        col = frame_light;
+                    }
+                } else {
+                    let shine = x == y || (x + 1 == y);
+                    col = if shine { glass_shine } else { glass_base };
+                }
+            } else {
+                if x == 0 || x == 15 || y == 0 || y == 7 || y == 13 {
+                    col = mix(col, frame_dark, 0.4);
+                } else if x == 1 || x == 8 {
+                    col = mix(col, frame_light, 0.3);
+                }
+            }
+
+            if (x == 12 || x == 13) && (y == 14 || y == 15) {
+                col = handle_color;
+            }
+
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+
+    Texture { texels }
+}
+
+/// Bottom half of a 2-block wooden door: matching frame, 2 recessed carved
+/// wooden panels with 3D bevel shading, and lower portion of door handle.
+fn door_bottom() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+
+    let frame_color = [0.52, 0.36, 0.18];
+    let frame_dark = [0.35, 0.22, 0.10];
+    let frame_light = [0.65, 0.48, 0.26];
+    let panel_color = [0.58, 0.42, 0.22];
+    let handle_color = [0.82, 0.72, 0.32]; // Brass handle
+    let nail_color = [0.22, 0.15, 0.08];
+
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let mut col = frame_color;
+
+            let grain = rand_at(x, y, 922) * 0.08 - 0.04;
+            col[0] = (col[0] + grain).clamp(0.0, 1.0);
+            col[1] = (col[1] + grain * 0.8).clamp(0.0, 1.0);
+            col[2] = (col[2] + grain * 0.6).clamp(0.0, 1.0);
+
+            let in_left_panel = (x >= 2 && x <= 6) && (y >= 2 && y <= 13);
+            let in_right_panel = (x >= 9 && x <= 13) && (y >= 2 && y <= 13);
+
+            if in_left_panel || in_right_panel {
+                let is_panel_border = (x == 2 || x == 6 || x == 9 || x == 13)
+                    || (y == 2 || y == 13);
+
+                if is_panel_border {
+                    if y == 2 || x == 2 || x == 9 {
+                        col = frame_dark;
+                    } else {
+                        col = frame_light;
+                    }
+                } else {
+                    let p_grain = ((x as f32 * 1.5).sin() * 0.04) + rand_at(x, y, 923) * 0.04;
+                    col = [
+                        (panel_color[0] + p_grain).clamp(0.0, 1.0),
+                        (panel_color[1] + p_grain).clamp(0.0, 1.0),
+                        (panel_color[2] + p_grain).clamp(0.0, 1.0),
+                    ];
+                }
+            } else {
+                if x == 0 || x == 15 || y == 15 {
+                    col = mix(col, frame_dark, 0.4);
+                } else if x == 1 || x == 8 || y == 0 {
+                    col = mix(col, frame_light, 0.3);
+                }
+            }
+
+            if (x == 12 || x == 13) && (y == 0 || y == 1) {
+                col = handle_color;
+            }
+
+            if y == 14 && (x == 3 || x == 7 || x == 11) {
+                col = nail_color;
+            }
+
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+
+    Texture { texels }
+}
+
 /// All textures needed to render the world, indexed by `TextureId`.
 pub struct TextureAtlas {
     pub grass_top: Texture,
@@ -416,6 +607,7 @@ pub struct TextureAtlas {
     pub snow_leaves: Texture,
     pub planks: Texture,
     pub door: Texture,
+    pub door_top: Texture,
     pub glass: Texture,
     pub ice: Texture,
     pub tnt_top: Texture,
@@ -450,8 +642,9 @@ impl TextureAtlas {
             bedrock: bedrock(),
             lava: lava(),
             snow_leaves: snow_leaves(),
-            planks: speckled([0.62, 0.42, 0.20], 0.12, 901),
-            door: speckled([0.50, 0.30, 0.12], 0.10, 902),
+            planks: planks(),
+            door: door_bottom(),
+            door_top: door_top(),
             glass: glass(),
             ice: speckled([0.70, 0.88, 1.0], 0.08, 903),
             tnt_top: tnt_top(),
@@ -488,6 +681,7 @@ impl TextureAtlas {
             TextureId::SnowLeaves => &self.snow_leaves,
             TextureId::Planks => &self.planks,
             TextureId::Door => &self.door,
+            TextureId::DoorTop => &self.door_top,
             TextureId::Glass => &self.glass,
             TextureId::Ice => &self.ice,
             TextureId::TntTop => &self.tnt_top,
@@ -525,6 +719,7 @@ pub enum TextureId {
     SnowLeaves,
     Planks,
     Door,
+    DoorTop,
     Glass,
     Ice,
     TntTop,

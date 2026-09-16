@@ -131,13 +131,23 @@ fn emit_face(
     base_z: i32,
 ) {
     let shade = face.shade();
-    let texture = block.texture_id(face);
+    let lx = wx - base_x;
+    let lz = wz - base_z;
+
+    let texture = if block == BlockId::Door {
+        let below = sample_block(chunk, world, lx, wy - 1, lz, base_x, base_z);
+        if below == BlockId::Door {
+            TextureId::DoorTop
+        } else {
+            TextureId::Door
+        }
+    } else {
+        block.texture_id(face)
+    };
 
     let x = wx as f32;
     let y = wy as f32;
     let z = wz as f32;
-    let lx = wx - base_x;
-    let lz = wz - base_z;
     let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
 
     let top_y = if is_fluid {

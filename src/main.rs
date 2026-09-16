@@ -625,6 +625,17 @@ fn main() {
                             let color = broken_block.face_color(block::Face::Top);
                             particles.spawn_block_break(Vec3::new(bx, by, bz), color);
                             world.set_block(hit.block_pos, block::BlockId::Air);
+
+                            if broken_block == block::BlockId::Door {
+                                let above = hit.block_pos + crate::math::IVec3::new(0, 1, 0);
+                                let below = hit.block_pos - crate::math::IVec3::new(0, 1, 0);
+                                if world.get_block(above) == block::BlockId::Door {
+                                    world.set_block(above, block::BlockId::Air);
+                                }
+                                if world.get_block(below) == block::BlockId::Door {
+                                    world.set_block(below, block::BlockId::Air);
+                                }
+                            }
                         }
                     }
                 }
@@ -632,8 +643,18 @@ fn main() {
                     hand_animation = 1.0;
                     if let Some(hit) = world.raycast(camera.position, camera.forward(), 8.0) {
                         let place_pos = hit.block_pos + hit.normal;
-                        if !block_intersects_player(place_pos, camera.position, current_eye_offset, current_player_height) {
-                            world.set_block(place_pos, block::BlockId::from_u8(selected_block));
+                        let place_id = block::BlockId::from_u8(selected_block);
+                        if place_id == block::BlockId::Door {
+                            let top_pos = place_pos + crate::math::IVec3::new(0, 1, 0);
+                            if !block_intersects_player(place_pos, camera.position, current_eye_offset, current_player_height)
+                                && !block_intersects_player(top_pos, camera.position, current_eye_offset, current_player_height)
+                                && world.get_block(top_pos) == block::BlockId::Air
+                            {
+                                world.set_block(place_pos, block::BlockId::Door);
+                                world.set_block(top_pos, block::BlockId::Door);
+                            }
+                        } else if !block_intersects_player(place_pos, camera.position, current_eye_offset, current_player_height) {
+                            world.set_block(place_pos, place_id);
                         }
                     }
                 }

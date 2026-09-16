@@ -6,7 +6,7 @@ use crate::math::{Mat4, Vec3};
 use crate::mesher::Triangle;
 use crate::texture::{TextureAtlas, TextureId, TEX_SIZE};
 
-pub const TEXTURE_LAYER_COUNT: u32 = 31;
+pub const TEXTURE_LAYER_COUNT: u32 = 32;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -554,6 +554,7 @@ var positions = array<vec2<f32>, 3>(
             TextureId::CowSnout => 28,
             TextureId::CowHorns => 29,
             TextureId::CowUdder => 30,
+            TextureId::DoorTop => 31,
         }
     }
 
@@ -589,6 +590,7 @@ var positions = array<vec2<f32>, 3>(
             27 => TextureId::CowFace,
             28 => TextureId::CowSnout,
             29 => TextureId::CowHorns,
-            _ => TextureId::CowUdder,
+            30 => TextureId::CowUdder,
+            _ => TextureId::DoorTop,
         }
     }
