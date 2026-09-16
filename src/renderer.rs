@@ -20,22 +20,6 @@ pub struct Particle {
     pub size: f32,
 }
 
-pub struct Renderer {
-    width: usize,
-    height: usize,
-    color_buffer: Vec<u32>,
-    depth_buffer: Vec<f32>,
-    mesh_cache: HashMap<(i32, i32), Vec<Triangle>>,
-    selected_block: u8,
-    textures: TextureAtlas,
-    vulkan: Option<VulkanContext>,
-    loaded_keys: Vec<(i32, i32)>,
-    dirty_keys: HashSet<(i32, i32)>,
-    visible_keys: Vec<(i32, i32)>,
-    #[allow(dead_code)]
-    pub particles: Vec<Particle>,
-}
-
 #[derive(Clone, Copy)]
 struct ClipVertAO {
     clip: [f32; 4],
@@ -52,7 +36,35 @@ struct ScreenVertAO {
     ao_over_w: f32,
 }
 
-const TILE_HEIGHT: usize = 32;
+#[derive(Clone, Copy)]
+struct ScreenTriangle {
+    sa: ScreenVertAO,
+    sb: ScreenVertAO,
+    sc: ScreenVertAO,
+    texture: crate::texture::TextureId,
+    min_y: i32,
+    max_y: i32,
+}
+
+const TILE_HEIGHT: usize = 16;
+
+pub struct Renderer {
+    width: usize,
+    height: usize,
+    color_buffer: Vec<u32>,
+    depth_buffer: Vec<f32>,
+    mesh_cache: HashMap<(i32, i32), Vec<Triangle>>,
+    selected_block: u8,
+    textures: TextureAtlas,
+    vulkan: Option<VulkanContext>,
+    loaded_keys: Vec<(i32, i32)>,
+    dirty_keys: HashSet<(i32, i32)>,
+    visible_keys: Vec<(i32, i32)>,
+    opaque_tris_buf: Vec<ScreenTriangle>,
+    transparent_tris_buf: Vec<ScreenTriangle>,
+    #[allow(dead_code)]
+    pub particles: Vec<Particle>,
+}
 
 impl Renderer {
     pub fn new(width: usize, height: usize) -> Self {
@@ -68,6 +80,8 @@ impl Renderer {
             loaded_keys: Vec::with_capacity(128),
             dirty_keys: HashSet::with_capacity(64),
             visible_keys: Vec::with_capacity(128),
+            opaque_tris_buf: Vec::with_capacity(16384),
+            transparent_tris_buf: Vec::with_capacity(4096),
             particles: Vec::new(),
         }
     }
@@ -236,7 +250,6 @@ impl Renderer {
         self.selected_block = id;
     }
 
-    // Zoptymalizowane, wielowątkowe czyszczenie ekranu za pomocą Rayona
     fn clear(&mut self, camera_pitch: f32) {
         let width = self.width;
         let height = self.height;
@@ -277,16 +290,35 @@ impl Renderer {
         self.mesh_cache.retain(|k, _| world.chunks.contains_key(k));
         self.dirty_keys.clear();
 
-        for key in &self.loaded_keys {
-            let chunk = world.chunks.get(key).unwrap();
-            let already_built_clean = self.mesh_cache.contains_key(key) && !chunk.dirty;
-            if !already_built_clean {
+        // Równoległe generowanie siatek zmienionych chunków
+        let dirty_keys_to_build: Vec<(i32, i32)> = self
+        .loaded_keys
+        .iter()
+        .copied()
+        .filter(|key| {
+            world
+            .chunks
+            .get(key)
+            .map_or(false, |chunk| chunk.dirty || !self.mesh_cache.contains_key(key))
+        })
+        .collect();
+
+        if !dirty_keys_to_build.is_empty() {
+            let new_meshes: Vec<((i32, i32), Vec<Triangle>)> = dirty_keys_to_build
+            .par_iter()
+            .map(|&key| {
+                let chunk = world.chunks.get(&key).unwrap();
                 let mesh = build_chunk_mesh(chunk, world);
-                self.mesh_cache.insert(*key, mesh);
-                if let Some(chunk) = world.chunks.get_mut(key) {
+                (key, mesh)
+            })
+            .collect();
+
+            for (key, mesh) in new_meshes {
+                self.mesh_cache.insert(key, mesh);
+                if let Some(chunk) = world.chunks.get_mut(&key) {
                     chunk.dirty = false;
                 }
-                self.dirty_keys.insert(*key);
+                self.dirty_keys.insert(key);
             }
         }
 
@@ -312,7 +344,8 @@ impl Renderer {
             return;
         }
 
-        let mut visible: Vec<(i32, i32)> = self.loaded_keys
+        let mut visible: Vec<(i32, i32)> = self
+        .loaded_keys
         .par_iter()
         .copied()
         .filter(|&key| Self::chunk_visible(key, &view_proj))
@@ -327,45 +360,111 @@ impl Renderer {
             let dx_b = b.0 as f32 * CHUNK_SIZE_X as f32 - cam_x;
             let dz_b = b.1 as f32 * CHUNK_SIZE_Z as f32 - cam_z;
 
-            (dx_a * dx_a + dz_a * dz_a).partial_cmp(&(dx_b * dx_b + dz_b * dz_b)).unwrap_or(std::cmp::Ordering::Equal)
+            (dx_a * dx_a + dz_a * dz_a)
+            .partial_cmp(&(dx_b * dx_b + dz_b * dz_b))
+            .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        // Zbierz wszystkie trójkąty z widocznych siatek
-        let mut opaque_tris = Vec::with_capacity(16384);
-        let mut transparent_tris = Vec::with_capacity(4096);
+        self.opaque_tris_buf.clear();
+        self.transparent_tris_buf.clear();
 
-        for key in &visible {
-            if let Some(tris) = self.mesh_cache.get(key) {
+        let width = self.width;
+        let height = self.height;
+        let mesh_cache = &self.mesh_cache;
+
+        // Równoległa faza obcinania (clipping) i rzutowania trójkątów
+        let (opaque_chunks, transparent_chunks): (Vec<Vec<ScreenTriangle>>, Vec<Vec<ScreenTriangle>>) = visible
+        .par_iter()
+        .map(|key| {
+            let mut local_opaque = Vec::with_capacity(256);
+            let mut local_transparent = Vec::with_capacity(64);
+
+            if let Some(tris) = mesh_cache.get(key) {
                 for tri in tris {
-                    if matches!(tri.texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass) {
-                        transparent_tris.push(tri.clone());
-                    } else {
-                        opaque_tris.push(tri.clone());
+                    let c0 = to_clip_ao(tri.v0, &view_proj);
+                    let c1 = to_clip_ao(tri.v1, &view_proj);
+                    let c2 = to_clip_ao(tri.v2, &view_proj);
+
+                    let clipped = clip_near_ao(&[c0, c1, c2]);
+                    if clipped.len() < 3 {
+                        continue;
+                    }
+
+                    let is_transparent = matches!(
+                        tri.texture,
+                        crate::texture::TextureId::Water | crate::texture::TextureId::Glass
+                    );
+
+                    for i in 1..clipped.len() - 1 {
+                        let sa = project_to_screen_ao(&clipped[0], width, height);
+                        let sb = project_to_screen_ao(&clipped[i], width, height);
+                        let sc = project_to_screen_ao(&clipped[i + 1], width, height);
+
+                        let area = edge(sa.x, sa.y, sb.x, sb.y, sc.x, sc.y);
+                        if area <= 0.0 {
+                            continue;
+                        }
+
+                        let min_y = sa.y.min(sb.y).min(sc.y).floor() as i32;
+                        let max_y = sa.y.max(sb.y).max(sc.y).ceil() as i32;
+
+                        if min_y >= height as i32 || max_y < 0 {
+                            continue;
+                        }
+
+                        let stri = ScreenTriangle {
+                            sa,
+                            sb,
+                            sc,
+                            texture: tri.texture,
+                            min_y,
+                            max_y,
+                        };
+
+                        if is_transparent {
+                            local_transparent.push(stri);
+                        } else {
+                            local_opaque.push(stri);
+                        }
                     }
                 }
             }
-        }
+            (local_opaque, local_transparent)
+        })
+        .unzip();
 
-        // Równoległe renderowanie kafelkowe/pasowe (Tile-based Parallel Processing)
-        let width = self.width;
-        let height = self.height;
+        self.opaque_tris_buf = opaque_chunks.into_par_iter().flatten().collect();
+        self.transparent_tris_buf = transparent_chunks.into_par_iter().flatten().collect();
+
         let textures = &self.textures;
+        let opaque_slice = self.opaque_tris_buf.as_slice();
+        let transparent_slice = self.transparent_tris_buf.as_slice();
 
         let color_chunks = self.color_buffer.chunks_mut(width * TILE_HEIGHT);
         let depth_chunks = self.depth_buffer.chunks_mut(width * TILE_HEIGHT);
 
-        color_chunks.zip(depth_chunks).enumerate().par_bridge().for_each(|(tile_idx, (c_slice, d_slice))| {
+        // Wielowątkowa rasteryzacja kafelków
+        color_chunks
+        .zip(depth_chunks)
+        .enumerate()
+        .collect::<Vec<_>>()
+        .into_par_iter()
+        .for_each(|(tile_idx, (c_slice, d_slice))| {
             let tile_y_start = tile_idx * TILE_HEIGHT;
             let tile_y_end = (tile_y_start + TILE_HEIGHT).min(height);
 
             // Pass 1: Opaque
-            for tri in &opaque_tris {
-                raster_triangle_tile(
-                    tri,
+            for stri in opaque_slice {
+                if stri.max_y < tile_y_start as i32 || stri.min_y >= tile_y_end as i32 {
+                    continue;
+                }
+                raster_screen_triangle_ao_tile(
+                    stri.sa,
+                    stri.sb,
+                    stri.sc,
+                    stri.texture,
                     0.0,
-                    &view_proj,
                     width,
-                    height,
                     tile_y_start,
                     tile_y_end,
                     c_slice,
@@ -375,13 +474,17 @@ impl Renderer {
             }
 
             // Pass 2: Transparent
-            for tri in transparent_tris.iter().rev() {
-                raster_triangle_tile(
-                    tri,
+            for stri in transparent_slice.iter().rev() {
+                if stri.max_y < tile_y_start as i32 || stri.min_y >= tile_y_end as i32 {
+                    continue;
+                }
+                raster_screen_triangle_ao_tile(
+                    stri.sa,
+                    stri.sb,
+                    stri.sc,
+                    stri.texture,
                     0.0,
-                    &view_proj,
                     width,
-                    height,
                     tile_y_start,
                     tile_y_end,
                     c_slice,
@@ -1513,7 +1616,6 @@ fn project_to_screen_ao(v: &ClipVertAO, width: usize, height: usize) -> ScreenVe
     }
 }
 
-// Główna funkcja rastrująca trójkąt, przystosowana do wywołań w obrębie paska/kafelka (Tile)
 fn raster_triangle_tile(
     tri: &Triangle,
     hurt_tint: f32,
@@ -1598,9 +1700,9 @@ fn raster_screen_triangle_ao_tile(
         let row_offset = (py as usize - tile_y_start) * width;
 
         let mut px = min_x;
-        // Wektorowa/Optymalizowana iteracja AVX/SIMD
-        while px <= max_x {
-            raster_scanline_simd(
+        // Wektorowe skanowanie po 4 piksele naraz
+        while px + 3 <= max_x {
+            raster_scanline_simd_4x(
                 px,
                 row_offset,
                 w0,
@@ -1620,28 +1722,154 @@ fn raster_screen_triangle_ao_tile(
                 depth_buffer,
             );
 
+            px += 4;
+            w0 += dy0 * 4.0;
+            w1 += dy1 * 4.0;
+            w2 += dy2 * 4.0;
+        }
+
+        // Dokończenie linii (dla pozostałych 1-3 pikseli)
+        while px <= max_x {
+            raster_scanline_pixel(
+                px,
+                row_offset,
+                w0,
+                w1,
+                w2,
+                inv_area,
+                &a,
+                &b,
+                &c,
+                transparent,
+                hurt_tint,
+                tex,
+                color_buffer,
+                depth_buffer,
+            );
+
             px += 1;
             w0 += dy0;
             w1 += dy1;
             w2 += dy2;
         }
+
         w0_row -= dx0;
         w1_row -= dx1;
         w2_row -= dx2;
     }
 }
 
-// Zoptymalizowana rasteryzacja pojedynczego piksela w linii z auto-wektoryzacją Rust i wsparciem SIMD
 #[inline(always)]
-fn raster_scanline_simd(
+fn raster_scanline_simd_4x(
+    px: i32,
+    row_offset: usize,
+    w0_start: f32,
+    w1_start: f32,
+    w2_start: f32,
+    dy0: f32,
+    dy1: f32,
+    dy2: f32,
+    inv_area: f32,
+    a: &ScreenVertAO,
+    b: &ScreenVertAO,
+    c: &ScreenVertAO,
+    transparent: bool,
+    hurt_tint: f32,
+    tex: &crate::texture::Texture,
+    color_buffer: &mut [u32],
+    depth_buffer: &mut [f32],
+) {
+    let w0 = [
+        w0_start,
+        w0_start + dy0,
+        w0_start + dy0 * 2.0,
+        w0_start + dy0 * 3.0,
+    ];
+    let w1 = [
+        w1_start,
+        w1_start + dy1,
+        w1_start + dy1 * 2.0,
+        w1_start + dy1 * 3.0,
+    ];
+    let w2 = [
+        w2_start,
+        w2_start + dy2,
+        w2_start + dy2 * 2.0,
+        w2_start + dy2 * 3.0,
+    ];
+
+    let mask = [
+        w0[0] >= 0.0 && w1[0] >= 0.0 && w2[0] >= 0.0,
+        w0[1] >= 0.0 && w1[1] >= 0.0 && w2[1] >= 0.0,
+        w0[2] >= 0.0 && w1[2] >= 0.0 && w2[2] >= 0.0,
+        w0[3] >= 0.0 && w1[3] >= 0.0 && w2[3] >= 0.0,
+    ];
+
+    if !mask[0] && !mask[1] && !mask[2] && !mask[3] {
+        return;
+    }
+
+    for i in 0..4 {
+        if mask[i] {
+            let l0 = w0[i] * inv_area;
+            let l1 = w1[i] * inv_area;
+            let l2 = w2[i] * inv_area;
+
+            let inv_w = l0 * a.inv_w + l1 * b.inv_w + l2 * c.inv_w;
+            if inv_w > 0.0 {
+                let depth = 1.0 / inv_w;
+                let idx = row_offset + (px as usize + i);
+
+                if depth < depth_buffer[idx] {
+                    if !transparent {
+                        depth_buffer[idx] = depth;
+                    }
+
+                    let u = (l0 * a.uv_over_w.0 + l1 * b.uv_over_w.0 + l2 * c.uv_over_w.0) * depth;
+                    let v = (l0 * a.uv_over_w.1 + l1 * b.uv_over_w.1 + l2 * c.uv_over_w.1) * depth;
+                    let ao = (l0 * a.ao_over_w + l1 * b.ao_over_w + l2 * c.ao_over_w) * depth;
+
+                    let texel = tex.sample(u, v);
+                    let mut r = texel[0] * ao;
+                    let mut g = texel[1] * ao;
+                    let mut bl = texel[2] * ao;
+
+                    if hurt_tint > 0.0 {
+                        r = r * (1.0 - hurt_tint) + 0.95 * hurt_tint;
+                        g = g * (1.0 - hurt_tint) + 0.12 * hurt_tint;
+                        bl = bl * (1.0 - hurt_tint) + 0.12 * hurt_tint;
+                    }
+
+                    let fog_t = (depth / 180.0).clamp(0.0, 1.0);
+                    let fog = (0.75f32, 0.85f32, 1.0f32);
+                    let fr = r * (1.0 - fog_t) + fog.0 * fog_t;
+                    let fg = g * (1.0 - fog_t) + fog.1 * fog_t;
+                    let fb = bl * (1.0 - fog_t) + fog.2 * fog_t;
+
+                    if transparent {
+                        let (br, bg, bb) = unpack_color(color_buffer[idx]);
+                        let alpha = 0.48;
+                        color_buffer[idx] = pack_color(
+                            fr * alpha + br * (1.0 - alpha),
+                                                       fg * alpha + bg * (1.0 - alpha),
+                                                       fb * alpha + bb * (1.0 - alpha),
+                        );
+                    } else {
+                        color_buffer[idx] = pack_color(fr, fg, fb);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[inline(always)]
+fn raster_scanline_pixel(
     px: i32,
     row_offset: usize,
     w0: f32,
     w1: f32,
     w2: f32,
-    _dy0: f32,
-    _dy1: f32,
-    _dy2: f32,
     inv_area: f32,
     a: &ScreenVertAO,
     b: &ScreenVertAO,
@@ -1691,7 +1919,11 @@ fn raster_scanline_simd(
                 if transparent {
                     let (br, bg, bb) = unpack_color(color_buffer[idx]);
                     let alpha = 0.48;
-                    color_buffer[idx] = pack_color(fr * alpha + br * (1.0 - alpha), fg * alpha + bg * (1.0 - alpha), fb * alpha + bb * (1.0 - alpha));
+                    color_buffer[idx] = pack_color(
+                        fr * alpha + br * (1.0 - alpha),
+                                                   fg * alpha + bg * (1.0 - alpha),
+                                                   fb * alpha + bb * (1.0 - alpha),
+                    );
                 } else {
                     color_buffer[idx] = pack_color(fr, fg, fb);
                 }
