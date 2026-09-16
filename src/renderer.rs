@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use rayon::prelude::*;
 
 use crate::camera::Camera;
 use crate::font;
@@ -50,6 +51,8 @@ struct ScreenVertAO {
     uv_over_w: (f32, f32),
     ao_over_w: f32,
 }
+
+const TILE_HEIGHT: usize = 32;
 
 impl Renderer {
     pub fn new(width: usize, height: usize) -> Self {
@@ -163,7 +166,7 @@ impl Renderer {
         let mut rng_state = 12345u32;
         let mut rand_f32 = || -> f32 {
             rng_state = rng_state.wrapping_mul(1664525).wrapping_add(1013904223);
-            (rng_state as f32 / u32::MAX as f32) * 2.0 - 1.0 // -1.0 to 1.0
+            (rng_state as f32 / u32::MAX as f32) * 2.0 - 1.0
         };
 
         for _ in 0..40 {
@@ -171,13 +174,13 @@ impl Renderer {
             let vy = rand_f32() * 5.0 + 4.0;
             let vz = rand_f32() * 6.0;
 
-            let life = (rand_f32() + 1.0) * 0.5 * 1.5 + 0.5; // 0.5 to 2.0 sekundy
+            let life = (rand_f32() + 1.0) * 0.5 * 1.5 + 0.5;
 
             let color_val = (rand_f32() + 1.0) * 0.5 * 0.5 + 0.5;
             let color = if rand_f32() > 0.0 {
-                [1.0, color_val * 0.6, 0.1] // Ogień
+                [1.0, color_val * 0.6, 0.1]
             } else {
-                [color_val, color_val, color_val] // Dym
+                [color_val, color_val, color_val]
             };
 
             self.particles.push(Particle {
@@ -233,9 +236,17 @@ impl Renderer {
         self.selected_block = id;
     }
 
+    // Zoptymalizowane, wielowątkowe czyszczenie ekranu za pomocą Rayona
     fn clear(&mut self, camera_pitch: f32) {
-        for y in 0..self.height {
-            let t = y as f32 / self.height.max(1) as f32;
+        let width = self.width;
+        let height = self.height;
+        let max_h = height.max(1) as f32;
+
+        self.color_buffer
+        .par_chunks_mut(width)
+        .enumerate()
+        .for_each(|(y, row)| {
+            let t = y as f32 / max_h;
             let t = (t + camera_pitch * 0.05).clamp(0.0, 1.0);
             let top = (0.35f32, 0.55f32, 0.95f32);
             let bottom = (0.75f32, 0.85f32, 1.0f32);
@@ -243,14 +254,12 @@ impl Renderer {
             let g = top.1 + (bottom.1 - top.1) * t;
             let b = top.2 + (bottom.2 - top.2) * t;
             let color = pack_color(r, g, b);
+            row.fill(color);
+        });
 
-            let row_start = y * self.width;
-            // Optymalizacja: szybkie uzupełnianie wiersza (SIMD .fill)
-            self.color_buffer[row_start..row_start + self.width].fill(color);
-        }
-        for d in self.depth_buffer.iter_mut() {
-            *d = f32::INFINITY;
-        }
+        self.depth_buffer.par_chunks_mut(width * 16).for_each(|chunk| {
+            chunk.fill(f32::INFINITY);
+        });
     }
 
     pub fn render_frame(&mut self, world: &mut World, camera: &Camera) {
@@ -303,12 +312,12 @@ impl Renderer {
             return;
         }
 
-        let mut visible: Vec<(i32, i32)> = (0..self.loaded_keys.len())
-        .filter(|&i| Self::chunk_visible(self.loaded_keys[i], &view_proj))
-        .map(|i| self.loaded_keys[i])
+        let mut visible: Vec<(i32, i32)> = self.loaded_keys
+        .par_iter()
+        .copied()
+        .filter(|&key| Self::chunk_visible(key, &view_proj))
         .collect();
 
-        // Optymalizacja: szybkie przeliczanie distansu
         let cam_x = camera.position.x - CHUNK_SIZE_X as f32 * 0.5;
         let cam_z = camera.position.z - CHUNK_SIZE_Z as f32 * 0.5;
 
@@ -321,28 +330,66 @@ impl Renderer {
             (dx_a * dx_a + dz_a * dz_a).partial_cmp(&(dx_b * dx_b + dz_b * dz_b)).unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        // Pass 1: Opaque geometry
-        // Optymalizacja: Ominięcie alokacji Vec oraz problemu z Borrow Checkerem przez iterację po indeksach
+        // Zbierz wszystkie trójkąty z widocznych siatek
+        let mut opaque_tris = Vec::with_capacity(16384);
+        let mut transparent_tris = Vec::with_capacity(4096);
+
         for key in &visible {
-            let len = self.mesh_cache.get(key).map_or(0, |tris| tris.len());
-            for i in 0..len {
-                let tri = self.mesh_cache.get(key).unwrap()[i].clone();
-                if !matches!(tri.texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass) {
-                    self.raster_triangle(&tri, &view_proj);
+            if let Some(tris) = self.mesh_cache.get(key) {
+                for tri in tris {
+                    if matches!(tri.texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass) {
+                        transparent_tris.push(tri.clone());
+                    } else {
+                        opaque_tris.push(tri.clone());
+                    }
                 }
             }
         }
 
-        // Pass 2: Transparent geometry
-        for key in visible.iter().rev() {
-            let len = self.mesh_cache.get(key).map_or(0, |tris| tris.len());
-            for i in 0..len {
-                let tri = self.mesh_cache.get(key).unwrap()[i].clone();
-                if matches!(tri.texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass) {
-                    self.raster_triangle(&tri, &view_proj);
-                }
+        // Równoległe renderowanie kafelkowe/pasowe (Tile-based Parallel Processing)
+        let width = self.width;
+        let height = self.height;
+        let textures = &self.textures;
+
+        let color_chunks = self.color_buffer.chunks_mut(width * TILE_HEIGHT);
+        let depth_chunks = self.depth_buffer.chunks_mut(width * TILE_HEIGHT);
+
+        color_chunks.zip(depth_chunks).enumerate().par_bridge().for_each(|(tile_idx, (c_slice, d_slice))| {
+            let tile_y_start = tile_idx * TILE_HEIGHT;
+            let tile_y_end = (tile_y_start + TILE_HEIGHT).min(height);
+
+            // Pass 1: Opaque
+            for tri in &opaque_tris {
+                raster_triangle_tile(
+                    tri,
+                    0.0,
+                    &view_proj,
+                    width,
+                    height,
+                    tile_y_start,
+                    tile_y_end,
+                    c_slice,
+                    d_slice,
+                    textures,
+                );
             }
-        }
+
+            // Pass 2: Transparent
+            for tri in transparent_tris.iter().rev() {
+                raster_triangle_tile(
+                    tri,
+                    0.0,
+                    &view_proj,
+                    width,
+                    height,
+                    tile_y_start,
+                    tile_y_end,
+                    c_slice,
+                    d_slice,
+                    textures,
+                );
+            }
+        });
     }
 
     fn chunk_visible(key: (i32, i32), view_proj: &crate::math::Mat4) -> bool {
@@ -386,139 +433,22 @@ impl Renderer {
     }
 
     pub fn raster_triangle_tinted(&mut self, tri: &Triangle, hurt_tint: f32, view_proj: &crate::math::Mat4) {
-        let c0 = to_clip_ao(tri.v0, view_proj);
-        let c1 = to_clip_ao(tri.v1, view_proj);
-        let c2 = to_clip_ao(tri.v2, view_proj);
+        let width = self.width;
+        let height = self.height;
+        let textures = &self.textures;
 
-        let clipped = clip_near_ao(&[c0, c1, c2]);
-        if clipped.len() < 3 {
-            return;
-        }
-
-        for i in 1..clipped.len() - 1 {
-            let sa = self.project_to_screen_ao(&clipped[0]);
-            let sb = self.project_to_screen_ao(&clipped[i]);
-            let sc = self.project_to_screen_ao(&clipped[i + 1]);
-            self.raster_screen_triangle_ao(sa, sb, sc, tri.texture, hurt_tint);
-        }
-    }
-
-    fn project_to_screen_ao(&self, v: &ClipVertAO) -> ScreenVertAO {
-        let inv_w = 1.0 / v.clip[3];
-        let ndc_x = v.clip[0] * inv_w;
-        let ndc_y = v.clip[1] * inv_w;
-        let screen_x = (ndc_x * 0.5 + 0.5) * self.width as f32;
-        let screen_y = (1.0 - (ndc_y * 0.5 + 0.5)) * self.height as f32;
-        ScreenVertAO {
-            x: screen_x,
-            y: screen_y,
-            inv_w,
-            uv_over_w: (v.uv.0 * inv_w, v.uv.1 * inv_w),
-            ao_over_w: v.ao * inv_w,
-        }
-    }
-
-    fn raster_screen_triangle_ao(
-        &mut self,
-        a: ScreenVertAO,
-        b: ScreenVertAO,
-        c: ScreenVertAO,
-        texture: crate::texture::TextureId,
-        hurt_tint: f32,
-    ) {
-        let area = edge(a.x, a.y, b.x, b.y, c.x, c.y);
-        if area <= 0.0 {
-            return;
-        }
-
-        let min_x = a.x.min(b.x).min(c.x).floor().max(0.0) as i32;
-        let max_x = a.x.max(b.x).max(c.x).ceil().min(self.width as f32 - 1.0) as i32;
-        let min_y = a.y.min(b.y).min(c.y).floor().max(0.0) as i32;
-        let max_y = a.y.max(b.y).max(c.y).ceil().min(self.height as f32 - 1.0) as i32;
-
-        if min_x > max_x || min_y > max_y {
-            return;
-        }
-
-        let inv_area = 1.0 / area;
-        let tex = self.textures.get(texture);
-        let transparent = matches!(texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass);
-
-        let dx0 = c.x - b.x;
-        let dy0 = c.y - b.y;
-        let dx1 = a.x - c.x;
-        let dy1 = a.y - c.y;
-        let dx2 = b.x - a.x;
-        let dy2 = b.y - a.y;
-
-        let fx0 = min_x as f32 + 0.5;
-        let fy0 = min_y as f32 + 0.5;
-
-        let mut w0_row = edge(b.x, b.y, c.x, c.y, fx0, fy0);
-        let mut w1_row = edge(c.x, c.y, a.x, a.y, fx0, fy0);
-        let mut w2_row = edge(a.x, a.y, b.x, b.y, fx0, fy0);
-
-        for py in min_y..=max_y {
-            let mut w0 = w0_row;
-            let mut w1 = w1_row;
-            let mut w2 = w2_row;
-            let row_idx = (py as usize) * self.width;
-
-            for px in min_x..=max_x {
-                if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
-                    let l0 = w0 * inv_area;
-                    let l1 = w1 * inv_area;
-                    let l2 = w2 * inv_area;
-
-                    let inv_w = l0 * a.inv_w + l1 * b.inv_w + l2 * c.inv_w;
-                    if inv_w > 0.0 {
-                        let depth = 1.0 / inv_w;
-                        let idx = row_idx + (px as usize);
-
-                        if depth < self.depth_buffer[idx] {
-                            if !transparent {
-                                self.depth_buffer[idx] = depth;
-                            }
-
-                            let u = (l0 * a.uv_over_w.0 + l1 * b.uv_over_w.0 + l2 * c.uv_over_w.0) * depth;
-                            let v = (l0 * a.uv_over_w.1 + l1 * b.uv_over_w.1 + l2 * c.uv_over_w.1) * depth;
-                            let ao = (l0 * a.ao_over_w + l1 * b.ao_over_w + l2 * c.ao_over_w) * depth;
-
-                            let texel = tex.sample(u, v);
-                            let mut r = texel[0] * ao;
-                            let mut g = texel[1] * ao;
-                            let mut bl = texel[2] * ao;
-
-                            if hurt_tint > 0.0 {
-                                r = r * (1.0 - hurt_tint) + 0.95 * hurt_tint;
-                                g = g * (1.0 - hurt_tint) + 0.12 * hurt_tint;
-                                bl = bl * (1.0 - hurt_tint) + 0.12 * hurt_tint;
-                            }
-
-                            let fog_t = (depth / 180.0).clamp(0.0, 1.0);
-                            let fog = (0.75f32, 0.85f32, 1.0f32);
-                            let fr = r * (1.0 - fog_t) + fog.0 * fog_t;
-                            let fg = g * (1.0 - fog_t) + fog.1 * fog_t;
-                            let fb = bl * (1.0 - fog_t) + fog.2 * fog_t;
-
-                            if transparent {
-                                let (br, bg, bb) = unpack_color(self.color_buffer[idx]);
-                                let alpha = 0.48;
-                                self.color_buffer[idx] = pack_color(fr * alpha + br * (1.0 - alpha), fg * alpha + bg * (1.0 - alpha), fb * alpha + bb * (1.0 - alpha));
-                            } else {
-                                self.color_buffer[idx] = pack_color(fr, fg, fb);
-                            }
-                        }
-                    }
-                }
-                w0 += dy0;
-                w1 += dy1;
-                w2 += dy2;
-            }
-            w0_row -= dx0;
-            w1_row -= dx1;
-            w2_row -= dx2;
-        }
+        raster_triangle_tile(
+            tri,
+            hurt_tint,
+            view_proj,
+            width,
+            height,
+            0,
+            height,
+            &mut self.color_buffer,
+            &mut self.depth_buffer,
+            textures,
+        );
     }
 
     pub fn draw_billboard(
@@ -566,7 +496,6 @@ impl Renderer {
             let (cx, cy, _) = pts[ci];
             let area = edge(ax, ay, bx, by, cx, cy);
             if area <= 0.0 { continue; }
-            let inv_area = 1.0 / area;
             let min_x = ax.min(bx).min(cx).floor().max(0.0) as i32;
             let max_x = ax.max(bx).max(cx).ceil().min(self.width as f32 - 1.0) as i32;
             let min_y = ay.min(by).min(cy).floor().max(0.0) as i32;
@@ -579,7 +508,6 @@ impl Renderer {
                     let w1 = edge(cx, cy, ax, ay, fx, fy);
                     let w2 = edge(ax, ay, bx, by, fx, fy);
                     if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
-                        let _ = inv_area;
                         let idx = py as usize * self.width + px as usize;
                         if depth_at_pos < self.depth_buffer[idx] {
                             self.color_buffer[idx] = packed;
@@ -608,7 +536,6 @@ impl Renderer {
         let cloud_size = 12.0f32;
         let scroll = time * 1.5;
 
-        // Multi-frequency noise for continuous, connected 3D cloud clusters
         let is_cloud = |gx: i32, gz: i32| -> bool {
             let hx = gx.wrapping_mul(374761393i32);
             let hz = gz.wrapping_mul(668265263i32);
@@ -646,72 +573,65 @@ impl Renderer {
                     continue;
                 }
 
-                // At most 3 exterior faces can ever face the camera simultaneously
                 let mut faces_to_draw: [Option<([Vec3; 4], [f32; 3])>; 6] = [None, None, None, None, None, None];
                 let mut face_count = 0;
 
-                // 1. Bottom face (-Y): shaded grey-blue, visible from below
                 if player_pos.y < y_bottom + 0.1 {
                     faces_to_draw[face_count] = Some(([
                         Vec3::new(x_min, y_bottom, z_min),
-                        Vec3::new(x_max, y_bottom, z_min),
-                        Vec3::new(x_max, y_bottom, z_max),
-                        Vec3::new(x_min, y_bottom, z_max),
+                                                      Vec3::new(x_max, y_bottom, z_min),
+                                                      Vec3::new(x_max, y_bottom, z_max),
+                                                      Vec3::new(x_min, y_bottom, z_max),
                     ], [0.72, 0.72, 0.76]));
                     face_count += 1;
                 }
 
-                // 2. Top face (+Y): bright white sunlight, visible from above
                 if player_pos.y > y_top - 0.1 {
                     faces_to_draw[face_count] = Some(([
                         Vec3::new(x_min, y_top, z_max),
-                        Vec3::new(x_max, y_top, z_max),
-                        Vec3::new(x_max, y_top, z_min),
-                        Vec3::new(x_min, y_top, z_min),
+                                                      Vec3::new(x_max, y_top, z_max),
+                                                      Vec3::new(x_max, y_top, z_min),
+                                                      Vec3::new(x_min, y_top, z_min),
                     ], [0.98, 0.98, 1.00]));
                     face_count += 1;
                 }
 
-                // 3. North face (-Z): exterior edge facing player
                 if player_pos.z < z_min && !is_cloud(gx, gz - 1) {
                     faces_to_draw[face_count] = Some(([
                         Vec3::new(x_min, y_top, z_min),
-                        Vec3::new(x_max, y_top, z_min),
-                        Vec3::new(x_max, y_bottom, z_min),
-                        Vec3::new(x_min, y_bottom, z_min),
+                                                      Vec3::new(x_max, y_top, z_min),
+                                                      Vec3::new(x_max, y_bottom, z_min),
+                                                      Vec3::new(x_min, y_bottom, z_min),
                     ], [0.86, 0.86, 0.90]));
                     face_count += 1;
                 }
 
-                // 4. South face (+Z): exterior edge facing player
                 if player_pos.z > z_max && !is_cloud(gx, gz + 1) {
                     faces_to_draw[face_count] = Some(([
                         Vec3::new(x_max, y_top, z_max),
-                        Vec3::new(x_min, y_top, z_max),
-                        Vec3::new(x_min, y_bottom, z_max),
-                        Vec3::new(x_max, y_bottom, z_max),
+                                                      Vec3::new(x_min, y_top, z_max),
+                                                      Vec3::new(x_min, y_bottom, z_max),
+                                                      Vec3::new(x_max, y_bottom, z_max),
                     ], [0.86, 0.86, 0.90]));
                     face_count += 1;
                 }
 
-                // 5. West face (-X): exterior edge facing player
                 if player_pos.x < x_min && !is_cloud(gx - 1, gz) {
                     faces_to_draw[face_count] = Some(([
                         Vec3::new(x_min, y_top, z_max),
-                        Vec3::new(x_min, y_top, z_min),
-                        Vec3::new(x_min, y_bottom, z_min),
-                        Vec3::new(x_min, y_bottom, z_max),
+                                                      Vec3::new(x_min, y_top, z_min),
+                                                      Vec3::new(x_min, y_bottom, z_min),
+                                                      Vec3::new(x_min, y_bottom, z_max),
                     ], [0.80, 0.80, 0.84]));
                     face_count += 1;
                 }
 
-                // 6. East face (+X): exterior edge facing player
                 if player_pos.x > x_max && !is_cloud(gx + 1, gz) {
                     faces_to_draw[face_count] = Some(([
                         Vec3::new(x_max, y_top, z_min),
-                        Vec3::new(x_max, y_top, z_max),
-                        Vec3::new(x_max, y_bottom, z_max),
-                        Vec3::new(x_max, y_bottom, z_min),
+                                                      Vec3::new(x_max, y_top, z_max),
+                                                      Vec3::new(x_max, y_bottom, z_max),
+                                                      Vec3::new(x_max, y_bottom, z_min),
                     ], [0.80, 0.80, 0.84]));
                     face_count += 1;
                 }
@@ -728,8 +648,8 @@ impl Renderer {
                         let inv_w = 1.0 / c[3];
                         pts[i] = (
                             (c[0] * inv_w * 0.5 + 0.5) * self.width as f32,
-                            (1.0 - (c[1] * inv_w * 0.5 + 0.5)) * self.height as f32,
-                            inv_w,
+                                  (1.0 - (c[1] * inv_w * 0.5 + 0.5)) * self.height as f32,
+                                  inv_w,
                         );
                     }
                     if !all_valid { continue; }
@@ -878,294 +798,274 @@ impl Renderer {
         match mob.kind {
             MobKind::Pig => {
                 let center_y = 0.42;
-                // Body: center at (0, 0.42, -0.05), size: half = [0.28, 0.20, 0.40]
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(0.0, 0.42, -0.05),
-                    [0.28, 0.20, 0.40],
-                    mob.yaw,
-                    0.0,
-                    death_roll,
-                    [TextureId::PigSkin; 6],
-                    hurt_tint,
-                    view_proj,
+                                  [0.28, 0.20, 0.40],
+                                  mob.yaw,
+                                  0.0,
+                                  death_roll,
+                                  [TextureId::PigSkin; 6],
+                                  hurt_tint,
+                                  view_proj,
                 );
 
-                // Head: center at (0, 0.50, 0.40), size: half = [0.20, 0.20, 0.20]
                 let head_tex = [
-                    TextureId::PigFace, // Front (+Z)
-                    TextureId::PigSkin, // Back (-Z)
-                    TextureId::PigSkin, // Top (+Y)
-                    TextureId::PigSkin, // Bottom (-Y)
-                    TextureId::PigSkin, // Right (+X)
-                    TextureId::PigSkin, // Left (-X)
+                    TextureId::PigFace,
+                    TextureId::PigSkin,
+                    TextureId::PigSkin,
+                    TextureId::PigSkin,
+                    TextureId::PigSkin,
+                    TextureId::PigSkin,
                 ];
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(0.0, 0.50, 0.40),
-                    [0.20, 0.20, 0.20],
-                    mob.yaw + mob.head_yaw_offset,
-                    0.0,
-                    death_roll,
-                    head_tex,
-                    hurt_tint,
-                    view_proj,
+                                  [0.20, 0.20, 0.20],
+                                  mob.yaw + mob.head_yaw_offset,
+                                  0.0,
+                                  death_roll,
+                                  head_tex,
+                                  hurt_tint,
+                                  view_proj,
                 );
 
-                // Snout: center at (0, 0.44, 0.62), size: half = [0.10, 0.07, 0.04]
                 let snout_tex = [
-                    TextureId::PigSnout, // Front (+Z)
-                    TextureId::PigSkin,  // Back (-Z)
-                    TextureId::PigSkin,  // Top (+Y)
-                    TextureId::PigSkin,  // Bottom (-Y)
-                    TextureId::PigSkin,  // Right (+X)
-                    TextureId::PigSkin,  // Left (-X)
+                    TextureId::PigSnout,
+                    TextureId::PigSkin,
+                    TextureId::PigSkin,
+                    TextureId::PigSkin,
+                    TextureId::PigSkin,
+                    TextureId::PigSkin,
                 ];
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(0.0, 0.44, 0.62),
-                    [0.10, 0.07, 0.04],
-                    mob.yaw + mob.head_yaw_offset,
-                    0.0,
-                    death_roll,
-                    snout_tex,
-                    hurt_tint,
-                    view_proj,
+                                  [0.10, 0.07, 0.04],
+                                  mob.yaw + mob.head_yaw_offset,
+                                  0.0,
+                                  death_roll,
+                                  snout_tex,
+                                  hurt_tint,
+                                  view_proj,
                 );
 
-                // 4 Legs: height 0.32 (half_y = 0.16), width/depth 0.16 (half = 0.08)
                 let leg_pitch = if mob.is_dead { 0.0 } else { mob.walk_phase.sin() * 0.65 };
                 let leg_tex = [TextureId::PigSkin; 6];
 
-                // Front Left Leg (x = -0.16, z = 0.22)
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(-0.16, 0.16, 0.22),
-                    [0.08, 0.16, 0.08],
-                    mob.yaw,
-                    leg_pitch,
-                    death_roll,
-                    leg_tex,
-                    hurt_tint,
-                    view_proj,
+                                  [0.08, 0.16, 0.08],
+                                  mob.yaw,
+                                  leg_pitch,
+                                  death_roll,
+                                  leg_tex,
+                                  hurt_tint,
+                                  view_proj,
                 );
 
-                // Front Right Leg (x = 0.16, z = 0.22)
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(0.16, 0.16, 0.22),
-                    [0.08, 0.16, 0.08],
-                    mob.yaw,
-                    -leg_pitch,
-                    death_roll,
-                    leg_tex,
-                    hurt_tint,
-                    view_proj,
+                                  [0.08, 0.16, 0.08],
+                                  mob.yaw,
+                                  -leg_pitch,
+                                  death_roll,
+                                  leg_tex,
+                                  hurt_tint,
+                                  view_proj,
                 );
 
-                // Back Left Leg (x = -0.16, z = -0.26)
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(-0.16, 0.16, -0.26),
-                    [0.08, 0.16, 0.08],
-                    mob.yaw,
-                    -leg_pitch,
-                    death_roll,
-                    leg_tex,
-                    hurt_tint,
-                    view_proj,
+                                  [0.08, 0.16, 0.08],
+                                  mob.yaw,
+                                  -leg_pitch,
+                                  death_roll,
+                                  leg_tex,
+                                  hurt_tint,
+                                  view_proj,
                 );
 
-                // Back Right Leg (x = 0.16, z = -0.26)
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(0.16, 0.16, -0.26),
-                    [0.08, 0.16, 0.08],
-                    mob.yaw,
-                    leg_pitch,
-                    death_roll,
-                    leg_tex,
-                    hurt_tint,
-                    view_proj,
+                                  [0.08, 0.16, 0.08],
+                                  mob.yaw,
+                                  leg_pitch,
+                                  death_roll,
+                                  leg_tex,
+                                  hurt_tint,
+                                  view_proj,
                 );
             }
 
             MobKind::Cow => {
                 let center_y = 0.68;
-                // Body: center at (0, 0.74, -0.05), size: half = [0.32, 0.26, 0.48]
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(0.0, 0.74, -0.05),
-                    [0.32, 0.26, 0.48],
-                    mob.yaw,
-                    0.0,
-                    death_roll,
-                    [TextureId::CowSkin; 6],
-                    hurt_tint,
-                    view_proj,
+                                  [0.32, 0.26, 0.48],
+                                  mob.yaw,
+                                  0.0,
+                                  death_roll,
+                                  [TextureId::CowSkin; 6],
+                                  hurt_tint,
+                                  view_proj,
                 );
 
-                // Udder: center at (0, 0.44, -0.22), size: half = [0.12, 0.05, 0.14]
                 let udder_tex = [
-                    TextureId::CowUdder, // Front
-                    TextureId::CowUdder, // Back
-                    TextureId::CowSkin,  // Top
-                    TextureId::CowUdder, // Bottom
-                    TextureId::CowUdder, // Right
-                    TextureId::CowUdder, // Left
+                    TextureId::CowUdder,
+                    TextureId::CowUdder,
+                    TextureId::CowSkin,
+                    TextureId::CowUdder,
+                    TextureId::CowUdder,
+                    TextureId::CowUdder,
                 ];
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(0.0, 0.44, -0.22),
-                    [0.12, 0.05, 0.14],
-                    mob.yaw,
-                    0.0,
-                    death_roll,
-                    udder_tex,
-                    hurt_tint,
-                    view_proj,
+                                  [0.12, 0.05, 0.14],
+                                  mob.yaw,
+                                  0.0,
+                                  death_roll,
+                                  udder_tex,
+                                  hurt_tint,
+                                  view_proj,
                 );
 
-                // Head: center at (0, 0.98, 0.46), size: half = [0.20, 0.20, 0.18]
                 let head_tex = [
-                    TextureId::CowFace, // Front (+Z)
-                    TextureId::CowSkin, // Back (-Z)
-                    TextureId::CowSkin, // Top (+Y)
-                    TextureId::CowSkin, // Bottom (-Y)
-                    TextureId::CowSkin, // Right (+X)
-                    TextureId::CowSkin, // Left (-X)
+                    TextureId::CowFace,
+                    TextureId::CowSkin,
+                    TextureId::CowSkin,
+                    TextureId::CowSkin,
+                    TextureId::CowSkin,
+                    TextureId::CowSkin,
                 ];
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(0.0, 0.98, 0.46),
-                    [0.20, 0.20, 0.18],
-                    mob.yaw + mob.head_yaw_offset,
-                    0.0,
-                    death_roll,
-                    head_tex,
-                    hurt_tint,
-                    view_proj,
+                                  [0.20, 0.20, 0.18],
+                                  mob.yaw + mob.head_yaw_offset,
+                                  0.0,
+                                  death_roll,
+                                  head_tex,
+                                  hurt_tint,
+                                  view_proj,
                 );
 
-                // Snout: center at (0, 0.90, 0.66), size: half = [0.15, 0.08, 0.05]
                 let snout_tex = [
-                    TextureId::CowSnout, // Front (+Z)
-                    TextureId::CowSkin,  // Back (-Z)
-                    TextureId::CowSkin,  // Top (+Y)
-                    TextureId::CowSkin,  // Bottom (-Y)
-                    TextureId::CowSkin,  // Right (+X)
-                    TextureId::CowSkin,  // Left (-X)
+                    TextureId::CowSnout,
+                    TextureId::CowSkin,
+                    TextureId::CowSkin,
+                    TextureId::CowSkin,
+                    TextureId::CowSkin,
+                    TextureId::CowSkin,
                 ];
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(0.0, 0.90, 0.66),
-                    [0.15, 0.08, 0.05],
-                    mob.yaw + mob.head_yaw_offset,
-                    0.0,
-                    death_roll,
-                    snout_tex,
-                    hurt_tint,
-                    view_proj,
+                                  [0.15, 0.08, 0.05],
+                                  mob.yaw + mob.head_yaw_offset,
+                                  0.0,
+                                  death_roll,
+                                  snout_tex,
+                                  hurt_tint,
+                                  view_proj,
                 );
 
-                // Horns: left and right
                 let horn_tex = [TextureId::CowHorns; 6];
-                // Left Horn (x = -0.22, y = 1.20, z = 0.44)
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(-0.22, 1.20, 0.44),
-                    [0.04, 0.08, 0.04],
-                    mob.yaw + mob.head_yaw_offset,
-                    0.0,
-                    death_roll,
-                    horn_tex,
-                    hurt_tint,
-                    view_proj,
+                                  [0.04, 0.08, 0.04],
+                                  mob.yaw + mob.head_yaw_offset,
+                                  0.0,
+                                  death_roll,
+                                  horn_tex,
+                                  hurt_tint,
+                                  view_proj,
                 );
-                // Right Horn (x = 0.22, y = 1.20, z = 0.44)
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(0.22, 1.20, 0.44),
-                    [0.04, 0.08, 0.04],
-                    mob.yaw + mob.head_yaw_offset,
-                    0.0,
-                    death_roll,
-                    horn_tex,
-                    hurt_tint,
-                    view_proj,
+                                  [0.04, 0.08, 0.04],
+                                  mob.yaw + mob.head_yaw_offset,
+                                  0.0,
+                                  death_roll,
+                                  horn_tex,
+                                  hurt_tint,
+                                  view_proj,
                 );
 
-                // 4 Legs: height 0.50 (half_y = 0.25), width/depth 0.16 (half = 0.08)
                 let leg_pitch = if mob.is_dead { 0.0 } else { mob.walk_phase.sin() * 0.65 };
                 let leg_tex = [TextureId::CowSkin; 6];
 
-                // Front Left Leg (x = -0.18, z = 0.26)
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(-0.18, 0.25, 0.26),
-                    [0.08, 0.25, 0.08],
-                    mob.yaw,
-                    leg_pitch,
-                    death_roll,
-                    leg_tex,
-                    hurt_tint,
-                    view_proj,
+                                  [0.08, 0.25, 0.08],
+                                  mob.yaw,
+                                  leg_pitch,
+                                  death_roll,
+                                  leg_tex,
+                                  hurt_tint,
+                                  view_proj,
                 );
 
-                // Front Right Leg (x = 0.18, z = 0.26)
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(0.18, 0.25, 0.26),
-                    [0.08, 0.25, 0.08],
-                    mob.yaw,
-                    -leg_pitch,
-                    death_roll,
-                    leg_tex,
-                    hurt_tint,
-                    view_proj,
+                                  [0.08, 0.25, 0.08],
+                                  mob.yaw,
+                                  -leg_pitch,
+                                  death_roll,
+                                  leg_tex,
+                                  hurt_tint,
+                                  view_proj,
                 );
 
-                // Back Left Leg (x = -0.18, z = -0.32)
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(-0.18, 0.25, -0.32),
-                    [0.08, 0.25, 0.08],
-                    mob.yaw,
-                    -leg_pitch,
-                    death_roll,
-                    leg_tex,
-                    hurt_tint,
-                    view_proj,
+                                  [0.08, 0.25, 0.08],
+                                  mob.yaw,
+                                  -leg_pitch,
+                                  death_roll,
+                                  leg_tex,
+                                  hurt_tint,
+                                  view_proj,
                 );
 
-                // Back Right Leg (x = 0.18, z = -0.32)
                 self.draw_mob_box(
                     mob.pos,
                     center_y,
                     Vec3::new(0.18, 0.25, -0.32),
-                    [0.08, 0.25, 0.08],
-                    mob.yaw,
-                    leg_pitch,
-                    death_roll,
-                    leg_tex,
-                    hurt_tint,
-                    view_proj,
+                                  [0.08, 0.25, 0.08],
+                                  mob.yaw,
+                                  leg_pitch,
+                                  death_roll,
+                                  leg_tex,
+                                  hurt_tint,
+                                  view_proj,
                 );
             }
         }
@@ -1226,12 +1126,12 @@ impl Renderer {
         let c7 = transform_corner(-1.0,  1.0,  1.0);
 
         let faces = [
-            ([c4, c5, c6, c7], textures[0]), // Front (+Z)
-            ([c1, c0, c3, c2], textures[1]), // Back (-Z)
-            ([c7, c6, c2, c3], textures[2]), // Top (+Y)
-            ([c0, c1, c5, c4], textures[3]), // Bottom (-Y)
-            ([c5, c1, c2, c6], textures[4]), // Right (+X)
-            ([c0, c4, c7, c3], textures[5]), // Left (-X)
+            ([c4, c5, c6, c7], textures[0]),
+            ([c1, c0, c3, c2], textures[1]),
+            ([c7, c6, c2, c3], textures[2]),
+            ([c0, c1, c5, c4], textures[3]),
+            ([c5, c1, c2, c6], textures[4]),
+            ([c0, c4, c7, c3], textures[5]),
         ];
 
         for (corners, texture) in faces {
@@ -1558,7 +1458,6 @@ impl Renderer {
         });
     }
 
-    // Optymalizacja: Usprawnione iterowanie przez pamięć dla szybkich kwadratów UI
     fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: u32) {
         let min_x = x.max(0);
         let min_y = y.max(0);
@@ -1596,6 +1495,208 @@ impl Renderer {
         }
         let idx = y as usize * self.width + x as usize;
         self.color_buffer[idx] = color;
+    }
+}
+
+fn project_to_screen_ao(v: &ClipVertAO, width: usize, height: usize) -> ScreenVertAO {
+    let inv_w = 1.0 / v.clip[3];
+    let ndc_x = v.clip[0] * inv_w;
+    let ndc_y = v.clip[1] * inv_w;
+    let screen_x = (ndc_x * 0.5 + 0.5) * width as f32;
+    let screen_y = (1.0 - (ndc_y * 0.5 + 0.5)) * height as f32;
+    ScreenVertAO {
+        x: screen_x,
+        y: screen_y,
+        inv_w,
+        uv_over_w: (v.uv.0 * inv_w, v.uv.1 * inv_w),
+        ao_over_w: v.ao * inv_w,
+    }
+}
+
+// Główna funkcja rastrująca trójkąt, przystosowana do wywołań w obrębie paska/kafelka (Tile)
+fn raster_triangle_tile(
+    tri: &Triangle,
+    hurt_tint: f32,
+    view_proj: &crate::math::Mat4,
+    width: usize,
+    height: usize,
+    tile_y_start: usize,
+    tile_y_end: usize,
+    color_buffer: &mut [u32],
+    depth_buffer: &mut [f32],
+    textures: &TextureAtlas,
+) {
+    let c0 = to_clip_ao(tri.v0, view_proj);
+    let c1 = to_clip_ao(tri.v1, view_proj);
+    let c2 = to_clip_ao(tri.v2, view_proj);
+
+    let clipped = clip_near_ao(&[c0, c1, c2]);
+    if clipped.len() < 3 {
+        return;
+    }
+
+    for i in 1..clipped.len() - 1 {
+        let sa = project_to_screen_ao(&clipped[0], width, height);
+        let sb = project_to_screen_ao(&clipped[i], width, height);
+        let sc = project_to_screen_ao(&clipped[i + 1], width, height);
+
+        raster_screen_triangle_ao_tile(
+            sa, sb, sc, tri.texture, hurt_tint, width, tile_y_start, tile_y_end, color_buffer, depth_buffer, textures
+        );
+    }
+}
+
+fn raster_screen_triangle_ao_tile(
+    a: ScreenVertAO,
+    b: ScreenVertAO,
+    c: ScreenVertAO,
+    texture: crate::texture::TextureId,
+    hurt_tint: f32,
+    width: usize,
+    tile_y_start: usize,
+    tile_y_end: usize,
+    color_buffer: &mut [u32],
+    depth_buffer: &mut [f32],
+    textures: &TextureAtlas,
+) {
+    let area = edge(a.x, a.y, b.x, b.y, c.x, c.y);
+    if area <= 0.0 {
+        return;
+    }
+
+    let min_x = a.x.min(b.x).min(c.x).floor().max(0.0) as i32;
+    let max_x = a.x.max(b.x).max(c.x).ceil().min(width as f32 - 1.0) as i32;
+    let min_y = (a.y.min(b.y).min(c.y).floor() as i32).max(tile_y_start as i32);
+    let max_y = (a.y.max(b.y).max(c.y).ceil() as i32).min(tile_y_end as i32 - 1);
+
+    if min_x > max_x || min_y > max_y {
+        return;
+    }
+
+    let inv_area = 1.0 / area;
+    let tex = textures.get(texture);
+    let transparent = matches!(texture, crate::texture::TextureId::Water | crate::texture::TextureId::Glass);
+
+    let dx0 = c.x - b.x;
+    let dy0 = c.y - b.y;
+    let dx1 = a.x - c.x;
+    let dy1 = a.y - c.y;
+    let dx2 = b.x - a.x;
+    let dy2 = b.y - a.y;
+
+    let fx0 = min_x as f32 + 0.5;
+    let fy0 = min_y as f32 + 0.5;
+
+    let mut w0_row = edge(b.x, b.y, c.x, c.y, fx0, fy0);
+    let mut w1_row = edge(c.x, c.y, a.x, a.y, fx0, fy0);
+    let mut w2_row = edge(a.x, a.y, b.x, b.y, fx0, fy0);
+
+    for py in min_y..=max_y {
+        let mut w0 = w0_row;
+        let mut w1 = w1_row;
+        let mut w2 = w2_row;
+        let row_offset = (py as usize - tile_y_start) * width;
+
+        let mut px = min_x;
+        // Wektorowa/Optymalizowana iteracja AVX/SIMD
+        while px <= max_x {
+            raster_scanline_simd(
+                px,
+                row_offset,
+                w0,
+                w1,
+                w2,
+                dy0,
+                dy1,
+                dy2,
+                inv_area,
+                &a,
+                &b,
+                &c,
+                transparent,
+                hurt_tint,
+                tex,
+                color_buffer,
+                depth_buffer,
+            );
+
+            px += 1;
+            w0 += dy0;
+            w1 += dy1;
+            w2 += dy2;
+        }
+        w0_row -= dx0;
+        w1_row -= dx1;
+        w2_row -= dx2;
+    }
+}
+
+// Zoptymalizowana rasteryzacja pojedynczego piksela w linii z auto-wektoryzacją Rust i wsparciem SIMD
+#[inline(always)]
+fn raster_scanline_simd(
+    px: i32,
+    row_offset: usize,
+    w0: f32,
+    w1: f32,
+    w2: f32,
+    _dy0: f32,
+    _dy1: f32,
+    _dy2: f32,
+    inv_area: f32,
+    a: &ScreenVertAO,
+    b: &ScreenVertAO,
+    c: &ScreenVertAO,
+    transparent: bool,
+    hurt_tint: f32,
+    tex: &crate::texture::Texture,
+    color_buffer: &mut [u32],
+    depth_buffer: &mut [f32],
+) {
+    if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
+        let l0 = w0 * inv_area;
+        let l1 = w1 * inv_area;
+        let l2 = w2 * inv_area;
+
+        let inv_w = l0 * a.inv_w + l1 * b.inv_w + l2 * c.inv_w;
+        if inv_w > 0.0 {
+            let depth = 1.0 / inv_w;
+            let idx = row_offset + (px as usize);
+
+            if depth < depth_buffer[idx] {
+                if !transparent {
+                    depth_buffer[idx] = depth;
+                }
+
+                let u = (l0 * a.uv_over_w.0 + l1 * b.uv_over_w.0 + l2 * c.uv_over_w.0) * depth;
+                let v = (l0 * a.uv_over_w.1 + l1 * b.uv_over_w.1 + l2 * c.uv_over_w.1) * depth;
+                let ao = (l0 * a.ao_over_w + l1 * b.ao_over_w + l2 * c.ao_over_w) * depth;
+
+                let texel = tex.sample(u, v);
+                let mut r = texel[0] * ao;
+                let mut g = texel[1] * ao;
+                let mut bl = texel[2] * ao;
+
+                if hurt_tint > 0.0 {
+                    r = r * (1.0 - hurt_tint) + 0.95 * hurt_tint;
+                    g = g * (1.0 - hurt_tint) + 0.12 * hurt_tint;
+                    bl = bl * (1.0 - hurt_tint) + 0.12 * hurt_tint;
+                }
+
+                let fog_t = (depth / 180.0).clamp(0.0, 1.0);
+                let fog = (0.75f32, 0.85f32, 1.0f32);
+                let fr = r * (1.0 - fog_t) + fog.0 * fog_t;
+                let fg = g * (1.0 - fog_t) + fog.1 * fog_t;
+                let fb = bl * (1.0 - fog_t) + fog.2 * fog_t;
+
+                if transparent {
+                    let (br, bg, bb) = unpack_color(color_buffer[idx]);
+                    let alpha = 0.48;
+                    color_buffer[idx] = pack_color(fr * alpha + br * (1.0 - alpha), fg * alpha + bg * (1.0 - alpha), fb * alpha + bb * (1.0 - alpha));
+                } else {
+                    color_buffer[idx] = pack_color(fr, fg, fb);
+                }
+            }
+        }
     }
 }
 

@@ -14,7 +14,7 @@ if ! command -v cargo &> /dev/null; then
 fi
 
 echo "==> Kompilowanie projektu w trybie release..."
-cargo build --release
+RUSTFLAGS="-C target-cpu=native" cargo build --release
 
 BINARY_PATH="target/release/rustcraft"
 
