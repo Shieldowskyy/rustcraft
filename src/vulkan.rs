@@ -1,4 +1,5 @@
 use bytemuck::{Pod, Zeroable};
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use wgpu::util::DeviceExt;
 
@@ -82,7 +83,6 @@ struct VertexOutput {
 fn world_vertex(input: VertexInput) -> VertexOutput {
 var output: VertexOutput;
 let clip = globals.view_proj * vec4<f32>(input.position, 1.0);
-// The CPU matrix uses OpenGL's [-1, 1] depth range; Vulkan uses [0, 1].
 output.position = vec4<f32>(clip.x, clip.y, clip.z * 0.5 + clip.w * 0.5, clip.w);
 output.uv = input.uv;
 output.texture_layer = input.texture_layer;
@@ -231,7 +231,8 @@ var positions = array<vec2<f32>, 3>(
                                                                      stencil: Default::default(),
                                                                                  bias: Default::default(),
                                                              }),
-                                                             multisample: Default::default(), multiview: None,
+                                                             multisample: Default::default(),
+                                                             multiview: None,
             });
             let (target, target_view, depth_texture, depth_view, readback, depth_readback, padded_bytes_per_row) = create_targets(&device, width as u32, height as u32);
             Ok(Self {
@@ -270,68 +271,81 @@ var positions = array<vec2<f32>, 3>(
                             out_pixels: &mut [u32],
                             out_depths: &mut [f32],
         ) {
-            // Optymalizacja: Sprawdzenie O(1) w hashmapie w zamian skanu O(N) po array slice.
             self.chunk_buffers.retain(|key, _| mesh_cache.contains_key(key));
 
-            for key in loaded_keys {
-                if !dirty_keys.contains(key) && self.chunk_buffers.contains_key(key) {
-                    continue;
-                }
-                let triangles = mesh_cache.get(key).map(Vec::as_slice).unwrap_or(&[]);
-                self.opaque_scratch.clear();
-                self.trans_scratch.clear();
+            // Równoległa generacja buforów GPU dla zmodyfikowanych/nowych chunków
+            let chunks_to_update: Vec<(i32, i32)> = loaded_keys
+            .iter()
+            .copied()
+            .filter(|key| dirty_keys.contains(key) || !self.chunk_buffers.contains_key(key))
+            .collect();
 
-                for triangle in triangles {
-                    let layer = texture_layer(triangle.texture);
-                    let is_trans = matches!(triangle.texture, TextureId::Water | TextureId::Glass);
-                    let dest = if is_trans { &mut self.trans_scratch } else { &mut self.opaque_scratch };
-                    dest.push(GpuVertex {
-                        position: [triangle.v0.pos.x, triangle.v0.pos.y, triangle.v0.pos.z],
-                        uv: [triangle.v0.uv.0, triangle.v0.uv.1],
-                        ao: triangle.v0.ao,
-                        texture_layer: layer,
-                    });
-                    dest.push(GpuVertex {
-                        position: [triangle.v1.pos.x, triangle.v1.pos.y, triangle.v1.pos.z],
-                        uv: [triangle.v1.uv.0, triangle.v1.uv.1],
-                        ao: triangle.v1.ao,
-                        texture_layer: layer,
-                    });
-                    dest.push(GpuVertex {
-                        position: [triangle.v2.pos.x, triangle.v2.pos.y, triangle.v2.pos.z],
-                        uv: [triangle.v2.uv.0, triangle.v2.uv.1],
-                        ao: triangle.v2.ao,
-                        texture_layer: layer,
-                    });
-                }
+            if !chunks_to_update.is_empty() {
+                let updated_buffers: Vec<((i32, i32), Vec<GpuVertex>, Vec<GpuVertex>)> = chunks_to_update
+                .par_iter()
+                .map(|key| {
+                    let triangles = mesh_cache.get(key).map(Vec::as_slice).unwrap_or(&[]);
+                    let mut opaque = Vec::with_capacity(triangles.len() * 3);
+                    let mut trans = Vec::with_capacity(triangles.len() / 4 * 3);
+
+                    for triangle in triangles {
+                        let layer = Self::texture_layer(triangle.texture);
+                        let is_trans = matches!(triangle.texture, TextureId::Water | TextureId::Glass);
+                        let dest = if is_trans { &mut trans } else { &mut opaque };
+                        dest.push(GpuVertex {
+                            position: [triangle.v0.pos.x, triangle.v0.pos.y, triangle.v0.pos.z],
+                            uv: [triangle.v0.uv.0, triangle.v0.uv.1],
+                            ao: triangle.v0.ao,
+                            texture_layer: layer,
+                        });
+                        dest.push(GpuVertex {
+                            position: [triangle.v1.pos.x, triangle.v1.pos.y, triangle.v1.pos.z],
+                            uv: [triangle.v1.uv.0, triangle.v1.uv.1],
+                            ao: triangle.v1.ao,
+                            texture_layer: layer,
+                        });
+                        dest.push(GpuVertex {
+                            position: [triangle.v2.pos.x, triangle.v2.pos.y, triangle.v2.pos.z],
+                            uv: [triangle.v2.uv.0, triangle.v2.uv.1],
+                            ao: triangle.v2.ao,
+                            texture_layer: layer,
+                        });
+                    }
+                    (*key, opaque, trans)
+                })
+                .collect();
 
                 let empty_vertex = GpuVertex::zeroed();
-                let vertex_bytes: &[u8] = if self.opaque_scratch.is_empty() {
-                    bytemuck::bytes_of(&empty_vertex)
-                } else {
-                    bytemuck::cast_slice(&self.opaque_scratch)
-                };
-                let buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("RustCraft chunk vertex buffer"),
-                                                            contents: vertex_bytes,
-                                                            usage: wgpu::BufferUsages::VERTEX,
-                });
-                let transparent_bytes: &[u8] = if self.trans_scratch.is_empty() {
-                    bytemuck::bytes_of(&empty_vertex)
-                } else {
-                    bytemuck::cast_slice(&self.trans_scratch)
-                };
-                let transparent = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("RustCraft transparent chunk buffer"),
-                                                                 contents: transparent_bytes,
-                                                                 usage: wgpu::BufferUsages::VERTEX,
-                });
-                self.chunk_buffers.insert(*key, GpuChunk {
-                    opaque: buffer,
-                    opaque_count: self.opaque_scratch.len() as u32,
-                                          transparent,
-                                          transparent_count: self.trans_scratch.len() as u32,
-                });
+                for (key, opaque_verts, trans_verts) in updated_buffers {
+                    let opaque_bytes: &[u8] = if opaque_verts.is_empty() {
+                        bytemuck::bytes_of(&empty_vertex)
+                    } else {
+                        bytemuck::cast_slice(&opaque_verts)
+                    };
+                    let buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("RustCraft chunk vertex buffer"),
+                                                                contents: opaque_bytes,
+                                                                usage: wgpu::BufferUsages::VERTEX,
+                    });
+
+                    let transparent_bytes: &[u8] = if trans_verts.is_empty() {
+                        bytemuck::bytes_of(&empty_vertex)
+                    } else {
+                        bytemuck::cast_slice(&trans_verts)
+                    };
+                    let transparent = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("RustCraft transparent chunk buffer"),
+                                                                     contents: transparent_bytes,
+                                                                     usage: wgpu::BufferUsages::VERTEX,
+                    });
+
+                    self.chunk_buffers.insert(key, GpuChunk {
+                        opaque: buffer,
+                        opaque_count: opaque_verts.len() as u32,
+                                              transparent,
+                                              transparent_count: trans_verts.len() as u32,
+                    });
+                }
             }
 
             let globals = Globals {
@@ -346,6 +360,13 @@ var positions = array<vec2<f32>, 3>(
             };
             self.queue.write_buffer(&self.globals_buffer, 0, bytemuck::bytes_of(&globals));
 
+            // --- Screen Space / Frustum Culling dla chunków ---
+            let mut culled_visible_keys: Vec<(i32, i32)> = visible_keys
+            .iter()
+            .copied()
+            .filter(|&(cx, cz)| is_chunk_in_frustum(cx, cz, view_proj))
+            .collect();
+
             let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RustCraft Vulkan frame") });
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -355,12 +376,23 @@ var positions = array<vec2<f32>, 3>(
                                                          timestamp_writes: None,
                                                          occlusion_query_set: None,
                 });
+
+                // Niebo
                 pass.set_pipeline(&self.sky_pipeline);
                 pass.set_bind_group(0, &self.bind_group, &[]);
                 pass.draw(0..3, 0..1);
+
+                // Sortowanie nieprzezroczystych chunków OD NAJBLIŻSZEGO (Front-to-Back)
+                // Umożliwia sprzętowy Early-Z GPU (odrzucanie zasłoniętych pikseli)
+                culled_visible_keys.sort_by(|&(a_x, a_z), &(b_x, b_z)| {
+                    let dist_a = chunk_dist_sq(a_x, a_z, camera.x, camera.z);
+                    let dist_b = chunk_dist_sq(b_x, b_z, camera.x, camera.z);
+                    dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+                });
+
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &self.bind_group, &[]);
-                for key in visible_keys {
+                for key in &culled_visible_keys {
                     if let Some(chunk) = self.chunk_buffers.get(key) {
                         if chunk.opaque_count > 0 {
                             pass.set_vertex_buffer(0, chunk.opaque.slice(..));
@@ -368,8 +400,16 @@ var positions = array<vec2<f32>, 3>(
                         }
                     }
                 }
+
+                // Sortowanie przezroczystych chunków OD NAJDALSZEGO (Back-to-Front) dla poprawnego Alpha Blend
+                culled_visible_keys.sort_by(|&(a_x, a_z), &(b_x, b_z)| {
+                    let dist_a = chunk_dist_sq(a_x, a_z, camera.x, camera.z);
+                    let dist_b = chunk_dist_sq(b_x, b_z, camera.x, camera.z);
+                    dist_b.partial_cmp(&dist_a).unwrap_or(std::cmp::Ordering::Equal)
+                });
+
                 pass.set_pipeline(&self.transparent_pipeline);
-                for key in visible_keys {
+                for key in &culled_visible_keys {
                     if let Some(chunk) = self.chunk_buffers.get(key) {
                         if chunk.transparent_count > 0 {
                             pass.set_vertex_buffer(0, chunk.transparent.slice(..));
@@ -401,56 +441,120 @@ var positions = array<vec2<f32>, 3>(
             let mapped = slice.get_mapped_range();
             let depth_mapped = depth_slice.get_mapped_range();
 
-            // Optymalizacja: Błyskawiczne rzutowanie u8 do kolorów SIMD (bytemuck)
-            if self.padded_bytes_per_row == self.width * 4 {
-                let mapped_chunks: &[[u8; 4]] = bytemuck::cast_slice(&mapped);
-                for (out, chunk) in out_pixels.iter_mut().zip(mapped_chunks) {
+            let width = self.width as usize;
+            let padded_bytes_per_row = self.padded_bytes_per_row as usize;
+
+            // Wielowątkowe przepisywanie i pakowanie bufora kolorów
+            out_pixels
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(y, out_row)| {
+                let row_start = y * padded_bytes_per_row;
+                let row_bytes = &mapped[row_start..row_start + width * 4];
+                let mapped_chunks: &[[u8; 4]] = bytemuck::cast_slice(row_bytes);
+                for (out, chunk) in out_row.iter_mut().zip(mapped_chunks) {
                     *out = ((chunk[0] as u32) << 16) | ((chunk[1] as u32) << 8) | (chunk[2] as u32);
                 }
-            } else {
-                for y in 0..self.height as usize {
-                    let row = &mapped[y * self.padded_bytes_per_row as usize..y * self.padded_bytes_per_row as usize + (self.width * 4) as usize];
-                    let mapped_chunks: &[[u8; 4]] = bytemuck::cast_slice(row);
-                    let out_row = &mut out_pixels[y * self.width as usize..(y + 1) * self.width as usize];
-                    for (out, chunk) in out_row.iter_mut().zip(mapped_chunks) {
-                        *out = ((chunk[0] as u32) << 16) | ((chunk[1] as u32) << 8) | (chunk[2] as u32);
-                    }
-                }
-            }
+            });
 
             const NEAR_FAR: f32 = 0.05 * 400.0;
             const FAR: f32 = 400.0;
             const FAR_MINUS_NEAR: f32 = 400.0 - 0.05;
 
-            if self.padded_bytes_per_row == self.width * 4 {
-                let depth_f32s: &[f32] = bytemuck::cast_slice(&depth_mapped);
-                for (out, &depth) in out_depths.iter_mut().zip(depth_f32s) {
-                    if depth < 1.0 {
-                        *out = NEAR_FAR / (FAR - depth * FAR_MINUS_NEAR);
-                    } else {
-                        *out = f32::INFINITY;
-                    }
-                }
-            } else {
-                for y in 0..self.height as usize {
-                    let row_bytes = &depth_mapped[y * self.padded_bytes_per_row as usize..y * self.padded_bytes_per_row as usize + (self.width * 4) as usize];
-                    let depth_f32s: &[f32] = bytemuck::cast_slice(row_bytes);
-                    let out_row = &mut out_depths[y * self.width as usize..(y + 1) * self.width as usize];
-                    for (out, &depth) in out_row.iter_mut().zip(depth_f32s) {
-                        if depth < 1.0 {
-                            *out = NEAR_FAR / (FAR - depth * FAR_MINUS_NEAR);
+            // Wielowątkowa i SIMD-wsadowa rekonstrukcja bufora głębi
+            out_depths
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(y, out_row)| {
+                let row_start = y * padded_bytes_per_row;
+                let row_bytes = &depth_mapped[row_start..row_start + width * 4];
+                let depth_f32s: &[f32] = bytemuck::cast_slice(row_bytes);
+
+                let mut i = 0;
+                while i + 4 <= width {
+                    let d = [depth_f32s[i], depth_f32s[i + 1], depth_f32s[i + 2], depth_f32s[i + 3]];
+                    for k in 0..4 {
+                        out_row[i + k] = if d[k] < 1.0 {
+                            NEAR_FAR / (FAR - d[k] * FAR_MINUS_NEAR)
                         } else {
-                            *out = f32::INFINITY;
-                        }
+                            f32::INFINITY
+                        };
                     }
+                    i += 4;
                 }
-            }
+                while i < width {
+                    let depth = depth_f32s[i];
+                    out_row[i] = if depth < 1.0 {
+                        NEAR_FAR / (FAR - depth * FAR_MINUS_NEAR)
+                    } else {
+                        f32::INFINITY
+                    };
+                    i += 1;
+                }
+            });
 
             drop(depth_mapped);
             drop(mapped);
             self.readback.unmap();
             self.depth_readback.unmap();
         }
+    }
+
+    /// Test cullingowy AABB chunka względem bryły widoku (Screen Space / Clip Space Frustum Culling)
+    fn is_chunk_in_frustum(chunk_x: i32, chunk_z: i32, view_proj: &Mat4) -> bool {
+        let min_x = (chunk_x * 16) as f32;
+        let max_x = min_x + 16.0;
+        let min_y = 0.0f32;
+        let max_y = 256.0f32;
+        let min_z = (chunk_z * 16) as f32;
+        let max_z = min_z + 16.0;
+
+        let corners = [
+            [min_x, min_y, min_z],
+            [max_x, min_y, min_z],
+            [min_x, max_y, min_z],
+            [max_x, max_y, min_z],
+            [min_x, min_y, max_z],
+            [max_x, min_y, max_z],
+            [min_x, max_y, max_z],
+            [max_x, max_y, max_z],
+        ];
+
+        let m = &view_proj.m;
+
+        let mut out_left = true;
+        let mut out_right = true;
+        let mut out_bottom = true;
+        let mut out_top = true;
+        let mut out_near = true;
+        let mut out_far = true;
+
+        for corner in &corners {
+            let x = corner[0];
+            let y = corner[1];
+            let z = corner[2];
+
+            let clip_x = m[0] * x + m[4] * y + m[8] * z + m[12];
+            let clip_y = m[1] * x + m[5] * y + m[9] * z + m[13];
+            let clip_z = m[2] * x + m[6] * y + m[10] * z + m[14];
+            let clip_w = m[3] * x + m[7] * y + m[11] * z + m[15];
+
+            if clip_x >= -clip_w { out_left = false; }
+            if clip_x <= clip_w { out_right = false; }
+            if clip_y >= -clip_w { out_bottom = false; }
+            if clip_y <= clip_w { out_top = false; }
+            if clip_z >= -clip_w { out_near = false; }
+            if clip_z <= clip_w { out_far = false; }
+        }
+
+        !(out_left || out_right || out_bottom || out_top || out_near || out_far)
+    }
+
+    #[inline]
+    fn chunk_dist_sq(cx: i32, cz: i32, cam_x: f32, cam_z: f32) -> f32 {
+        let dx = (cx as f32 * 16.0 + 8.0) - cam_x;
+        let dz = (cz as f32 * 16.0 + 8.0) - cam_z;
+        dx * dx + dz * dz
     }
 
     fn create_texture_array(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &TextureAtlas) -> wgpu::Texture {
@@ -465,11 +569,11 @@ var positions = array<vec2<f32>, 3>(
                                                 view_formats: &[],
         });
         for layer in 0..TEXTURE_LAYER_COUNT {
-            let bytes: Vec<u8> = atlas.get(texture_id_from_layer(layer)).texels.iter().flat_map(|color| [
+            let bytes: Vec<u8> = atlas.get(VulkanContext::texture_id_from_layer(layer)).texels.iter().flat_map(|color| [
                 (color[0] * 255.0) as u8,
-                                                                                                (color[1] * 255.0) as u8,
-                                                                                                (color[2] * 255.0) as u8,
-                                                                                                255,
+                                                                                                               (color[1] * 255.0) as u8,
+                                                                                                               (color[2] * 255.0) as u8,
+                                                                                                               255,
             ]).collect();
             queue.write_texture(
                 wgpu::ImageCopyTexture { texture: &texture, mip_level: 0, origin: wgpu::Origin3d { x: 0, y: 0, z: layer }, aspect: wgpu::TextureAspect::All },
@@ -520,77 +624,79 @@ var positions = array<vec2<f32>, 3>(
         (target, target_view, depth, depth_view, readback, depth_readback, padded_bytes_per_row)
     }
 
-    #[inline(always)]
-    pub const fn texture_layer(id: TextureId) -> u32 {
-        match id {
-            TextureId::GrassTop => 0,
-            TextureId::GrassSide => 1,
-            TextureId::Dirt => 2,
-            TextureId::Stone => 3,
-            TextureId::Sand => 4,
-            TextureId::WoodTop => 5,
-            TextureId::WoodSide => 6,
-            TextureId::Leaves => 7,
-            TextureId::Water => 8,
-            TextureId::Snow => 9,
-            TextureId::CactusTop => 10,
-            TextureId::CactusSide => 11,
-            TextureId::CoalOre => 12,
-            TextureId::IronOre => 13,
-            TextureId::Bedrock => 14,
-            TextureId::Lava => 15,
-            TextureId::SnowLeaves => 16,
-            TextureId::Planks => 17,
-            TextureId::Door => 18,
-            TextureId::Glass => 19,
-            TextureId::Ice => 20,
-            TextureId::TntTop => 21,
-            TextureId::TntSide => 22,
-            TextureId::PigSkin => 23,
-            TextureId::PigFace => 24,
-            TextureId::PigSnout => 25,
-            TextureId::CowSkin => 26,
-            TextureId::CowFace => 27,
-            TextureId::CowSnout => 28,
-            TextureId::CowHorns => 29,
-            TextureId::CowUdder => 30,
-            TextureId::DoorTop => 31,
+    impl VulkanContext {
+        #[inline(always)]
+        pub const fn texture_layer(id: TextureId) -> u32 {
+            match id {
+                TextureId::GrassTop => 0,
+                TextureId::GrassSide => 1,
+                TextureId::Dirt => 2,
+                TextureId::Stone => 3,
+                TextureId::Sand => 4,
+                TextureId::WoodTop => 5,
+                TextureId::WoodSide => 6,
+                TextureId::Leaves => 7,
+                TextureId::Water => 8,
+                TextureId::Snow => 9,
+                TextureId::CactusTop => 10,
+                TextureId::CactusSide => 11,
+                TextureId::CoalOre => 12,
+                TextureId::IronOre => 13,
+                TextureId::Bedrock => 14,
+                TextureId::Lava => 15,
+                TextureId::SnowLeaves => 16,
+                TextureId::Planks => 17,
+                TextureId::Door => 18,
+                TextureId::Glass => 19,
+                TextureId::Ice => 20,
+                TextureId::TntTop => 21,
+                TextureId::TntSide => 22,
+                TextureId::PigSkin => 23,
+                TextureId::PigFace => 24,
+                TextureId::PigSnout => 25,
+                TextureId::CowSkin => 26,
+                TextureId::CowFace => 27,
+                TextureId::CowSnout => 28,
+                TextureId::CowHorns => 29,
+                TextureId::CowUdder => 30,
+                TextureId::DoorTop => 31,
+            }
         }
-    }
 
-    pub const fn texture_id_from_layer(layer: u32) -> TextureId {
-        match layer {
-            0 => TextureId::GrassTop,
-            1 => TextureId::GrassSide,
-            2 => TextureId::Dirt,
-            3 => TextureId::Stone,
-            4 => TextureId::Sand,
-            5 => TextureId::WoodTop,
-            6 => TextureId::WoodSide,
-            7 => TextureId::Leaves,
-            8 => TextureId::Water,
-            9 => TextureId::Snow,
-            10 => TextureId::CactusTop,
-            11 => TextureId::CactusSide,
-            12 => TextureId::CoalOre,
-            13 => TextureId::IronOre,
-            14 => TextureId::Bedrock,
-            15 => TextureId::Lava,
-            16 => TextureId::SnowLeaves,
-            17 => TextureId::Planks,
-            18 => TextureId::Door,
-            19 => TextureId::Glass,
-            20 => TextureId::Ice,
-            21 => TextureId::TntTop,
-            22 => TextureId::TntSide,
-            23 => TextureId::PigSkin,
-            24 => TextureId::PigFace,
-            25 => TextureId::PigSnout,
-            26 => TextureId::CowSkin,
-            27 => TextureId::CowFace,
-            28 => TextureId::CowSnout,
-            29 => TextureId::CowHorns,
-            30 => TextureId::CowUdder,
-            _ => TextureId::DoorTop,
+        pub const fn texture_id_from_layer(layer: u32) -> TextureId {
+            match layer {
+                0 => TextureId::GrassTop,
+                1 => TextureId::GrassSide,
+                2 => TextureId::Dirt,
+                3 => TextureId::Stone,
+                4 => TextureId::Sand,
+                5 => TextureId::WoodTop,
+                6 => TextureId::WoodSide,
+                7 => TextureId::Leaves,
+                8 => TextureId::Water,
+                9 => TextureId::Snow,
+                10 => TextureId::CactusTop,
+                11 => TextureId::CactusSide,
+                12 => TextureId::CoalOre,
+                13 => TextureId::IronOre,
+                14 => TextureId::Bedrock,
+                15 => TextureId::Lava,
+                16 => TextureId::SnowLeaves,
+                17 => TextureId::Planks,
+                18 => TextureId::Door,
+                19 => TextureId::Glass,
+                20 => TextureId::Ice,
+                21 => TextureId::TntTop,
+                22 => TextureId::TntSide,
+                23 => TextureId::PigSkin,
+                24 => TextureId::PigFace,
+                25 => TextureId::PigSnout,
+                26 => TextureId::CowSkin,
+                27 => TextureId::CowFace,
+                28 => TextureId::CowSnout,
+                29 => TextureId::CowHorns,
+                30 => TextureId::CowUdder,
+                _ => TextureId::DoorTop,
+            }
         }
     }
