@@ -68,10 +68,10 @@ impl ParticleSystem {
             let brightness = 0.75 + next() * 0.5;
             self.particles.push(Particle {
                 pos: Vec3::new(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5),
-                vel: Vec3::new(vx, vy, vz),
-                color: [color[0] * brightness, color[1] * brightness, color[2] * brightness],
-                life: 0.4 + next() * 0.3,
-                size: 0.05 + next() * 0.06,
+                                vel: Vec3::new(vx, vy, vz),
+                                color: [color[0] * brightness, color[1] * brightness, color[2] * brightness],
+                                life: 0.4 + next() * 0.3,
+                                size: 0.05 + next() * 0.06,
             });
         }
     }
@@ -102,10 +102,10 @@ impl ParticleSystem {
             };
             self.particles.push(Particle {
                 pos: Vec3::new(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5),
-                vel: Vec3::new(vx, vy, vz),
-                color,
-                life: 0.5 + next() * 0.6,
-                size: 0.12 + next() * 0.15,
+                                vel: Vec3::new(vx, vy, vz),
+                                color,
+                                life: 0.5 + next() * 0.6,
+                                size: 0.12 + next() * 0.15,
             });
         }
     }
@@ -136,9 +136,9 @@ impl ParticleSystem {
             self.particles.push(Particle {
                 pos,
                 vel: Vec3::new(vx, vy, vz),
-                color,
-                life: 0.3 + next() * 0.25,
-                size: 0.06 + next() * 0.05,
+                                color,
+                                life: 0.3 + next() * 0.25,
+                                size: 0.06 + next() * 0.05,
             });
         }
     }
@@ -164,13 +164,13 @@ impl ParticleSystem {
             self.particles.push(Particle {
                 pos: Vec3::new(
                     pos.x + (next() - 0.5) * 0.4,
-                    pos.y + (next() - 0.5) * 0.4,
-                    pos.z + (next() - 0.5) * 0.4,
+                               pos.y + (next() - 0.5) * 0.4,
+                               pos.z + (next() - 0.5) * 0.4,
                 ),
                 vel: Vec3::new(vx, vy, vz),
-                color: [shade, shade, shade],
-                life: 0.6 + next() * 0.5,
-                size: 0.14 + next() * 0.12,
+                                color: [shade, shade, shade],
+                                life: 0.6 + next() * 0.5,
+                                size: 0.14 + next() * 0.12,
             });
         }
     }
@@ -255,6 +255,7 @@ fn main() {
     let mut fps_timer = Instant::now();
     let mut frame_count = 0u32;
     let mut fps_display = 0u32;
+    let mut last_title = String::new();
 
     let mut left_was_down = false;
     let mut right_was_down = false;
@@ -321,8 +322,19 @@ fn main() {
         let f_down = window.is_key_down(Key::F);
         let q_down = window.is_key_down(Key::Q);
         let f5_down = window.is_key_down(Key::F5);
+        // Odpytujemy stan klawisza M raz na klatkę tutaj i reużywamy tej
+        // samej wartości niżej (gałąź GameState::Paused) zamiast pytać
+        // bibliotekę okienkową o ten sam klawisz po raz drugi w tej samej
+        // klatce - identyczny wynik logiczny, jedno wywołanie zamiast dwóch.
+        let m_down = window.is_key_down(Key::M);
         let (win_w, win_h) = window.get_size();
-        let mouse_pos = window.get_mouse_pos(MouseMode::Pass).map(|(mx, my)| {
+        // Pobieramy surową pozycję myszy raz na klatkę (to wywołanie do
+        // biblioteki okienkowej), a przeskalowaną wersję pod UI/raycasting
+        // wyliczamy z niej lokalnie zamiast pytać okno o to samo po raz
+        // drugi w innym miejscu klatki (który to robił) - identyczne dane,
+        // jedno zapytanie do systemu zamiast dwóch.
+        let raw_mouse_pos = window.get_mouse_pos(MouseMode::Pass);
+        let mouse_pos = raw_mouse_pos.map(|(mx, my)| {
             let fx = if win_w > 0 { mx * (WIDTH as f32) / (win_w as f32) } else { mx };
             let fy = if win_h > 0 { my * (HEIGHT as f32) / (win_h as f32) } else { my };
             (fx, fy)
@@ -427,7 +439,7 @@ fn main() {
                     if mouse_capture.has_native_capture() {
                         let (dx, dy) = mouse_capture.poll_delta();
                         camera.rotate(dx * 0.0025, -dy * 0.0025);
-                    } else if let Some((mx, my)) = window.get_mouse_pos(MouseMode::Pass) {
+                    } else if let Some((mx, my)) = raw_mouse_pos {
                         if let Some((lx, ly)) = last_mouse {
                             let dx = mx - lx;
                             let dy = my - ly;
@@ -606,7 +618,7 @@ fn main() {
                 let interact_left = mouse_capture.is_captured() && left_down;
                 let interact_right = mouse_capture.is_captured() && right_down;
 
-if interact_left && !left_was_down {
+                if interact_left && !left_was_down {
                     hand_animation = 1.0;
                     let forward = camera.forward();
                     if let Some((mob_idx, _hit_dist)) = mob_manager.raycast_mob(camera.position, forward, 4.2) {
@@ -649,10 +661,10 @@ if interact_left && !left_was_down {
                             if !block_intersects_player(place_pos, camera.position, current_eye_offset, current_player_height)
                                 && !block_intersects_player(top_pos, camera.position, current_eye_offset, current_player_height)
                                 && world.get_block(top_pos) == block::BlockId::Air
-                            {
-                                world.set_block(place_pos, block::BlockId::Door);
-                                world.set_block(top_pos, block::BlockId::Door);
-                            }
+                                {
+                                    world.set_block(place_pos, block::BlockId::Door);
+                                    world.set_block(top_pos, block::BlockId::Door);
+                                }
                         } else if !block_intersects_player(place_pos, camera.position, current_eye_offset, current_player_height) {
                             world.set_block(place_pos, place_id);
                         }
@@ -730,13 +742,13 @@ if interact_left && !left_was_down {
 
                 let debug_lines = vec![
                     format!("FPS: {}", fps_display),
-                    format!(
-                        "POZYCJA X:{} Y:{} Z:{}",
-                        camera.position.x as i32, camera.position.y as i32, camera.position.z as i32
-                    ),
-                    format!("BLOK: {}", block::BlockId::from_u8(selected_block).name().to_uppercase()),
-                    format!("MOBY: {}", mob_manager.mobs.len()),
-                    format!("TRYB: {}", mode_str),
+                        format!(
+                            "POZYCJA X:{} Y:{} Z:{}",
+                            camera.position.x as i32, camera.position.y as i32, camera.position.z as i32
+                        ),
+                        format!("BLOK: {}", block::BlockId::from_u8(selected_block).name().to_uppercase()),
+                            format!("MOBY: {}", mob_manager.mobs.len()),
+                                format!("TRYB: {}", mode_str),
                 ];
                 renderer.draw_debug_panel(&debug_lines);
 
@@ -802,7 +814,6 @@ if interact_left && !left_was_down {
                     let _ = save_current_world(&mut world, &camera, save_slot);
                     break;
                 }
-                let m_down = window.is_key_down(Key::M);
                 if m_down && !m_was_down {
                     let _ = save_current_world(&mut world, &camera, save_slot);
                     save_slots[save_slot as usize - 1] = true;
@@ -821,7 +832,7 @@ if interact_left && !left_was_down {
         escape_was_down = escape_down;
         fly_key_was_down = f_down;
         q_was_down = q_down;
-        m_was_down = window.is_key_down(Key::M);
+        m_was_down = m_down;
         save_was_down = f5_down;
 
         window
@@ -834,14 +845,30 @@ if interact_left && !left_was_down {
             frame_count = 0;
             fps_timer = Instant::now();
         }
-        window.set_title(&format!(
+        // `set_title` to wywołanie do systemu okien (na X11/Wayland wymaga
+        // komunikacji z window managerem/kompozytorem), które potrafi być
+        // zaskakująco kosztowne i - w zależności od implementacji backendu -
+        // nawet się synchronicznie blokować. Wywoływanie go bezwarunkowo co
+        // klatkę (setki razy na sekundę) jest czystym marnotrawstwem, bo
+        // treść tytułu faktycznie zmienia się rzadko: fps_display tylko co
+        // ~0.5s, a reszta pól tylko przy zmianie stanu gry. Budujemy nowy
+        // tytuł i wołamy set_title tylko wtedy, gdy się on realnie różni od
+        // poprzedniego - zachowanie widoczne dla gracza jest identyczne
+        // (tytuł okna aktualizuje się tak samo często jak zmienia się jego
+        // treść), tylko bez zbędnych wywołań systemowych w klatkach, w
+        // których i tak nic by się nie zmieniło.
+        let new_title = format!(
             "RustCraft [{} renderer] - {} FPS - blok: {}{}{}",
             renderer.backend_name(),
-                                  fps_display,
-                                  block::BlockId::from_u8(renderer.selected_block()).name(),
-                                  if fly_mode { " - [LOT]" } else { "" },
-                                      if state == GameState::Paused { " - [PAUZA]" } else { "" }
-        ));
+                                fps_display,
+                                block::BlockId::from_u8(renderer.selected_block()).name(),
+                                if fly_mode { " - [LOT]" } else { "" },
+                                    if state == GameState::Paused { " - [PAUZA]" } else { "" }
+        );
+        if new_title != last_title {
+            window.set_title(&new_title);
+            last_title = new_title;
+        }
     }
 
     if matches!(state, GameState::Playing | GameState::Paused) {

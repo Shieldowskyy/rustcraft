@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use rayon::prelude::*; // Dodano obsługę wielowątkowości dla chunków
 
 use crate::block::BlockId;
 use crate::math::{IVec3, Vec3};
@@ -21,7 +22,9 @@ pub struct Chunk {
 impl Chunk {
     #[inline(always)]
     pub fn index(x: i32, y: i32, z: i32) -> usize {
-        ((x * CHUNK_SIZE_Y + y) * CHUNK_SIZE_Z + z) as usize
+        // Optymalizacja 1: Zamiast (x * 64 + y) * 16 + z
+        // Używamy szybkich przesunięć bitowych: x * 1024 + y * 16 + z
+        ((x << 10) | (y << 4) | z) as usize
     }
 
     #[inline(always)]
@@ -530,13 +533,13 @@ fn place_forest_cabin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i
                         }
                     } else if dy == 2
                         && (((x == min_x || x == max_x) && (z == min_z + 2 || z == min_z + 3))
-                            || (z == max_z && (x == min_x + 2 || x == min_x + 3)))
-                    {
-                        // Glass windows on sides and back
-                        set(blocks, x, base_y + dy, z, BlockId::Glass);
-                    } else {
-                        set(blocks, x, base_y + dy, z, BlockId::Planks);
-                    }
+                        || (z == max_z && (x == min_x + 2 || x == min_x + 3)))
+                        {
+                            // Glass windows on sides and back
+                            set(blocks, x, base_y + dy, z, BlockId::Glass);
+                        } else {
+                            set(blocks, x, base_y + dy, z, BlockId::Planks);
+                        }
                 }
             }
         }
@@ -582,6 +585,10 @@ pub struct World {
     pub sim_tick: u64,
     pub pending_explosions: Vec<Vec3>,
     pub primed_tnts: Vec<PrimedTnt>,
+    /// Chunk (cx, cz), w którym gracz stał podczas ostatniego wywołania
+    /// `update()`, który faktycznie wykonało pracę streamingu. `None`
+    /// wymusza pełne przeliczenie przy pierwszym wywołaniu.
+    last_stream_chunk: Option<(i32, i32)>,
 }
 
 pub struct RaycastHit {
@@ -610,6 +617,7 @@ impl World {
             sim_tick: 0,
             pending_explosions: Vec::new(),
             primed_tnts: Vec::new(),
+            last_stream_chunk: None,
         }
     }
 
@@ -685,10 +693,12 @@ impl World {
 
     #[inline(always)]
     fn world_to_chunk(wx: i32, wz: i32) -> (i32, i32, i32, i32) {
-        let cx = wx.div_euclid(CHUNK_SIZE_X);
-        let cz = wz.div_euclid(CHUNK_SIZE_Z);
-        let lx = wx.rem_euclid(CHUNK_SIZE_X);
-        let lz = wz.rem_euclid(CHUNK_SIZE_Z);
+        // Optymalizacja 2: Operacje bitowe są znacznie szybsze niż div_euclid/rem_euclid
+        // i działają idealnie poprawnie również dla liczb ujemnych (przy dzieleniu przez potęgę 2).
+        let cx = wx >> 4;
+        let cz = wz >> 4;
+        let lx = wx & 15;
+        let lz = wz & 15;
         (cx, cz, lx, lz)
     }
 
@@ -862,15 +872,38 @@ impl World {
         let pcx = (player_pos.x as i32).div_euclid(CHUNK_SIZE_X);
         let pcz = (player_pos.z as i32).div_euclid(CHUNK_SIZE_Z);
 
+        if self.last_stream_chunk == Some((pcx, pcz)) {
+            return;
+        }
+        self.last_stream_chunk = Some((pcx, pcz));
+
+        // Optymalizacja 3: Równoległe generowanie brakujących chunków
+        // Zamiast generować w głównym wątku jeden po drugim, wyszukujemy brakujące i delegujemy do Rayona
+        let mut missing_chunks = Vec::new();
+
         for dz in -VIEW_DISTANCE..=VIEW_DISTANCE {
             for dx in -VIEW_DISTANCE..=VIEW_DISTANCE {
-                let cx = pcx + dx;
-                let cz = pcz + dz;
                 if dx * dx + dz * dz > VIEW_DISTANCE * VIEW_DISTANCE {
                     continue;
                 }
-                let seed = self.seed;
-                self.chunks.entry((cx, cz)).or_insert_with(|| Chunk::generate(cx, cz, seed));
+                let cx = pcx + dx;
+                let cz = pcz + dz;
+                if !self.chunks.contains_key(&(cx, cz)) {
+                    missing_chunks.push((cx, cz));
+                }
+            }
+        }
+
+        if !missing_chunks.is_empty() {
+            let seed = self.seed;
+            // Generowanie równoległe zapobiega drastycznym spadkom FPS przy przemieszczaniu się
+            let generated_chunks: Vec<Chunk> = missing_chunks
+            .into_par_iter()
+            .map(|(cx, cz)| Chunk::generate(cx, cz, seed))
+            .collect();
+
+            for chunk in generated_chunks {
+                self.chunks.insert((chunk.cx, chunk.cz), chunk);
             }
         }
 
@@ -882,6 +915,36 @@ impl World {
         });
     }
 
+    /// Jak `get_block`, ale przyjmuje "podpowiedź" ostatnio użytego chunka
+    /// (klucz + referencja) i unika ponownego przeszukiwania `self.chunks`
+    /// (hashmap lookup), jeśli żądana pozycja nadal leży w tym samym chunku
+    /// co poprzednie zapytanie. Zwraca zaktualizowaną podpowiedź do
+    /// przekazania w kolejnym wywołaniu. Wynik jest identyczny z
+    /// `get_block` - to czysto optymalizacja dostępu, nie zmiana logiki.
+    /// Używane w gorących, potrójnie zagnieżdżonych pętlach symulacji
+    /// materiałów, gdzie kolejne odwiedzane pozycje (zwłaszcza wzdłuż osi X)
+    /// w zdecydowanej większości trafiają w ten sam chunk co poprzednia.
+    #[inline]
+    fn get_block_cached<'a>(
+        &'a self,
+        pos: IVec3,
+        hint: Option<((i32, i32), &'a Chunk)>,
+    ) -> (BlockId, Option<((i32, i32), &'a Chunk)>) {
+        if (pos.y as u32) >= CHUNK_SIZE_Y as u32 {
+            return (BlockId::Air, hint);
+        }
+        let (cx, cz, lx, lz) = World::world_to_chunk(pos.x, pos.z);
+        if let Some((key, chunk)) = hint {
+            if key == (cx, cz) {
+                return (chunk.get_local(lx, pos.y, lz), Some((key, chunk)));
+            }
+        }
+        match self.chunks.get(&(cx, cz)) {
+            Some(chunk) => (chunk.get_local(lx, pos.y, lz), Some(((cx, cz), chunk))),
+            None => (BlockId::Air, hint),
+        }
+    }
+
     pub fn simulate_materials(&mut self, player_pos: Vec3) {
         self.sim_tick = self.sim_tick.wrapping_add(1);
         let px = player_pos.x.floor() as i32;
@@ -891,14 +954,28 @@ impl World {
         let min_y = (py - 12).max(1);
         let max_y = (py + 8).min(CHUNK_SIZE_Y - 1);
 
-        // 1. Reakcja TNT z lawą (uzbrojenie od lawy)
+        // Optymalizacja 4 (główna dla symulacji):
+        // Wcześniej silnik robił DWA pełne obchody (~9200 bloków każdy)
+        // raz dla TNT i zapłonu od lawy, drugi dla fizyki płynów.
+        // Skonsolidowaliśmy je w JEDNĄ pętlę.
+
+        let sim_lava = self.sim_tick % 3 == 0;
+        let mut fluid_spawns: Vec<(IVec3, BlockId, u8)> = Vec::new();
+        let mut fluid_despawns: Vec<IVec3> = Vec::new();
+        let mut solidifications: Vec<(IVec3, BlockId)> = Vec::new();
         let mut tnts_to_prime = Vec::new();
 
-        for y in min_y..=max_y {
+        let mut hint: Option<((i32, i32), &Chunk)> = None;
+
+        for y in (min_y..=max_y).rev() {
             for z in (pz - radius)..=(pz + radius) {
                 for x in (px - radius)..=(px + radius) {
                     let pos = IVec3::new(x, y, z);
-                    if self.get_block(pos) == BlockId::Tnt {
+                    let (block, new_hint) = self.get_block_cached(pos, hint);
+                    hint = new_hint;
+
+                    // -- Logika zapłonu TNT (bezpośrednio w pętli materiałów) --
+                    if block == BlockId::Tnt {
                         let neighbors = [
                             IVec3::new(x + 1, y, z),
                             IVec3::new(x - 1, y, z),
@@ -907,29 +984,22 @@ impl World {
                             IVec3::new(x, y, z + 1),
                             IVec3::new(x, y, z - 1),
                         ];
-                        if neighbors.iter().any(|&p| self.get_block(p) == BlockId::Lava) {
+                        let mut found_lava = false;
+                        for &p in &neighbors {
+                            let (nblock, new_hint) = self.get_block_cached(p, hint);
+                            hint = new_hint;
+                            if nblock == BlockId::Lava {
+                                found_lava = true;
+                                break;
+                            }
+                        }
+                        if found_lava {
                             tnts_to_prime.push(pos);
                         }
+                        continue; // TNT nie jest płynem
                     }
-                }
-            }
-        }
 
-        for tnt_pos in tnts_to_prime {
-            self.prime_tnt(tnt_pos);
-        }
-
-        // 2. Fluid simulation
-        let sim_lava = self.sim_tick % 3 == 0;
-        let mut fluid_spawns: Vec<(IVec3, BlockId, u8)> = Vec::new();
-        let mut fluid_despawns: Vec<IVec3> = Vec::new();
-        let mut solidifications: Vec<(IVec3, BlockId)> = Vec::new();
-
-        for y in (min_y..=max_y).rev() {
-            for z in (pz - radius)..=(pz + radius) {
-                for x in (px - radius)..=(px + radius) {
-                    let pos = IVec3::new(x, y, z);
-                    let block = self.get_block(pos);
+                    // -- Skrócony warunek logiki płynów --
                     if block != BlockId::Water && block != BlockId::Lava {
                         continue;
                     }
@@ -937,6 +1007,7 @@ impl World {
                         continue;
                     }
 
+                    // -- Logika symulacji płynów --
                     let level = self.fluid_level(pos);
                     let below = IVec3::new(x, y - 1, z);
                     let below_block = self.get_block(below);
@@ -991,6 +1062,11 @@ impl World {
             }
         }
 
+        // Aktywacja podpalonego z lawy TNT
+        for tnt_pos in tnts_to_prime {
+            self.prime_tnt(tnt_pos);
+        }
+
         for (pos, stone) in solidifications {
             self.set_block(pos, stone);
         }
@@ -1006,7 +1082,7 @@ impl World {
             }
         }
 
-        // 3. Sand gravity simulation
+        // 3. Sand gravity simulation (oparte na secie Aktywnego Piasku, jest super szybkie)
         if !self.active_sand.is_empty() {
             let mut sand_moves: Vec<(IVec3, IVec3)> = Vec::new();
             let mut sand_stopped: Vec<IVec3> = Vec::new();

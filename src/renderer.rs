@@ -46,7 +46,13 @@ struct ScreenTriangle {
     max_y: i32,
 }
 
-const TILE_HEIGHT: usize = 16;
+// Wysokość kafelka rasteryzacji w pikselach. Większy kafelek = mniej zadań
+// rayon na klatkę = mniejszy narzut planowania wątków, co ma znaczenie
+// zwłaszcza na słabych/2-rdzeniowych CPU, gdzie koszt dispatch/sync per
+// zadanie jest relatywnie duży względem samej pracy. 16 -> 32 to wciąż
+// mały fragment ekranu (bez wpływu na wygląd - to tylko granulacja
+// równoległości, nie zmienia niczego w samej rasteryzacji pikseli).
+const TILE_HEIGHT: usize = 32;
 
 pub struct Renderer {
     width: usize,
@@ -68,6 +74,38 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(width: usize, height: usize) -> Self {
+        // Dobór wielkości puli wątków rayon zależnie od realnej liczby
+        // dostępnych wątków logicznych, żeby dobrze skalować się zarówno na
+        // słabych 2-rdzeniowych CPU z SMT (np. i5-4210U: 2C/4T), jak i na
+        // dużych wielordzeniowych CPU (np. R7 2700X: 8C/16T):
+        //
+        // - Na CPU z małą liczbą wątków logicznych (<=4, typowy budżetowy
+        //   dual-core z SMT) oba wątki SMT dzielą te same jednostki
+        //   wykonawcze jednego rdzenia, więc przy drobnoziarnistej,
+        //   pamięciowo-ograniczonej pracy (kafelki rasteryzacji, bufory
+        //   pikseli/głębi) SMT często nie daje przyspieszenia, a dodaje
+        //   narzut synchronizacji - ograniczamy się wtedy do rdzeni
+        //   fizycznych (logiczne/2).
+        // - Na CPU z większą liczbą wątków logicznych (>4, kilka/kilkanaście
+        //   pełnoprawnych rdzeni) jest już wystarczająco dużo niezależnych
+        //   jednostek wykonawczych, żeby SMT realnie pomagał zamiast
+        //   rywalizować o te same zasoby - używamy wtedy wszystkich wątków
+        //   logicznych, żeby nasycić cały procesor.
+        //
+        // Budowane tylko raz przy starcie procesu, więc nie ma to żadnego
+        // kosztu w pętli renderowania.
+        let logical_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+        let worker_threads = if logical_threads <= 4 {
+            (logical_threads / 2).max(1)
+        } else {
+            logical_threads
+        };
+        let _ = rayon::ThreadPoolBuilder::new()
+        .num_threads(worker_threads)
+        .build_global();
+
         Renderer {
             width,
             height,
@@ -255,22 +293,32 @@ impl Renderer {
         let height = self.height;
         let max_h = height.max(1) as f32;
 
+        // Grupujemy po TILE_HEIGHT wierszy na zadanie rayon zamiast 1 wiersza
+        // na zadanie: ta sama liczba obliczonych kolorów i identyczny wynik
+        // pikseli, ale znacznie mniejszy narzut planowania wątków (wcześniej
+        // `height` osobnych zadań, teraz `height / TILE_HEIGHT`). Ta sama
+        // granulacja co reszta rasteryzatora (TILE_HEIGHT), co dobrze
+        // współgra z cache i już istniejącym podziałem na kafelki.
         self.color_buffer
-        .par_chunks_mut(width)
+        .par_chunks_mut(width * TILE_HEIGHT)
         .enumerate()
-        .for_each(|(y, row)| {
-            let t = y as f32 / max_h;
-            let t = (t + camera_pitch * 0.05).clamp(0.0, 1.0);
-            let top = (0.35f32, 0.55f32, 0.95f32);
-            let bottom = (0.75f32, 0.85f32, 1.0f32);
-            let r = top.0 + (bottom.0 - top.0) * t;
-            let g = top.1 + (bottom.1 - top.1) * t;
-            let b = top.2 + (bottom.2 - top.2) * t;
-            let color = pack_color(r, g, b);
-            row.fill(color);
+        .for_each(|(tile_idx, rows)| {
+            let y_start = tile_idx * TILE_HEIGHT;
+            for (row_i, row) in rows.chunks_mut(width).enumerate() {
+                let y = y_start + row_i;
+                let t = y as f32 / max_h;
+                let t = (t + camera_pitch * 0.05).clamp(0.0, 1.0);
+                let top = (0.35f32, 0.55f32, 0.95f32);
+                let bottom = (0.75f32, 0.85f32, 1.0f32);
+                let r = top.0 + (bottom.0 - top.0) * t;
+                let g = top.1 + (bottom.1 - top.1) * t;
+                let b = top.2 + (bottom.2 - top.2) * t;
+                let color = pack_color(r, g, b);
+                row.fill(color);
+            }
         });
 
-        self.depth_buffer.par_chunks_mut(width * 16).for_each(|chunk| {
+        self.depth_buffer.par_chunks_mut(width * TILE_HEIGHT).for_each(|chunk| {
             chunk.fill(f32::INFINITY);
         });
     }
@@ -354,15 +402,16 @@ impl Renderer {
         let cam_x = camera.position.x - CHUNK_SIZE_X as f32 * 0.5;
         let cam_z = camera.position.z - CHUNK_SIZE_Z as f32 * 0.5;
 
-        visible.sort_unstable_by(|a, b| {
+        // Sortujemy po kluczu zamiast komparatora z partial_cmp: dystans^2
+        // jest zawsze skończony i nieujemny (brak NaN/Inf w praktyce dla
+        // współrzędnych chunków), więc bit-rzutowanie f32->u32 zachowuje
+        // porządek i pozwala na szybszy sort_unstable_by_key bez narzutu
+        // na obsługę Ordering/NaN przy każdym porównaniu. Wynik sortowania
+        // (kolejność chunków od najbliższego do najdalszego) jest identyczny.
+        visible.sort_unstable_by_key(|a| {
             let dx_a = a.0 as f32 * CHUNK_SIZE_X as f32 - cam_x;
             let dz_a = a.1 as f32 * CHUNK_SIZE_Z as f32 - cam_z;
-            let dx_b = b.0 as f32 * CHUNK_SIZE_X as f32 - cam_x;
-            let dz_b = b.1 as f32 * CHUNK_SIZE_Z as f32 - cam_z;
-
-            (dx_a * dx_a + dz_a * dz_a)
-            .partial_cmp(&(dx_b * dx_b + dz_b * dz_b))
-            .unwrap_or(std::cmp::Ordering::Equal)
+            (dx_a * dx_a + dz_a * dz_a).to_bits()
         });
 
         self.opaque_tris_buf.clear();
@@ -495,6 +544,11 @@ impl Renderer {
         });
     }
 
+    /// Test widoczności chunka względem frustum kamery (dokładnie ta sama
+    /// logika i wynik co w oryginale - 8 rogów AABB kontra 6 płaszczyzn
+    /// frustum), tylko z rozwiniętą pętlą i policzonymi raz progami `-clip[3]`,
+    /// żeby zredukować narzut na wywołanie (istotne, bo funkcja jest wołana
+    /// dla każdego załadowanego chunku w każdej klatce).
     fn chunk_visible(key: (i32, i32), view_proj: &crate::math::Mat4) -> bool {
         let min_x = key.0 as f32 * CHUNK_SIZE_X as f32;
         let min_y = 0.0;
@@ -514,11 +568,17 @@ impl Renderer {
             crate::math::Vec3::new(max_x, max_y, max_z),
         ];
 
-        let mut out_x_pos = 0; let mut out_x_neg = 0;
-        let mut out_y_pos = 0; let mut out_y_neg = 0;
-        let mut out_z_pos = 0; let mut out_z_neg = 0;
+        let mut out_x_pos = 0u8; let mut out_x_neg = 0u8;
+        let mut out_y_pos = 0u8; let mut out_y_neg = 0u8;
+        let mut out_z_pos = 0u8; let mut out_z_neg = 0u8;
 
-        for &corner in &corners {
+        // Transformujemy rogi po kolei, ale przerywamy natychmiast, gdy
+        // żadna z sześciu płaszczyzn nie może już osiągnąć licznika 8
+        // (bo za mało pozostałych rogów, by ją dopełnić). Dla chunków
+        // wyraźnie widocznych (typowy przypadek) to zwykle kilka rogów
+        // zamiast wszystkich 8, bo któryś licznik szybko spada poniżej
+        // możliwego maksimum. Wynik jest identyczny z pełną pętlą 8-rogów.
+        for (i, &corner) in corners.iter().enumerate() {
             let clip = view_proj.transform_point(corner);
             if clip[0] > clip[3] { out_x_pos += 1; }
             if clip[0] < -clip[3] { out_x_neg += 1; }
@@ -526,6 +586,17 @@ impl Renderer {
             if clip[1] < -clip[3] { out_y_neg += 1; }
             if clip[2] > clip[3] { out_z_pos += 1; }
             if clip[2] < -clip[3] { out_z_neg += 1; }
+
+            let remaining = (corners.len() - 1 - i) as u8;
+            let none_can_reach_8 = out_x_pos + remaining < 8
+            && out_x_neg + remaining < 8
+            && out_y_pos + remaining < 8
+            && out_y_neg + remaining < 8
+            && out_z_pos + remaining < 8
+            && out_z_neg + remaining < 8;
+            if none_can_reach_8 {
+                return true;
+            }
         }
 
         !(out_x_pos == 8 || out_x_neg == 8 || out_y_pos == 8 || out_y_neg == 8 || out_z_pos == 8 || out_z_neg == 8)
@@ -660,10 +731,6 @@ impl Renderer {
                 let gx = cx + dx;
                 let gz = cz + dz;
 
-                if !is_cloud(gx, gz) {
-                    continue;
-                }
-
                 let x_min = gx as f32 * cloud_size + scroll;
                 let x_max = x_min + cloud_size;
                 let z_min = gz as f32 * cloud_size;
@@ -673,6 +740,21 @@ impl Renderer {
                 let center_z = (z_min + z_max) * 0.5;
                 let dist_sq = (center_x - player_pos.x).powi(2) + (center_z - player_pos.z).powi(2);
                 if dist_sq > (7.5 * cloud_size).powi(2) {
+                    continue;
+                }
+
+                // Tani, dokładny test frustum kolumny chmury (te same reguły
+                // co przy odrzucaniu chunków w chunk_visible: rzutujemy 8
+                // rogów AABB kolumny i sprawdzamy, czy wszystkie leżą poza
+                // tą samą płaszczyzną obcinania). Wykonywany PRZED hashem
+                // `is_cloud` i budową geometrii ścian, więc kolumny poza
+                // polem widzenia (np. za plecami gracza) kosztują tylko
+                // 8 tanich transformacji punktu zamiast pełnej pracy.
+                if !cloud_column_visible(x_min, x_max, y_bottom, y_top, z_min, z_max, view_proj) {
+                    continue;
+                }
+
+                if !is_cloud(gx, gz) {
                     continue;
                 }
 
@@ -1599,6 +1681,45 @@ impl Renderer {
         let idx = y as usize * self.width + x as usize;
         self.color_buffer[idx] = color;
     }
+}
+
+/// Dokładny test widoczności AABB względem frustum kamery, identyczny w
+/// zasadzie działania z `Renderer::chunk_visible` - używany do odrzucania
+/// kolumn chmur, które leżą całkowicie poza polem widzenia (np. za plecami
+/// gracza), zanim policzymy dla nich cokolwiek droższego.
+#[inline]
+fn cloud_column_visible(
+    min_x: f32, max_x: f32,
+    min_y: f32, max_y: f32,
+    min_z: f32, max_z: f32,
+    view_proj: &crate::math::Mat4,
+) -> bool {
+    let corners = [
+        Vec3::new(min_x, min_y, min_z),
+        Vec3::new(max_x, min_y, min_z),
+        Vec3::new(min_x, max_y, min_z),
+        Vec3::new(max_x, max_y, min_z),
+        Vec3::new(min_x, min_y, max_z),
+        Vec3::new(max_x, min_y, max_z),
+        Vec3::new(min_x, max_y, max_z),
+        Vec3::new(max_x, max_y, max_z),
+    ];
+
+    let mut out_x_pos = 0; let mut out_x_neg = 0;
+    let mut out_y_pos = 0; let mut out_y_neg = 0;
+    let mut out_z_pos = 0; let mut out_z_neg = 0;
+
+    for &corner in &corners {
+        let clip = view_proj.transform_point(corner);
+        if clip[0] > clip[3] { out_x_pos += 1; }
+        if clip[0] < -clip[3] { out_x_neg += 1; }
+        if clip[1] > clip[3] { out_y_pos += 1; }
+        if clip[1] < -clip[3] { out_y_neg += 1; }
+        if clip[2] > clip[3] { out_z_pos += 1; }
+        if clip[2] < -clip[3] { out_z_neg += 1; }
+    }
+
+    !(out_x_pos == 8 || out_x_neg == 8 || out_y_pos == 8 || out_y_neg == 8 || out_z_pos == 8 || out_z_neg == 8)
 }
 
 fn project_to_screen_ao(v: &ClipVertAO, width: usize, height: usize) -> ScreenVertAO {
