@@ -606,7 +606,7 @@ fn main() {
                 let interact_left = mouse_capture.is_captured() && left_down;
                 let interact_right = mouse_capture.is_captured() && right_down;
 
-                if interact_left && !left_was_down {
+if interact_left && !left_was_down {
                     hand_animation = 1.0;
                     let forward = camera.forward();
                     if let Some((mob_idx, _hit_dist)) = mob_manager.raycast_mob(camera.position, forward, 4.2) {
@@ -618,7 +618,7 @@ fn main() {
                         let broken_block = world.get_block(hit.block_pos);
                         if broken_block == block::BlockId::Tnt {
                             world.prime_tnt(hit.block_pos);
-                        } else if !broken_block.is_bedrock() {
+                        } else { // Usunięto warunek else if !broken_block.is_bedrock()
                             let bx = hit.block_pos.x as f32;
                             let by = hit.block_pos.y as f32;
                             let bz = hit.block_pos.z as f32;

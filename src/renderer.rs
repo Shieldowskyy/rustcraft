@@ -597,95 +597,181 @@ impl Renderer {
         time: f32,
     ) {
         let cloud_y = 75.0f32;
-        let cloud_color = [0.97f32, 0.97f32, 1.0f32];
-        let cloud_size = 8.0f32;
+        let cloud_thickness = 4.0f32;
+        let y_bottom = cloud_y;
+        let y_top = cloud_y + cloud_thickness;
+
+        if (player_pos.y - cloud_y).abs() > 100.0 {
+            return;
+        }
+
+        let cloud_size = 12.0f32;
         let scroll = time * 1.5;
 
-        let cx = (player_pos.x / cloud_size).floor() as i32;
+        // Multi-frequency noise for continuous, connected 3D cloud clusters
+        let is_cloud = |gx: i32, gz: i32| -> bool {
+            let hx = gx.wrapping_mul(374761393i32);
+            let hz = gz.wrapping_mul(668265263i32);
+            let h = (hx ^ hz ^ hx.wrapping_mul(hz >> 3)) as u32;
+            let fx = gx as f32 * 0.16;
+            let fz = gz as f32 * 0.16;
+            let wave = (fx.sin() + fz.cos() + (fx * 0.7 + fz * 0.5).sin()) * 0.35;
+            let r = ((h >> 16) % 100) as f32 / 100.0;
+            (wave + r * 0.35) > 0.08
+        };
+
+        let cx = ((player_pos.x - scroll) / cloud_size).floor() as i32;
         let cz = (player_pos.z / cloud_size).floor() as i32;
 
-        for dz in -6..=6 {
-            for dx in -6..=6 {
-                let wx = (cx + dx) as f32 * cloud_size + (scroll % cloud_size);
-                let wz = (cz + dz) as f32 * cloud_size;
+        let alpha = 0.80f32;
 
-                let hx = (cx + dx).wrapping_mul(374761393i32);
-                let hz = (cz + dz).wrapping_mul(668265263i32);
-                let h = (hx ^ hz ^ hx.wrapping_mul(hz >> 3)) as u32;
-                if h % 3 != 0 { continue; }
+        for dz in -7..=7 {
+            for dx in -7..=7 {
+                let gx = cx + dx;
+                let gz = cz + dz;
 
-                let scale = cloud_size * (0.6 + (h % 100) as f32 / 250.0);
-
-                if (cloud_y - player_pos.y).abs() > 80.0 { continue; }
-
-                let half = scale * 0.5;
-                let corners = [
-                    crate::math::Vec3::new(wx - half, cloud_y, wz - half),
-                    crate::math::Vec3::new(wx + half, cloud_y, wz - half),
-                    crate::math::Vec3::new(wx + half, cloud_y, wz + half),
-                    crate::math::Vec3::new(wx - half, cloud_y, wz + half),
-                ];
-
-                let mut pts = [(0.0f32, 0.0f32, 0.0f32); 4];
-                let mut all_valid = true;
-                for (i, &p) in corners.iter().enumerate() {
-                    let c = view_proj.transform_point(p);
-                    if c[3] <= 1e-4 { all_valid = false; break; }
-                    let inv_w = 1.0 / c[3];
-                    pts[i] = (
-                        (c[0] * inv_w * 0.5 + 0.5) * self.width as f32,
-                              (1.0 - (c[1] * inv_w * 0.5 + 0.5)) * self.height as f32,
-                              inv_w,
-                    );
+                if !is_cloud(gx, gz) {
+                    continue;
                 }
-                if !all_valid { continue; }
 
-                let depth_center = {
-                    let c = view_proj.transform_point(crate::math::Vec3::new(wx, cloud_y, wz));
-                    if c[3] <= 1e-4 { continue; }
-                    c[3]
-                };
+                let x_min = gx as f32 * cloud_size + scroll;
+                let x_max = x_min + cloud_size;
+                let z_min = gz as f32 * cloud_size;
+                let z_max = z_min + cloud_size;
 
-                // Optymalizacja: Rozpakowanie stałych z góry pętli
-                let packed = pack_color(cloud_color[0], cloud_color[1], cloud_color[2]);
-                let (cr, cg, cb) = unpack_color(packed);
-                let alpha = 0.72f32;
+                let center_x = (x_min + x_max) * 0.5;
+                let center_z = (z_min + z_max) * 0.5;
+                let dist_sq = (center_x - player_pos.x).powi(2) + (center_z - player_pos.z).powi(2);
+                if dist_sq > (7.5 * cloud_size).powi(2) {
+                    continue;
+                }
 
-                for &(ai, bi, ci) in &[(0usize,1usize,2usize),(0usize,2usize,3usize)] {
-                    let (ax, ay, _) = pts[ai];
-                    let (bx, by, _) = pts[bi];
-                    let (cx, cy, _) = pts[ci];
-                    let area = edge(ax, ay, bx, by, cx, cy);
-                    if area.abs() < 0.5 { continue; }
-                    let min_x = ax.min(bx).min(cx).floor().max(0.0) as i32;
-                    let max_x = ax.max(bx).max(cx).ceil().min(self.width as f32 - 1.0) as i32;
-                    let min_y = ay.min(by).min(cy).floor().max(0.0) as i32;
-                    let max_y = ay.max(by).max(cy).ceil().min(self.height as f32 - 1.0) as i32;
-                    for py in min_y..=max_y {
-                        for px in min_x..=max_x {
-                            let fx = px as f32 + 0.5;
+                // At most 3 exterior faces can ever face the camera simultaneously
+                let mut faces_to_draw: [Option<([Vec3; 4], [f32; 3])>; 6] = [None, None, None, None, None, None];
+                let mut face_count = 0;
+
+                // 1. Bottom face (-Y): shaded grey-blue, visible from below
+                if player_pos.y < y_bottom + 0.1 {
+                    faces_to_draw[face_count] = Some(([
+                        Vec3::new(x_min, y_bottom, z_min),
+                        Vec3::new(x_max, y_bottom, z_min),
+                        Vec3::new(x_max, y_bottom, z_max),
+                        Vec3::new(x_min, y_bottom, z_max),
+                    ], [0.72, 0.72, 0.76]));
+                    face_count += 1;
+                }
+
+                // 2. Top face (+Y): bright white sunlight, visible from above
+                if player_pos.y > y_top - 0.1 {
+                    faces_to_draw[face_count] = Some(([
+                        Vec3::new(x_min, y_top, z_max),
+                        Vec3::new(x_max, y_top, z_max),
+                        Vec3::new(x_max, y_top, z_min),
+                        Vec3::new(x_min, y_top, z_min),
+                    ], [0.98, 0.98, 1.00]));
+                    face_count += 1;
+                }
+
+                // 3. North face (-Z): exterior edge facing player
+                if player_pos.z < z_min && !is_cloud(gx, gz - 1) {
+                    faces_to_draw[face_count] = Some(([
+                        Vec3::new(x_min, y_top, z_min),
+                        Vec3::new(x_max, y_top, z_min),
+                        Vec3::new(x_max, y_bottom, z_min),
+                        Vec3::new(x_min, y_bottom, z_min),
+                    ], [0.86, 0.86, 0.90]));
+                    face_count += 1;
+                }
+
+                // 4. South face (+Z): exterior edge facing player
+                if player_pos.z > z_max && !is_cloud(gx, gz + 1) {
+                    faces_to_draw[face_count] = Some(([
+                        Vec3::new(x_max, y_top, z_max),
+                        Vec3::new(x_min, y_top, z_max),
+                        Vec3::new(x_min, y_bottom, z_max),
+                        Vec3::new(x_max, y_bottom, z_max),
+                    ], [0.86, 0.86, 0.90]));
+                    face_count += 1;
+                }
+
+                // 5. West face (-X): exterior edge facing player
+                if player_pos.x < x_min && !is_cloud(gx - 1, gz) {
+                    faces_to_draw[face_count] = Some(([
+                        Vec3::new(x_min, y_top, z_max),
+                        Vec3::new(x_min, y_top, z_min),
+                        Vec3::new(x_min, y_bottom, z_min),
+                        Vec3::new(x_min, y_bottom, z_max),
+                    ], [0.80, 0.80, 0.84]));
+                    face_count += 1;
+                }
+
+                // 6. East face (+X): exterior edge facing player
+                if player_pos.x > x_max && !is_cloud(gx + 1, gz) {
+                    faces_to_draw[face_count] = Some(([
+                        Vec3::new(x_max, y_top, z_min),
+                        Vec3::new(x_max, y_top, z_max),
+                        Vec3::new(x_max, y_bottom, z_max),
+                        Vec3::new(x_max, y_bottom, z_min),
+                    ], [0.80, 0.80, 0.84]));
+                    face_count += 1;
+                }
+
+                for face_opt in &faces_to_draw[..face_count] {
+                    let (corners, color) = face_opt.unwrap();
+                    let (cr, cg, cb) = (color[0], color[1], color[2]);
+
+                    let mut pts = [(0.0f32, 0.0f32, 0.0f32); 4];
+                    let mut all_valid = true;
+                    for (i, &p) in corners.iter().enumerate() {
+                        let c = view_proj.transform_point(p);
+                        if c[3] <= 0.05 { all_valid = false; break; }
+                        let inv_w = 1.0 / c[3];
+                        pts[i] = (
+                            (c[0] * inv_w * 0.5 + 0.5) * self.width as f32,
+                            (1.0 - (c[1] * inv_w * 0.5 + 0.5)) * self.height as f32,
+                            inv_w,
+                        );
+                    }
+                    if !all_valid { continue; }
+
+                    for &(ai, bi, ci) in &[(0usize, 1usize, 2usize), (0usize, 2usize, 3usize)] {
+                        let (ax, ay, _) = pts[ai];
+                        let (bx, by, _) = pts[bi];
+                        let (cx, cy, _) = pts[ci];
+                        let area = edge(ax, ay, bx, by, cx, cy);
+                        if area.abs() < 0.5 { continue; }
+                        let min_x = ax.min(bx).min(cx).floor().max(0.0) as i32;
+                        let max_x = ax.max(bx).max(cx).ceil().min(self.width as f32 - 1.0) as i32;
+                        let min_y = ay.min(by).min(cy).floor().max(0.0) as i32;
+                        let max_y = ay.max(by).max(cy).ceil().min(self.height as f32 - 1.0) as i32;
+
+                        for py in min_y..=max_y {
+                            let y_idx = py as usize * self.width;
                             let fy = py as f32 + 0.5;
-                            let w0 = edge(bx, by, cx, cy, fx, fy);
-                            let w1 = edge(cx, cy, ax, ay, fx, fy);
-                            let w2 = edge(ax, ay, bx, by, fx, fy);
-                            let inside = if area > 0.0 {
-                                w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0
-                            } else {
-                                w0 <= 0.0 && w1 <= 0.0 && w2 <= 0.0
-                            };
-                            if inside {
-                                let idx = py as usize * self.width + px as usize;
-                                let w0n = w0 / area;
-                                let w1n = w1 / area;
-                                let w2n = w2 / area;
-                                let inv_w = w0n * pts[ai].2 + w1n * pts[bi].2 + w2n * pts[ci].2;
-                                let cloud_depth = if inv_w > 1e-6 { 1.0 / inv_w } else { depth_center };
-                                if cloud_depth < self.depth_buffer[idx] {
-                                    let (br, bg, bb) = unpack_color(self.color_buffer[idx]);
-                                    let r = cr * alpha + br * (1.0 - alpha);
-                                    let g = cg * alpha + bg * (1.0 - alpha);
-                                    let b = cb * alpha + bb * (1.0 - alpha);
-                                    self.color_buffer[idx] = pack_color(r, g, b);
+                            for px in min_x..=max_x {
+                                let fx = px as f32 + 0.5;
+                                let w0 = edge(bx, by, cx, cy, fx, fy);
+                                let w1 = edge(cx, cy, ax, ay, fx, fy);
+                                let w2 = edge(ax, ay, bx, by, fx, fy);
+                                let inside = if area > 0.0 {
+                                    w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0
+                                } else {
+                                    w0 <= 0.0 && w1 <= 0.0 && w2 <= 0.0
+                                };
+                                if inside {
+                                    let idx = y_idx + px as usize;
+                                    let w0n = w0 / area;
+                                    let w1n = w1 / area;
+                                    let w2n = w2 / area;
+                                    let inv_w = w0n * pts[ai].2 + w1n * pts[bi].2 + w2n * pts[ci].2;
+                                    let cloud_depth = if inv_w > 1e-6 { 1.0 / inv_w } else { 1.0 };
+                                    if cloud_depth < self.depth_buffer[idx] {
+                                        let (br, bg, bb) = unpack_color(self.color_buffer[idx]);
+                                        let r = cr * alpha + br * (1.0 - alpha);
+                                        let g = cg * alpha + bg * (1.0 - alpha);
+                                        let b = cb * alpha + bb * (1.0 - alpha);
+                                        self.color_buffer[idx] = pack_color(r, g, b);
+                                    }
                                 }
                             }
                         }
