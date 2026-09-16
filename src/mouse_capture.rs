@@ -204,6 +204,72 @@ mod x11_capture {
         (lib.XFreePixmap)(display, pixmap);
         cursor
     }
+
+    pub fn maximize_x11(window: &minifb::Window) {
+        let (Ok(display_handle), Ok(window_handle)) = (window.display_handle(), window.window_handle()) else {
+            return;
+        };
+
+        let xlib_display = match display_handle.as_raw() {
+            RawDisplayHandle::Xlib(h) => h,
+            _ => return,
+        };
+        let xlib_window = match window_handle.as_raw() {
+            RawWindowHandle::Xlib(h) => h,
+            _ => return,
+        };
+
+        let Ok(lib) = xlib::Xlib::open() else {
+            return;
+        };
+        let Some(display_ptr) = xlib_display.display else {
+            return;
+        };
+        let display = display_ptr.as_ptr() as *mut xlib::Display;
+        let xid = xlib_window.window as c_ulong;
+
+        unsafe {
+            let wm_state = (lib.XInternAtom)(display, b"_NET_WM_STATE\0".as_ptr() as *const _, xlib::False);
+            let max_vert = (lib.XInternAtom)(display, b"_NET_WM_STATE_MAXIMIZED_VERT\0".as_ptr() as *const _, xlib::False);
+            let max_horz = (lib.XInternAtom)(display, b"_NET_WM_STATE_MAXIMIZED_HORZ\0".as_ptr() as *const _, xlib::False);
+
+            let atoms = [max_vert, max_horz];
+            (lib.XChangeProperty)(
+                display,
+                xid,
+                wm_state,
+                xlib::XA_ATOM,
+                32,
+                xlib::PropModeReplace,
+                atoms.as_ptr() as *const _,
+                2,
+            );
+
+            let root = (lib.XDefaultRootWindow)(display);
+            let mut xev: xlib::XClientMessageEvent = std::mem::zeroed();
+            xev.type_ = xlib::ClientMessage;
+            xev.window = xid;
+            xev.message_type = wm_state;
+            xev.format = 32;
+            let longs = xev.data.as_longs_mut();
+            longs[0] = 1; // 1 = _NET_WM_STATE_ADD
+            longs[1] = max_vert as std::os::raw::c_long;
+            longs[2] = max_horz as std::os::raw::c_long;
+            longs[3] = 1; // normal application
+            longs[4] = 0;
+
+            let mut event: xlib::XEvent = std::mem::zeroed();
+            event.client_message = xev;
+            (lib.XSendEvent)(
+                display,
+                root,
+                xlib::False,
+                xlib::SubstructureRedirectMask | xlib::SubstructureNotifyMask,
+                &mut event,
+            );
+            (lib.XFlush)(display);
+        }
+    }
 }
 
 /// Public, cross-platform handle used by main.rs. Wraps the Linux X11
@@ -288,5 +354,17 @@ impl MouseCapture {
         {
             (0.0, 0.0)
         }
+    }
+}
+
+/// Requests the window manager to maximize the window.
+pub fn maximize_window(window: &Window) {
+    #[cfg(target_os = "linux")]
+    {
+        x11_capture::maximize_x11(window);
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = window;
     }
 }

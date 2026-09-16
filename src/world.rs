@@ -46,6 +46,13 @@ impl Chunk {
 
         let mut blocks = vec![0u8; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize];
 
+        enum Decoration {
+            Cactus(i32, i32, i32, i32),
+            PineTree(i32, i32, i32),
+            Tree(i32, i32, i32),
+        }
+        let mut decorations = Vec::new();
+
         for lx in 0..CHUNK_SIZE_X {
             for lz in 0..CHUNK_SIZE_Z {
                 let wx = cx * CHUNK_SIZE_X + lx;
@@ -152,29 +159,36 @@ impl Chunk {
                 }
 
                 if height > 21 {
-                    if lx < 3 || lx >= CHUNK_SIZE_X - 3 || lz < 3 || lz >= CHUNK_SIZE_Z - 3 {
-                        continue;
-                    }
-                    let h = hash_coords(wx, wz, seed);
-                    if is_desert {
-                        if h % 167 == 0 {
-                            let c_height = 2 + (h % 2) as i32;
-                            place_cactus(&mut blocks, lx, height + 1, lz, c_height);
-                        }
-                    } else if is_snowy {
-                        if h % 113 == 0 {
-                            place_pine_tree(&mut blocks, lx, height + 1, lz);
-                        }
-                    } else if is_forest {
-                        if h % 47 == 0 {
-                            place_tree(&mut blocks, lx, height + 1, lz);
-                        }
-                    } else if !is_mountain {
-                        if h % 137 == 0 {
-                            place_tree(&mut blocks, lx, height + 1, lz);
+                    if lx >= 3 && lx < CHUNK_SIZE_X - 3 && lz >= 3 && lz < CHUNK_SIZE_Z - 3 {
+                        let h = hash_coords(wx, wz, seed);
+                        if is_desert {
+                            if h % 167 == 0 {
+                                let c_height = 2 + (h % 2) as i32;
+                                decorations.push(Decoration::Cactus(lx, height + 1, lz, c_height));
+                            }
+                        } else if is_snowy {
+                            if h % 113 == 0 {
+                                decorations.push(Decoration::PineTree(lx, height + 1, lz));
+                            }
+                        } else if is_forest {
+                            if h % 47 == 0 {
+                                decorations.push(Decoration::Tree(lx, height + 1, lz));
+                            }
+                        } else if !is_mountain {
+                            if h % 137 == 0 {
+                                decorations.push(Decoration::Tree(lx, height + 1, lz));
+                            }
                         }
                     }
                 }
+            }
+        }
+
+        for deco in decorations {
+            match deco {
+                Decoration::Cactus(lx, base_y, lz, h) => place_cactus(&mut blocks, lx, base_y, lz, h),
+                Decoration::PineTree(lx, base_y, lz) => place_pine_tree(&mut blocks, lx, base_y, lz),
+                Decoration::Tree(lx, base_y, lz) => place_tree(&mut blocks, lx, base_y, lz),
             }
         }
 
@@ -561,7 +575,11 @@ impl World {
             }
         }
 
-        self.pending_explosions.push(Vec3::new(center.x as f32, center.y as f32, center.z as f32));
+        self.pending_explosions.push(Vec3::new(
+            center.x as f32 + 0.5,
+            center.y as f32 + 0.5,
+            center.z as f32 + 0.5,
+        ));
 
         // Uzbrajamy odnalezione w zasięgu TNT
         for tnt_pos in tnts_to_prime {

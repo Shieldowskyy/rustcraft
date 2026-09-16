@@ -228,6 +228,7 @@ fn main() {
     )
     .expect("Nie udało się utworzyć okna");
 
+    mouse_capture::maximize_window(&window);
     window.set_target_fps(TARGET_FPS);
     window.set_cursor_visibility(false);
     let _ = window.set_cursor_style(CursorStyle::Crosshair);
@@ -661,9 +662,10 @@ fn main() {
                     particles.spawn_mob_death_poof(poof_pos);
                 }
 
-                // Generowanie efektów cząsteczkowych wybuchów z kolejek w świecie
+                // Generowanie efektów cząsteczkowych wybuchów z kolejek w świecie oraz obrażenia mobów
                 for exp_pos in world.pending_explosions.drain(..) {
                     particles.spawn_explosion(exp_pos);
+                    mob_manager.apply_explosion(exp_pos, 5.0, 30.0);
                 }
 
                 particles.update(dt);

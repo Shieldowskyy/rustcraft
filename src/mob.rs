@@ -108,7 +108,11 @@ impl Mob {
         self.hurt_timer = 0.35;
         self.panic_timer = 3.0;
 
-        let kb = knockback_dir.normalized();
+        let kb = if knockback_dir.length_sq() > 1e-4 {
+            knockback_dir.normalized()
+        } else {
+            Vec3::new(0.0, 1.0, 0.0)
+        };
         self.velocity.x += kb.x * 5.0;
         self.velocity.z += kb.z * 5.0;
         self.velocity.y = 3.8;
@@ -140,6 +144,44 @@ impl Mob {
                 self.despawn_pending = true;
             }
             return;
+        }
+
+        // --- Lava damage check ---
+        let (min, max) = self.aabb();
+        let min_x = min.x.floor() as i32;
+        let max_x = max.x.floor() as i32;
+        let min_y = min.y.floor() as i32;
+        let max_y = max.y.floor() as i32;
+        let min_z = min.z.floor() as i32;
+        let max_z = max.z.floor() as i32;
+
+        let mut in_lava = false;
+        for x in min_x..=max_x {
+            for y in min_y..=max_y {
+                for z in min_z..=max_z {
+                    if world.get_block(IVec3::new(x, y, z)) == BlockId::Lava {
+                        in_lava = true;
+                        break;
+                    }
+                }
+                if in_lava { break; }
+            }
+            if in_lava { break; }
+        }
+
+        if in_lava {
+            // Fluid drag in lava
+            self.velocity.x *= 0.8;
+            self.velocity.z *= 0.8;
+            if self.velocity.y < -3.0 {
+                self.velocity.y = -3.0;
+            }
+
+            if self.hurt_timer <= 0.0 {
+                let rx = (rand_f32(rng) - 0.5) * 0.4;
+                let rz = (rand_f32(rng) - 0.5) * 0.4;
+                self.take_damage(4.0, Vec3::new(rx, 0.8, rz));
+            }
         }
 
         if self.panic_timer > 0.0 {
@@ -376,6 +418,34 @@ impl MobManager {
         }
 
         self.rng_state = rng;
+    }
+
+    /// Applies explosion damage and knockback to all mobs within blast radius
+    pub fn apply_explosion(&mut self, explosion_pos: Vec3, radius: f32, max_damage: f32) {
+        for mob in &mut self.mobs {
+            if mob.is_dead {
+                continue;
+            }
+            let center = mob.center_pos();
+            let to_mob = center - explosion_pos;
+            let dist = to_mob.length();
+            if dist <= radius {
+                let factor = (1.0 - dist / radius).clamp(0.0, 1.0);
+                let damage = (factor * max_damage).max(4.0);
+                let kb_dir = if dist > 0.01 {
+                    to_mob.normalized()
+                } else {
+                    Vec3::new(0.0, 1.0, 0.0)
+                };
+                mob.take_damage(damage, kb_dir);
+                // Extra knockback impulse for TNT blast
+                let kb_strength = factor * 12.0;
+                mob.velocity.x += kb_dir.x * kb_strength;
+                mob.velocity.y = (mob.velocity.y + kb_dir.y * kb_strength + 4.0).min(14.0);
+                mob.velocity.z += kb_dir.z * kb_strength;
+                mob.on_ground = false;
+            }
+        }
     }
 
     fn try_natural_spawn(&mut self, world: &World, player_pos: Vec3, rng: &mut u32) {
