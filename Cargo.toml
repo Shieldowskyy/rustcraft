@@ -13,21 +13,14 @@ raw-window-handle = "0.6"
 wgpu = "0.19"
 pollster = "0.3"
 bytemuck = { version = "1.16", features = ["derive"] }
-# Pinned transitive dependency: newer getrandom releases require the
-# "edition2024" Cargo feature, which is only available on much newer
-# cargo/rustc toolchains. Pinning keeps this project buildable on older
-# stable toolchains (e.g. distro-packaged Rust 1.75+) as well as the latest.
 getrandom = "=0.2.15"
 
-# X11 pointer grab/warp support, used on Linux to truly lock and hide the
-# mouse cursor inside the game window (real FPS-style mouse capture). Only
-# compiled on Linux; other platforms fall back to a delta-tracking cursor.
 [target.'cfg(target_os = "linux")'.dependencies]
 x11-dl = "2.21"
 
 [profile.release]
-opt-level = 3
-lto = "thin"
-codegen-units = 8
-incremental = true
-panic = "abort"
+opt-level = "s"      # Optymalizacja pod kątem małego rozmiaru (lub "z")
+lto = true           # Link Time Optimization włączone w pełni dla mniejszego kodu
+codegen-units = 1    # Jedna jednostka generacji kodu (maksymalna optymalizacja rozmiaru/wyszukiwanie martwego kodu)
+panic = "abort"      # Usuwa kod obsługi unwindingu (stack unrolling), oszczędza sporo KB
+strip = true         # Automatycznie usuwa symbole debugowania po kompilacji
