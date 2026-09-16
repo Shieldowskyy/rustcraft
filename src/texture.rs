@@ -420,6 +420,14 @@ pub struct TextureAtlas {
     pub ice: Texture,
     pub tnt_top: Texture,
     pub tnt_side: Texture,
+    pub pig_skin: Texture,
+    pub pig_face: Texture,
+    pub pig_snout: Texture,
+    pub cow_skin: Texture,
+    pub cow_face: Texture,
+    pub cow_snout: Texture,
+    pub cow_horns: Texture,
+    pub cow_udder: Texture,
 }
 
 impl TextureAtlas {
@@ -448,6 +456,14 @@ impl TextureAtlas {
             ice: speckled([0.70, 0.88, 1.0], 0.08, 903),
             tnt_top: tnt_top(),
             tnt_side: tnt_side(),
+            pig_skin: pig_skin(),
+            pig_face: pig_face(),
+            pig_snout: pig_snout(),
+            cow_skin: cow_skin(),
+            cow_face: cow_face(),
+            cow_snout: cow_snout(),
+            cow_horns: cow_horns(),
+            cow_udder: cow_udder(),
         }
     }
 
@@ -476,6 +492,14 @@ impl TextureAtlas {
             TextureId::Ice => &self.ice,
             TextureId::TntTop => &self.tnt_top,
             TextureId::TntSide => &self.tnt_side,
+            TextureId::PigSkin => &self.pig_skin,
+            TextureId::PigFace => &self.pig_face,
+            TextureId::PigSnout => &self.pig_snout,
+            TextureId::CowSkin => &self.cow_skin,
+            TextureId::CowFace => &self.cow_face,
+            TextureId::CowSnout => &self.cow_snout,
+            TextureId::CowHorns => &self.cow_horns,
+            TextureId::CowUdder => &self.cow_udder,
         }
     }
 }
@@ -505,6 +529,14 @@ pub enum TextureId {
     Ice,
     TntTop,
     TntSide,
+    PigSkin,
+    PigFace,
+    PigSnout,
+    CowSkin,
+    CowFace,
+    CowSnout,
+    CowHorns,
+    CowUdder,
 }
 
 fn glass() -> Texture {
@@ -517,3 +549,158 @@ fn glass() -> Texture {
     }
     Texture { texels }
 }
+
+fn pig_skin() -> Texture {
+    speckled([0.94, 0.65, 0.65], 0.08, 301)
+}
+
+fn pig_face() -> Texture {
+    let mut tex = pig_skin();
+    let white = [0.98, 0.98, 0.98];
+    let pupil = [0.12, 0.08, 0.08];
+    let snout_bg = [0.86, 0.52, 0.52];
+    let nostril = [0.46, 0.22, 0.22];
+
+    // Left eye (looking out left)
+    tex.texels[6 * TEX_SIZE + 2] = white;
+    tex.texels[6 * TEX_SIZE + 3] = pupil;
+    tex.texels[7 * TEX_SIZE + 2] = white;
+    tex.texels[7 * TEX_SIZE + 3] = pupil;
+
+    // Right eye (looking out right)
+    tex.texels[6 * TEX_SIZE + 12] = pupil;
+    tex.texels[6 * TEX_SIZE + 13] = white;
+    tex.texels[7 * TEX_SIZE + 12] = pupil;
+    tex.texels[7 * TEX_SIZE + 13] = white;
+
+    // Snout area on front face
+    for y in 9..14 {
+        for x in 4..12 {
+            tex.texels[y * TEX_SIZE + x] = snout_bg;
+        }
+    }
+    // Nostrils
+    tex.texels[10 * TEX_SIZE + 6] = nostril;
+    tex.texels[11 * TEX_SIZE + 6] = nostril;
+    tex.texels[10 * TEX_SIZE + 9] = nostril;
+    tex.texels[11 * TEX_SIZE + 9] = nostril;
+
+    tex
+}
+
+fn pig_snout() -> Texture {
+    let mut tex = speckled([0.88, 0.54, 0.54], 0.06, 302);
+    let nostril = [0.46, 0.22, 0.22];
+    for y in 6..11 {
+        for x in 4..7 {
+            tex.texels[y * TEX_SIZE + x] = nostril;
+        }
+        for x in 9..12 {
+            tex.texels[y * TEX_SIZE + x] = nostril;
+        }
+    }
+    tex
+}
+
+fn cow_skin() -> Texture {
+    let dark = [0.26, 0.18, 0.14];
+    let white = [0.88, 0.87, 0.84];
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let bx = x / 4;
+            let by = y / 4;
+            let n = rand_at(bx, by, 701) + rand_at(x, y, 702) * 0.3;
+            let is_white = n > 0.62;
+            let shade = 0.92 + rand_at(x, y, 703) * 0.16;
+            let base = if is_white { white } else { dark };
+            texels[y * TEX_SIZE + x] = [
+                (base[0] * shade).clamp(0.0, 1.0),
+                (base[1] * shade).clamp(0.0, 1.0),
+                (base[2] * shade).clamp(0.0, 1.0),
+            ];
+        }
+    }
+    Texture { texels }
+}
+
+fn cow_face() -> Texture {
+    let mut tex = cow_skin();
+    let white = [0.90, 0.89, 0.86];
+    let eye_white = [0.98, 0.98, 0.98];
+    let pupil = [0.10, 0.08, 0.08];
+    let muzzle = [0.68, 0.58, 0.58];
+    let nostril = [0.22, 0.16, 0.16];
+
+    // White blaze between eyes
+    for y in 1..8 {
+        for x in 6..10 {
+            let s = 0.95 + rand_at(x, y, 705) * 0.1;
+            tex.texels[y * TEX_SIZE + x] = [white[0] * s, white[1] * s, white[2] * s];
+        }
+    }
+
+    // Eyes
+    tex.texels[6 * TEX_SIZE + 2] = eye_white;
+    tex.texels[6 * TEX_SIZE + 3] = pupil;
+    tex.texels[7 * TEX_SIZE + 2] = eye_white;
+    tex.texels[7 * TEX_SIZE + 3] = pupil;
+
+    tex.texels[6 * TEX_SIZE + 12] = pupil;
+    tex.texels[6 * TEX_SIZE + 13] = eye_white;
+    tex.texels[7 * TEX_SIZE + 12] = pupil;
+    tex.texels[7 * TEX_SIZE + 13] = eye_white;
+
+    // Muzzle / snout
+    for y in 9..15 {
+        for x in 3..13 {
+            tex.texels[y * TEX_SIZE + x] = muzzle;
+        }
+    }
+    tex.texels[11 * TEX_SIZE + 5] = nostril;
+    tex.texels[12 * TEX_SIZE + 5] = nostril;
+    tex.texels[11 * TEX_SIZE + 10] = nostril;
+    tex.texels[12 * TEX_SIZE + 10] = nostril;
+
+    tex
+}
+
+fn cow_snout() -> Texture {
+    let mut tex = speckled([0.68, 0.58, 0.58], 0.06, 706);
+    let nostril = [0.22, 0.16, 0.16];
+    for y in 6..11 {
+        for x in 4..7 {
+            tex.texels[y * TEX_SIZE + x] = nostril;
+        }
+        for x in 9..12 {
+            tex.texels[y * TEX_SIZE + x] = nostril;
+        }
+    }
+    tex
+}
+
+fn cow_horns() -> Texture {
+    let mut tex = speckled([0.76, 0.74, 0.70], 0.08, 707);
+    let dark = [0.48, 0.46, 0.42];
+    for y in 12..16 {
+        for x in 0..TEX_SIZE {
+            tex.texels[y * TEX_SIZE + x] = dark;
+        }
+    }
+    tex
+}
+
+fn cow_udder() -> Texture {
+    let mut tex = speckled([0.88, 0.65, 0.68], 0.05, 708);
+    let teat = [0.68, 0.42, 0.45];
+    for (tx, ty) in [(4, 4), (11, 4), (4, 11), (11, 11)] {
+        for dy in 0..2 {
+            for dx in 0..2 {
+                tex.texels[(ty + dy) * TEX_SIZE + (tx + dx)] = teat;
+            }
+        }
+    }
+    tex
+}
+

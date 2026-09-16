@@ -6,6 +6,8 @@ use crate::math::{Mat4, Vec3};
 use crate::mesher::Triangle;
 use crate::texture::{TextureAtlas, TextureId, TEX_SIZE};
 
+pub const TEXTURE_LAYER_COUNT: u32 = 31;
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct GpuVertex {
@@ -152,7 +154,7 @@ var positions = array<vec2<f32>, 3>(
             let texture = create_texture_array(&device, &queue, atlas);
             let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
                 dimension: Some(wgpu::TextureViewDimension::D2Array),
-                                                   array_layer_count: Some(23),
+                                                   array_layer_count: Some(TEXTURE_LAYER_COUNT),
                                                    ..Default::default()
             });
             let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -454,7 +456,7 @@ var positions = array<vec2<f32>, 3>(
     fn create_texture_array(device: &wgpu::Device, queue: &wgpu::Queue, atlas: &TextureAtlas) -> wgpu::Texture {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("RustCraft texture array"),
-                                            size: wgpu::Extent3d { width: TEX_SIZE as u32, height: TEX_SIZE as u32, depth_or_array_layers: 23 },
+                                            size: wgpu::Extent3d { width: TEX_SIZE as u32, height: TEX_SIZE as u32, depth_or_array_layers: TEXTURE_LAYER_COUNT },
                                             mip_level_count: 1,
                                             sample_count: 1,
                                             dimension: wgpu::TextureDimension::D2,
@@ -462,7 +464,7 @@ var positions = array<vec2<f32>, 3>(
                                                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                                                 view_formats: &[],
         });
-        for layer in 0..23u32 {
+        for layer in 0..TEXTURE_LAYER_COUNT {
             let bytes: Vec<u8> = atlas.get(texture_id_from_layer(layer)).texels.iter().flat_map(|color| [
                 (color[0] * 255.0) as u8,
                                                                                                 (color[1] * 255.0) as u8,
@@ -544,6 +546,14 @@ var positions = array<vec2<f32>, 3>(
             TextureId::Ice => 20,
             TextureId::TntTop => 21,
             TextureId::TntSide => 22,
+            TextureId::PigSkin => 23,
+            TextureId::PigFace => 24,
+            TextureId::PigSnout => 25,
+            TextureId::CowSkin => 26,
+            TextureId::CowFace => 27,
+            TextureId::CowSnout => 28,
+            TextureId::CowHorns => 29,
+            TextureId::CowUdder => 30,
         }
     }
 
@@ -571,6 +581,14 @@ var positions = array<vec2<f32>, 3>(
             19 => TextureId::Glass,
             20 => TextureId::Ice,
             21 => TextureId::TntTop,
-            _ => TextureId::TntSide,
+            22 => TextureId::TntSide,
+            23 => TextureId::PigSkin,
+            24 => TextureId::PigFace,
+            25 => TextureId::PigSnout,
+            26 => TextureId::CowSkin,
+            27 => TextureId::CowFace,
+            28 => TextureId::CowSnout,
+            29 => TextureId::CowHorns,
+            _ => TextureId::CowUdder,
         }
     }

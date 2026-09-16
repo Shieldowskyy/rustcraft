@@ -15,12 +15,14 @@ mod texture;
 mod font;
 mod mouse_capture;
 mod vulkan;
+mod mob;
 
 use minifb::{Key, MouseButton, MouseMode, Window, WindowOptions, CursorStyle};
 use std::time::Instant;
 
 use camera::Camera;
 use math::Vec3;
+use mob::MobManager;
 use mouse_capture::MouseCapture;
 use renderer::Renderer;
 use world::World;
@@ -66,10 +68,10 @@ impl ParticleSystem {
             let brightness = 0.75 + next() * 0.5;
             self.particles.push(Particle {
                 pos: Vec3::new(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5),
-                                vel: Vec3::new(vx, vy, vz),
-                                color: [color[0] * brightness, color[1] * brightness, color[2] * brightness],
-                                life: 0.4 + next() * 0.3,
-                                size: 0.05 + next() * 0.06,
+                vel: Vec3::new(vx, vy, vz),
+                color: [color[0] * brightness, color[1] * brightness, color[2] * brightness],
+                life: 0.4 + next() * 0.3,
+                size: 0.05 + next() * 0.06,
             });
         }
     }
@@ -100,18 +102,85 @@ impl ParticleSystem {
             };
             self.particles.push(Particle {
                 pos: Vec3::new(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5),
-                                vel: Vec3::new(vx, vy, vz),
-                                color,
-                                life: 0.5 + next() * 0.6,
-                                size: 0.12 + next() * 0.15,
+                vel: Vec3::new(vx, vy, vz),
+                color,
+                life: 0.5 + next() * 0.6,
+                size: 0.12 + next() * 0.15,
+            });
+        }
+    }
+
+    /// Efekt uderzenia moba (krytyczne/czerwone iskry)
+    fn spawn_mob_hit(&mut self, pos: Vec3) {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut rng = {
+            let mut h = DefaultHasher::new();
+            (pos.x as i32, (pos.y * 100.0) as i32, pos.z as i32).hash(&mut h);
+            h.finish()
+        };
+        let mut next = || -> f32 {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((rng >> 33) as f32) / (u32::MAX as f32)
+        };
+        for _ in 0..10 {
+            let vx = (next() - 0.5) * 4.0;
+            let vy = next() * 3.5 + 1.0;
+            let vz = (next() - 0.5) * 4.0;
+            let is_crit = next() > 0.4;
+            let color = if is_crit {
+                [0.95, 0.20, 0.15]
+            } else {
+                [0.95, 0.85, 0.20]
+            };
+            self.particles.push(Particle {
+                pos,
+                vel: Vec3::new(vx, vy, vz),
+                color,
+                life: 0.3 + next() * 0.25,
+                size: 0.06 + next() * 0.05,
+            });
+        }
+    }
+
+    /// Minecraftowy obłok dymu („poof”) po wyparowaniu moba
+    fn spawn_mob_death_poof(&mut self, pos: Vec3) {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut rng = {
+            let mut h = DefaultHasher::new();
+            (pos.x as i32, (pos.y * 100.0) as i32, pos.z as i32).hash(&mut h);
+            h.finish()
+        };
+        let mut next = || -> f32 {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((rng >> 33) as f32) / (u32::MAX as f32)
+        };
+        for _ in 0..30 {
+            let vx = (next() - 0.5) * 3.2;
+            let vy = next() * 2.2 + 0.4;
+            let vz = (next() - 0.5) * 3.2;
+            let shade = 0.75 + next() * 0.24;
+            self.particles.push(Particle {
+                pos: Vec3::new(
+                    pos.x + (next() - 0.5) * 0.4,
+                    pos.y + (next() - 0.5) * 0.4,
+                    pos.z + (next() - 0.5) * 0.4,
+                ),
+                vel: Vec3::new(vx, vy, vz),
+                color: [shade, shade, shade],
+                life: 0.6 + next() * 0.5,
+                size: 0.14 + next() * 0.12,
             });
         }
     }
 
     fn update(&mut self, dt: f32) {
-        const GRAVITY: f32 = 12.0;
+        const GRAVITY: f32 = 8.0;
         self.particles.retain_mut(|p| {
             p.vel.y -= GRAVITY * dt;
+            p.vel.x *= (1.0 - 1.5 * dt).max(0.0);
+            p.vel.z *= (1.0 - 1.5 * dt).max(0.0);
             p.pos = p.pos + p.vel * dt;
             p.life -= dt;
             p.life > 0.0
@@ -214,6 +283,7 @@ fn main() {
     });
 
     let mut particles = ParticleSystem::new();
+    let mut mob_manager = MobManager::new();
     let mut total_time = 0.0f32;
     let mut material_timer = 0.0f32;
     let mut hand_animation = 0.0f32;
@@ -228,7 +298,7 @@ fn main() {
     println!("  Ctrl (lewy)    - bieg (z plynna zmiana FOV)");
     println!("  F              - przelacz tryb lotu (bez kolizji/grawitacji)");
     println!("  Mysz           - rozgladanie sie (gdy przechwycona)");
-    println!("  LPM            - niszcz blok / uderz TNT aby podpalic / kliknij przycisk");
+    println!("  LPM            - niszcz blok / bij moby / uderz TNT aby podpalic / kliknij przycisk");
     println!("  PPM            - stawiaj blok");
     println!("  Scroll / 1-9, F1-F4 - wybor typu bloku do stawiania");
     println!("  Q              - wyjscie z gry w menu pauzy");
@@ -303,6 +373,7 @@ fn main() {
                     seed = generate_random_seed();
                     world = World::new_with_seed(seed);
                     camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
+                    mob_manager = MobManager::new();
                     state = GameState::Playing;
                 } else if load_down && !load_was_down || click_button == Some(1) {
                     let path = save_path(save_slot);
@@ -312,6 +383,7 @@ fn main() {
                             let loaded_position = loaded_world.player_position;
                             world = loaded_world;
                             camera = Camera::new(loaded_position);
+                            mob_manager = MobManager::new();
                             state = GameState::Playing;
                         }
                         Err(error) => eprintln!("{error}"),
@@ -535,7 +607,13 @@ fn main() {
 
                 if interact_left && !left_was_down {
                     hand_animation = 1.0;
-                    if let Some(hit) = world.raycast(camera.position, camera.forward(), 8.0) {
+                    let forward = camera.forward();
+                    if let Some((mob_idx, _hit_dist)) = mob_manager.raycast_mob(camera.position, forward, 4.2) {
+                        let mob = &mut mob_manager.mobs[mob_idx];
+                        let hit_pos = mob.center_pos();
+                        mob.take_damage(4.0, forward);
+                        particles.spawn_mob_hit(hit_pos);
+                    } else if let Some(hit) = world.raycast(camera.position, forward, 8.0) {
                         let broken_block = world.get_block(hit.block_pos);
                         if broken_block == block::BlockId::Tnt {
                             world.prime_tnt(hit.block_pos);
@@ -577,6 +655,12 @@ fn main() {
                 // Odliczanie czasu i fizyka zapalonych TNT
                 world.update_primed_tnts(dt);
 
+                // Aktualizacja i logika mobów
+                mob_manager.update(dt, &world, camera.position);
+                for poof_pos in mob_manager.dying_poofs.drain(..) {
+                    particles.spawn_mob_death_poof(poof_pos);
+                }
+
                 // Generowanie efektów cząsteczkowych wybuchów z kolejek w świecie
                 for exp_pos in world.pending_explosions.drain(..) {
                     particles.spawn_explosion(exp_pos);
@@ -588,6 +672,11 @@ fn main() {
                 let view_proj = camera.projection_matrix(aspect).mul(&camera.view_matrix());
 
                 renderer.render_frame(&mut world, &camera);
+
+                // Renderowanie mobów
+                for mob in &mob_manager.mobs {
+                    renderer.draw_mob(mob, &camera, &view_proj);
+                }
 
                 for tnt in &world.primed_tnts {
                     renderer.draw_tnt_cube(tnt.pos, tnt.fuse, &camera, &view_proj);
@@ -618,12 +707,13 @@ fn main() {
 
                 let debug_lines = vec![
                     format!("FPS: {}", fps_display),
-                        format!(
-                            "POZYCJA X:{} Y:{} Z:{}",
-                            camera.position.x as i32, camera.position.y as i32, camera.position.z as i32
-                        ),
-                        format!("BLOK: {}", block::BlockId::from_u8(selected_block).name().to_uppercase()),
-                            format!("TRYB: {}", mode_str),
+                    format!(
+                        "POZYCJA X:{} Y:{} Z:{}",
+                        camera.position.x as i32, camera.position.y as i32, camera.position.z as i32
+                    ),
+                    format!("BLOK: {}", block::BlockId::from_u8(selected_block).name().to_uppercase()),
+                    format!("MOBY: {}", mob_manager.mobs.len()),
+                    format!("TRYB: {}", mode_str),
                 ];
                 renderer.draw_debug_panel(&debug_lines);
 

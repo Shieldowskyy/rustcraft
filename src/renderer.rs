@@ -8,6 +8,7 @@ use crate::texture::TextureAtlas;
 use crate::vulkan::VulkanContext;
 use crate::world::{World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
 
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub struct Particle {
     pub pos: Vec3,
@@ -30,6 +31,7 @@ pub struct Renderer {
     loaded_keys: Vec<(i32, i32)>,
     dirty_keys: HashSet<(i32, i32)>,
     visible_keys: Vec<(i32, i32)>,
+    #[allow(dead_code)]
     pub particles: Vec<Particle>,
 }
 
@@ -156,6 +158,7 @@ impl Renderer {
         }
     }
 
+    #[allow(dead_code)]
     pub fn spawn_explosion(&mut self, center: Vec3) {
         let mut rng_state = 12345u32;
         let mut rand_f32 = || -> f32 {
@@ -188,6 +191,7 @@ impl Renderer {
         }
     }
 
+    #[allow(dead_code)]
     pub fn draw_particles(&mut self, camera: &Camera, view_proj: &Mat4, dt: f32) {
         let mut i = 0;
         while i < self.particles.len() {
@@ -378,6 +382,10 @@ impl Renderer {
     }
 
     fn raster_triangle(&mut self, tri: &Triangle, view_proj: &crate::math::Mat4) {
+        self.raster_triangle_tinted(tri, 0.0, view_proj);
+    }
+
+    pub fn raster_triangle_tinted(&mut self, tri: &Triangle, hurt_tint: f32, view_proj: &crate::math::Mat4) {
         let c0 = to_clip_ao(tri.v0, view_proj);
         let c1 = to_clip_ao(tri.v1, view_proj);
         let c2 = to_clip_ao(tri.v2, view_proj);
@@ -391,7 +399,7 @@ impl Renderer {
             let sa = self.project_to_screen_ao(&clipped[0]);
             let sb = self.project_to_screen_ao(&clipped[i]);
             let sc = self.project_to_screen_ao(&clipped[i + 1]);
-            self.raster_screen_triangle_ao(sa, sb, sc, tri.texture);
+            self.raster_screen_triangle_ao(sa, sb, sc, tri.texture, hurt_tint);
         }
     }
 
@@ -416,6 +424,7 @@ impl Renderer {
         b: ScreenVertAO,
         c: ScreenVertAO,
         texture: crate::texture::TextureId,
+        hurt_tint: f32,
     ) {
         let area = edge(a.x, a.y, b.x, b.y, c.x, c.y);
         if area <= 0.0 {
@@ -476,9 +485,15 @@ impl Renderer {
                             let ao = (l0 * a.ao_over_w + l1 * b.ao_over_w + l2 * c.ao_over_w) * depth;
 
                             let texel = tex.sample(u, v);
-                            let r = texel[0] * ao;
-                            let g = texel[1] * ao;
-                            let bl = texel[2] * ao;
+                            let mut r = texel[0] * ao;
+                            let mut g = texel[1] * ao;
+                            let mut bl = texel[2] * ao;
+
+                            if hurt_tint > 0.0 {
+                                r = r * (1.0 - hurt_tint) + 0.95 * hurt_tint;
+                                g = g * (1.0 - hurt_tint) + 0.12 * hurt_tint;
+                                bl = bl * (1.0 - hurt_tint) + 0.12 * hurt_tint;
+                            }
 
                             let fog_t = (depth / 180.0).clamp(0.0, 1.0);
                             let fog = (0.75f32, 0.85f32, 1.0f32);
@@ -752,6 +767,400 @@ impl Renderer {
             self.raster_triangle(&second, view_proj);
             self.raster_triangle(&Triangle { v0: first.v2, v1: first.v1, v2: first.v0, texture }, view_proj);
             self.raster_triangle(&Triangle { v0: second.v2, v1: second.v1, v2: second.v0, texture }, view_proj);
+        }
+    }
+
+    pub fn draw_mob(&mut self, mob: &crate::mob::Mob, _camera: &crate::camera::Camera, view_proj: &crate::math::Mat4) {
+        use std::f32::consts::PI;
+        use crate::texture::TextureId;
+        use crate::mob::MobKind;
+
+        let hurt_tint = if mob.is_dead {
+            0.65
+        } else if mob.hurt_timer > 0.0 {
+            (mob.hurt_timer / 0.35).min(1.0) * 0.75
+        } else {
+            0.0
+        };
+
+        let death_roll = if mob.is_dead {
+            (mob.death_timer / 0.8).min(1.0) * (PI * 0.5)
+        } else {
+            0.0
+        };
+
+        match mob.kind {
+            MobKind::Pig => {
+                let center_y = 0.42;
+                // Body: center at (0, 0.42, -0.05), size: half = [0.28, 0.20, 0.40]
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(0.0, 0.42, -0.05),
+                    [0.28, 0.20, 0.40],
+                    mob.yaw,
+                    0.0,
+                    death_roll,
+                    [TextureId::PigSkin; 6],
+                    hurt_tint,
+                    view_proj,
+                );
+
+                // Head: center at (0, 0.50, 0.40), size: half = [0.20, 0.20, 0.20]
+                let head_tex = [
+                    TextureId::PigFace, // Front (+Z)
+                    TextureId::PigSkin, // Back (-Z)
+                    TextureId::PigSkin, // Top (+Y)
+                    TextureId::PigSkin, // Bottom (-Y)
+                    TextureId::PigSkin, // Right (+X)
+                    TextureId::PigSkin, // Left (-X)
+                ];
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(0.0, 0.50, 0.40),
+                    [0.20, 0.20, 0.20],
+                    mob.yaw + mob.head_yaw_offset,
+                    0.0,
+                    death_roll,
+                    head_tex,
+                    hurt_tint,
+                    view_proj,
+                );
+
+                // Snout: center at (0, 0.44, 0.62), size: half = [0.10, 0.07, 0.04]
+                let snout_tex = [
+                    TextureId::PigSnout, // Front (+Z)
+                    TextureId::PigSkin,  // Back (-Z)
+                    TextureId::PigSkin,  // Top (+Y)
+                    TextureId::PigSkin,  // Bottom (-Y)
+                    TextureId::PigSkin,  // Right (+X)
+                    TextureId::PigSkin,  // Left (-X)
+                ];
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(0.0, 0.44, 0.62),
+                    [0.10, 0.07, 0.04],
+                    mob.yaw + mob.head_yaw_offset,
+                    0.0,
+                    death_roll,
+                    snout_tex,
+                    hurt_tint,
+                    view_proj,
+                );
+
+                // 4 Legs: height 0.32 (half_y = 0.16), width/depth 0.16 (half = 0.08)
+                let leg_pitch = if mob.is_dead { 0.0 } else { mob.walk_phase.sin() * 0.65 };
+                let leg_tex = [TextureId::PigSkin; 6];
+
+                // Front Left Leg (x = -0.16, z = 0.22)
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(-0.16, 0.16, 0.22),
+                    [0.08, 0.16, 0.08],
+                    mob.yaw,
+                    leg_pitch,
+                    death_roll,
+                    leg_tex,
+                    hurt_tint,
+                    view_proj,
+                );
+
+                // Front Right Leg (x = 0.16, z = 0.22)
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(0.16, 0.16, 0.22),
+                    [0.08, 0.16, 0.08],
+                    mob.yaw,
+                    -leg_pitch,
+                    death_roll,
+                    leg_tex,
+                    hurt_tint,
+                    view_proj,
+                );
+
+                // Back Left Leg (x = -0.16, z = -0.26)
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(-0.16, 0.16, -0.26),
+                    [0.08, 0.16, 0.08],
+                    mob.yaw,
+                    -leg_pitch,
+                    death_roll,
+                    leg_tex,
+                    hurt_tint,
+                    view_proj,
+                );
+
+                // Back Right Leg (x = 0.16, z = -0.26)
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(0.16, 0.16, -0.26),
+                    [0.08, 0.16, 0.08],
+                    mob.yaw,
+                    leg_pitch,
+                    death_roll,
+                    leg_tex,
+                    hurt_tint,
+                    view_proj,
+                );
+            }
+
+            MobKind::Cow => {
+                let center_y = 0.68;
+                // Body: center at (0, 0.74, -0.05), size: half = [0.32, 0.26, 0.48]
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(0.0, 0.74, -0.05),
+                    [0.32, 0.26, 0.48],
+                    mob.yaw,
+                    0.0,
+                    death_roll,
+                    [TextureId::CowSkin; 6],
+                    hurt_tint,
+                    view_proj,
+                );
+
+                // Udder: center at (0, 0.44, -0.22), size: half = [0.12, 0.05, 0.14]
+                let udder_tex = [
+                    TextureId::CowUdder, // Front
+                    TextureId::CowUdder, // Back
+                    TextureId::CowSkin,  // Top
+                    TextureId::CowUdder, // Bottom
+                    TextureId::CowUdder, // Right
+                    TextureId::CowUdder, // Left
+                ];
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(0.0, 0.44, -0.22),
+                    [0.12, 0.05, 0.14],
+                    mob.yaw,
+                    0.0,
+                    death_roll,
+                    udder_tex,
+                    hurt_tint,
+                    view_proj,
+                );
+
+                // Head: center at (0, 0.98, 0.46), size: half = [0.20, 0.20, 0.18]
+                let head_tex = [
+                    TextureId::CowFace, // Front (+Z)
+                    TextureId::CowSkin, // Back (-Z)
+                    TextureId::CowSkin, // Top (+Y)
+                    TextureId::CowSkin, // Bottom (-Y)
+                    TextureId::CowSkin, // Right (+X)
+                    TextureId::CowSkin, // Left (-X)
+                ];
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(0.0, 0.98, 0.46),
+                    [0.20, 0.20, 0.18],
+                    mob.yaw + mob.head_yaw_offset,
+                    0.0,
+                    death_roll,
+                    head_tex,
+                    hurt_tint,
+                    view_proj,
+                );
+
+                // Snout: center at (0, 0.90, 0.66), size: half = [0.15, 0.08, 0.05]
+                let snout_tex = [
+                    TextureId::CowSnout, // Front (+Z)
+                    TextureId::CowSkin,  // Back (-Z)
+                    TextureId::CowSkin,  // Top (+Y)
+                    TextureId::CowSkin,  // Bottom (-Y)
+                    TextureId::CowSkin,  // Right (+X)
+                    TextureId::CowSkin,  // Left (-X)
+                ];
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(0.0, 0.90, 0.66),
+                    [0.15, 0.08, 0.05],
+                    mob.yaw + mob.head_yaw_offset,
+                    0.0,
+                    death_roll,
+                    snout_tex,
+                    hurt_tint,
+                    view_proj,
+                );
+
+                // Horns: left and right
+                let horn_tex = [TextureId::CowHorns; 6];
+                // Left Horn (x = -0.22, y = 1.20, z = 0.44)
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(-0.22, 1.20, 0.44),
+                    [0.04, 0.08, 0.04],
+                    mob.yaw + mob.head_yaw_offset,
+                    0.0,
+                    death_roll,
+                    horn_tex,
+                    hurt_tint,
+                    view_proj,
+                );
+                // Right Horn (x = 0.22, y = 1.20, z = 0.44)
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(0.22, 1.20, 0.44),
+                    [0.04, 0.08, 0.04],
+                    mob.yaw + mob.head_yaw_offset,
+                    0.0,
+                    death_roll,
+                    horn_tex,
+                    hurt_tint,
+                    view_proj,
+                );
+
+                // 4 Legs: height 0.50 (half_y = 0.25), width/depth 0.16 (half = 0.08)
+                let leg_pitch = if mob.is_dead { 0.0 } else { mob.walk_phase.sin() * 0.65 };
+                let leg_tex = [TextureId::CowSkin; 6];
+
+                // Front Left Leg (x = -0.18, z = 0.26)
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(-0.18, 0.25, 0.26),
+                    [0.08, 0.25, 0.08],
+                    mob.yaw,
+                    leg_pitch,
+                    death_roll,
+                    leg_tex,
+                    hurt_tint,
+                    view_proj,
+                );
+
+                // Front Right Leg (x = 0.18, z = 0.26)
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(0.18, 0.25, 0.26),
+                    [0.08, 0.25, 0.08],
+                    mob.yaw,
+                    -leg_pitch,
+                    death_roll,
+                    leg_tex,
+                    hurt_tint,
+                    view_proj,
+                );
+
+                // Back Left Leg (x = -0.18, z = -0.32)
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(-0.18, 0.25, -0.32),
+                    [0.08, 0.25, 0.08],
+                    mob.yaw,
+                    -leg_pitch,
+                    death_roll,
+                    leg_tex,
+                    hurt_tint,
+                    view_proj,
+                );
+
+                // Back Right Leg (x = 0.18, z = -0.32)
+                self.draw_mob_box(
+                    mob.pos,
+                    center_y,
+                    Vec3::new(0.18, 0.25, -0.32),
+                    [0.08, 0.25, 0.08],
+                    mob.yaw,
+                    leg_pitch,
+                    death_roll,
+                    leg_tex,
+                    hurt_tint,
+                    view_proj,
+                );
+            }
+        }
+    }
+
+    fn draw_mob_box(
+        &mut self,
+        mob_pos: Vec3,
+        mob_center_y: f32,
+        box_offset: Vec3,
+        half: [f32; 3],
+        yaw: f32,
+        part_pitch: f32,
+        death_roll: f32,
+        textures: [crate::texture::TextureId; 6],
+        hurt_tint: f32,
+        view_proj: &crate::math::Mat4,
+    ) {
+        let rotate_x = |p: Vec3, angle: f32| -> Vec3 {
+            let (s, c) = angle.sin_cos();
+            Vec3::new(p.x, p.y * c - p.z * s, p.y * s + p.z * c)
+        };
+        let rotate_y = |p: Vec3, angle: f32| -> Vec3 {
+            let (s, c) = angle.sin_cos();
+            Vec3::new(p.x * c + p.z * s, p.y, -p.x * s + p.z * c)
+        };
+        let rotate_z = |p: Vec3, angle: f32| -> Vec3 {
+            let (s, c) = angle.sin_cos();
+            Vec3::new(p.x * c - p.y * s, p.x * s + p.y * c, p.z)
+        };
+
+        let transform_corner = |x: f32, y: f32, z: f32| -> Vec3 {
+            let mut p = Vec3::new(x * half[0], y * half[1], z * half[2]);
+            if part_pitch.abs() > 1e-4 {
+                p.y -= half[1];
+                p = rotate_x(p, part_pitch);
+                p.y += half[1];
+            }
+            p = p + box_offset;
+
+            if death_roll.abs() > 1e-4 {
+                p.y -= mob_center_y;
+                p = rotate_z(p, death_roll);
+                p.y += mob_center_y;
+            }
+
+            p = rotate_y(p, yaw);
+            mob_pos + p
+        };
+
+        let c0 = transform_corner(-1.0, -1.0, -1.0);
+        let c1 = transform_corner( 1.0, -1.0, -1.0);
+        let c2 = transform_corner( 1.0,  1.0, -1.0);
+        let c3 = transform_corner(-1.0,  1.0, -1.0);
+        let c4 = transform_corner(-1.0, -1.0,  1.0);
+        let c5 = transform_corner( 1.0, -1.0,  1.0);
+        let c6 = transform_corner( 1.0,  1.0,  1.0);
+        let c7 = transform_corner(-1.0,  1.0,  1.0);
+
+        let faces = [
+            ([c4, c5, c6, c7], textures[0]), // Front (+Z)
+            ([c1, c0, c3, c2], textures[1]), // Back (-Z)
+            ([c7, c6, c2, c3], textures[2]), // Top (+Y)
+            ([c0, c1, c5, c4], textures[3]), // Bottom (-Y)
+            ([c5, c1, c2, c6], textures[4]), // Right (+X)
+            ([c0, c4, c7, c3], textures[5]), // Left (-X)
+        ];
+
+        for (corners, texture) in faces {
+            let v0 = Vertex { pos: corners[0], uv: (0.0, 1.0), ao: 1.0 };
+            let v1 = Vertex { pos: corners[1], uv: (1.0, 1.0), ao: 1.0 };
+            let v2 = Vertex { pos: corners[2], uv: (1.0, 0.0), ao: 1.0 };
+            let v3 = Vertex { pos: corners[3], uv: (0.0, 0.0), ao: 1.0 };
+
+            let t1 = Triangle { v0, v1, v2, texture };
+            let t2 = Triangle { v0, v1: v2, v2: v3, texture };
+
+            self.raster_triangle_tinted(&t1, hurt_tint, view_proj);
+            self.raster_triangle_tinted(&t2, hurt_tint, view_proj);
+            self.raster_triangle_tinted(&Triangle { v0: t1.v2, v1: t1.v1, v2: t1.v0, texture }, hurt_tint, view_proj);
+            self.raster_triangle_tinted(&Triangle { v0: t2.v2, v1: t2.v1, v2: t2.v0, texture }, hurt_tint, view_proj);
         }
     }
 
