@@ -20,6 +20,9 @@ mod particles;
 mod physics;
 mod cli;
 mod saves;
+mod inventory;
+mod player;
+mod item;
 
 use minifb::{Key, MouseButton, MouseMode, Window, WindowOptions, CursorStyle};
 use std::time::Instant;
@@ -53,6 +56,7 @@ enum GameState {
     Loading(mpsc::Receiver<WorldLoadResult>),
     Playing,
     Paused,
+    Inventory,
 }
 
 enum WorldLoadResult {
@@ -112,6 +116,7 @@ fn main() {
     let mut right_was_down = false;
     let mut escape_was_down = false;
     let mut fly_key_was_down = false;
+    let mut e_was_down = false;
     let mut q_was_down = false;
     let mut m_was_down = false;
     let mut enter_was_down = false;
@@ -129,6 +134,10 @@ fn main() {
     let mut current_eye_offset = STANDING_EYE_OFFSET;
     let mut current_player_height = STANDING_HEIGHT;
 
+    // Block breaking state (like Minecraft - hold LMB to break)
+    let mut break_progress: f32 = 0.0; // 0.0 to 1.0
+    let mut break_target: Option<crate::math::IVec3> = None;
+
     let mut state = GameState::MainMenu;
     let mut save_slots: [bool; MAX_SAVE_SLOTS as usize] = std::array::from_fn(|index| {
         let path = save_path(index as u8 + 1);
@@ -137,6 +146,11 @@ fn main() {
 
     let mut particles = ParticleSystem::new();
     let mut mob_manager = MobManager::new();
+    let mut player = crate::player::Player::new();
+    player.gamemode = crate::player::GameMode::Survival; // Start in survival as requested
+    let mut items: Vec<crate::item::ItemEntity> = Vec::new();
+    
+    let mut g_was_down = false;
     let mut total_time = 0.0f32;
     let mut material_timer = 0.0f32;
     let mut hand_animation = 0.0f32;
@@ -190,6 +204,7 @@ fn main() {
 
         let escape_down = window.is_key_down(Key::Escape);
         let f_down = window.is_key_down(Key::F);
+        let e_down = window.is_key_down(Key::E);
         let q_down = window.is_key_down(Key::Q);
         let f5_down = window.is_key_down(Key::F5);
         let m_down = window.is_key_down(Key::M);
@@ -326,6 +341,14 @@ fn main() {
                     fly_velocity = Vec3::zero();
                 }
 
+                if e_down && !e_was_down {
+                    state = GameState::Inventory;
+                    mouse_capture.set_captured(false);
+                    window.set_cursor_visibility(true);
+                    horiz_velocity = Vec3::zero();
+                    fly_velocity = Vec3::zero();
+                }
+
                 let any_click = left_down || right_down;
                 if any_click && !mouse_capture.is_captured() {
                     mouse_capture.set_captured(true);
@@ -371,11 +394,22 @@ fn main() {
                     wish_dir = wish_dir.normalized();
                 }
 
+                let f_down = window.is_key_down(Key::F);
+                let g_down = window.is_key_down(Key::G);
                 if f_down && !fly_key_was_down {
                     fly_mode = !fly_mode;
                     horiz_velocity = Vec3::zero();
                     fly_velocity = Vec3::zero();
                 }
+
+                if g_down && !g_was_down {
+                    player.gamemode = if player.gamemode == crate::player::GameMode::Survival {
+                        crate::player::GameMode::Creative
+                    } else {
+                        crate::player::GameMode::Survival
+                    };
+                }
+                g_was_down = g_down;
 
                 let is_crouching = !fly_mode
                 && mouse_capture.is_captured()
@@ -463,6 +497,7 @@ fn main() {
                         vertical_velocity = JUMP_SPEED;
                     }
 
+                    let old_y = camera.position.y;
                     let motion = Vec3::new(horiz_velocity.x, vertical_velocity, horiz_velocity.z) * dt;
                     on_ground = move_player_with_collision(
                         &world,
@@ -473,6 +508,35 @@ fn main() {
                         current_player_height,
                         is_crouching,
                     );
+                    if vertical_velocity < 0.0 && !fly_mode {
+                        player.fall_distance += old_y - camera.position.y;
+                    } else if vertical_velocity > 0.0 || fly_mode {
+                        player.fall_distance = 0.0;
+                    }
+
+                    if on_ground {
+                        if !player.has_landed {
+                            player.has_landed = true;
+                            player.fall_distance = 0.0;
+                        } else if player.fall_distance > 3.0 {
+                            let damage = player.fall_distance - 3.0;
+                            player.take_damage(damage);
+                        }
+                        player.fall_distance = 0.0;
+                    }
+                    if player.is_dead() {
+                        player.health = player.max_health;
+                        camera.position = Vec3::new(8.0, 90.0, 8.0);
+                        vertical_velocity = 0.0;
+                        horiz_velocity = Vec3::zero();
+                        player.fall_distance = 0.0;
+                        player.invulnerability_timer = 3.0; // Invulnerable on respawn
+                        player.has_landed = false; // Reset landed state on respawn
+                    }
+                }
+                
+                if player.invulnerability_timer > 0.0 {
+                    player.invulnerability_timer -= dt;
                 }
 
                 if camera.position.y < -32.0 {
@@ -484,89 +548,190 @@ fn main() {
                     vertical_velocity = vertical_velocity.min(0.0);
                 }
 
-                let mut selected_block = renderer.selected_block();
                 if let Some((_sx, sy)) = window.get_scroll_wheel() {
                     if sy > 0.0 {
-                        selected_block = if selected_block >= 19 { 1 } else { selected_block + 1 };
+                        player.selected_hotbar_slot = if player.selected_hotbar_slot >= 9 { 0 } else { player.selected_hotbar_slot + 1 };
                     } else if sy < 0.0 {
-                        selected_block = if selected_block <= 1 { 19 } else { selected_block - 1 };
+                        player.selected_hotbar_slot = if player.selected_hotbar_slot <= 0 { 9 } else { player.selected_hotbar_slot - 1 };
                     }
                 }
                 for (key, id) in [
-                    (Key::Key1, 1u8),
-                    (Key::Key2, 2),
-                    (Key::Key3, 3),
-                    (Key::Key4, 4),
-                    (Key::Key5, 5),
-                    (Key::Key6, 6),
-                    (Key::Key7, 7),
-                    (Key::Key8, 8),
-                    (Key::Key9, 9),
-                    (Key::Key0, 15),
-                    (Key::F1, 16),
-                    (Key::F2, 17),
-                    (Key::F3, 18),
-                    (Key::F4, 19),
-                    (Key::I, 18),
+                    (Key::Key1, 0),
+                    (Key::Key2, 1),
+                    (Key::Key3, 2),
+                    (Key::Key4, 3),
+                    (Key::Key5, 4),
+                    (Key::Key6, 5),
+                    (Key::Key7, 6),
+                    (Key::Key8, 7),
+                    (Key::Key9, 8),
+                    (Key::Key0, 9),
                 ] {
                     if window.is_key_down(key) {
-                        selected_block = id;
+                        player.selected_hotbar_slot = id;
                     }
                 }
-                renderer.set_selected_block(selected_block);
 
+                // If creative, and slot is empty, we don't automatically fill it unless we do it in inventory UI.
+                // For now, let's just let it be empty, but placing blocks requires an item in the slot.
+                let mut selected_block_id = 0u8; // 0 = Air
+                if let Some(stack) = player.inventory.hotbar[player.selected_hotbar_slot as usize] {
+                    selected_block_id = stack.block.to_u8();
+                } else if player.gamemode == crate::player::GameMode::Creative {
+                    // For creative, let's keep the old behavior for numbers and F1-F4
+                    // Actually, if in creative, maybe F1-F4 just changes the block in the current slot?
+                    let mut creative_override = 0u8;
+                    for (key, id) in [
+                        (Key::Key0, 15u8),
+                        (Key::F1, 16),
+                        (Key::F2, 17),
+                        (Key::F3, 18),
+                        (Key::F4, 19),
+                    ] {
+                        if window.is_key_down(key) {
+                            creative_override = id;
+                        }
+                    }
+                    if creative_override > 0 {
+                        player.inventory.hotbar[player.selected_hotbar_slot as usize] = Some(crate::inventory::ItemStack {
+                            block: block::BlockId::from_u8(creative_override),
+                            count: 1
+                        });
+                        selected_block_id = creative_override;
+                    }
+                }
+                renderer.set_selected_block(selected_block_id);
+
+
+                // Progressive block breaking (hold LMB like Minecraft)
                 let interact_left = mouse_capture.is_captured() && left_down;
-                let interact_right = mouse_capture.is_captured() && right_down;
 
-                if interact_left && !left_was_down {
-                    hand_animation = 1.0;
+                if interact_left {
                     let forward = camera.forward();
-                    if let Some((mob_idx, _hit_dist)) = mob_manager.raycast_mob(camera.position, forward, 4.2) {
-                        let mob = &mut mob_manager.mobs[mob_idx];
-                        let hit_pos = mob.center_pos();
-                        mob.take_damage(4.0, forward);
-                        particles.spawn_mob_hit(hit_pos);
-                    } else if let Some(hit) = world.raycast(camera.position, forward, 8.0) {
-                        let broken_block = world.get_block(hit.block_pos);
-                        if broken_block == block::BlockId::Tnt {
-                            world.prime_tnt(hit.block_pos);
-                        } else {
-                            let bx = hit.block_pos.x as f32;
-                            let by = hit.block_pos.y as f32;
-                            let bz = hit.block_pos.z as f32;
-                            let color = broken_block.face_color(block::Face::Top);
-                            particles.spawn_block_break(Vec3::new(bx, by, bz), color);
-                            world.set_block(hit.block_pos, block::BlockId::Air);
 
-                            if broken_block == block::BlockId::Door {
-                                let above = hit.block_pos + crate::math::IVec3::new(0, 1, 0);
-                                let below = hit.block_pos - crate::math::IVec3::new(0, 1, 0);
-                                if world.get_block(above) == block::BlockId::Door {
-                                    world.set_block(above, block::BlockId::Air);
+                    // First frame: check for mob hit
+                    if !left_was_down {
+                        hand_animation = 1.0;
+                        if let Some((mob_idx, _)) = mob_manager.raycast_mob(camera.position, forward, 4.2) {
+                            let mob = &mut mob_manager.mobs[mob_idx];
+                            let hit_pos = mob.center_pos();
+                            mob.take_damage(4.0, forward);
+                            particles.spawn_mob_hit(hit_pos);
+                            break_target = None;
+                            break_progress = 0.0;
+                        }
+                    }
+
+                    if let Some(hit) = world.raycast(camera.position, forward, 8.0) {
+                        let target = hit.block_pos;
+                        let broken_block = world.get_block(target);
+
+                        // Handle instant-break blocks (TNT, water, lava)
+                        if broken_block == block::BlockId::Tnt && !left_was_down {
+                            world.prime_tnt(target);
+                            break_target = None;
+                            break_progress = 0.0;
+                        } else {
+                            // Reset progress if we changed target
+                            if break_target != Some(target) {
+                                break_target = Some(target);
+                                break_progress = 0.0;
+                            }
+
+                            let break_time = if player.gamemode == crate::player::GameMode::Creative {
+                                0.0 // Instant break in creative
+                            } else {
+                                broken_block.break_time()
+                            };
+
+                            if break_time == 0.0 {
+                                // Instant break
+                                break_progress = 1.0;
+                            } else {
+                                break_progress += dt / break_time;
+                            }
+
+                            if break_progress >= 1.0 {
+                                break_progress = 0.0;
+                                break_target = None;
+                                hand_animation = 1.0;
+
+                                let bx = target.x as f32 + 0.5;
+                                let by = target.y as f32 + 0.5;
+                                let bz = target.z as f32 + 0.5;
+                                let color = broken_block.face_color(block::Face::Top);
+                                particles.spawn_block_break(Vec3::new(bx - 0.5, by - 0.5, bz - 0.5), color);
+                                world.set_block(target, block::BlockId::Air);
+
+                                if player.gamemode == crate::player::GameMode::Survival {
+                                    let drop_vel = Vec3::new(0.0, 3.0, 0.0);
+                                    items.push(crate::item::ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, broken_block, 1));
                                 }
-                                if world.get_block(below) == block::BlockId::Door {
-                                    world.set_block(below, block::BlockId::Air);
+
+                                if broken_block == block::BlockId::Door {
+                                    let above = target + crate::math::IVec3::new(0, 1, 0);
+                                    let below = target - crate::math::IVec3::new(0, 1, 0);
+                                    if world.get_block(above) == block::BlockId::Door {
+                                        world.set_block(above, block::BlockId::Air);
+                                        if player.gamemode == crate::player::GameMode::Survival {
+                                            items.push(crate::item::ItemEntity::new(Vec3::new(bx, by + 1.0, bz), Vec3::new(0.0, 3.0, 0.0), block::BlockId::Door, 1));
+                                        }
+                                    }
+                                    if world.get_block(below) == block::BlockId::Door {
+                                        world.set_block(below, block::BlockId::Air);
+                                        if player.gamemode == crate::player::GameMode::Survival {
+                                            items.push(crate::item::ItemEntity::new(Vec3::new(bx, by - 1.0, bz), Vec3::new(0.0, 3.0, 0.0), block::BlockId::Door, 1));
+                                        }
+                                    }
                                 }
                             }
                         }
+                    } else {
+                        // No block targeted -> reset
+                        break_target = None;
+                        break_progress = 0.0;
                     }
+                } else {
+                    // LMB released -> reset
+                    break_target = None;
+                    break_progress = 0.0;
                 }
+                let interact_right = mouse_capture.is_captured() && right_down;
                 if interact_right && !right_was_down {
-                    hand_animation = 1.0;
                     if let Some(hit) = world.raycast(camera.position, camera.forward(), 8.0) {
                         let place_pos = hit.block_pos + hit.normal;
-                        let place_id = block::BlockId::from_u8(selected_block);
-                        if place_id == block::BlockId::Door {
-                            let top_pos = place_pos + crate::math::IVec3::new(0, 1, 0);
-                            if !block_intersects_player(place_pos, camera.position, current_eye_offset, current_player_height)
-                                && !block_intersects_player(top_pos, camera.position, current_eye_offset, current_player_height)
-                                && world.get_block(top_pos) == block::BlockId::Air
-                                {
-                                    world.set_block(place_pos, block::BlockId::Door);
-                                    world.set_block(top_pos, block::BlockId::Door);
+                        let place_id = block::BlockId::from_u8(selected_block_id);
+                        // Only place (and animate) if we actually have a block to place
+                        if place_id != block::BlockId::Air
+                            && world.get_block(place_pos) == block::BlockId::Air
+                        {
+                            hand_animation = 1.0;
+                            if place_id == block::BlockId::Door {
+                                let top_pos = place_pos + crate::math::IVec3::new(0, 1, 0);
+                                if !block_intersects_player(place_pos, camera.position, current_eye_offset, current_player_height)
+                                    && !block_intersects_player(top_pos, camera.position, current_eye_offset, current_player_height)
+                                    && world.get_block(top_pos) == block::BlockId::Air
+                                    {
+                                        world.set_block(place_pos, block::BlockId::Door);
+                                        world.set_block(top_pos, block::BlockId::Door);
+                                        // Consume in survival
+                                        if player.gamemode == crate::player::GameMode::Survival {
+                                            if let Some(stack) = &mut player.inventory.hotbar[player.selected_hotbar_slot as usize] {
+                                                stack.count -= 1;
+                                                if stack.count == 0 { player.inventory.hotbar[player.selected_hotbar_slot as usize] = None; }
+                                            }
+                                        }
+                                    }
+                            } else if !block_intersects_player(place_pos, camera.position, current_eye_offset, current_player_height) {
+                                world.set_block(place_pos, place_id);
+                                // Consume in survival
+                                if player.gamemode == crate::player::GameMode::Survival {
+                                    if let Some(stack) = &mut player.inventory.hotbar[player.selected_hotbar_slot as usize] {
+                                        stack.count -= 1;
+                                        if stack.count == 0 { player.inventory.hotbar[player.selected_hotbar_slot as usize] = None; }
+                                    }
                                 }
-                        } else if !block_intersects_player(place_pos, camera.position, current_eye_offset, current_player_height) {
-                            world.set_block(place_pos, place_id);
+                            }
                         }
                     }
                 }
@@ -591,6 +756,37 @@ fn main() {
                 mob_manager.update(dt, &world, camera.position);
                 for poof_pos in mob_manager.dying_poofs.drain(..) {
                     particles.spawn_mob_death_poof(poof_pos);
+                }
+
+                if q_down && !q_was_down && mouse_capture.is_captured() {
+                    if let Some(stack) = &mut player.inventory.hotbar[player.selected_hotbar_slot as usize] {
+                        items.push(crate::item::ItemEntity::new(
+                            camera.position + camera.forward() * 0.5,
+                            camera.forward() * 5.0,
+                            stack.block,
+                            1
+                        ));
+                        stack.count -= 1;
+                        if stack.count == 0 {
+                            player.inventory.hotbar[player.selected_hotbar_slot as usize] = None;
+                        }
+                    }
+                }
+
+                let mut i = 0;
+                while i < items.len() {
+                    items[i].update(dt, &world);
+                    let dist_sq = (items[i].position - camera.position).length_sq();
+                    if items[i].pickup_delay <= 0.0 && dist_sq < 2.25 {
+                        let remaining = player.inventory.add_item(items[i].block, items[i].count);
+                        if remaining == 0 {
+                            items.remove(i);
+                            continue;
+                        } else {
+                            items[i].count = remaining;
+                        }
+                    }
+                    i += 1;
                 }
 
                 for exp_pos in world.pending_explosions.drain(..) {
@@ -621,6 +817,16 @@ fn main() {
                 }
 
                 renderer.draw_clouds(camera.position, &view_proj, total_time);
+                
+                for item in &items {
+                    let color = item.block.face_color(crate::block::Face::Top);
+                    let color_arr = [color[0], color[1], color[2]];
+                    let y_offset = (item.age * 2.0).sin() * 0.1;
+                    let mut pos = item.position;
+                    pos.y += y_offset;
+                    renderer.draw_billboard(pos, 0.3, color_arr, &camera, &view_proj);
+                }
+
                 let block_at_camera = world.get_block(camera.position.floor_to_ivec());
                 if block_at_camera == block::BlockId::Water {
                     renderer.draw_underwater_overlay(total_time);
@@ -630,8 +836,11 @@ fn main() {
                     renderer.draw_billboard(p.pos, p.size, p.color, &camera, &view_proj);
                 }
                 renderer.draw_crosshair();
-                renderer.draw_hand_3d(&camera, &view_proj, renderer.selected_block(), walk_phase, hand_speed, hand_animation);
-                renderer.draw_hotbar();
+                renderer.draw_break_progress(break_progress);
+                let hand_block: Option<u8> = player.inventory.hotbar[player.selected_hotbar_slot as usize]
+                    .map(|s| s.block.to_u8());
+                renderer.draw_hand_3d(&camera, &view_proj, hand_block, walk_phase, hand_speed, hand_animation);
+                renderer.draw_hotbar(&player);
 
                 let mode_str = if fly_mode {
                     "LOT"
@@ -649,7 +858,7 @@ fn main() {
                 debug_lines[1].clear();
                 let _ = write!(&mut debug_lines[1], "POZYCJA X:{} Y:{} Z:{}", camera.position.x as i32, camera.position.y as i32, camera.position.z as i32);
                 debug_lines[2].clear();
-                let _ = write!(&mut debug_lines[2], "BLOK: {}", block::BlockId::from_u8(selected_block).name().to_uppercase());
+                let _ = write!(&mut debug_lines[2], "BLOK: {}", block::BlockId::from_u8(renderer.selected_block()).name().to_uppercase());
                 debug_lines[3].clear();
                 let _ = write!(&mut debug_lines[3], "MOBY: {}", mob_manager.mobs.len());
                 debug_lines[4].clear();
@@ -729,11 +938,51 @@ fn main() {
                 renderer.render_frame(&mut world, &camera);
                 renderer.draw_pause_menu(fly_mode, hovered_idx);
             }
+            GameState::Inventory => {
+                window.set_cursor_visibility(true);
+                if e_down && !e_was_down || (escape_down && !escape_was_down) {
+                    state = GameState::Playing;
+                    mouse_capture.set_captured(true);
+                    window.set_cursor_visibility(false);
+                    last_mouse = None;
+                }
+
+                if left_down && !left_was_down {
+                    if let Some((mx, my)) = mouse_pos {
+                        let px = mx as i32;
+                        let py = my as i32;
+                        // Render inventory grid and check clicks
+                        // We will draw it via renderer, but handle clicks here
+                        let start_x = renderer.width as i32 / 2 - 200;
+                        let start_y = renderer.height as i32 / 2 - 150;
+                        let mut block_id = 1;
+                        'outer: for row in 0..5 {
+                            for col in 0..8 {
+                                if block_id > 19 { break 'outer; }
+                                let x = start_x + col * 40;
+                                let y = start_y + row * 40;
+                                if px >= x && px < x + 36 && py >= y && py < y + 36 {
+                                    player.inventory.hotbar[player.selected_hotbar_slot as usize] = Some(crate::inventory::ItemStack {
+                                        block: crate::block::BlockId::from_u8(block_id),
+                                        count: 64,
+                                    });
+                                }
+                                block_id += 1;
+                            }
+                        }
+                    }
+                }
+
+                renderer.render_frame(&mut world, &camera);
+                // Draw inventory
+                renderer.draw_inventory(&player);
+            }
         }
 
         left_was_down = left_down;
         right_was_down = right_down;
         escape_was_down = escape_down;
+        e_was_down = e_down;
         fly_key_was_down = f_down;
         q_was_down = q_down;
         m_was_down = m_down;

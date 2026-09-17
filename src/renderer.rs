@@ -55,8 +55,8 @@ struct ScreenTriangle {
 const TILE_HEIGHT: usize = 32;
 
 pub struct Renderer {
-    width: usize,
-    height: usize,
+    pub width: usize,
+    pub height: usize,
     color_buffer: Vec<u32>,
     depth_buffer: Vec<f32>,
     mesh_cache: HashMap<(i32, i32), Vec<Triangle>>,
@@ -897,11 +897,31 @@ impl Renderer {
         }
     }
 
+    /// Draw a Minecraft-style block breaking progress bar below the crosshair.
+    /// progress: 0.0 (not started) to 1.0 (broken). Only drawn when > 0.
+    pub fn draw_break_progress(&mut self, progress: f32) {
+        if progress <= 0.0 { return; }
+        let cx = self.width as i32 / 2;
+        let cy = self.height as i32 / 2;
+        let bar_w = 40i32;
+        let bar_h = 3i32;
+        let bar_x = cx - bar_w / 2;
+        let bar_y = cy + 14;
+
+        self.fill_rect_alpha(bar_x - 1, bar_y - 1, bar_w + 2, bar_h + 2, pack_color(0.0, 0.0, 0.0), 0.25);
+        let t = progress.clamp(0.0, 1.0);
+        let fill_w = (bar_w as f32 * t) as i32;
+        if fill_w > 0 {
+            self.fill_rect_alpha(bar_x, bar_y, fill_w, bar_h, pack_color(0.85, 0.85, 0.85), 0.5);
+        }
+    }
+
+
     pub fn draw_hand_3d(
         &mut self,
         camera: &crate::camera::Camera,
         view_proj: &crate::math::Mat4,
-        block_id: u8,
+        block_id: Option<u8>,
         walk_phase: f32,
         speed: f32,
         attack_animation: f32,
@@ -919,9 +939,13 @@ impl Renderer {
         + right * (0.53 + swing)
         + up * (-0.40 + bob);
         let arm_pos = hand_pos - right * 0.10 - up * 0.13;
-        let block = crate::block::BlockId::from_u8(block_id);
+        // Always draw arm
         self.draw_cube_3d(arm_pos, right, up, forward, [0.085, 0.085, 0.12], crate::texture::TextureId::Dirt, view_proj);
-        self.draw_cube_3d(hand_pos, right, up, forward, [0.13, 0.13, 0.13], block.texture_id(crate::block::Face::Top), view_proj);
+        // Only draw block if player is holding something
+        if let Some(id) = block_id {
+            let block = crate::block::BlockId::from_u8(id);
+            self.draw_cube_3d(hand_pos, right, up, forward, [0.13, 0.13, 0.13], block.texture_id(crate::block::Face::Top), view_proj);
+        }
     }
 
     fn draw_cube_3d(
@@ -1345,10 +1369,10 @@ impl Renderer {
         }
     }
 
-    pub fn draw_hotbar(&mut self) {
+    pub fn draw_hotbar(&mut self, player: &crate::player::Player) {
         let slot_size = 28i32;
         let margin = 3i32;
-        let total_slots = 19i32;
+        let total_slots = 10i32;
         let total_w = total_slots * (slot_size + margin) - margin;
         let start_x = (self.width as i32 - total_w) / 2;
         let y = self.height as i32 - slot_size - 12;
@@ -1356,23 +1380,40 @@ impl Renderer {
         self.fill_rect_alpha(start_x - 6, y - 6, total_w + 12, slot_size + 12, pack_color(0.0, 0.0, 0.0), 0.40);
 
         for i in 0..total_slots {
-            let id = (i + 1) as u8;
-            let block = crate::block::BlockId::from_u8(id);
-            let color = block.face_color(crate::block::Face::Top);
-            let x = start_x + i * (slot_size + margin);
-
-            let is_selected = id == self.selected_block;
+            let is_selected = i == player.selected_hotbar_slot as i32;
             let border_color = if is_selected {
                 pack_color(1.0, 1.0, 0.2)
             } else {
                 pack_color(0.20, 0.20, 0.20)
             };
 
+            let x = start_x + i * (slot_size + margin);
             self.fill_rect(x - 2, y - 2, slot_size + 4, slot_size + 4, border_color);
-            self.fill_rect(x, y, slot_size, slot_size, pack_color(color[0], color[1], color[2]));
+            self.fill_rect(x, y, slot_size, slot_size, pack_color(0.3, 0.3, 0.3));
 
-            let label = format!("{}", id);
-            self.draw_text_shadowed(&label, x + 2, y + 2, 1, 1);
+            if let Some(stack) = &player.inventory.hotbar[i as usize] {
+                let color = stack.block.face_color(crate::block::Face::Top);
+                self.fill_rect(x + 4, y + 4, slot_size - 8, slot_size - 8, pack_color(color[0], color[1], color[2]));
+                
+                if stack.count > 1 {
+                    let label = format!("{}", stack.count);
+                    self.draw_text_shadowed(&label, x + slot_size - 10, y + slot_size - 12, 1, 1);
+                }
+            }
+        }
+
+        // Draw Health bar if Survival
+        if player.gamemode == crate::player::GameMode::Survival {
+            let health_start_x = start_x;
+            let health_y = y - 16;
+            let hp = player.health.ceil() as i32;
+            let max_hp = player.max_health as i32;
+            for i in 0..(max_hp/2) {
+                let heart_x = health_start_x + i * 10;
+                let color = if (i * 2 + 1) <= hp { pack_color(1.0, 0.1, 0.1) } else if (i * 2) < hp { pack_color(1.0, 0.5, 0.5) } else { pack_color(0.0, 0.0, 0.0) };
+                self.fill_rect(heart_x, health_y, 8, 8, pack_color(0.1, 0.1, 0.1));
+                self.fill_rect(heart_x + 1, health_y + 1, 6, 6, color);
+            }
         }
     }
 
@@ -1396,6 +1437,38 @@ impl Renderer {
             let ty = 6 + padding + i as i32 * line_h;
             self.draw_text_shadowed(line, 6 + padding, ty, scale, 1);
         }
+    }
+
+    pub fn draw_inventory(&mut self, player: &crate::player::Player) {
+        self.fill_rect_alpha(0, 0, self.width as i32, self.height as i32, pack_color(0.0, 0.0, 0.0), 0.5);
+
+        let start_x = self.width as i32 / 2 - 200;
+        let start_y = self.height as i32 / 2 - 150;
+
+        self.fill_rect_alpha(start_x - 10, start_y - 10, 400, 300, pack_color(0.1, 0.1, 0.1), 0.9);
+        self.draw_text_shadowed("EKWIPUNEK", start_x, start_y - 30, 2, 1);
+
+        if player.gamemode == crate::player::GameMode::Creative {
+            let mut block_id = 1;
+            'outer: for row in 0..5 {
+                for col in 0..8 {
+                    if block_id > 19 { break 'outer; }
+                    let x = start_x + col * 40;
+                    let y = start_y + row * 40;
+                    
+                    self.fill_rect(x, y, 36, 36, pack_color(0.3, 0.3, 0.3));
+                    let block = crate::block::BlockId::from_u8(block_id);
+                    let color = block.face_color(crate::block::Face::Top);
+                    self.fill_rect(x + 2, y + 2, 32, 32, pack_color(color[0], color[1], color[2]));
+                    
+                    block_id += 1;
+                }
+            }
+        } else {
+            self.draw_text_shadowed("TRYB PRZETRWANIA - BRAK BLOKOW", start_x, start_y, 2, 1);
+        }
+
+        self.draw_hotbar(player);
     }
 
     pub fn draw_capture_prompt(&mut self, native_capture: bool) {

@@ -84,6 +84,32 @@ impl BlockId {
         matches!(self, BlockId::Bedrock)
     }
 
+    /// Break time in seconds (like Minecraft hardness). Creative breaks instantly.
+    pub fn break_time(self) -> f32 {
+        match self {
+            BlockId::Air => 0.0,
+            BlockId::Grass => 0.6,
+            BlockId::Dirt => 0.5,
+            BlockId::Stone => 1.5,
+            BlockId::Sand => 0.5,
+            BlockId::Wood => 2.0,
+            BlockId::Leaves => 0.2,
+            BlockId::Snow => 0.2,
+            BlockId::Cactus => 0.4,
+            BlockId::CoalOre => 1.5,
+            BlockId::IronOre => 1.5,
+            BlockId::Bedrock => f32::INFINITY,
+            BlockId::Lava => 0.0,
+            BlockId::SnowLeaves => 0.2,
+            BlockId::Planks => 1.5,
+            BlockId::Door => 1.5,
+            BlockId::Glass => 0.3,
+            BlockId::Ice => 0.5,
+            BlockId::Tnt => 0.0,
+            BlockId::Water => 0.0,
+        }
+    }
+
     pub fn is_transparent(self) -> bool {
         matches!(self, BlockId::Air | BlockId::Water | BlockId::Lava | BlockId::Leaves | BlockId::SnowLeaves | BlockId::Glass)
     }
