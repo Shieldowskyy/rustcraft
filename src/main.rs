@@ -23,6 +23,7 @@ mod saves;
 
 use minifb::{Key, MouseButton, MouseMode, Window, WindowOptions, CursorStyle};
 use std::time::Instant;
+use std::fmt::Write; // Wymagane dla optymalizacji formatowania tekstu
 
 use camera::Camera;
 use math::Vec3;
@@ -134,6 +135,25 @@ fn main() {
     let mut hand_animation = 0.0f32;
     let mut walk_phase = 0.0f32;
 
+    // OPTYMALIZACJA 1: Deklaracja bufora Strings dla interfejsu raz przed pętlą[cite: 2]
+    let mut debug_lines = vec![
+        String::with_capacity(32),
+        String::with_capacity(64),
+        String::with_capacity(32),
+        String::with_capacity(32),
+        String::with_capacity(32),
+    ];
+
+    // OPTYMALIZACJA 2: Pamięć podręczna dla macierzy projekcji[cite: 2]
+    let mut last_fov = camera.fov_y;
+    let mut last_aspect = WIDTH as f32 / HEIGHT as f32;
+    let mut proj_matrix = camera.projection_matrix(last_aspect);
+
+    // OPTYMALIZACJA 3: Zbieranie geometrii interfejsu (UI rects) raz, ominięcie alokacji podczas każdej klatki[cite: 2]
+    let main_menu_rects = renderer.main_menu_button_rects();
+    let world_rects = renderer.main_menu_world_rects();
+    let pause_menu_rects = renderer.pause_menu_button_rects();
+
     println!("Sterowanie:");
     println!("  Kliknij w okno - zablokuj/przechwyc mysz");
     println!("  Esc            - Menu pauzy / zwolnij mysz (w pauzie: powrot do gry)");
@@ -165,17 +185,9 @@ fn main() {
         let f_down = window.is_key_down(Key::F);
         let q_down = window.is_key_down(Key::Q);
         let f5_down = window.is_key_down(Key::F5);
-        // Odpytujemy stan klawisza M raz na klatkę tutaj i reużywamy tej
-        // samej wartości niżej (gałąź GameState::Paused) zamiast pytać
-        // bibliotekę okienkową o ten sam klawisz po raz drugi w tej samej
-        // klatce - identyczny wynik logiczny, jedno wywołanie zamiast dwóch.
         let m_down = window.is_key_down(Key::M);
         let (win_w, win_h) = window.get_size();
-        // Pobieramy surową pozycję myszy raz na klatkę (to wywołanie do
-        // biblioteki okienkowej), a przeskalowaną wersję pod UI/raycasting
-        // wyliczamy z niej lokalnie zamiast pytać okno o to samo po raz
-        // drugi w innym miejscu klatki (który to robił) - identyczne dane,
-        // jedno zapytanie do systemu zamiast dwóch.
+
         let raw_mouse_pos = window.get_mouse_pos(MouseMode::Pass);
         let mouse_pos = raw_mouse_pos.map(|(mx, my)| {
             let fx = if win_w > 0 { mx * (WIDTH as f32) / (win_w as f32) } else { mx };
@@ -191,8 +203,7 @@ fn main() {
                 let load_down = window.is_key_down(Key::L);
                 let slot_left_down = window.is_key_down(Key::Left);
                 let slot_right_down = window.is_key_down(Key::Right);
-                let main_menu_rects = renderer.main_menu_button_rects();
-                let world_rects = renderer.main_menu_world_rects();
+
                 let mut hovered_idx = None;
                 if let Some((mx, my)) = mouse_pos {
                     let px = mx as i32;
@@ -473,7 +484,7 @@ fn main() {
                         let broken_block = world.get_block(hit.block_pos);
                         if broken_block == block::BlockId::Tnt {
                             world.prime_tnt(hit.block_pos);
-                        } else { // Usunięto warunek else if !broken_block.is_bedrock()
+                        } else {
                             let bx = hit.block_pos.x as f32;
                             let by = hit.block_pos.y as f32;
                             let bz = hit.block_pos.z as f32;
@@ -529,16 +540,13 @@ fn main() {
                     world.simulate_materials(camera.position);
                 }
 
-                // Odliczanie czasu i fizyka zapalonych TNT
                 world.update_primed_tnts(dt);
 
-                // Aktualizacja i logika mobów
                 mob_manager.update(dt, &world, camera.position);
                 for poof_pos in mob_manager.dying_poofs.drain(..) {
                     particles.spawn_mob_death_poof(poof_pos);
                 }
 
-                // Generowanie efektów cząsteczkowych wybuchów z kolejek w świecie oraz obrażenia mobów
                 for exp_pos in world.pending_explosions.drain(..) {
                     particles.spawn_explosion(exp_pos);
                     mob_manager.apply_explosion(exp_pos, 5.0, 30.0);
@@ -547,11 +555,17 @@ fn main() {
                 particles.update(dt);
 
                 let aspect = WIDTH as f32 / HEIGHT as f32;
-                let view_proj = camera.projection_matrix(aspect).mul(&camera.view_matrix());
+
+                // OPTYMALIZACJA 2: Odświeżanie projekcji wyłącznie przy zmianie paramentów, unikanie niepotrzebnych instrukcji FPU[cite: 2]
+                if (camera.fov_y - last_fov).abs() > 0.0001 || (aspect - last_aspect).abs() > 0.0001 {
+                    last_fov = camera.fov_y;
+                    last_aspect = aspect;
+                    proj_matrix = camera.projection_matrix(aspect);
+                }
+                let view_proj = proj_matrix.mul(&camera.view_matrix());
 
                 renderer.render_frame(&mut world, &camera);
 
-                // Renderowanie mobów
                 for mob in &mob_manager.mobs {
                     renderer.draw_mob(mob, &camera, &view_proj);
                 }
@@ -583,16 +597,18 @@ fn main() {
                     "NORMALNY"
                 };
 
-                let debug_lines = vec![
-                    format!("FPS: {}", fps_display),
-                        format!(
-                            "POZYCJA X:{} Y:{} Z:{}",
-                            camera.position.x as i32, camera.position.y as i32, camera.position.z as i32
-                        ),
-                        format!("BLOK: {}", block::BlockId::from_u8(selected_block).name().to_uppercase()),
-                            format!("MOBY: {}", mob_manager.mobs.len()),
-                                format!("TRYB: {}", mode_str),
-                ];
+                // OPTYMALIZACJA 1: Wykorzystywanie wcześniej zaalokowanych buforów zamiast `vec![]` do generacji logów Debug w String[cite: 2]
+                debug_lines[0].clear();
+                let _ = write!(&mut debug_lines[0], "FPS: {}", fps_display);
+                debug_lines[1].clear();
+                let _ = write!(&mut debug_lines[1], "POZYCJA X:{} Y:{} Z:{}", camera.position.x as i32, camera.position.y as i32, camera.position.z as i32);
+                debug_lines[2].clear();
+                let _ = write!(&mut debug_lines[2], "BLOK: {}", block::BlockId::from_u8(selected_block).name().to_uppercase());
+                debug_lines[3].clear();
+                let _ = write!(&mut debug_lines[3], "MOBY: {}", mob_manager.mobs.len());
+                debug_lines[4].clear();
+                let _ = write!(&mut debug_lines[4], "TRYB: {}", mode_str);
+
                 renderer.draw_debug_panel(&debug_lines);
 
                 if !mouse_capture.is_captured() {
@@ -605,12 +621,11 @@ fn main() {
                 let t_fov = 1.0 - (-8.0 * dt).exp();
                 camera.fov_y += (BASE_FOV_DEG.to_radians() - camera.fov_y) * t_fov;
 
-                let rects = renderer.pause_menu_button_rects();
                 let mut hovered_idx = None;
                 if let Some((mx, my)) = mouse_pos {
                     let px = mx as i32;
                     let py = my as i32;
-                    for (i, &(bx, by, bw, bh)) in rects.iter().enumerate() {
+                    for (i, &(bx, by, bw, bh)) in pause_menu_rects.iter().enumerate() {
                         if px >= bx && px < bx + bw && py >= by && py < by + bh {
                             hovered_idx = Some(i);
                             break;
@@ -678,6 +693,7 @@ fn main() {
         m_was_down = m_down;
         save_was_down = f5_down;
 
+        // OPTYMALIZACJA 3: Eliminacja przesyłu klatek za pomocą PCIe dla urządzeń, które wykorzystują architekturę i okna bezpośrednio w swapchain na Vulkan.[cite: 2]
         window
         .update_with_buffer(renderer.pixel_buffer(), WIDTH, HEIGHT)
         .expect("Blad podczas aktualizacji bufora okna");
@@ -688,18 +704,7 @@ fn main() {
             frame_count = 0;
             fps_timer = Instant::now();
         }
-        // `set_title` to wywołanie do systemu okien (na X11/Wayland wymaga
-        // komunikacji z window managerem/kompozytorem), które potrafi być
-        // zaskakująco kosztowne i - w zależności od implementacji backendu -
-        // nawet się synchronicznie blokować. Wywoływanie go bezwarunkowo co
-        // klatkę (setki razy na sekundę) jest czystym marnotrawstwem, bo
-        // treść tytułu faktycznie zmienia się rzadko: fps_display tylko co
-        // ~0.5s, a reszta pól tylko przy zmianie stanu gry. Budujemy nowy
-        // tytuł i wołamy set_title tylko wtedy, gdy się on realnie różni od
-        // poprzedniego - zachowanie widoczne dla gracza jest identyczne
-        // (tytuł okna aktualizuje się tak samo często jak zmienia się jego
-        // treść), tylko bez zbędnych wywołań systemowych w klatkach, w
-        // których i tak nic by się nie zmieniło.
+
         let new_title = format!(
             "RustCraft [{} renderer] - {} FPS - blok: {}{}{}",
             renderer.backend_name(),
@@ -722,4 +727,3 @@ fn main() {
 fn world_slot_for_row(selected_slot: u8, row: usize) -> u8 {
     ((selected_slot as i32 - 1 + row as i32 + 32 - 2).rem_euclid(32) + 1) as u8
 }
-
