@@ -24,6 +24,8 @@ mod saves;
 use minifb::{Key, MouseButton, MouseMode, Window, WindowOptions, CursorStyle};
 use std::time::Instant;
 use std::fmt::Write; // Wymagane dla optymalizacji formatowania tekstu
+use std::sync::mpsc;
+use std::thread;
 
 use camera::Camera;
 use math::Vec3;
@@ -46,11 +48,16 @@ const HEIGHT: usize = 540;
 const TARGET_FPS: usize = 300;
 const MAX_SAVE_SLOTS: u8 = 32;
 
-#[derive(Copy, Clone, PartialEq, Eq)]
 enum GameState {
     MainMenu,
+    Loading(mpsc::Receiver<WorldLoadResult>),
     Playing,
     Paused,
+}
+
+enum WorldLoadResult {
+    Success(World, Option<Vec3>),
+    Error(String),
 }
 
 fn main() {
@@ -236,25 +243,35 @@ fn main() {
                     save_slot = if save_slot == MAX_SAVE_SLOTS { 1 } else { save_slot + 1 };
                 }
                 let click_button = if !clicked_world && left_down && !left_was_down { hovered_idx } else { None };
+
                 if enter_down && !enter_was_down || click_button == Some(0) {
                     seed = generate_random_seed();
-                    world = World::new_with_seed(seed);
-                    camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
-                    mob_manager = MobManager::new();
-                    state = GameState::Playing;
+                    let (tx, rx) = mpsc::channel();
+                    let thread_seed = seed;
+
+                    thread::spawn(move || {
+                        let new_world = World::new_with_seed(thread_seed);
+                        let _ = tx.send(WorldLoadResult::Success(new_world, None));
+                    });
+
+                    state = GameState::Loading(rx);
                 } else if load_down && !load_was_down || click_button == Some(1) {
                     let path = save_path(save_slot);
-                    match World::load(&path) {
-                        Ok(loaded_world) => {
-                            seed = loaded_world.seed;
-                            let loaded_position = loaded_world.player_position;
-                            world = loaded_world;
-                            camera = Camera::new(loaded_position);
-                            mob_manager = MobManager::new();
-                            state = GameState::Playing;
+                    let (tx, rx) = mpsc::channel();
+
+                    thread::spawn(move || {
+                        match World::load(&path) {
+                            Ok(loaded_world) => {
+                                let pos = loaded_world.player_position;
+                                let _ = tx.send(WorldLoadResult::Success(loaded_world, Some(pos)));
+                            }
+                            Err(error) => {
+                                let _ = tx.send(WorldLoadResult::Error(error.to_string()));
+                            }
                         }
-                        Err(error) => eprintln!("{error}"),
-                    }
+                    });
+
+                    state = GameState::Loading(rx);
                 } else if q_down && !q_was_down || click_button == Some(2) {
                     break;
                 }
@@ -263,6 +280,35 @@ fn main() {
                 load_was_down = load_down;
                 slot_left_was_down = slot_left_down;
                 slot_right_was_down = slot_right_down;
+            }
+            GameState::Loading(ref rx) => {
+                // Gra nadal renderuje ekran menu, podczas gdy wątek oblicza świat (zapobiega blokowaniu okna)
+                renderer.draw_main_menu(seed, save_slot, &save_slots, None);
+
+                // Sprawdzamy czy świat został wygenerowany/załadowany
+                if let Ok(result) = rx.try_recv() {
+                    match result {
+                        WorldLoadResult::Success(loaded_world, loaded_pos) => {
+                            seed = loaded_world.seed;
+                            world = loaded_world;
+
+                            let start_pos = loaded_pos.unwrap_or_else(|| Vec3::new(8.0, 90.0, 8.0));
+                            camera = Camera::new(start_pos);
+                            mob_manager = MobManager::new();
+                            state = GameState::Playing;
+                        }
+                        WorldLoadResult::Error(e) => {
+                            eprintln!("Błąd ładowania świata: {e}");
+                            state = GameState::MainMenu;
+                        }
+                    }
+                }
+
+                // Utrzymanie aktualnych stanów klawiszy w trakcie ładowania
+                enter_was_down = window.is_key_down(Key::Enter);
+                load_was_down = window.is_key_down(Key::L);
+                slot_left_was_down = window.is_key_down(Key::Left);
+                slot_right_was_down = window.is_key_down(Key::Right);
             }
             GameState::Playing => {
                 if f5_down && !save_was_down {
@@ -711,7 +757,7 @@ fn main() {
                                 fps_display,
                                 block::BlockId::from_u8(renderer.selected_block()).name(),
                                 if fly_mode { " - [LOT]" } else { "" },
-                                    if state == GameState::Paused { " - [PAUZA]" } else { "" }
+                                    if matches!(state, GameState::Paused) { " - [PAUZA]" } else { "" }
         );
         if new_title != last_title {
             window.set_title(&new_title);
