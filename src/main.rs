@@ -16,6 +16,10 @@ mod font;
 mod mouse_capture;
 mod vulkan;
 mod mob;
+mod particles;
+mod physics;
+mod cli;
+mod saves;
 
 use minifb::{Key, MouseButton, MouseMode, Window, WindowOptions, CursorStyle};
 use std::time::Instant;
@@ -24,183 +28,22 @@ use camera::Camera;
 use math::Vec3;
 use mob::MobManager;
 use mouse_capture::MouseCapture;
+use particles::ParticleSystem;
 use renderer::Renderer;
 use world::World;
+
+use cli::{parse_renderer_choice, parse_seed, generate_random_seed};
+use physics::{
+    BASE_FOV_DEG, CROUCH_EYE_OFFSET, CROUCH_FOV_DEG, CROUCH_HEIGHT, GRAVITY, JUMP_SPEED,
+    SPRINT_FOV_DEG, STANDING_EYE_OFFSET, STANDING_HEIGHT, TERMINAL_VELOCITY,
+    block_intersects_player, move_player_with_collision,
+};
+use saves::{save_current_world, save_path};
 
 const WIDTH: usize = 960;
 const HEIGHT: usize = 540;
 const TARGET_FPS: usize = 300;
 const MAX_SAVE_SLOTS: u8 = 32;
-
-// --- Particle system ---
-struct Particle {
-    pos: Vec3,
-    vel: Vec3,
-    color: [f32; 3],
-    life: f32,   // remaining lifetime in seconds
-    size: f32,
-}
-
-struct ParticleSystem {
-    particles: Vec<Particle>,
-}
-
-impl ParticleSystem {
-    fn new() -> Self { ParticleSystem { particles: Vec::new() } }
-
-    /// Spawn a burst of particles at `pos` with the block's face color.
-    fn spawn_block_break(&mut self, pos: Vec3, color: [f32; 3]) {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut rng = {
-            let mut h = DefaultHasher::new();
-            (pos.x as i32, pos.y as i32, pos.z as i32).hash(&mut h);
-            h.finish()
-        };
-        let mut next = || -> f32 {
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            ((rng >> 33) as f32) / (u32::MAX as f32)
-        };
-        for _ in 0..12 {
-            let vx = (next() - 0.5) * 5.0;
-            let vy = next() * 5.0 + 1.0;
-            let vz = (next() - 0.5) * 5.0;
-            let brightness = 0.75 + next() * 0.5;
-            self.particles.push(Particle {
-                pos: Vec3::new(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5),
-                                vel: Vec3::new(vx, vy, vz),
-                                color: [color[0] * brightness, color[1] * brightness, color[2] * brightness],
-                                life: 0.4 + next() * 0.3,
-                                size: 0.05 + next() * 0.06,
-            });
-        }
-    }
-
-    /// Efektowna eksplozja ogniowo-dymna
-    fn spawn_explosion(&mut self, pos: Vec3) {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut rng = {
-            let mut h = DefaultHasher::new();
-            (pos.x as i32, pos.y as i32, pos.z as i32).hash(&mut h);
-            h.finish()
-        };
-        let mut next = || -> f32 {
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            ((rng >> 33) as f32) / (u32::MAX as f32)
-        };
-
-        for _ in 0..60 {
-            let vx = (next() - 0.5) * 16.0;
-            let vy = (next() - 0.2) * 16.0;
-            let vz = (next() - 0.5) * 16.0;
-            let is_fire = next() > 0.3;
-            let color = if is_fire {
-                [1.0, 0.3 + next() * 0.5, 0.05]
-            } else {
-                [0.25, 0.25, 0.25]
-            };
-            self.particles.push(Particle {
-                pos: Vec3::new(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5),
-                                vel: Vec3::new(vx, vy, vz),
-                                color,
-                                life: 0.5 + next() * 0.6,
-                                size: 0.12 + next() * 0.15,
-            });
-        }
-    }
-
-    /// Efekt uderzenia moba (krytyczne/czerwone iskry)
-    fn spawn_mob_hit(&mut self, pos: Vec3) {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut rng = {
-            let mut h = DefaultHasher::new();
-            (pos.x as i32, (pos.y * 100.0) as i32, pos.z as i32).hash(&mut h);
-            h.finish()
-        };
-        let mut next = || -> f32 {
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            ((rng >> 33) as f32) / (u32::MAX as f32)
-        };
-        for _ in 0..10 {
-            let vx = (next() - 0.5) * 4.0;
-            let vy = next() * 3.5 + 1.0;
-            let vz = (next() - 0.5) * 4.0;
-            let is_crit = next() > 0.4;
-            let color = if is_crit {
-                [0.95, 0.20, 0.15]
-            } else {
-                [0.95, 0.85, 0.20]
-            };
-            self.particles.push(Particle {
-                pos,
-                vel: Vec3::new(vx, vy, vz),
-                                color,
-                                life: 0.3 + next() * 0.25,
-                                size: 0.06 + next() * 0.05,
-            });
-        }
-    }
-
-    /// Minecraftowy obłok dymu („poof”) po wyparowaniu moba
-    fn spawn_mob_death_poof(&mut self, pos: Vec3) {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut rng = {
-            let mut h = DefaultHasher::new();
-            (pos.x as i32, (pos.y * 100.0) as i32, pos.z as i32).hash(&mut h);
-            h.finish()
-        };
-        let mut next = || -> f32 {
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            ((rng >> 33) as f32) / (u32::MAX as f32)
-        };
-        for _ in 0..30 {
-            let vx = (next() - 0.5) * 3.2;
-            let vy = next() * 2.2 + 0.4;
-            let vz = (next() - 0.5) * 3.2;
-            let shade = 0.75 + next() * 0.24;
-            self.particles.push(Particle {
-                pos: Vec3::new(
-                    pos.x + (next() - 0.5) * 0.4,
-                               pos.y + (next() - 0.5) * 0.4,
-                               pos.z + (next() - 0.5) * 0.4,
-                ),
-                vel: Vec3::new(vx, vy, vz),
-                                color: [shade, shade, shade],
-                                life: 0.6 + next() * 0.5,
-                                size: 0.14 + next() * 0.12,
-            });
-        }
-    }
-
-    fn update(&mut self, dt: f32) {
-        const GRAVITY: f32 = 8.0;
-        self.particles.retain_mut(|p| {
-            p.vel.y -= GRAVITY * dt;
-            p.vel.x *= (1.0 - 1.5 * dt).max(0.0);
-            p.vel.z *= (1.0 - 1.5 * dt).max(0.0);
-            p.pos = p.pos + p.vel * dt;
-            p.life -= dt;
-            p.life > 0.0
-        });
-    }
-}
-
-// --- Player physics constants ---
-const GRAVITY: f32 = 24.0;
-const TERMINAL_VELOCITY: f32 = 40.0;
-const JUMP_SPEED: f32 = 8.5;
-const PLAYER_HALF_WIDTH: f32 = 0.3;
-const STANDING_HEIGHT: f32 = 1.8;
-const STANDING_EYE_OFFSET: f32 = 1.6;
-const CROUCH_HEIGHT: f32 = 1.4;
-const CROUCH_EYE_OFFSET: f32 = 1.25;
-
-const BASE_FOV_DEG: f32 = 70.0;
-const SPRINT_FOV_DEG: f32 = 83.0;
-const CROUCH_FOV_DEG: f32 = 66.0;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum GameState {
@@ -876,164 +719,7 @@ fn main() {
     }
 }
 
-fn parse_renderer_choice() -> &'static str {
-    let args: Vec<String> = std::env::args().collect();
-    let mut choice = "vulkan";
-    let mut index = 1;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--renderer" => {
-                let value = args.get(index + 1).map(String::as_str).unwrap_or("");
-                choice = match value {
-                    "software" => "software",
-                    "vulkan" => "vulkan",
-                    _ => {
-                        eprintln!("Użycie: rustcraft [--renderer software|vulkan] [--seed LICZBA]");
-                        std::process::exit(2);
-                    }
-                };
-                index += 1;
-            }
-            "--vulkan" => choice = "vulkan",
-            "--software" => choice = "software",
-            "--seed" => index += 1,
-            "--help" | "-h" => {
-                println!("Użycie: rustcraft [--renderer software|vulkan] [--seed LICZBA]");
-                std::process::exit(0);
-            }
-            unknown => {
-                eprintln!("Nieznany argument: {unknown}\nUżycie: rustcraft [--renderer software|vulkan] [--seed LICZBA]");
-                std::process::exit(2);
-            }
-        }
-        index += 1;
-    }
-    choice
-}
-
-fn generate_random_seed() -> u32 {
-    let mut buf = [0u8; 4];
-    getrandom::getrandom(&mut buf).unwrap_or_else(|_| {
-        let ns = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0x1337_1337);
-        buf = ns.to_le_bytes();
-    });
-    u32::from_le_bytes(buf)
-}
-
-fn parse_seed() -> u32 {
-    let args: Vec<String> = std::env::args().collect();
-    for index in 1..args.len() {
-        if args[index] == "--seed" {
-            return args.get(index + 1)
-            .and_then(|value| value.parse::<u32>().ok())
-            .unwrap_or_else(|| {
-                eprintln!("Seed musi być liczbą: --seed LICZBA");
-                std::process::exit(2);
-            });
-        }
-    }
-    generate_random_seed()
-}
-
-fn save_path(slot: u8) -> String {
-    format!("rustcraft_world_{slot:02}.bin")
-}
-
-fn save_current_world(world: &mut World, camera: &Camera, slot: u8) -> Result<(), String> {
-    world.player_position = camera.position;
-    let path = save_path(slot);
-    world.save(&path)
-}
-
 fn world_slot_for_row(selected_slot: u8, row: usize) -> u8 {
     ((selected_slot as i32 - 1 + row as i32 + 32 - 2).rem_euclid(32) + 1) as u8
 }
 
-fn block_intersects_player(place_pos: crate::math::IVec3, eye_pos: Vec3, eye_offset: f32, height: f32) -> bool {
-    let half = PLAYER_HALF_WIDTH;
-    let feet_y = eye_pos.y - eye_offset;
-    let p_min_x = eye_pos.x - half;
-    let p_max_x = eye_pos.x + half;
-    let p_min_y = feet_y;
-    let p_max_y = feet_y + height;
-    let p_min_z = eye_pos.z - half;
-    let p_max_z = eye_pos.z + half;
-
-    let b_min_x = place_pos.x as f32;
-    let b_max_x = (place_pos.x + 1) as f32;
-    let b_min_y = place_pos.y as f32;
-    let b_max_y = (place_pos.y + 1) as f32;
-    let b_min_z = place_pos.z as f32;
-    let b_max_z = (place_pos.z + 1) as f32;
-
-    p_min_x < b_max_x
-    && p_max_x > b_min_x
-    && p_min_y < b_max_y
-    && p_max_y > b_min_y
-    && p_min_z < b_max_z
-    && p_max_z > b_min_z
-}
-
-fn has_ground_below(world: &World, feet: Vec3, half: f32) -> bool {
-    let min = Vec3::new(feet.x - half, feet.y - 0.4, feet.z - half);
-    let max = Vec3::new(feet.x + half, feet.y + 0.05, feet.z + half);
-    world.box_collides(min, max)
-}
-
-fn move_player_with_collision(
-    world: &World,
-    eye_pos: &mut Vec3,
-    motion: Vec3,
-    vertical_velocity: &mut f32,
-    player_eye_offset: f32,
-    player_height: f32,
-    is_crouching: bool,
-) -> bool {
-    let mut feet = Vec3::new(eye_pos.x, eye_pos.y - player_eye_offset, eye_pos.z);
-
-    let half = PLAYER_HALF_WIDTH;
-    let height = player_height;
-
-    let aabb = |feet: Vec3| -> (Vec3, Vec3) {
-        (
-            Vec3::new(feet.x - half, feet.y, feet.z - half),
-         Vec3::new(feet.x + half, feet.y + height, feet.z + half),
-        )
-    };
-
-    feet.x += motion.x;
-    if world.box_collides(aabb(feet).0, aabb(feet).1)
-        || (is_crouching && !has_ground_below(world, feet, half))
-        {
-            feet.x -= motion.x;
-        }
-
-        feet.z += motion.z;
-    if world.box_collides(aabb(feet).0, aabb(feet).1)
-        || (is_crouching && !has_ground_below(world, feet, half))
-        {
-            feet.z -= motion.z;
-        }
-
-        let mut on_ground = false;
-    feet.y += motion.y;
-    {
-        let (min, max) = aabb(feet);
-        if world.box_collides(min, max) {
-            feet.y -= motion.y;
-            if motion.y < 0.0 {
-                on_ground = true;
-            }
-            *vertical_velocity = 0.0;
-        }
-    }
-
-    eye_pos.x = feet.x;
-    eye_pos.y = feet.y + player_eye_offset;
-    eye_pos.z = feet.z;
-
-    on_ground
-}
