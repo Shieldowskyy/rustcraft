@@ -672,15 +672,17 @@ fn main() {
                 renderer.set_selected_block(selected_block_id);
 
                 // Progressive block breaking (hold LMB or RT like Minecraft)
-                let interact_left = (mouse_capture.is_captured() && left_down) || gp.right_trigger > 0.3;
+                let interact_left = (mouse_capture.is_captured() && left_down) || gp.btn_rt || gp.right_trigger > 0.15;
                 let interact_left_just = (!left_was_down && left_down && mouse_capture.is_captured()) || gp_events.right_trigger_just_pressed;
 
                 if interact_left {
+                    if hand_animation < 0.1 {
+                        hand_animation = 1.0;
+                    }
                     let forward = camera.forward();
 
                     // First frame: check for mob hit
                     if interact_left_just {
-                        hand_animation = 1.0;
                         if let Some((mob_idx, _)) = mob_manager.raycast_mob(camera.position, forward, 4.2) {
                             let mob = &mut mob_manager.mobs[mob_idx];
                             let hit_pos = mob.center_pos();

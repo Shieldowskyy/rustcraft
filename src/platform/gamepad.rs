@@ -29,6 +29,8 @@ pub struct GamepadState {
     pub btn_north: bool,   // Y / Triangle (Ekwipunek)
     pub btn_lb: bool,      // L1 / Left Bumper (Poprzedni slot hotbara)
     pub btn_rb: bool,      // R1 / Right Bumper (Następny slot hotbara)
+    pub btn_lt: bool,      // L2 / Left Trigger (Stawianie bloku)
+    pub btn_rt: bool,      // R2 / Right Trigger (Niszczenie bloku / Atak)
     pub btn_l3: bool,      // Left Stick Click (Bieg / Sprint)
     pub btn_r3: bool,      // Right Stick Click (Tryb lotu)
     pub btn_start: bool,   // Start / Menu (Pauza)
@@ -98,6 +100,14 @@ impl GamepadManager {
                         Button::North => self.state.btn_north = true,
                         Button::LeftTrigger => self.state.btn_lb = true,
                         Button::RightTrigger => self.state.btn_rb = true,
+                        Button::LeftTrigger2 => {
+                            self.state.btn_lt = true;
+                            self.state.left_trigger = 1.0;
+                        }
+                        Button::RightTrigger2 => {
+                            self.state.btn_rt = true;
+                            self.state.right_trigger = 1.0;
+                        }
                         Button::LeftThumb => self.state.btn_l3 = true,
                         Button::RightThumb => self.state.btn_r3 = true,
                         Button::Start => self.state.btn_start = true,
@@ -115,6 +125,14 @@ impl GamepadManager {
                         Button::North => self.state.btn_north = false,
                         Button::LeftTrigger => self.state.btn_lb = false,
                         Button::RightTrigger => self.state.btn_rb = false,
+                        Button::LeftTrigger2 => {
+                            self.state.btn_lt = false;
+                            self.state.left_trigger = 0.0;
+                        }
+                        Button::RightTrigger2 => {
+                            self.state.btn_rt = false;
+                            self.state.right_trigger = 0.0;
+                        }
                         Button::LeftThumb => self.state.btn_l3 = false,
                         Button::RightThumb => self.state.btn_r3 = false,
                         Button::Start => self.state.btn_start = false,
@@ -126,8 +144,14 @@ impl GamepadManager {
                         _ => {}
                     },
                     EventType::ButtonChanged(btn, val, _) => match btn {
-                        Button::LeftTrigger2 => self.state.left_trigger = val,
-                        Button::RightTrigger2 => self.state.right_trigger = val,
+                        Button::LeftTrigger2 => {
+                            self.state.left_trigger = val;
+                            self.state.btn_lt = val > 0.15;
+                        }
+                        Button::RightTrigger2 => {
+                            self.state.right_trigger = val;
+                            self.state.btn_rt = val > 0.15;
+                        }
                         _ => {}
                     },
                     EventType::AxisChanged(axis, val, _) => {
@@ -144,9 +168,26 @@ impl GamepadManager {
                 }
             }
 
-            // Jeśli jest podłączony jakikolwiek gamepad w gilrs
-            if gilrs.gamepads().next().is_some() {
-                self.state.is_connected = true;
+            // Bezpośredni odczyt stanu z podłączonych padów
+            for (_id, gamepad) in gilrs.gamepads() {
+                if gamepad.is_connected() {
+                    self.state.is_connected = true;
+
+                    let lt_pressed = gamepad.is_pressed(Button::LeftTrigger2);
+                    let rt_pressed = gamepad.is_pressed(Button::RightTrigger2);
+                    let lt_val = gamepad.button_data(Button::LeftTrigger2).map(|d| d.value()).unwrap_or(0.0);
+                    let rt_val = gamepad.button_data(Button::RightTrigger2).map(|d| d.value()).unwrap_or(0.0);
+
+                    if lt_pressed || lt_val > 0.15 {
+                        self.state.btn_lt = true;
+                        self.state.left_trigger = self.state.left_trigger.max(if lt_pressed { 1.0 } else { lt_val });
+                    }
+                    if rt_pressed || rt_val > 0.15 {
+                        self.state.btn_rt = true;
+                        self.state.right_trigger = self.state.right_trigger.max(if rt_pressed { 1.0 } else { rt_val });
+                    }
+                    break;
+                }
             }
         }
 
@@ -190,8 +231,10 @@ impl GamepadManager {
             dpad_down_just_pressed: (self.state.dpad_down && !self.prev_state.dpad_down) || stick_nav_down,
             dpad_left_just_pressed: (self.state.dpad_left && !self.prev_state.dpad_left) || stick_nav_left,
             dpad_right_just_pressed: (self.state.dpad_right && !self.prev_state.dpad_right) || stick_nav_right,
-            right_trigger_just_pressed: self.state.right_trigger > 0.45 && self.prev_state.right_trigger <= 0.45,
-            left_trigger_just_pressed: self.state.left_trigger > 0.45 && self.prev_state.left_trigger <= 0.45,
+            right_trigger_just_pressed: (self.state.btn_rt && !self.prev_state.btn_rt)
+                || (self.state.right_trigger > 0.15 && self.prev_state.right_trigger <= 0.15),
+            left_trigger_just_pressed: (self.state.btn_lt && !self.prev_state.btn_lt)
+                || (self.state.left_trigger > 0.15 && self.prev_state.left_trigger <= 0.15),
         }
     }
 }
