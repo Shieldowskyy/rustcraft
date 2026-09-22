@@ -97,7 +97,7 @@ fn world_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
     let texel = textureSample(textures, texture_sampler, input.uv, i32(input.texture_layer));
     let lit = texel.rgb * input.ao;
     let distance_to_camera = distance(input.world_position, globals.camera_position.xyz);
-    let fog_t = clamp(distance_to_camera / 180.0, 0.0, 1.0);
+    let fog_t = clamp(distance_to_camera / 180.0, 0.0, 1.0) * globals.camera_pitch.y;
     let alpha = select(1.0, 0.48, input.texture_layer == 8u || input.texture_layer == 19u);
     return vec4<f32>(mix(lit, vec3<f32>(0.75, 0.85, 1.0), fog_t), alpha);
 }
@@ -356,6 +356,7 @@ impl VulkanContext {
         view_proj: &Mat4,
         camera: Vec3,
         pitch: f32,
+        fog_enabled: bool,
         out_pixels: &mut [u32],
         out_depths: &mut [f32],
     ) {
@@ -409,8 +410,8 @@ impl VulkanContext {
                 } else {
                     bytemuck::cast_slice(&opaque_verts)
                 };
-                let buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("RustCraft chunk vertex buffer"),
+                let opaque = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("RustCraft opaque chunk buffer"),
                     contents: opaque_bytes,
                     usage: wgpu::BufferUsages::VERTEX,
                 });
@@ -427,7 +428,7 @@ impl VulkanContext {
                 });
 
                 self.chunk_buffers.insert(key, GpuChunk {
-                    opaque: buffer,
+                    opaque,
                     opaque_count: opaque_verts.len() as u32,
                     transparent,
                     transparent_count: trans_verts.len() as u32,
@@ -443,7 +444,7 @@ impl VulkanContext {
                 [view_proj.m[12], view_proj.m[13], view_proj.m[14], view_proj.m[15]],
             ],
             camera_position: [camera.x, camera.y, camera.z, 1.0],
-            camera_pitch: [pitch, 0.0, 0.0, 0.0],
+            camera_pitch: [pitch, if fog_enabled { 1.0 } else { 0.0 }, 0.0, 0.0],
         };
         self.queue.write_buffer(&self.globals_buffer, 0, bytemuck::bytes_of(&globals));
 

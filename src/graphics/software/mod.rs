@@ -62,6 +62,7 @@ pub struct Renderer {
     opaque_tris_buf: Vec<ScreenTriangle>,
     transparent_tris_buf: Vec<ScreenTriangle>,
     pub particles: Vec<Particle>,
+    pub fog_enabled: bool,
 }
 
 impl Renderer {
@@ -93,6 +94,7 @@ impl Renderer {
             opaque_tris_buf: Vec::with_capacity(16384),
             transparent_tris_buf: Vec::with_capacity(4096),
             particles: Vec::new(),
+            fog_enabled: true,
         }
     }
 
@@ -153,17 +155,61 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn main_menu_world_rects(&self) -> [(i32, i32, i32, i32); 5] {
-        crate::ui::main_menu_world_rects(self.width)
+    pub fn save_card_rects(&self) -> [(i32, i32, i32, i32); crate::ui::VISIBLE_SAVE_ROWS] {
+        crate::ui::save_card_rects(self.width)
     }
 
     #[inline(always)]
-    pub fn pause_menu_button_rects(&self) -> [(i32, i32, i32, i32); 4] {
+    pub fn save_bottom_button_rects(&self) -> [(i32, i32, i32, i32); 4] {
+        crate::ui::save_bottom_button_rects(self.width, self.height)
+    }
+
+    #[inline(always)]
+    pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 6] {
+        crate::ui::settings_option_rects(self.width, self.height)
+    }
+
+    #[inline(always)]
+    pub fn pause_menu_button_rects(&self) -> [(i32, i32, i32, i32); 5] {
         crate::ui::pause_menu_button_rects(self.width, self.height)
     }
 
-    pub fn draw_main_menu(&mut self, seed: u32, save_slot: u8, save_slots: &[bool; 32], hovered: Option<usize>) {
-        crate::ui::draw_main_menu(&mut self.color_buffer, self.width, self.height, seed, save_slot, save_slots, hovered);
+    pub fn draw_main_menu(&mut self, hovered: Option<usize>) {
+        crate::ui::draw_main_menu(&mut self.color_buffer, self.width, self.height, hovered);
+    }
+
+    pub fn draw_save_select_menu(
+        &mut self,
+        selected_slot: u8,
+        scroll_offset: usize,
+        metadata_cache: &[crate::world::storage::SaveMetadata; crate::ui::MAX_SAVE_SLOTS],
+        hovered_card: Option<usize>,
+        hovered_btn: Option<usize>,
+    ) {
+        crate::ui::draw_save_select_menu(
+            &mut self.color_buffer,
+            self.width,
+            self.height,
+            selected_slot,
+            scroll_offset,
+            metadata_cache,
+            hovered_card,
+            hovered_btn,
+        );
+    }
+
+    pub fn draw_settings_menu(
+        &mut self,
+        settings: &crate::core::settings::GameSettings,
+        hovered: Option<usize>,
+    ) {
+        crate::ui::draw_settings_menu(
+            &mut self.color_buffer,
+            self.width,
+            self.height,
+            settings,
+            hovered,
+        );
     }
 
     pub fn draw_crosshair(&mut self) {
@@ -260,6 +306,7 @@ impl Renderer {
                 &view_proj,
                 camera.position,
                 camera.pitch,
+                self.fog_enabled,
                 &mut self.color_buffer,
                 &mut self.depth_buffer,
             );
@@ -359,6 +406,7 @@ impl Renderer {
         let color_chunks = self.color_buffer.chunks_mut(width * TILE_HEIGHT);
         let depth_chunks = self.depth_buffer.chunks_mut(width * TILE_HEIGHT);
 
+        let fog_enabled = self.fog_enabled;
         color_chunks
             .zip(depth_chunks)
             .enumerate()
@@ -384,6 +432,7 @@ impl Renderer {
                         c_slice,
                         d_slice,
                         textures,
+                        fog_enabled,
                     );
                 }
 
@@ -403,6 +452,7 @@ impl Renderer {
                         c_slice,
                         d_slice,
                         textures,
+                        fog_enabled,
                     );
                 }
             });
@@ -464,6 +514,7 @@ impl Renderer {
         let height = self.height;
         let textures = &self.textures;
 
+        let fog_enabled = self.fog_enabled;
         raster_triangle_tile(
             tri,
             hurt_tint,
@@ -475,6 +526,7 @@ impl Renderer {
             &mut self.color_buffer,
             &mut self.depth_buffer,
             textures,
+            fog_enabled,
         );
     }
 
@@ -672,7 +724,11 @@ impl Renderer {
                                             if depth < renderer.depth_buffer[idx] {
                                                 let ao = (l0 * sa.ao_over_w + l1 * sb.ao_over_w + l2 * sc.ao_over_w) * depth;
                                                 let base_val = (0.95 * ao).clamp(0.0, 1.0);
-                                                let fog_t = (depth / 220.0).clamp(0.0, 1.0);
+                                                let fog_t = if renderer.fog_enabled {
+                                                    (depth / 220.0).clamp(0.0, 1.0)
+                                                } else {
+                                                    0.0
+                                                };
                                                 let cr = base_val * (1.0 - fog_t) + 0.75 * fog_t;
                                                 let cg = base_val * (1.0 - fog_t) + 0.85 * fog_t;
                                                 let cb = base_val * (1.0 - fog_t) + 1.0 * fog_t;
@@ -1240,6 +1296,7 @@ fn raster_triangle_tile(
     color_buffer: &mut [u32],
     depth_buffer: &mut [f32],
     textures: &TextureAtlas,
+    fog_enabled: bool,
 ) {
     let c0 = to_clip_ao(tri.v0, view_proj);
     let c1 = to_clip_ao(tri.v1, view_proj);
@@ -1256,7 +1313,7 @@ fn raster_triangle_tile(
         let sc = project_to_screen_ao(&clipped[i + 1], width, height);
 
         raster_screen_triangle_ao_tile(
-            sa, sb, sc, tri.texture, hurt_tint, width, tile_y_start, tile_y_end, color_buffer, depth_buffer, textures,
+            sa, sb, sc, tri.texture, hurt_tint, width, tile_y_start, tile_y_end, color_buffer, depth_buffer, textures, fog_enabled,
         );
     }
 }
@@ -1273,6 +1330,7 @@ fn raster_screen_triangle_ao_tile(
     color_buffer: &mut [u32],
     depth_buffer: &mut [f32],
     textures: &TextureAtlas,
+    fog_enabled: bool,
 ) {
     let area = edge(a.x, a.y, b.x, b.y, c.x, c.y);
     if area <= 0.0 {
@@ -1332,6 +1390,7 @@ fn raster_screen_triangle_ao_tile(
                 tex,
                 color_buffer,
                 depth_buffer,
+                fog_enabled,
             );
 
             px += 4;
@@ -1356,6 +1415,7 @@ fn raster_screen_triangle_ao_tile(
                 tex,
                 color_buffer,
                 depth_buffer,
+                fog_enabled,
             );
 
             px += 1;
@@ -1389,6 +1449,7 @@ fn raster_scanline_simd_4x(
     tex: &crate::graphics::atlas::Texture,
     color_buffer: &mut [u32],
     depth_buffer: &mut [f32],
+    fog_enabled: bool,
 ) {
     let w0 = [
         w0_start,
@@ -1451,7 +1512,7 @@ fn raster_scanline_simd_4x(
                         bl = bl * (1.0 - hurt_tint) + 0.12 * hurt_tint;
                     }
 
-                    let fog_t = (depth / 180.0).clamp(0.0, 1.0);
+                    let fog_t = if fog_enabled { (depth / 180.0).clamp(0.0, 1.0) } else { 0.0 };
                     let fog = (0.75f32, 0.85f32, 1.0f32);
                     let fr = r * (1.0 - fog_t) + fog.0 * fog_t;
                     let fg = g * (1.0 - fog_t) + fog.1 * fog_t;
@@ -1490,6 +1551,7 @@ fn raster_scanline_pixel(
     tex: &crate::graphics::atlas::Texture,
     color_buffer: &mut [u32],
     depth_buffer: &mut [f32],
+    fog_enabled: bool,
 ) {
     if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
         let l0 = w0 * inv_area;
@@ -1521,7 +1583,7 @@ fn raster_scanline_pixel(
                     bl = bl * (1.0 - hurt_tint) + 0.12 * hurt_tint;
                 }
 
-                let fog_t = (depth / 180.0).clamp(0.0, 1.0);
+                let fog_t = if fog_enabled { (depth / 180.0).clamp(0.0, 1.0) } else { 0.0 };
                 let fog = (0.75f32, 0.85f32, 1.0f32);
                 let fr = r * (1.0 - fog_t) + fog.0 * fog_t;
                 let fg = g * (1.0 - fog_t) + fog.1 * fog_t;

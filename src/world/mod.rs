@@ -571,6 +571,7 @@ pub struct World {
     pub pending_explosions: Vec<Vec3>,
     pub primed_tnts: Vec<PrimedTnt>,
     last_stream_chunk: Option<(i32, i32)>,
+    last_stream_dist: Option<i32>,
 }
 
 pub struct RaycastHit {
@@ -600,6 +601,7 @@ impl World {
             pending_explosions: Vec::new(),
             primed_tnts: Vec::new(),
             last_stream_chunk: None,
+            last_stream_dist: None,
         }
     }
 
@@ -840,20 +842,22 @@ impl World {
         }
     }
 
-    pub fn update(&mut self, player_pos: Vec3) {
+    pub fn update(&mut self, player_pos: Vec3, view_distance: i32) {
+        let view_distance = view_distance.clamp(2, 16);
         let pcx = (player_pos.x as i32).div_euclid(CHUNK_SIZE_X);
         let pcz = (player_pos.z as i32).div_euclid(CHUNK_SIZE_Z);
 
-        if self.last_stream_chunk == Some((pcx, pcz)) {
+        if self.last_stream_chunk == Some((pcx, pcz)) && self.last_stream_dist == Some(view_distance) {
             return;
         }
         self.last_stream_chunk = Some((pcx, pcz));
+        self.last_stream_dist = Some(view_distance);
 
         let mut missing_chunks = Vec::new();
 
-        for dz in -VIEW_DISTANCE..=VIEW_DISTANCE {
-            for dx in -VIEW_DISTANCE..=VIEW_DISTANCE {
-                if dx * dx + dz * dz > VIEW_DISTANCE * VIEW_DISTANCE {
+        for dz in -view_distance..=view_distance {
+            for dx in -view_distance..=view_distance {
+                if dx * dx + dz * dz > view_distance * view_distance {
                     continue;
                 }
                 let cx = pcx + dx;
@@ -876,7 +880,7 @@ impl World {
             }
         }
 
-        let unload_dist = VIEW_DISTANCE + 2;
+        let unload_dist = view_distance + 2;
         self.chunks.retain(|&(cx, cz), _| {
             let ddx = cx - pcx;
             let ddz = cz - pcz;
@@ -1162,7 +1166,7 @@ impl World {
     }
 }
 
-fn read_bytes<'a>(bytes: &'a [u8], cursor: &mut usize, count: usize) -> Result<&'a [u8], String> {
+pub(crate) fn read_bytes<'a>(bytes: &'a [u8], cursor: &mut usize, count: usize) -> Result<&'a [u8], String> {
     if bytes.len().saturating_sub(*cursor) < count {
         return Err("uszkodzony plik świata".to_owned());
     }

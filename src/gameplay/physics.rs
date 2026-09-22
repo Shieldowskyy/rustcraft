@@ -122,9 +122,11 @@ pub fn move_player_with_collision(
         )
     };
 
+    let was_on_ground = has_ground_below(world, feet, half);
+
     // 1. Ruch w osi X
     if motion.x != 0.0 {
-        let dx = if is_crouching {
+        let dx = if is_crouching && was_on_ground {
             clamp_crouch_axis(world, feet, motion.x, true, half)
         } else {
             motion.x
@@ -147,7 +149,7 @@ pub fn move_player_with_collision(
 
     // 2. Ruch w osi Z
     if motion.z != 0.0 {
-        let dz = if is_crouching {
+        let dz = if is_crouching && was_on_ground {
             clamp_crouch_axis(world, feet, motion.z, false, half)
         } else {
             motion.z

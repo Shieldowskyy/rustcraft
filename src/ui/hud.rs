@@ -142,18 +142,19 @@ pub fn draw_capture_prompt(buffer: &mut [u32], width: usize, height: usize, nati
     draw_text_shadowed(buffer, width, height, line2, cx - w2 / 2, cy + 20, scale2, 1);
 }
 
-pub fn pause_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 4] {
+pub fn pause_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 5] {
     let btn_w = 340;
     let btn_h = 36;
-    let spacing = 12;
+    let spacing = 10;
     let cx = width as i32 / 2;
-    let start_y = height as i32 / 2 - 90;
+    let start_y = height as i32 / 2 - 110;
 
     [
         (cx - btn_w / 2, start_y, btn_w, btn_h),
         (cx - btn_w / 2, start_y + btn_h + spacing, btn_w, btn_h),
         (cx - btn_w / 2, start_y + (btn_h + spacing) * 2, btn_w, btn_h),
         (cx - btn_w / 2, start_y + (btn_h + spacing) * 3, btn_w, btn_h),
+        (cx - btn_w / 2, start_y + (btn_h + spacing) * 4, btn_w, btn_h),
     ]
 }
 
@@ -166,10 +167,11 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
     let title = "MENU GRY";
     let t_scale = 4;
     let t_w = font::measure_text(title, t_scale, 2);
-    draw_text_shadowed(buffer, width, height, title, cx - t_w / 2, cy - 110, t_scale, 2);
+    draw_text_shadowed(buffer, width, height, title, cx - t_w / 2, cy - 150, t_scale, 2);
 
     let buttons = [
         "WZNOW GRE (ESC)",
+        "USTAWIENIA GRAFIKI",
         if fly_mode { "TRYB LOTU: WLACZONY (F)" } else { "TRYB LOTU: WYLACZONY (F)" },
         "MENU GLOWNE (M)",
         "WYJDZ Z GRY (Q)",
@@ -216,10 +218,10 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
     }
 
     let footer1 = "STEROWANIE: WASD - RUCH | SHIFT - KUCANIE | CTRL - BIEG | SPACJA - SKOK";
-    let footer2 = "LPM - NISZCZ | PPM - STAWIAJ | SCROLL / 1-6 - WYBOR BLOKU";
+    let footer2 = "LPM - NISZCZ | PPM - STAWIAJ | SCROLL / 1-9 - WYBOR BLOKU";
     let f_scale = 1;
     let f1_w = font::measure_text(footer1, f_scale, 1);
     let f2_w = font::measure_text(footer2, f_scale, 1);
-    draw_text_colored_shadowed(buffer, width, height, footer1, cx - f1_w / 2, cy + 120, f_scale, 1, pack_color(0.7, 0.7, 0.7));
-    draw_text_colored_shadowed(buffer, width, height, footer2, cx - f2_w / 2, cy + 135, f_scale, 1, pack_color(0.7, 0.7, 0.7));
+    draw_text_colored_shadowed(buffer, width, height, footer1, cx - f1_w / 2, cy + 135, f_scale, 1, pack_color(0.7, 0.7, 0.7));
+    draw_text_colored_shadowed(buffer, width, height, footer2, cx - f2_w / 2, cy + 150, f_scale, 1, pack_color(0.7, 0.7, 0.7));
 }

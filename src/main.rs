@@ -20,23 +20,24 @@ use std::time::Instant;
 
 use crate::cli::{generate_random_seed, parse_renderer_choice, parse_seed};
 use crate::core::math::{IVec3, Vec3};
+use crate::core::settings::GameSettings;
 use crate::gameplay::inventory::ItemStack;
 use crate::gameplay::item::ItemEntity;
 use crate::gameplay::mob::MobManager;
 use crate::gameplay::particles::ParticleSystem;
 use crate::gameplay::physics::{
-    block_intersects_player, move_player_with_collision, BASE_FOV_DEG, CROUCH_EYE_OFFSET,
-    CROUCH_FOV_DEG, CROUCH_HEIGHT, FLY_SPEED, GRAVITY, JUMP_SPEED, SNEAK_SPEED, SPRINT_FOV_DEG,
-    SPRINT_JUMP_BOOST, SPRINT_SPEED, STANDING_EYE_OFFSET, STANDING_HEIGHT, SWIM_SPEED,
-    TERMINAL_VELOCITY, WALK_SPEED,
+    block_intersects_player, move_player_with_collision, CROUCH_EYE_OFFSET, CROUCH_HEIGHT,
+    FLY_SPEED, GRAVITY, JUMP_SPEED, SNEAK_SPEED, SPRINT_JUMP_BOOST, SPRINT_SPEED,
+    STANDING_EYE_OFFSET, STANDING_HEIGHT, SWIM_SPEED, TERMINAL_VELOCITY, WALK_SPEED,
 };
 use crate::gameplay::player::{GameMode, Player};
 use crate::graphics::camera::Camera;
 use crate::graphics::software::Renderer;
 use crate::platform::gamepad::GamepadManager;
 use crate::platform::mouse_capture::{self, MouseCapture};
+use crate::ui::VISIBLE_SAVE_ROWS;
 use crate::world::block::{BlockId, Face};
-use crate::world::storage::{save_current_world, save_path};
+use crate::world::storage::{delete_save, get_save_metadata, save_current_world, save_path, SaveMetadata};
 use crate::world::World;
 
 const WIDTH: usize = 960;
@@ -44,8 +45,16 @@ const HEIGHT: usize = 540;
 const TARGET_FPS: usize = 300;
 const MAX_SAVE_SLOTS: u8 = 32;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PreviousMenu {
+    MainMenu,
+    Paused,
+}
+
 enum GameState {
     MainMenu,
+    SaveSelect,
+    Settings(PreviousMenu),
     Loading(mpsc::Receiver<WorldLoadResult>),
     Playing,
     Paused,
@@ -60,6 +69,7 @@ enum WorldLoadResult {
 fn main() {
     let renderer_choice = parse_renderer_choice();
     let mut seed = parse_seed();
+    let mut settings = GameSettings::load();
     #[cfg(target_os = "linux")]
     if std::env::var_os("DISPLAY").is_some() {
         std::env::remove_var("WAYLAND_DISPLAY");
@@ -113,10 +123,13 @@ fn main() {
     let mut q_was_down = false;
     let mut m_was_down = false;
     let mut enter_was_down = false;
-    let mut load_was_down = false;
+    let mut up_arrow_was_down = false;
+    let mut down_arrow_was_down = false;
+    let mut n_was_down = false;
+    let mut del_was_down = false;
+    let mut left_arrow_was_down = false;
+    let mut right_arrow_was_down = false;
     let mut save_was_down = false;
-    let mut slot_left_was_down = false;
-    let mut slot_right_was_down = false;
     let mut save_slot: u8 = 1;
 
     let mut vertical_velocity: f32 = 0.0;
@@ -132,10 +145,13 @@ fn main() {
     let mut break_target: Option<IVec3> = None;
 
     let mut state = GameState::MainMenu;
-    let mut save_slots: [bool; MAX_SAVE_SLOTS as usize] = std::array::from_fn(|index| {
-        let path = save_path(index as u8 + 1);
-        std::path::Path::new(&path).exists()
+    let mut save_metadata_cache: [SaveMetadata; MAX_SAVE_SLOTS as usize] = std::array::from_fn(|index| {
+        get_save_metadata(index as u8 + 1)
     });
+
+    let mut save_select_slot: u8 = 1;
+    let mut save_select_scroll: usize = 0;
+    let mut settings_hovered_opt: Option<usize> = Some(0);
 
     let mut particles = ParticleSystem::new();
     let mut mob_manager = MobManager::new();
@@ -165,7 +181,9 @@ fn main() {
 
     // OPTYMALIZACJA 3: Zbieranie geometrii interfejsu (UI rects) raz, ominięcie alokacji podczas każdej klatki[cite: 2]
     let main_menu_rects = renderer.main_menu_button_rects();
-    let world_rects = renderer.main_menu_world_rects();
+    let save_card_rects = renderer.save_card_rects();
+    let save_btn_rects = renderer.save_bottom_button_rects();
+    let settings_rects = renderer.settings_option_rects();
     let pause_menu_rects = renderer.pause_menu_button_rects();
 
     let mut gamepad_mgr = GamepadManager::new();
@@ -235,13 +253,18 @@ fn main() {
         let left_down = window.get_mouse_down(MouseButton::Left);
         let right_down = window.get_mouse_down(MouseButton::Right);
 
+        let enter_down = window.is_key_down(Key::Enter);
+        let n_down = window.is_key_down(Key::N);
+        let del_down = window.is_key_down(Key::Delete) || window.is_key_down(Key::Backspace);
+        let left_arrow_down = window.is_key_down(Key::Left);
+        let right_arrow_down = window.is_key_down(Key::Right);
+        let up_arrow_down = window.is_key_down(Key::Up);
+        let down_arrow_down = window.is_key_down(Key::Down);
+
+        let scroll_wheel = window.get_scroll_wheel();
+
         match state {
             GameState::MainMenu => {
-                let enter_down = window.is_key_down(Key::Enter);
-                let load_down = window.is_key_down(Key::L);
-                let slot_left_down = window.is_key_down(Key::Left);
-                let slot_right_down = window.is_key_down(Key::Right);
-
                 let mut hovered_idx = menu_hovered_btn;
                 if let Some((mx, my)) = mouse_pos {
                     let px = mx as i32;
@@ -256,7 +279,7 @@ fn main() {
                 }
 
                 // Nawigacja D-Pad / Analog na padzie w Menu Głównym
-                if gp_events.dpad_up_just_pressed {
+                if gp_events.dpad_up_just_pressed || (up_arrow_down && !up_arrow_was_down) {
                     let next = match menu_hovered_btn {
                         Some(0) | None => 2,
                         Some(i) => i - 1,
@@ -264,7 +287,7 @@ fn main() {
                     menu_hovered_btn = Some(next);
                     hovered_idx = Some(next);
                 }
-                if gp_events.dpad_down_just_pressed {
+                if gp_events.dpad_down_just_pressed || (down_arrow_down && !down_arrow_was_down) {
                     let next = match menu_hovered_btn {
                         Some(2) | None => 0,
                         Some(i) => i + 1,
@@ -273,78 +296,242 @@ fn main() {
                     hovered_idx = Some(next);
                 }
 
-                let mut clicked_world = false;
-                if left_down && !left_was_down {
-                    if let Some((mx, my)) = mouse_pos {
-                        let px = mx as i32;
-                        let py = my as i32;
-                        for (row, &(bx, by, bw, bh)) in world_rects.iter().enumerate() {
-                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                save_slot = world_slot_for_row(save_slot, row);
-                                clicked_world = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-                if (slot_left_down && !slot_left_was_down) || gp_events.dpad_left_just_pressed || gp_events.lb_just_pressed {
-                    save_slot = if save_slot == 1 { MAX_SAVE_SLOTS } else { save_slot - 1 };
-                }
-                if (slot_right_down && !slot_right_was_down) || gp_events.dpad_right_just_pressed || gp_events.rb_just_pressed {
-                    save_slot = if save_slot == MAX_SAVE_SLOTS { 1 } else { save_slot + 1 };
-                }
-                let click_button = if !clicked_world && (left_down && !left_was_down || gp_events.south_just_pressed) {
+                let click_button = if left_down && !left_was_down || gp_events.south_just_pressed {
                     hovered_idx
                 } else {
                     None
                 };
 
-                if enter_down && !enter_was_down || click_button == Some(0) {
+                if (enter_down && !enter_was_down) || click_button == Some(0) {
+                    state = GameState::SaveSelect;
+                    save_select_slot = save_slot;
+                    save_select_scroll = ((save_slot as usize - 1).saturating_sub(1))
+                        .min(MAX_SAVE_SLOTS as usize - VISIBLE_SAVE_ROWS);
+                } else if click_button == Some(1) {
+                    state = GameState::Settings(PreviousMenu::MainMenu);
+                    settings_hovered_opt = Some(0);
+                } else if (q_down && !q_was_down) || click_button == Some(2) || gp_events.east_just_pressed {
+                    break;
+                }
+
+                renderer.draw_main_menu(hovered_idx);
+            }
+            GameState::SaveSelect => {
+                // Przewijanie listy kart kółkiem myszy
+                if let Some((_sx, sy)) = scroll_wheel {
+                    if sy > 0.0 {
+                        save_select_scroll = save_select_scroll.saturating_sub(1);
+                    } else if sy < 0.0 {
+                        save_select_scroll = (save_select_scroll + 1).min(MAX_SAVE_SLOTS as usize - VISIBLE_SAVE_ROWS);
+                    }
+                }
+
+                // Nawigacja po kartach zapisu (D-Pad / Strzałki)
+                if gp_events.dpad_up_just_pressed || (up_arrow_down && !up_arrow_was_down) {
+                    save_select_slot = if save_select_slot <= 1 { MAX_SAVE_SLOTS } else { save_select_slot - 1 };
+                    let slot_idx = save_select_slot as usize - 1;
+                    if slot_idx < save_select_scroll {
+                        save_select_scroll = slot_idx;
+                    } else if slot_idx >= save_select_scroll + VISIBLE_SAVE_ROWS {
+                        save_select_scroll = slot_idx - VISIBLE_SAVE_ROWS + 1;
+                    }
+                }
+                if gp_events.dpad_down_just_pressed || (down_arrow_down && !down_arrow_was_down) {
+                    save_select_slot = if save_select_slot >= MAX_SAVE_SLOTS { 1 } else { save_select_slot + 1 };
+                    let slot_idx = save_select_slot as usize - 1;
+                    if slot_idx >= save_select_scroll + VISIBLE_SAVE_ROWS {
+                        save_select_scroll = slot_idx - VISIBLE_SAVE_ROWS + 1;
+                    } else if slot_idx < save_select_scroll {
+                        save_select_scroll = slot_idx;
+                    }
+                }
+
+                let mut save_select_hovered_card = None;
+                let mut save_select_hovered_btn = None;
+
+                if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    for (row, &(bx, by, bw, bh)) in save_card_rects.iter().enumerate() {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            save_select_hovered_card = Some(row);
+                            if left_down && !left_was_down {
+                                save_select_slot = (save_select_scroll + row + 1) as u8;
+                            }
+                            break;
+                        }
+                    }
+                    for (i, &(bx, by, bw, bh)) in save_btn_rects.iter().enumerate() {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            save_select_hovered_btn = Some(i);
+                            break;
+                        }
+                    }
+                }
+
+                let play_action = (enter_down && !enter_was_down)
+                    || (left_down && !left_was_down && save_select_hovered_btn == Some(0))
+                    || gp_events.south_just_pressed;
+                let new_action = (n_down && !n_was_down)
+                    || (left_down && !left_was_down && save_select_hovered_btn == Some(1))
+                    || gp_events.north_just_pressed;
+                let delete_action = (del_down && !del_was_down)
+                    || (left_down && !left_was_down && save_select_hovered_btn == Some(2))
+                    || gp_events.west_just_pressed;
+                let back_action = (escape_down && !escape_was_down)
+                    || (left_down && !left_was_down && save_select_hovered_btn == Some(3))
+                    || gp_events.east_just_pressed;
+
+                if play_action {
+                    save_slot = save_select_slot;
+                    let meta = &save_metadata_cache[save_slot as usize - 1];
+                    if meta.exists {
+                        let path = save_path(save_slot);
+                        let (tx, rx) = mpsc::channel();
+                        thread::spawn(move || {
+                            match World::load(&path) {
+                                Ok(loaded_world) => {
+                                    let pos = loaded_world.player_position;
+                                    let _ = tx.send(WorldLoadResult::Success(loaded_world, Some(pos)));
+                                }
+                                Err(error) => {
+                                    let _ = tx.send(WorldLoadResult::Error(error.to_string()));
+                                }
+                            }
+                        });
+                        state = GameState::Loading(rx);
+                    } else {
+                        seed = generate_random_seed();
+                        let (tx, rx) = mpsc::channel();
+                        let thread_seed = seed;
+                        thread::spawn(move || {
+                            let new_world = World::new_with_seed(thread_seed);
+                            let _ = tx.send(WorldLoadResult::Success(new_world, None));
+                        });
+                        state = GameState::Loading(rx);
+                    }
+                } else if new_action {
+                    save_slot = save_select_slot;
                     seed = generate_random_seed();
                     let (tx, rx) = mpsc::channel();
                     let thread_seed = seed;
-
                     thread::spawn(move || {
                         let new_world = World::new_with_seed(thread_seed);
                         let _ = tx.send(WorldLoadResult::Success(new_world, None));
                     });
-
                     state = GameState::Loading(rx);
-                } else if load_down && !load_was_down || click_button == Some(1) {
-                    let path = save_path(save_slot);
-                    let (tx, rx) = mpsc::channel();
-
-                    thread::spawn(move || {
-                        match World::load(&path) {
-                            Ok(loaded_world) => {
-                                let pos = loaded_world.player_position;
-                                let _ = tx.send(WorldLoadResult::Success(loaded_world, Some(pos)));
-                            }
-                            Err(error) => {
-                                let _ = tx.send(WorldLoadResult::Error(error.to_string()));
-                            }
-                        }
-                    });
-
-                    state = GameState::Loading(rx);
-                } else if (q_down && !q_was_down) || click_button == Some(2) || gp_events.east_just_pressed {
-                    break;
+                } else if delete_action {
+                    let _ = delete_save(save_select_slot);
+                    save_metadata_cache[save_select_slot as usize - 1] = get_save_metadata(save_select_slot);
+                } else if back_action {
+                    state = GameState::MainMenu;
                 }
-                renderer.draw_main_menu(seed, save_slot, &save_slots, hovered_idx);
-                enter_was_down = enter_down;
-                load_was_down = load_down;
-                slot_left_was_down = slot_left_down;
-                slot_right_was_down = slot_right_down;
+
+                renderer.draw_save_select_menu(
+                    save_select_slot,
+                    save_select_scroll,
+                    &save_metadata_cache,
+                    save_select_hovered_card,
+                    save_select_hovered_btn,
+                );
+            }
+            GameState::Settings(prev) => {
+                let mut hovered_opt = settings_hovered_opt;
+                if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    for (i, &(bx, by, bw, bh)) in settings_rects.iter().enumerate() {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            hovered_opt = Some(i);
+                            settings_hovered_opt = Some(i);
+                            break;
+                        }
+                    }
+                }
+
+                if gp_events.dpad_up_just_pressed || (up_arrow_down && !up_arrow_was_down) {
+                    let next = match settings_hovered_opt {
+                        Some(0) | None => 5,
+                        Some(i) => i - 1,
+                    };
+                    settings_hovered_opt = Some(next);
+                    hovered_opt = Some(next);
+                }
+                if gp_events.dpad_down_just_pressed || (down_arrow_down && !down_arrow_was_down) {
+                    let next = match settings_hovered_opt {
+                        Some(5) | None => 0,
+                        Some(i) => i + 1,
+                    };
+                    settings_hovered_opt = Some(next);
+                    hovered_opt = Some(next);
+                }
+
+                let left_toggle = gp_events.dpad_left_just_pressed || gp_events.lb_just_pressed || (left_arrow_down && !left_arrow_was_down);
+                let right_toggle = gp_events.dpad_right_just_pressed || gp_events.rb_just_pressed || (right_arrow_down && !right_arrow_was_down);
+                let click_opt = if left_down && !left_was_down || gp_events.south_just_pressed || (enter_down && !enter_was_down) {
+                    hovered_opt
+                } else {
+                    None
+                };
+
+                if left_toggle {
+                    match settings_hovered_opt {
+                        Some(0) => settings.cycle_render_distance(false),
+                        Some(1) => settings.fog = !settings.fog,
+                        Some(2) => settings.clouds = !settings.clouds,
+                        Some(3) => settings.cycle_fov(false),
+                        Some(4) => settings.underwater_fx = !settings.underwater_fx,
+                        _ => {}
+                    }
+                }
+                if right_toggle {
+                    match settings_hovered_opt {
+                        Some(0) => settings.cycle_render_distance(true),
+                        Some(1) => settings.fog = !settings.fog,
+                        Some(2) => settings.clouds = !settings.clouds,
+                        Some(3) => settings.cycle_fov(true),
+                        Some(4) => settings.underwater_fx = !settings.underwater_fx,
+                        _ => {}
+                    }
+                }
+                if let Some(opt) = click_opt {
+                    match opt {
+                        0 => settings.cycle_render_distance(true),
+                        1 => settings.fog = !settings.fog,
+                        2 => settings.clouds = !settings.clouds,
+                        3 => settings.cycle_fov(true),
+                        4 => settings.underwater_fx = !settings.underwater_fx,
+                        5 => {
+                            let _ = settings.save();
+                            state = match prev {
+                                PreviousMenu::MainMenu => GameState::MainMenu,
+                                PreviousMenu::Paused => GameState::Paused,
+                            };
+                        }
+                        _ => {}
+                    }
+                }
+
+                if (escape_down && !escape_was_down) || gp_events.east_just_pressed {
+                    let _ = settings.save();
+                    state = match prev {
+                        PreviousMenu::MainMenu => GameState::MainMenu,
+                        PreviousMenu::Paused => GameState::Paused,
+                    };
+                }
+
+                renderer.fog_enabled = settings.fog;
+                if prev == PreviousMenu::Paused {
+                    renderer.render_frame(&mut world, &camera);
+                }
+                renderer.draw_settings_menu(&settings, hovered_opt);
             }
             GameState::Loading(ref rx) => {
-                // Gra nadal renderuje ekran menu, podczas gdy wątek oblicza świat (zapobiega blokowaniu okna)
-                renderer.draw_main_menu(seed, save_slot, &save_slots, None);
+                renderer.draw_main_menu(None);
 
-                // Sprawdzamy czy świat został wygenerowany/załadowany
                 if let Ok(result) = rx.try_recv() {
                     match result {
                         WorldLoadResult::Success(loaded_world, loaded_pos) => {
-                            seed = loaded_world.seed;
                             world = loaded_world;
 
                             let start_pos = loaded_pos.unwrap_or_else(|| Vec3::new(8.0, 90.0, 8.0));
@@ -358,12 +545,6 @@ fn main() {
                         }
                     }
                 }
-
-                // Utrzymanie aktualnych stanów klawiszy w trakcie ładowania
-                enter_was_down = window.is_key_down(Key::Enter);
-                load_was_down = window.is_key_down(Key::L);
-                slot_left_was_down = window.is_key_down(Key::Left);
-                slot_right_was_down = window.is_key_down(Key::Right);
             }
             GameState::Playing => {
                 if f5_down && !save_was_down {
@@ -480,11 +661,11 @@ fn main() {
                 && wish_dir.length_sq() > 0.01;
 
                 let target_fov_deg = if is_sprinting {
-                    SPRINT_FOV_DEG
+                    settings.fov_deg + 15.0
                 } else if is_crouching {
-                    CROUCH_FOV_DEG
+                    settings.fov_deg - 5.0
                 } else {
-                    BASE_FOV_DEG
+                    settings.fov_deg
                 };
                 let target_fov = target_fov_deg.to_radians();
                 let t_fov = 1.0 - (-8.0 * dt).exp();
@@ -556,7 +737,7 @@ fn main() {
                             vertical_velocity = -TERMINAL_VELOCITY;
                         }
 
-                        if ((window.is_key_down(Key::Space) && mouse_capture.is_captured()) || gp.btn_south) && on_ground && !is_crouching {
+                        if ((window.is_key_down(Key::Space) && mouse_capture.is_captured()) || gp.btn_south) && on_ground {
                             vertical_velocity = JUMP_SPEED;
                             if is_sprinting && wish_dir.length_sq() > 0.01 {
                                 horiz_velocity = horiz_velocity + wish_dir * SPRINT_JUMP_BOOST;
@@ -807,7 +988,7 @@ fn main() {
                     }
                 }
 
-                world.update(camera.position);
+                world.update(camera.position, settings.render_distance);
                 let hand_speed = if fly_mode {
                     fly_velocity.length()
                 } else {
@@ -876,7 +1057,7 @@ fn main() {
                     proj_matrix = camera.projection_matrix(aspect);
                 }
                 let view_proj = proj_matrix.mul(&camera.view_matrix());
-
+                renderer.fog_enabled = settings.fog;
                 renderer.render_frame(&mut world, &camera);
 
                 for mob in &mob_manager.mobs {
@@ -887,7 +1068,9 @@ fn main() {
                     renderer.draw_tnt_cube(tnt.pos, tnt.fuse, &camera, &view_proj);
                 }
 
-                renderer.draw_clouds(camera.position, &view_proj, total_time);
+                if settings.clouds {
+                    renderer.draw_clouds(camera.position, &view_proj, total_time);
+                }
                 
                 for item in &items {
                     let color = item.block.face_color(Face::Top);
@@ -899,7 +1082,7 @@ fn main() {
                 }
 
                 let block_at_camera = world.get_block(camera.position.floor_to_ivec());
-                if block_at_camera == BlockId::Water {
+                if settings.underwater_fx && block_at_camera == BlockId::Water {
                     renderer.draw_underwater_overlay(total_time);
                 }
 
@@ -945,7 +1128,7 @@ fn main() {
                 window.set_cursor_visibility(true);
 
                 let t_fov = 1.0 - (-8.0 * dt).exp();
-                camera.fov_y += (BASE_FOV_DEG.to_radians() - camera.fov_y) * t_fov;
+                camera.fov_y += (settings.fov_deg.to_radians() - camera.fov_y) * t_fov;
 
                 let mut hovered_idx = pause_hovered_btn;
                 if let Some((mx, my)) = mouse_pos {
@@ -961,24 +1144,24 @@ fn main() {
                 }
 
                 // Nawigacja D-Pad / Analog na padzie w Menu Pauzy
-                if gp_events.dpad_up_just_pressed {
+                if gp_events.dpad_up_just_pressed || (up_arrow_down && !up_arrow_was_down) {
                     let next = match pause_hovered_btn {
-                        Some(0) | None => 3,
+                        Some(0) | None => 4,
                         Some(i) => i - 1,
                     };
                     pause_hovered_btn = Some(next);
                     hovered_idx = Some(next);
                 }
-                if gp_events.dpad_down_just_pressed {
+                if gp_events.dpad_down_just_pressed || (down_arrow_down && !down_arrow_was_down) {
                     let next = match pause_hovered_btn {
-                        Some(3) | None => 0,
+                        Some(4) | None => 0,
                         Some(i) => i + 1,
                     };
                     pause_hovered_btn = Some(next);
                     hovered_idx = Some(next);
                 }
 
-                let click_pause_btn = if left_down && !left_was_down || gp_events.south_just_pressed {
+                let click_pause_btn = if left_down && !left_was_down || gp_events.south_just_pressed || (enter_down && !enter_was_down) {
                     hovered_idx
                 } else {
                     None
@@ -993,16 +1176,20 @@ fn main() {
                             last_mouse = None;
                         }
                         1 => {
-                            fly_mode = !fly_mode;
+                            state = GameState::Settings(PreviousMenu::Paused);
+                            settings_hovered_opt = Some(0);
                         }
                         2 => {
+                            fly_mode = !fly_mode;
+                        }
+                        3 => {
                             let _ = save_current_world(&mut world, &camera, save_slot);
-                            save_slots[save_slot as usize - 1] = true;
+                            save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                             state = GameState::MainMenu;
                             mouse_capture.set_captured(false);
                             window.set_cursor_visibility(true);
                         }
-                        3 => {
+                        4 => {
                             let _ = save_current_world(&mut world, &camera, save_slot);
                             break;
                         }
@@ -1025,12 +1212,13 @@ fn main() {
                 }
                 if m_down && !m_was_down {
                     let _ = save_current_world(&mut world, &camera, save_slot);
-                    save_slots[save_slot as usize - 1] = true;
+                    save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                     state = GameState::MainMenu;
                     mouse_capture.set_captured(false);
                     window.set_cursor_visibility(true);
                 }
 
+                renderer.fog_enabled = settings.fog;
                 renderer.render_frame(&mut world, &camera);
                 renderer.draw_pause_menu(fly_mode, hovered_idx);
             }
@@ -1114,6 +1302,13 @@ fn main() {
         q_was_down = q_down;
         m_was_down = m_down;
         save_was_down = f5_down;
+        enter_was_down = enter_down;
+        up_arrow_was_down = up_arrow_down;
+        down_arrow_was_down = down_arrow_down;
+        n_was_down = n_down;
+        del_was_down = del_down;
+        left_arrow_was_down = left_arrow_down;
+        right_arrow_was_down = right_arrow_down;
 
         // OPTYMALIZACJA 3: Eliminacja przesyłu klatek za pomocą PCIe dla urządzeń, które wykorzystują architekturę i okna bezpośrednio w swapchain na Vulkan.[cite: 2]
         window
@@ -1144,8 +1339,4 @@ fn main() {
     if matches!(state, GameState::Playing | GameState::Paused) {
         let _ = save_current_world(&mut world, &camera, save_slot);
     }
-}
-
-fn world_slot_for_row(selected_slot: u8, row: usize) -> u8 {
-    ((selected_slot as i32 - 1 + row as i32 + 32 - 2).rem_euclid(32) + 1) as u8
 }
