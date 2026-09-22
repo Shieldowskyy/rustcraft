@@ -59,6 +59,7 @@ enum GameState {
     Playing,
     Paused,
     Inventory,
+    DeathScreen,
 }
 
 enum WorldLoadResult {
@@ -185,11 +186,16 @@ fn main() {
     let save_btn_rects = renderer.save_bottom_button_rects();
     let settings_rects = renderer.settings_option_rects();
     let pause_menu_rects = renderer.pause_menu_button_rects();
+    let death_screen_rects = renderer.death_screen_button_rects();
 
     let mut gamepad_mgr = GamepadManager::new();
     let mut menu_hovered_btn: Option<usize> = Some(0);
     let mut pause_hovered_btn: Option<usize> = Some(0);
+    let mut death_hovered_btn: Option<usize> = Some(0);
     let mut inv_cursor: (usize, usize) = (0, 0);
+
+    let mut damage_tilt_timer = 0.0f32;
+    let mut damage_tilt_dir = 1.0f32;
 
     println!("Sterowanie (Klawiatura / Mysz):");
     println!("  Kliknij w okno - zablokuj/przechwyc mysz");
@@ -768,28 +774,38 @@ fn main() {
                             player.fall_distance = 0.0;
                         } else if player.fall_distance > 3.0 {
                             let damage = player.fall_distance - 3.0;
-                            player.take_damage(damage);
+                            if player.take_damage(damage) {
+                                damage_tilt_timer = 0.4;
+                                damage_tilt_dir = 1.0;
+                            }
                         }
                         player.fall_distance = 0.0;
                     }
                     if player.is_dead() {
-                        player.health = player.max_health;
-                        camera.position = Vec3::new(8.0, 90.0, 8.0);
-                        vertical_velocity = 0.0;
+                        state = GameState::DeathScreen;
+                        mouse_capture.set_captured(false);
+                        window.set_cursor_visibility(true);
+                        death_hovered_btn = Some(0);
                         horiz_velocity = Vec3::zero();
-                        player.fall_distance = 0.0;
-                        player.invulnerability_timer = 3.0;
-                        player.has_landed = false;
+                        fly_velocity = Vec3::zero();
                     }
                 }
                 
                 if player.invulnerability_timer > 0.0 {
                     player.invulnerability_timer -= dt;
                 }
+                if damage_tilt_timer > 0.0 {
+                    damage_tilt_timer = (damage_tilt_timer - dt).max(0.0);
+                }
 
                 if camera.position.y < -32.0 {
-                    camera.position.y = 80.0;
-                    vertical_velocity = 0.0;
+                    if player.take_damage(20.0) {
+                        damage_tilt_timer = 0.4;
+                    }
+                    if !player.is_dead() {
+                        camera.position.y = 80.0;
+                        vertical_velocity = 0.0;
+                    }
                 }
                 if camera.position.y > 250.0 {
                     camera.position.y = 250.0;
@@ -916,7 +932,10 @@ fn main() {
                                 world.set_block(target, BlockId::Air);
 
                                 if player.gamemode == GameMode::Survival {
-                                    let drop_vel = Vec3::new(0.0, 3.0, 0.0);
+                                    let seed = ((target.x as u32).wrapping_mul(73856093) ^ (target.y as u32).wrapping_mul(19349663) ^ (target.z as u32).wrapping_mul(83492791)) % 1000;
+                                    let rx = ((seed % 100) as f32 / 100.0 - 0.5) * 1.8;
+                                    let rz = (((seed / 10) % 100) as f32 / 100.0 - 0.5) * 1.8;
+                                    let drop_vel = Vec3::new(rx, 3.2, rz);
                                     items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, broken_block, 1));
                                 }
 
@@ -926,13 +945,13 @@ fn main() {
                                     if world.get_block(above) == BlockId::Door {
                                         world.set_block(above, BlockId::Air);
                                         if player.gamemode == GameMode::Survival {
-                                            items.push(ItemEntity::new(Vec3::new(bx, by + 1.0, bz), Vec3::new(0.0, 3.0, 0.0), BlockId::Door, 1));
+                                            items.push(ItemEntity::new(Vec3::new(bx, by + 1.0, bz), Vec3::new(0.0, 3.2, 0.0), BlockId::Door, 1));
                                         }
                                     }
                                     if world.get_block(below) == BlockId::Door {
                                         world.set_block(below, BlockId::Air);
                                         if player.gamemode == GameMode::Survival {
-                                            items.push(ItemEntity::new(Vec3::new(bx, by - 1.0, bz), Vec3::new(0.0, 3.0, 0.0), BlockId::Door, 1));
+                                            items.push(ItemEntity::new(Vec3::new(bx, by - 1.0, bz), Vec3::new(0.0, 3.2, 0.0), BlockId::Door, 1));
                                         }
                                     }
                                 }
@@ -1006,8 +1025,28 @@ fn main() {
                 world.update_primed_tnts(dt);
 
                 mob_manager.update(dt, &world, camera.position);
+                for mob in &mob_manager.mobs {
+                    if !mob.is_dead {
+                        let dist_sq = (mob.pos.x - camera.position.x).powi(2) + (mob.pos.z - camera.position.z).powi(2);
+                        if dist_sq < 1.4 * 1.4 && (mob.pos.y - camera.position.y).abs() < 1.8 {
+                            if player.take_damage(2.0) {
+                                damage_tilt_timer = 0.4;
+                                damage_tilt_dir = if mob.pos.x > camera.position.x { -1.0 } else { 1.0 };
+                            }
+                        }
+                    }
+                }
                 for poof_pos in mob_manager.dying_poofs.drain(..) {
                     particles.spawn_mob_death_poof(poof_pos);
+                }
+
+                if player.is_dead() {
+                    state = GameState::DeathScreen;
+                    mouse_capture.set_captured(false);
+                    window.set_cursor_visibility(true);
+                    death_hovered_btn = Some(0);
+                    horiz_velocity = Vec3::zero();
+                    fly_velocity = Vec3::zero();
                 }
 
                 if (q_down && !q_was_down && mouse_capture.is_captured()) || gp_events.west_just_pressed {
@@ -1025,11 +1064,12 @@ fn main() {
                     }
                 }
 
+                let player_center = camera.position - Vec3::new(0.0, 0.8, 0.0);
                 let mut i = 0;
                 while i < items.len() {
-                    items[i].update(dt, &world);
-                    let dist_sq = (items[i].position - camera.position).length_sq();
-                    if items[i].pickup_delay <= 0.0 && dist_sq < 2.25 {
+                    items[i].update(dt, &world, Some(player_center));
+                    let dist_sq = (items[i].position - player_center).length_sq();
+                    if items[i].pickup_delay <= 0.0 && dist_sq < 3.24 {
                         let remaining = player.inventory.add_item(items[i].block, items[i].count);
                         if remaining == 0 {
                             items.remove(i);
@@ -1044,19 +1084,35 @@ fn main() {
                 for exp_pos in world.pending_explosions.drain(..) {
                     particles.spawn_explosion(exp_pos);
                     mob_manager.apply_explosion(exp_pos, 5.0, 30.0);
+                    let dist = (camera.position - exp_pos).length();
+                    if dist < 6.0 {
+                        let dmg = (1.0 - dist / 6.0) * 18.0;
+                        if player.take_damage(dmg) {
+                            damage_tilt_timer = 0.4;
+                            damage_tilt_dir = if exp_pos.x > camera.position.x { -1.0 } else { 1.0 };
+                        }
+                    }
                 }
 
                 particles.update(dt);
 
                 let aspect = WIDTH as f32 / HEIGHT as f32;
 
-                // OPTYMALIZACJA 2: Odświeżanie projekcji wyłącznie przy zmianie paramentów, unikanie niepotrzebnych instrukcji FPU[cite: 2]
                 if (camera.fov_y - last_fov).abs() > 0.0001 || (aspect - last_aspect).abs() > 0.0001 {
                     last_fov = camera.fov_y;
                     last_aspect = aspect;
                     proj_matrix = camera.projection_matrix(aspect);
                 }
-                let view_proj = proj_matrix.mul(&camera.view_matrix());
+                let (shake_offset, roll) = if damage_tilt_timer > 0.0 {
+                    let progress = damage_tilt_timer / 0.4;
+                    let roll = (progress * std::f32::consts::PI).sin() * 0.14 * damage_tilt_dir;
+                    let sx = (total_time * 50.0).sin() * 0.08 * progress;
+                    let sy = (total_time * 60.0).cos() * 0.05 * progress;
+                    (camera.right_flat() * sx + Vec3::new(0.0, sy, 0.0), roll)
+                } else {
+                    (Vec3::zero(), 0.0)
+                };
+                let view_proj = proj_matrix.mul(&camera.view_matrix_with_tilt(shake_offset, roll));
                 renderer.fog_enabled = settings.fog;
                 renderer.render_frame(&mut world, &camera);
 
@@ -1073,12 +1129,17 @@ fn main() {
                 }
                 
                 for item in &items {
-                    let color = item.block.face_color(Face::Top);
-                    let color_arr = [color[0], color[1], color[2]];
-                    let y_offset = (item.age * 2.0).sin() * 0.1;
+                    let y_offset = (item.age * 3.0).sin() * 0.08;
                     let mut pos = item.position;
                     pos.y += y_offset;
-                    renderer.draw_billboard(pos, 0.3, color_arr, &camera, &view_proj);
+                    let yaw = item.age * 2.5;
+                    renderer.draw_item_3d(item.block, pos, yaw, &view_proj);
+                }
+
+                if let Some(target) = break_target {
+                    if break_progress > 0.0 {
+                        renderer.draw_block_break_cracks(target, break_progress, &view_proj);
+                    }
                 }
 
                 let block_at_camera = world.get_block(camera.position.floor_to_ivec());
@@ -1089,6 +1150,14 @@ fn main() {
                 for p in &particles.particles {
                     renderer.draw_billboard(p.pos, p.size, p.color, &camera, &view_proj);
                 }
+
+                if damage_tilt_timer > 0.0 {
+                    renderer.draw_damage_flash(damage_tilt_timer / 0.4);
+                }
+                if player.gamemode == GameMode::Survival && player.health <= 2.0 && player.health > 0.0 {
+                    renderer.draw_low_health_vignette(total_time);
+                }
+
                 renderer.draw_crosshair();
                 renderer.draw_break_progress(break_progress);
                 let hand_block: Option<u8> = player.inventory.hotbar[player.selected_hotbar_slot as usize]
@@ -1291,6 +1360,87 @@ fn main() {
                 renderer.render_frame(&mut world, &camera);
                 // Rysuj ekwipunek z podświetleniem wybranego kursorem slotu
                 renderer.draw_inventory(&player, Some(inv_cursor));
+            }
+            GameState::DeathScreen => {
+                window.set_cursor_visibility(true);
+
+                let mut hovered_idx = death_hovered_btn;
+                if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    for (i, &(bx, by, bw, bh)) in death_screen_rects.iter().enumerate() {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            hovered_idx = Some(i);
+                            death_hovered_btn = Some(i);
+                            break;
+                        }
+                    }
+                }
+
+                if gp_events.dpad_up_just_pressed || (up_arrow_down && !up_arrow_was_down) {
+                    let next = match death_hovered_btn {
+                        Some(0) | None => 1,
+                        Some(i) => i - 1,
+                    };
+                    death_hovered_btn = Some(next);
+                    hovered_idx = Some(next);
+                }
+                if gp_events.dpad_down_just_pressed || (down_arrow_down && !down_arrow_was_down) {
+                    let next = match death_hovered_btn {
+                        Some(1) | None => 0,
+                        Some(i) => i + 1,
+                    };
+                    death_hovered_btn = Some(next);
+                    hovered_idx = Some(next);
+                }
+
+                let click_death_btn = if left_down && !left_was_down || gp_events.south_just_pressed || (enter_down && !enter_was_down) {
+                    hovered_idx
+                } else {
+                    None
+                };
+
+                if let Some(btn) = click_death_btn {
+                    match btn {
+                        0 => {
+                            // Odrodzenie
+                            player.health = player.max_health;
+                            camera.position = Vec3::new(8.0, 90.0, 8.0);
+                            camera.pitch = 0.0;
+                            vertical_velocity = 0.0;
+                            horiz_velocity = Vec3::zero();
+                            player.fall_distance = 0.0;
+                            player.invulnerability_timer = 3.0;
+                            player.has_landed = false;
+                            damage_tilt_timer = 0.0;
+                            state = GameState::Playing;
+                            mouse_capture.set_captured(true);
+                            window.set_cursor_visibility(false);
+                            last_mouse = None;
+                        }
+                        1 => {
+                            // Menu główne
+                            let _ = save_current_world(&mut world, &camera, save_slot);
+                            save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
+                            state = GameState::MainMenu;
+                            mouse_capture.set_captured(false);
+                            window.set_cursor_visibility(true);
+                        }
+                        _ => {}
+                    }
+                }
+
+                if (escape_down && !escape_was_down) || gp_events.east_just_pressed {
+                    let _ = save_current_world(&mut world, &camera, save_slot);
+                    save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
+                    state = GameState::MainMenu;
+                    mouse_capture.set_captured(false);
+                    window.set_cursor_visibility(true);
+                }
+
+                renderer.fog_enabled = settings.fog;
+                renderer.render_frame(&mut world, &camera);
+                renderer.draw_death_screen(hovered_idx);
             }
         }
 

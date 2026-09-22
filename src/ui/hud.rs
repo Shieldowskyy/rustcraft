@@ -225,3 +225,106 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
     draw_text_colored_shadowed(buffer, width, height, footer1, cx - f1_w / 2, cy + 135, f_scale, 1, pack_color(0.7, 0.7, 0.7));
     draw_text_colored_shadowed(buffer, width, height, footer2, cx - f2_w / 2, cy + 150, f_scale, 1, pack_color(0.7, 0.7, 0.7));
 }
+
+pub fn draw_damage_flash(buffer: &mut [u32], width: usize, height: usize, intensity: f32) {
+    if intensity <= 0.001 {
+        return;
+    }
+    let alpha = (intensity * 0.35).clamp(0.0, 0.55);
+    fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.95, 0.05, 0.05), alpha);
+}
+
+pub fn draw_low_health_vignette(buffer: &mut [u32], width: usize, height: usize, time: f32) {
+    let pulse = (time * 6.5).sin() * 0.5 + 0.5; // Fast heartbeat pulsation
+    let base_alpha = 0.22 + 0.32 * pulse;
+    let color = pack_color(0.85, 0.02, 0.02);
+
+    let w = width as i32;
+    let h = height as i32;
+    let border_depth = 55;
+
+    for layer in 0..border_depth {
+        let t = 1.0 - (layer as f32 / border_depth as f32);
+        let alpha = base_alpha * t * t * 0.75;
+        let l_w = w - layer * 2;
+        let l_h = h - layer * 2;
+        if l_w <= 0 || l_h <= 0 { break; }
+
+        fill_rect_alpha(buffer, width, height, layer, layer, l_w, 1, color, alpha);
+        fill_rect_alpha(buffer, width, height, layer, h - 1 - layer, l_w, 1, color, alpha);
+        fill_rect_alpha(buffer, width, height, layer, layer + 1, 1, l_h - 2, color, alpha);
+        fill_rect_alpha(buffer, width, height, w - 1 - layer, layer + 1, 1, l_h - 2, color, alpha);
+    }
+}
+
+pub fn death_screen_button_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 2] {
+    let btn_w = 340;
+    let btn_h = 42;
+    let spacing = 16;
+    let cx = width as i32 / 2;
+    let start_y = height as i32 / 2 + 10;
+
+    [
+        (cx - btn_w / 2, start_y, btn_w, btn_h),
+        (cx - btn_w / 2, start_y + btn_h + spacing, btn_w, btn_h),
+    ]
+}
+
+pub fn draw_death_screen(
+    buffer: &mut [u32],
+    width: usize,
+    height: usize,
+    hovered_idx: Option<usize>,
+) {
+    fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.50, 0.05, 0.05), 0.65);
+
+    let cx = width as i32 / 2;
+    let cy = height as i32 / 2;
+
+    let title = "NIE ZYJESZ!";
+    let t_scale = 5;
+    let tw = font::measure_text(title, t_scale, 2);
+    draw_text_colored_shadowed(buffer, width, height, title, cx - tw / 2, cy - 110, t_scale, 2, pack_color(1.0, 0.15, 0.15));
+
+    let subtitle = "Polegles w swiecie gry";
+    let s_scale = 2;
+    let sw = font::measure_text(subtitle, s_scale, 1);
+    draw_text_colored_shadowed(buffer, width, height, subtitle, cx - sw / 2, cy - 40, s_scale, 1, pack_color(0.9, 0.85, 0.85));
+
+    let buttons = [
+        "ODRODZENIE (ENTER)",
+        "MENU GLOWNE (ESC)",
+    ];
+
+    let rects = death_screen_button_rects(width, height);
+
+    for (i, (&label, &(bx, by, bw, bh))) in buttons.iter().zip(rects.iter()).enumerate() {
+        let is_hover = hovered_idx == Some(i);
+
+        let body_color = if is_hover {
+            if i == 0 { pack_color(0.30, 0.50, 0.30) } else { pack_color(0.45, 0.28, 0.28) }
+        } else {
+            pack_color(0.22, 0.18, 0.18)
+        };
+        fill_rect(buffer, width, height, bx, by, bw, bh, body_color);
+
+        let top_left = if is_hover { pack_color(0.85, 0.95, 0.85) } else { pack_color(0.55, 0.50, 0.50) };
+        let bottom_right = if is_hover { pack_color(0.20, 0.30, 0.20) } else { pack_color(0.12, 0.08, 0.08) };
+
+        fill_rect(buffer, width, height, bx, by, bw, 2, top_left);
+        fill_rect(buffer, width, height, bx, by, 2, bh, top_left);
+        fill_rect(buffer, width, height, bx, by + bh - 2, bw, 2, bottom_right);
+        fill_rect(buffer, width, height, bx + bw - 2, by, 2, bh, bottom_right);
+
+        let scale = 2;
+        let tw = font::measure_text(label, scale, 1);
+        let tx = bx + (bw - tw) / 2;
+        let ty = by + (bh - (font::GLYPH_H as i32 * scale)) / 2;
+
+        if is_hover {
+            draw_text_colored_shadowed(buffer, width, height, label, tx, ty, scale, 1, pack_color(1.0, 1.0, 0.3));
+        } else {
+            draw_text_shadowed(buffer, width, height, label, tx, ty, scale, 1);
+        }
+    }
+}

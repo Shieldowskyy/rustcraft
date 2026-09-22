@@ -584,6 +584,50 @@ pub enum TextureId {
     CowSnout,
     CowHorns,
     CowUdder,
+    DestroyStage0,
+    DestroyStage1,
+    DestroyStage2,
+    DestroyStage3,
+    DestroyStage4,
+    DestroyStage5,
+    DestroyStage6,
+    DestroyStage7,
+    DestroyStage8,
+    DestroyStage9,
+}
+
+impl TextureId {
+    #[inline(always)]
+    pub fn is_destroy_stage(self) -> bool {
+        matches!(
+            self,
+            TextureId::DestroyStage0
+                | TextureId::DestroyStage1
+                | TextureId::DestroyStage2
+                | TextureId::DestroyStage3
+                | TextureId::DestroyStage4
+                | TextureId::DestroyStage5
+                | TextureId::DestroyStage6
+                | TextureId::DestroyStage7
+                | TextureId::DestroyStage8
+                | TextureId::DestroyStage9
+        )
+    }
+
+    pub fn destroy_stage(stage: usize) -> Self {
+        match stage {
+            0 => TextureId::DestroyStage0,
+            1 => TextureId::DestroyStage1,
+            2 => TextureId::DestroyStage2,
+            3 => TextureId::DestroyStage3,
+            4 => TextureId::DestroyStage4,
+            5 => TextureId::DestroyStage5,
+            6 => TextureId::DestroyStage6,
+            7 => TextureId::DestroyStage7,
+            8 => TextureId::DestroyStage8,
+            _ => TextureId::DestroyStage9,
+        }
+    }
 }
 
 fn glass() -> Texture {
@@ -744,6 +788,41 @@ fn cow_udder() -> Texture {
     tex
 }
 
+fn destroy_stage(stage: usize) -> Texture {
+    #[rustfmt::skip]
+    const CRACK_RANK: [[u8; 16]; 16] = [
+        [255, 255,   8,   7,   8, 255, 255, 255,   8,   7,   8, 255, 255,   9, 255, 255],
+        [255,   8,   6,   5,   6,   7, 255,   8,   6,   5,   6,   8, 255,   8,   9, 255],
+        [  9,   7,   5,   3,   4,   5,   6,   5,   4,   3,   5,   7,   8,   7,   8, 255],
+        [255,   8,   5,   3,   2,   2,   3,   3,   2,   2,   4,   6,   7,   6,   8,   9],
+        [255,   7,   4,   2,   1,   1,   2,   2,   1,   1,   3,   5,   6,   5,   7, 255],
+        [255,   8,   5,   3,   1,   0,   0,   1,   0,   1,   3,   4,   5,   6,   8, 255],
+        [  8,   6,   4,   2,   1,   0,   0,   0,   0,   1,   2,   4,   5,   7, 255, 255],
+        [  7,   5,   3,   1,   0,   0,   0,   0,   0,   0,   1,   3,   5,   6,   8, 255],
+        [  8,   6,   4,   2,   1,   0,   0,   0,   0,   1,   2,   4,   6,   7,   9, 255],
+        [255,   7,   5,   3,   1,   0,   1,   0,   1,   2,   4,   5,   7,   8, 255, 255],
+        [255,   8,   6,   4,   2,   1,   2,   2,   2,   3,   4,   6,   7, 255, 255, 255],
+        [255, 255,   7,   5,   3,   2,   3,   4,   3,   4,   5,   7,   8,   9, 255, 255],
+        [255,   9,   8,   6,   4,   3,   4,   5,   5,   5,   6,   8, 255,   8,   9, 255],
+        [255,   8,   7,   5,   4,   5,   6,   7,   6,   7,   8, 255, 255,   7,   8, 255],
+        [255, 255,   8,   7,   6,   7, 255,   8,   7,   8, 255, 255,   8,   7,   8, 255],
+        [255, 255, 255,   9,   8, 255, 255, 255,   9, 255, 255, 255, 255,   9, 255, 255],
+    ];
+
+    let mut texels = vec![[-1.0, -1.0, -1.0]; TEX_SIZE * TEX_SIZE];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let rank = CRACK_RANK[y][x];
+            if (stage as u8) >= rank {
+                let n = rand_at(x, y, 999) * 0.04;
+                let shade = (0.07 + n).clamp(0.04, 0.15);
+                texels[y * TEX_SIZE + x] = [shade, shade, shade];
+            }
+        }
+    }
+    Texture { texels }
+}
+
 pub struct TextureAtlas {
     pub grass_top: Texture,
     pub grass_side: Texture,
@@ -777,6 +856,7 @@ pub struct TextureAtlas {
     pub cow_snout: Texture,
     pub cow_horns: Texture,
     pub cow_udder: Texture,
+    pub destroy_stages: [Texture; 10],
 }
 
 impl TextureAtlas {
@@ -814,6 +894,7 @@ impl TextureAtlas {
             cow_snout: cow_snout(),
             cow_horns: cow_horns(),
             cow_udder: cow_udder(),
+            destroy_stages: std::array::from_fn(destroy_stage),
         }
     }
 
@@ -851,6 +932,16 @@ impl TextureAtlas {
             TextureId::CowSnout => &self.cow_snout,
             TextureId::CowHorns => &self.cow_horns,
             TextureId::CowUdder => &self.cow_udder,
+            TextureId::DestroyStage0 => &self.destroy_stages[0],
+            TextureId::DestroyStage1 => &self.destroy_stages[1],
+            TextureId::DestroyStage2 => &self.destroy_stages[2],
+            TextureId::DestroyStage3 => &self.destroy_stages[3],
+            TextureId::DestroyStage4 => &self.destroy_stages[4],
+            TextureId::DestroyStage5 => &self.destroy_stages[5],
+            TextureId::DestroyStage6 => &self.destroy_stages[6],
+            TextureId::DestroyStage7 => &self.destroy_stages[7],
+            TextureId::DestroyStage8 => &self.destroy_stages[8],
+            TextureId::DestroyStage9 => &self.destroy_stages[9],
         }
     }
 }

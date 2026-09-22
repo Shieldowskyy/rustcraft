@@ -31,14 +31,16 @@ impl Player {
         }
     }
 
-    pub fn take_damage(&mut self, amount: f32) {
-        if self.gamemode == GameMode::Creative || self.invulnerability_timer > 0.0 {
-            return;
+    pub fn take_damage(&mut self, amount: f32) -> bool {
+        if self.gamemode == GameMode::Creative || self.invulnerability_timer > 0.0 || self.is_dead() {
+            return false;
         }
         self.health -= amount;
+        self.invulnerability_timer = 0.5;
         if self.health < 0.0 {
             self.health = 0.0;
         }
+        true
     }
 
     pub fn heal(&mut self, amount: f32) {

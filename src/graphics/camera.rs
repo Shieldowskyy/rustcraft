@@ -45,6 +45,16 @@ impl Camera {
         Mat4::look_at(self.position, target, Vec3::new(0.0, 1.0, 0.0))
     }
 
+    pub fn view_matrix_with_tilt(&self, shake_offset: Vec3, roll_rad: f32) -> Mat4 {
+        let pos = self.position + shake_offset;
+        let forward = self.forward();
+        let target = pos + forward;
+        let right = self.right_flat();
+        let up = Vec3::new(0.0, 1.0, 0.0);
+        let rolled_up = (up * roll_rad.cos() + right * roll_rad.sin()).normalized();
+        Mat4::look_at(pos, target, rolled_up)
+    }
+
     pub fn projection_matrix(&self, aspect: f32) -> Mat4 {
         Mat4::perspective(self.fov_y, aspect, 0.05, 400.0)
     }

@@ -244,6 +244,23 @@ impl Renderer {
         crate::ui::draw_debug_panel(&mut self.color_buffer, self.width, self.height, lines);
     }
 
+    #[inline(always)]
+    pub fn death_screen_button_rects(&self) -> [(i32, i32, i32, i32); 2] {
+        crate::ui::death_screen_button_rects(self.width, self.height)
+    }
+
+    pub fn draw_damage_flash(&mut self, intensity: f32) {
+        crate::ui::draw_damage_flash(&mut self.color_buffer, self.width, self.height, intensity);
+    }
+
+    pub fn draw_low_health_vignette(&mut self, time: f32) {
+        crate::ui::draw_low_health_vignette(&mut self.color_buffer, self.width, self.height, time);
+    }
+
+    pub fn draw_death_screen(&mut self, hovered: Option<usize>) {
+        crate::ui::draw_death_screen(&mut self.color_buffer, self.width, self.height, hovered);
+    }
+
     pub fn render_frame(&mut self, world: &mut World, camera: &Camera) {
         if self.vulkan.is_none() {
             self.clear(camera.pitch);
@@ -1158,6 +1175,104 @@ impl Renderer {
         }
     }
 
+    pub fn draw_item_3d(
+        &mut self,
+        block: crate::world::block::BlockId,
+        pos: Vec3,
+        yaw: f32,
+        view_proj: &Mat4,
+    ) {
+        use crate::world::block::Face;
+        let size = 0.28;
+        let half = size * 0.5;
+        let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+        let up = Vec3::new(0.0, 1.0, 0.0);
+        let forward = Vec3::new(yaw.sin(), 0.0, yaw.cos());
+
+        let corner = |x: f32, y: f32, z: f32| {
+            pos + right * (x * half) + up * (y * half) + forward * (z * half)
+        };
+
+        let face_data = [
+            ([corner(-1.0, 1.0, 1.0), corner(1.0, 1.0, 1.0), corner(1.0, 1.0, -1.0), corner(-1.0, 1.0, -1.0)], block.texture_id(Face::Top), 1.00),
+            ([corner(-1.0, -1.0, -1.0), corner(1.0, -1.0, -1.0), corner(1.0, -1.0, 1.0), corner(-1.0, -1.0, 1.0)], block.texture_id(Face::Bottom), 0.55),
+            ([corner(-1.0, -1.0, 1.0), corner(1.0, -1.0, 1.0), corner(1.0, 1.0, 1.0), corner(-1.0, 1.0, 1.0)], block.texture_id(Face::South), 0.85),
+            ([corner(1.0, -1.0, -1.0), corner(-1.0, -1.0, -1.0), corner(-1.0, 1.0, -1.0), corner(1.0, 1.0, -1.0)], block.texture_id(Face::North), 0.85),
+            ([corner(-1.0, -1.0, -1.0), corner(-1.0, -1.0, 1.0), corner(-1.0, 1.0, 1.0), corner(-1.0, 1.0, -1.0)], block.texture_id(Face::West), 0.70),
+            ([corner(1.0, -1.0, 1.0), corner(1.0, -1.0, -1.0), corner(1.0, 1.0, -1.0), corner(1.0, 1.0, 1.0)], block.texture_id(Face::East), 0.70),
+        ];
+
+        for (corners, tex, ao) in face_data {
+            let t1 = Triangle {
+                v0: Vertex { pos: corners[0], uv: (0.0, 1.0), ao },
+                v1: Vertex { pos: corners[1], uv: (1.0, 1.0), ao },
+                v2: Vertex { pos: corners[2], uv: (1.0, 0.0), ao },
+                texture: tex,
+            };
+            let t2 = Triangle {
+                v0: Vertex { pos: corners[0], uv: (0.0, 1.0), ao },
+                v1: Vertex { pos: corners[2], uv: (1.0, 0.0), ao },
+                v2: Vertex { pos: corners[3], uv: (0.0, 0.0), ao },
+                texture: tex,
+            };
+            self.raster_triangle(&t1, view_proj);
+            self.raster_triangle(&t2, view_proj);
+        }
+    }
+
+    pub fn draw_block_break_cracks(
+        &mut self,
+        target: crate::core::math::IVec3,
+        progress: f32,
+        view_proj: &Mat4,
+    ) {
+        if progress <= 0.0 {
+            return;
+        }
+        let stage = ((progress * 10.0).floor() as usize).min(9);
+        let crack_tex = TextureId::destroy_stage(stage);
+
+        let eps = 0.003;
+        let x0 = target.x as f32 - eps;
+        let x1 = target.x as f32 + 1.0 + eps;
+        let y0 = target.y as f32 - eps;
+        let y1 = target.y as f32 + 1.0 + eps;
+        let z0 = target.z as f32 - eps;
+        let z1 = target.z as f32 + 1.0 + eps;
+
+        let faces = [
+            // Top (+Y)
+            [Vec3::new(x0, y1, z1), Vec3::new(x1, y1, z1), Vec3::new(x1, y1, z0), Vec3::new(x0, y1, z0)],
+            // Bottom (-Y)
+            [Vec3::new(x0, y0, z0), Vec3::new(x1, y0, z0), Vec3::new(x1, y0, z1), Vec3::new(x0, y0, z1)],
+            // Front (+Z)
+            [Vec3::new(x0, y0, z1), Vec3::new(x1, y0, z1), Vec3::new(x1, y1, z1), Vec3::new(x0, y1, z1)],
+            // Back (-Z)
+            [Vec3::new(x1, y0, z0), Vec3::new(x0, y0, z0), Vec3::new(x0, y1, z0), Vec3::new(x1, y1, z0)],
+            // Left (-X)
+            [Vec3::new(x0, y0, z0), Vec3::new(x0, y0, z1), Vec3::new(x0, y1, z1), Vec3::new(x0, y1, z0)],
+            // Right (+X)
+            [Vec3::new(x1, y0, z1), Vec3::new(x1, y0, z0), Vec3::new(x1, y1, z0), Vec3::new(x1, y1, z1)],
+        ];
+
+        for corners in faces {
+            let t1 = Triangle {
+                v0: Vertex { pos: corners[0], uv: (0.0, 1.0), ao: 1.0 },
+                v1: Vertex { pos: corners[1], uv: (1.0, 1.0), ao: 1.0 },
+                v2: Vertex { pos: corners[2], uv: (1.0, 0.0), ao: 1.0 },
+                texture: crack_tex,
+            };
+            let t2 = Triangle {
+                v0: Vertex { pos: corners[0], uv: (0.0, 1.0), ao: 1.0 },
+                v1: Vertex { pos: corners[2], uv: (1.0, 0.0), ao: 1.0 },
+                v2: Vertex { pos: corners[3], uv: (0.0, 0.0), ao: 1.0 },
+                texture: crack_tex,
+            };
+            self.raster_triangle(&t1, view_proj);
+            self.raster_triangle(&t2, view_proj);
+        }
+    }
+
     fn draw_cube_3d(
         &mut self,
         center: Vec3,
@@ -1348,7 +1463,8 @@ fn raster_screen_triangle_ao_tile(
 
     let inv_area = 1.0 / area;
     let tex = textures.get(texture);
-    let transparent = matches!(texture, TextureId::Water | TextureId::Glass);
+    let is_crack = texture.is_destroy_stage();
+    let transparent = matches!(texture, TextureId::Water | TextureId::Glass) || is_crack;
 
     let dx0 = c.x - b.x;
     let dy0 = c.y - b.y;
@@ -1386,6 +1502,7 @@ fn raster_screen_triangle_ao_tile(
                 &b,
                 &c,
                 transparent,
+                is_crack,
                 hurt_tint,
                 tex,
                 color_buffer,
@@ -1411,6 +1528,7 @@ fn raster_screen_triangle_ao_tile(
                 &b,
                 &c,
                 transparent,
+                is_crack,
                 hurt_tint,
                 tex,
                 color_buffer,
@@ -1445,6 +1563,7 @@ fn raster_scanline_simd_4x(
     b: &ScreenVertAO,
     c: &ScreenVertAO,
     transparent: bool,
+    is_crack: bool,
     hurt_tint: f32,
     tex: &crate::graphics::atlas::Texture,
     color_buffer: &mut [u32],
@@ -1493,15 +1612,20 @@ fn raster_scanline_simd_4x(
                 let idx = row_offset + (px as usize + i);
 
                 if depth < depth_buffer[idx] {
+                    let u = (l0 * a.uv_over_w.0 + l1 * b.uv_over_w.0 + l2 * c.uv_over_w.0) * depth;
+                    let v = (l0 * a.uv_over_w.1 + l1 * b.uv_over_w.1 + l2 * c.uv_over_w.1) * depth;
+
+                    let texel = tex.sample(u, v);
+                    if texel[0] < 0.0 {
+                        continue;
+                    }
+
                     if !transparent {
                         depth_buffer[idx] = depth;
                     }
 
-                    let u = (l0 * a.uv_over_w.0 + l1 * b.uv_over_w.0 + l2 * c.uv_over_w.0) * depth;
-                    let v = (l0 * a.uv_over_w.1 + l1 * b.uv_over_w.1 + l2 * c.uv_over_w.1) * depth;
                     let ao = (l0 * a.ao_over_w + l1 * b.ao_over_w + l2 * c.ao_over_w) * depth;
 
-                    let texel = tex.sample(u, v);
                     let mut r = texel[0] * ao;
                     let mut g = texel[1] * ao;
                     let mut bl = texel[2] * ao;
@@ -1518,7 +1642,15 @@ fn raster_scanline_simd_4x(
                     let fg = g * (1.0 - fog_t) + fog.1 * fog_t;
                     let fb = bl * (1.0 - fog_t) + fog.2 * fog_t;
 
-                    if transparent {
+                    if is_crack {
+                        let (br, bg, bb) = unpack_color(color_buffer[idx]);
+                        let alpha = 0.85;
+                        color_buffer[idx] = pack_color(
+                            fr * alpha + br * (1.0 - alpha),
+                            fg * alpha + bg * (1.0 - alpha),
+                            fb * alpha + bb * (1.0 - alpha),
+                        );
+                    } else if transparent {
                         let (br, bg, bb) = unpack_color(color_buffer[idx]);
                         let alpha = 0.48;
                         color_buffer[idx] = pack_color(
@@ -1547,6 +1679,7 @@ fn raster_scanline_pixel(
     b: &ScreenVertAO,
     c: &ScreenVertAO,
     transparent: bool,
+    is_crack: bool,
     hurt_tint: f32,
     tex: &crate::graphics::atlas::Texture,
     color_buffer: &mut [u32],
@@ -1564,15 +1697,20 @@ fn raster_scanline_pixel(
             let idx = row_offset + (px as usize);
 
             if depth < depth_buffer[idx] {
+                let u = (l0 * a.uv_over_w.0 + l1 * b.uv_over_w.0 + l2 * c.uv_over_w.0) * depth;
+                let v = (l0 * a.uv_over_w.1 + l1 * b.uv_over_w.1 + l2 * c.uv_over_w.1) * depth;
+
+                let texel = tex.sample(u, v);
+                if texel[0] < 0.0 {
+                    return;
+                }
+
                 if !transparent {
                     depth_buffer[idx] = depth;
                 }
 
-                let u = (l0 * a.uv_over_w.0 + l1 * b.uv_over_w.0 + l2 * c.uv_over_w.0) * depth;
-                let v = (l0 * a.uv_over_w.1 + l1 * b.uv_over_w.1 + l2 * c.uv_over_w.1) * depth;
                 let ao = (l0 * a.ao_over_w + l1 * b.ao_over_w + l2 * c.ao_over_w) * depth;
 
-                let texel = tex.sample(u, v);
                 let mut r = texel[0] * ao;
                 let mut g = texel[1] * ao;
                 let mut bl = texel[2] * ao;
@@ -1589,7 +1727,15 @@ fn raster_scanline_pixel(
                 let fg = g * (1.0 - fog_t) + fog.1 * fog_t;
                 let fb = bl * (1.0 - fog_t) + fog.2 * fog_t;
 
-                if transparent {
+                if is_crack {
+                    let (br, bg, bb) = unpack_color(color_buffer[idx]);
+                    let alpha = 0.85;
+                    color_buffer[idx] = pack_color(
+                        fr * alpha + br * (1.0 - alpha),
+                        fg * alpha + bg * (1.0 - alpha),
+                        fb * alpha + bb * (1.0 - alpha),
+                    );
+                } else if transparent {
                     let (br, bg, bb) = unpack_color(color_buffer[idx]);
                     let alpha = 0.48;
                     color_buffer[idx] = pack_color(
