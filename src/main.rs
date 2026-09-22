@@ -1,15 +1,26 @@
-// RustCraft - a tiny Minecraft-like voxel game with selectable software/Vulkan backends.
-
+#[cfg(not(target_os = "vita"))]
 use minifb::{CursorStyle, Key, MouseButton, MouseMode, Window, WindowOptions};
+#[cfg(not(target_os = "vita"))]
 use std::time::Instant;
 
+#[cfg(not(target_os = "vita"))]
 use rustcraft::app::{InputState, RustCraftApp, HEIGHT, WIDTH};
+#[cfg(not(target_os = "vita"))]
 use rustcraft::cli::{parse_renderer_choice, parse_seed};
+#[cfg(not(target_os = "vita"))]
 use rustcraft::platform::gamepad::GamepadManager;
+#[cfg(not(target_os = "vita"))]
 use rustcraft::platform::mouse_capture::{self, MouseCapture};
 
+#[cfg(not(target_os = "vita"))]
 const TARGET_FPS: usize = 300;
 
+#[cfg(target_os = "vita")]
+fn main() {
+    rustcraft::platform::vita::run_vita_app();
+}
+
+#[cfg(not(target_os = "vita"))]
 fn main() {
     let renderer_choice = parse_renderer_choice();
     let seed = parse_seed();

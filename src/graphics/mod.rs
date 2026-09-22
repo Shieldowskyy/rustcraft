@@ -1,7 +1,7 @@
 pub mod atlas;
 pub mod camera;
 pub mod font;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
 pub mod gpu;
 pub mod software;
 pub mod traits;

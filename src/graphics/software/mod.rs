@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
 use rayon::prelude::*;
 
 use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId};
 use crate::graphics::camera::Camera;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
 use crate::graphics::gpu::VulkanContext;
 use crate::graphics::traits::RenderBackend;
 use crate::world::mesher::{build_chunk_mesh, Triangle, Vertex};
@@ -57,9 +57,9 @@ pub struct Renderer {
     mesh_cache: HashMap<(i32, i32), Vec<Triangle>>,
     selected_block: u8,
     textures: TextureAtlas,
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
     vulkan: Option<VulkanContext>,
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
     vulkan: Option<()>,
     loaded_keys: Vec<(i32, i32)>,
     dirty_keys: HashSet<(i32, i32)>,
@@ -72,7 +72,7 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(width: usize, height: usize) -> Self {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
         {
             let logical_threads = std::thread::available_parallelism()
                 .map(|n| n.get())
@@ -106,7 +106,7 @@ impl Renderer {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
     pub fn new_vulkan(width: usize, height: usize) -> Result<Self, String> {
         let mut renderer = Self::new(width, height);
         renderer.vulkan = Some(VulkanContext::new(width, height, &renderer.textures)?);
@@ -114,7 +114,7 @@ impl Renderer {
     }
 
     pub fn backend_name(&self) -> &'static str {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
         if self.vulkan.is_some() { return "vulkan"; }
         "software"
     }
@@ -152,24 +152,24 @@ impl Renderer {
             }
         };
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
         self.color_buffer
             .par_chunks_mut(width * TILE_HEIGHT)
             .enumerate()
             .for_each(clear_tile);
 
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
         self.color_buffer
             .chunks_mut(width * TILE_HEIGHT)
             .enumerate()
             .for_each(clear_tile);
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
         self.depth_buffer.par_chunks_mut(width * TILE_HEIGHT).for_each(|chunk| {
             chunk.fill(f32::INFINITY);
         });
 
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
         self.depth_buffer.chunks_mut(width * TILE_HEIGHT).for_each(|chunk| {
             chunk.fill(f32::INFINITY);
         });
@@ -337,13 +337,13 @@ impl Renderer {
                 (key, mesh)
             };
 
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
             let new_meshes: Vec<((i32, i32), Vec<Triangle>)> = dirty_keys_to_build
                 .par_iter()
                 .map(build_mesh)
                 .collect();
 
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
             let new_meshes: Vec<((i32, i32), Vec<Triangle>)> = dirty_keys_to_build
                 .iter()
                 .map(build_mesh)
@@ -358,7 +358,7 @@ impl Renderer {
             }
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
         if let Some(vulkan) = self.vulkan.as_mut() {
             self.visible_keys.clear();
             for key in &self.loaded_keys {
@@ -382,7 +382,7 @@ impl Renderer {
             return;
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
         let mut visible: Vec<(i32, i32)> = self
             .loaded_keys
             .par_iter()
@@ -390,7 +390,7 @@ impl Renderer {
             .filter(|&key| Self::chunk_visible(key, &view_proj))
             .collect();
 
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
         let mut visible: Vec<(i32, i32)> = self
             .loaded_keys
             .iter()
@@ -471,24 +471,24 @@ impl Renderer {
             (local_opaque, local_transparent)
         };
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
         let (opaque_chunks, transparent_chunks): (Vec<Vec<ScreenTriangle>>, Vec<Vec<ScreenTriangle>>) = visible
             .par_iter()
             .map(process_chunk)
             .unzip();
 
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
         let (opaque_chunks, transparent_chunks): (Vec<Vec<ScreenTriangle>>, Vec<Vec<ScreenTriangle>>) = visible
             .iter()
             .map(process_chunk)
             .unzip();
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
         {
             self.opaque_tris_buf = opaque_chunks.into_par_iter().flatten().collect();
             self.transparent_tris_buf = transparent_chunks.into_par_iter().flatten().collect();
         }
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
         {
             self.opaque_tris_buf = opaque_chunks.into_iter().flatten().collect();
             self.transparent_tris_buf = transparent_chunks.into_iter().flatten().collect();
@@ -547,7 +547,7 @@ impl Renderer {
             }
         };
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
         color_chunks
             .zip(depth_chunks)
             .enumerate()
@@ -555,7 +555,7 @@ impl Renderer {
             .into_par_iter()
             .for_each(render_tile);
 
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
         color_chunks
             .zip(depth_chunks)
             .enumerate()

@@ -3,7 +3,7 @@ pub mod mesher;
 pub mod storage;
 
 use std::collections::{HashMap, HashSet};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
 use rayon::prelude::*;
 
 pub use block::{BlockId, Face};
@@ -872,9 +872,9 @@ impl World {
 
         if !missing_chunks.is_empty() {
             let seed = self.seed;
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
             let iter = missing_chunks.into_par_iter();
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
             let iter = missing_chunks.into_iter();
 
             let generated_chunks: Vec<Chunk> = iter

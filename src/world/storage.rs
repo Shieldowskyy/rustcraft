@@ -34,22 +34,31 @@ fn exe_saves_dir_if_writable() -> Option<std::path::PathBuf> {
 }
 
 fn fallback_saves_dir() -> std::path::PathBuf {
-    #[cfg(windows)]
+    #[cfg(target_os = "vita")]
     {
-        if let Some(appdata) = std::env::var_os("APPDATA").map(std::path::PathBuf::from) {
-            let dir = appdata.join("rustcraft").join("saves");
+        let dir = std::path::PathBuf::from("ux0:data/rustcraft/saves");
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    }
+    #[cfg(not(target_os = "vita"))]
+    {
+        #[cfg(windows)]
+        {
+            if let Some(appdata) = std::env::var_os("APPDATA").map(std::path::PathBuf::from) {
+                let dir = appdata.join("rustcraft").join("saves");
+                if std::fs::create_dir_all(&dir).is_ok() {
+                    return dir;
+                }
+            }
+        }
+        if let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) {
+            let dir = home.join(".config").join("rustcraft").join("saves");
             if std::fs::create_dir_all(&dir).is_ok() {
                 return dir;
             }
         }
+        std::path::PathBuf::from(".")
     }
-    if let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) {
-        let dir = home.join(".config").join("rustcraft").join("saves");
-        if std::fs::create_dir_all(&dir).is_ok() {
-            return dir;
-        }
-    }
-    std::path::PathBuf::from(".")
 }
 
 fn is_dir_writable(dir: &std::path::Path) -> bool {

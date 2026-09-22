@@ -16,7 +16,7 @@ path = "src/main.rs"
 bytemuck = { version = "1.16", features = ["derive"] }
 getrandom = { version = "=0.2.15", features = ["js"] }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))'.dependencies]
 minifb = "0.27"
 raw-window-handle = "0.6"
 wgpu = "0.19"
@@ -53,8 +53,14 @@ opt-level = "s"      # Optymalizacja pod kątem małego rozmiaru (lub "z")
 lto = true           # Link Time Optimization włączone w pełni dla mniejszego kodu
 codegen-units = 1    # Jedna jednostka generacji kodu (maksymalna optymalizacja rozmiaru/wyszukiwanie martwego kodu)
 panic = "abort"      # Usuwa kod obsługi unwindingu (stack unrolling), oszczędza sporo KB
-strip = true         # Automatycznie usuwa symbole debugowania po kompilacji
+strip = false        # Nie usuwamy symboli w ld (wymagane dla vita-elf-create i relokacji -q)
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
+
+[package.metadata.vita]
+title_id = "RUSTCRAFT"
+title_name = "RustCraft"
+assets = "vita/sce_sys"
+
 

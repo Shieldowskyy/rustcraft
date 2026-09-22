@@ -212,7 +212,7 @@ impl RustCraftApp {
     pub fn new(width: usize, height: usize, renderer_choice: &str, seed: u32) -> Self {
         let settings = GameSettings::load();
         let mut renderer = match renderer_choice {
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
             "vulkan" => Renderer::new_vulkan(width, height).unwrap_or_else(|error| {
                 eprintln!("Nie można uruchomić renderera Vulkan: {error}, przełączam na software");
                 Renderer::new(width, height)
