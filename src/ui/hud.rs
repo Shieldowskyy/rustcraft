@@ -3,7 +3,6 @@ use crate::graphics::font;
 use crate::ui::draw::{
     draw_text_colored_shadowed, draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color, set_px,
 };
-use crate::world::block::Face;
 
 pub fn draw_crosshair(buffer: &mut [u32], width: usize, height: usize) {
     let cx = width as i32 / 2;
@@ -68,8 +67,7 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
         fill_rect(buffer, width, height, x, y, slot_size, slot_size, pack_color(0.3, 0.3, 0.3));
 
         if let Some(stack) = &player.inventory.hotbar[i as usize] {
-            let color = stack.block.face_color(Face::Top);
-            fill_rect(buffer, width, height, x + 4, y + 4, slot_size - 8, slot_size - 8, pack_color(color[0], color[1], color[2]));
+            crate::ui::draw_item_icon(buffer, width, height, stack.block, x + 3, y + 3, slot_size - 6);
 
             if stack.count > 1 {
                 let label = format!("{}", stack.count);

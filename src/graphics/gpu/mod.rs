@@ -7,7 +7,7 @@ use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId, TEX_SIZE};
 use crate::world::mesher::Triangle;
 
-pub const TEXTURE_LAYER_COUNT: u32 = 42;
+pub const TEXTURE_LAYER_COUNT: u32 = 45;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -729,6 +729,9 @@ impl VulkanContext {
             TextureId::DestroyStage7 => 39,
             TextureId::DestroyStage8 => 40,
             TextureId::DestroyStage9 => 41,
+            TextureId::CraftingTableTop => 42,
+            TextureId::CraftingTableSide => 43,
+            TextureId::CraftingTableFront => 44,
         }
     }
 
@@ -775,7 +778,10 @@ impl VulkanContext {
             38 => TextureId::DestroyStage6,
             39 => TextureId::DestroyStage7,
             40 => TextureId::DestroyStage8,
-            _ => TextureId::DestroyStage9,
+            41 => TextureId::DestroyStage9,
+            42 => TextureId::CraftingTableTop,
+            43 => TextureId::CraftingTableSide,
+            _ => TextureId::CraftingTableFront,
         }
     }
 }

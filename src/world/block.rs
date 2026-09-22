@@ -25,6 +25,20 @@ pub enum BlockId {
     Glass,
     Ice,
     Tnt,
+    CraftingTable,
+    Stick,
+    WoodenPickaxe,
+    StonePickaxe,
+    IronPickaxe,
+    WoodenAxe,
+    StoneAxe,
+    IronAxe,
+    WoodenShovel,
+    StoneShovel,
+    IronShovel,
+    WoodenSword,
+    StoneSword,
+    IronSword,
 }
 
 impl BlockId {
@@ -49,6 +63,20 @@ impl BlockId {
             17 => BlockId::Glass,
             18 => BlockId::Ice,
             19 => BlockId::Tnt,
+            20 => BlockId::CraftingTable,
+            21 => BlockId::Stick,
+            22 => BlockId::WoodenPickaxe,
+            23 => BlockId::StonePickaxe,
+            24 => BlockId::IronPickaxe,
+            25 => BlockId::WoodenAxe,
+            26 => BlockId::StoneAxe,
+            27 => BlockId::IronAxe,
+            28 => BlockId::WoodenShovel,
+            29 => BlockId::StoneShovel,
+            30 => BlockId::IronShovel,
+            31 => BlockId::WoodenSword,
+            32 => BlockId::StoneSword,
+            33 => BlockId::IronSword,
             _ => BlockId::Air,
         }
     }
@@ -75,15 +103,142 @@ impl BlockId {
             BlockId::Glass => 17,
             BlockId::Ice => 18,
             BlockId::Tnt => 19,
+            BlockId::CraftingTable => 20,
+            BlockId::Stick => 21,
+            BlockId::WoodenPickaxe => 22,
+            BlockId::StonePickaxe => 23,
+            BlockId::IronPickaxe => 24,
+            BlockId::WoodenAxe => 25,
+            BlockId::StoneAxe => 26,
+            BlockId::IronAxe => 27,
+            BlockId::WoodenShovel => 28,
+            BlockId::StoneShovel => 29,
+            BlockId::IronShovel => 30,
+            BlockId::WoodenSword => 31,
+            BlockId::StoneSword => 32,
+            BlockId::IronSword => 33,
         }
     }
 
+    pub fn is_placeable(self) -> bool {
+        !matches!(
+            self,
+            BlockId::Air
+                | BlockId::Stick
+                | BlockId::WoodenPickaxe
+                | BlockId::StonePickaxe
+                | BlockId::IronPickaxe
+                | BlockId::WoodenAxe
+                | BlockId::StoneAxe
+                | BlockId::IronAxe
+                | BlockId::WoodenShovel
+                | BlockId::StoneShovel
+                | BlockId::IronShovel
+                | BlockId::WoodenSword
+                | BlockId::StoneSword
+                | BlockId::IronSword
+        )
+    }
+
     pub fn is_solid(self) -> bool {
-        !matches!(self, BlockId::Air | BlockId::Water | BlockId::Lava)
+        !matches!(
+            self,
+            BlockId::Air
+                | BlockId::Water
+                | BlockId::Lava
+                | BlockId::Stick
+                | BlockId::WoodenPickaxe
+                | BlockId::StonePickaxe
+                | BlockId::IronPickaxe
+                | BlockId::WoodenAxe
+                | BlockId::StoneAxe
+                | BlockId::IronAxe
+                | BlockId::WoodenShovel
+                | BlockId::StoneShovel
+                | BlockId::IronShovel
+                | BlockId::WoodenSword
+                | BlockId::StoneSword
+                | BlockId::IronSword
+        )
+    }
+
+    pub fn is_tool(self) -> bool {
+        matches!(
+            self,
+            BlockId::Stick
+                | BlockId::WoodenPickaxe
+                | BlockId::StonePickaxe
+                | BlockId::IronPickaxe
+                | BlockId::WoodenAxe
+                | BlockId::StoneAxe
+                | BlockId::IronAxe
+                | BlockId::WoodenShovel
+                | BlockId::StoneShovel
+                | BlockId::IronShovel
+                | BlockId::WoodenSword
+                | BlockId::StoneSword
+                | BlockId::IronSword
+        )
     }
 
     pub fn is_bedrock(self) -> bool {
         matches!(self, BlockId::Bedrock)
+    }
+
+    pub fn attack_damage(self) -> f32 {
+        match self {
+            BlockId::IronSword => 9.0,
+            BlockId::StoneSword => 7.0,
+            BlockId::WoodenSword => 5.0,
+            BlockId::IronAxe => 6.0,
+            BlockId::StoneAxe => 5.0,
+            BlockId::WoodenAxe => 4.0,
+            BlockId::IronPickaxe => 4.5,
+            BlockId::StonePickaxe => 3.5,
+            BlockId::WoodenPickaxe => 3.0,
+            BlockId::IronShovel => 3.5,
+            BlockId::StoneShovel => 3.0,
+            BlockId::WoodenShovel => 2.5,
+            BlockId::Stick => 2.0,
+            _ => 1.5,
+        }
+    }
+
+    pub fn mining_speed_multiplier(tool: Option<BlockId>, target: BlockId) -> f32 {
+        let Some(t) = tool else { return 1.0; };
+        match t {
+            BlockId::WoodenPickaxe => {
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice) { 2.5 } else { 1.0 }
+            }
+            BlockId::StonePickaxe => {
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice) { 4.5 } else { 1.0 }
+            }
+            BlockId::IronPickaxe => {
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice) { 7.0 } else { 1.0 }
+            }
+            BlockId::WoodenAxe => {
+                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus) { 2.5 } else { 1.0 }
+            }
+            BlockId::StoneAxe => {
+                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus) { 4.5 } else { 1.0 }
+            }
+            BlockId::IronAxe => {
+                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus) { 7.0 } else { 1.0 }
+            }
+            BlockId::WoodenShovel => {
+                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow) { 2.5 } else { 1.0 }
+            }
+            BlockId::StoneShovel => {
+                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow) { 4.5 } else { 1.0 }
+            }
+            BlockId::IronShovel => {
+                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow) { 7.0 } else { 1.0 }
+            }
+            BlockId::WoodenSword | BlockId::StoneSword | BlockId::IronSword => {
+                if matches!(target, BlockId::Leaves | BlockId::SnowLeaves) { 3.0 } else { 1.0 }
+            }
+            _ => 1.0,
+        }
     }
 
     /// Break time in seconds (like Minecraft hardness). Creative breaks instantly.
@@ -104,12 +259,23 @@ impl BlockId {
             BlockId::Lava => 0.0,
             BlockId::SnowLeaves => 0.2,
             BlockId::Planks => 1.5,
+            BlockId::CraftingTable => 1.5,
             BlockId::Door => 1.5,
             BlockId::Glass => 0.3,
             BlockId::Ice => 0.5,
             BlockId::Tnt => 0.0,
             BlockId::Water => 0.0,
+            _ => 0.0,
         }
+    }
+
+    pub fn break_time_with_tool(self, tool: Option<BlockId>) -> f32 {
+        let base = self.break_time();
+        if base == 0.0 || base.is_infinite() {
+            return base;
+        }
+        let mult = Self::mining_speed_multiplier(tool, self);
+        base / mult
     }
 
     pub fn is_transparent(self) -> bool {
@@ -138,6 +304,20 @@ impl BlockId {
             BlockId::Glass => "szyba",
             BlockId::Ice => "lod",
             BlockId::Tnt => "TNT",
+            BlockId::CraftingTable => "stol rzemieslniczy",
+            BlockId::Stick => "patyk",
+            BlockId::WoodenPickaxe => "drewniany kilof",
+            BlockId::StonePickaxe => "kamienny kilof",
+            BlockId::IronPickaxe => "zelazny kilof",
+            BlockId::WoodenAxe => "drewniany topor",
+            BlockId::StoneAxe => "kamienny topor",
+            BlockId::IronAxe => "zelazny topor",
+            BlockId::WoodenShovel => "drewniana lopata",
+            BlockId::StoneShovel => "kamienna lopata",
+            BlockId::IronShovel => "zelazna lopata",
+            BlockId::WoodenSword => "drewniany miecz",
+            BlockId::StoneSword => "kamienny miecz",
+            BlockId::IronSword => "zelazny miecz",
         }
     }
 
@@ -176,6 +356,15 @@ impl BlockId {
                 Face::Top | Face::Bottom => [0.75, 0.70, 0.60],
                 _ => [0.85, 0.15, 0.10],
             },
+            BlockId::CraftingTable => match face {
+                Face::Top => [0.68, 0.48, 0.26],
+                Face::Bottom => [0.58, 0.38, 0.18],
+                _ => [0.54, 0.36, 0.18],
+            },
+            BlockId::Stick => [0.55, 0.38, 0.18],
+            BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword => [0.60, 0.42, 0.22],
+            BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword => [0.55, 0.55, 0.55],
+            BlockId::IronPickaxe | BlockId::IronAxe | BlockId::IronShovel | BlockId::IronSword => [0.85, 0.85, 0.88],
             BlockId::Air => [0.0, 0.0, 0.0],
         }
     }
@@ -215,7 +404,13 @@ impl BlockId {
                 Face::Top | Face::Bottom => TextureId::TntTop,
                 _ => TextureId::TntSide,
             },
-            BlockId::Air => TextureId::Stone,
+            BlockId::CraftingTable => match face {
+                Face::Top => TextureId::CraftingTableTop,
+                Face::Bottom => TextureId::Planks,
+                Face::North | Face::South => TextureId::CraftingTableFront,
+                Face::East | Face::West => TextureId::CraftingTableSide,
+            },
+            _ => TextureId::Planks,
         }
     }
 }

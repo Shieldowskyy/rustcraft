@@ -21,7 +21,7 @@ use std::time::Instant;
 use crate::cli::{generate_random_seed, parse_renderer_choice, parse_seed};
 use crate::core::math::{IVec3, Vec3};
 use crate::core::settings::GameSettings;
-use crate::gameplay::inventory::ItemStack;
+use crate::gameplay::inventory::{Inventory, ItemStack};
 use crate::gameplay::item::ItemEntity;
 use crate::gameplay::mob::MobManager;
 use crate::gameplay::particles::ParticleSystem;
@@ -31,11 +31,12 @@ use crate::gameplay::physics::{
     STANDING_EYE_OFFSET, STANDING_HEIGHT, SWIM_SPEED, TERMINAL_VELOCITY, WALK_SPEED,
 };
 use crate::gameplay::player::{GameMode, Player};
+use crate::gameplay::recipe::RecipeBook;
 use crate::graphics::camera::Camera;
 use crate::graphics::software::Renderer;
 use crate::platform::gamepad::GamepadManager;
 use crate::platform::mouse_capture::{self, MouseCapture};
-use crate::ui::VISIBLE_SAVE_ROWS;
+use crate::ui::{InventoryLayout, InventorySlotTarget, VISIBLE_SAVE_ROWS};
 use crate::world::block::{BlockId, Face};
 use crate::world::storage::{delete_save, get_save_metadata, save_current_world, save_path, SaveMetadata};
 use crate::world::World;
@@ -159,6 +160,8 @@ fn main() {
     let mut player = Player::new();
     player.gamemode = GameMode::Survival; // Start in survival as requested
     let mut items: Vec<ItemEntity> = Vec::new();
+    let recipe_book = RecipeBook::new();
+    let mut crafting_table_open = false;
     
     let mut g_was_down = false;
     let mut total_time = 0.0f32;
@@ -192,7 +195,6 @@ fn main() {
     let mut menu_hovered_btn: Option<usize> = Some(0);
     let mut pause_hovered_btn: Option<usize> = Some(0);
     let mut death_hovered_btn: Option<usize> = Some(0);
-    let mut inv_cursor: (usize, usize) = (0, 0);
 
     let mut damage_tilt_timer = 0.0f32;
     let mut damage_tilt_dir = 1.0f32;
@@ -569,6 +571,7 @@ fn main() {
                 }
 
                 if (e_down && !e_was_down) || gp_events.north_just_pressed {
+                    crafting_table_open = false;
                     state = GameState::Inventory;
                     mouse_capture.set_captured(false);
                     window.set_cursor_visibility(true);
@@ -877,13 +880,15 @@ fn main() {
                         hand_animation = 1.0;
                     }
                     let forward = camera.forward();
+                    let held_tool = player.inventory.hotbar[player.selected_hotbar_slot as usize].map(|s| s.block);
 
                     // First frame: check for mob hit
                     if interact_left_just {
                         if let Some((mob_idx, _)) = mob_manager.raycast_mob(camera.position, forward, 4.2) {
                             let mob = &mut mob_manager.mobs[mob_idx];
                             let hit_pos = mob.center_pos();
-                            mob.take_damage(4.0, forward);
+                            let dmg = held_tool.map(|b| b.attack_damage()).unwrap_or(1.5);
+                            mob.take_damage(dmg, forward);
                             particles.spawn_mob_hit(hit_pos);
                             break_target = None;
                             break_progress = 0.0;
@@ -909,7 +914,7 @@ fn main() {
                             let break_time = if player.gamemode == GameMode::Creative {
                                 0.0 // Instant break in creative
                             } else {
-                                broken_block.break_time()
+                                broken_block.break_time_with_tool(held_tool)
                             };
 
                             if break_time == 0.0 {
@@ -970,18 +975,28 @@ fn main() {
                 let interact_right = (mouse_capture.is_captured() && right_down && !right_was_down) || gp_events.left_trigger_just_pressed;
                 if interact_right {
                     if let Some(hit) = world.raycast(camera.position, camera.forward(), 8.0) {
-                        let place_pos = hit.block_pos + hit.normal;
-                        let place_id = BlockId::from_u8(selected_block_id);
-                        // Only place (and animate) if we actually have a block to place
-                        if place_id != BlockId::Air
-                            && world.get_block(place_pos) == BlockId::Air
-                        {
-                            hand_animation = 1.0;
-                            if place_id == BlockId::Door {
-                                let top_pos = place_pos + IVec3::new(0, 1, 0);
-                                if !block_intersects_player(place_pos, camera.position, current_eye_offset, current_player_height)
-                                    && !block_intersects_player(top_pos, camera.position, current_eye_offset, current_player_height)
-                                    && world.get_block(top_pos) == BlockId::Air
+                        let targeted_block = world.get_block(hit.block_pos);
+                        if targeted_block == BlockId::CraftingTable && !is_crouching {
+                            crafting_table_open = true;
+                            state = GameState::Inventory;
+                            mouse_capture.set_captured(false);
+                            window.set_cursor_visibility(true);
+                            horiz_velocity = Vec3::zero();
+                            fly_velocity = Vec3::zero();
+                        } else {
+                            let place_pos = hit.block_pos + hit.normal;
+                            let place_id = BlockId::from_u8(selected_block_id);
+                            // Only place (and animate) if we actually have a solid/placeable block
+                            if place_id != BlockId::Air
+                                && place_id.is_placeable()
+                                && world.get_block(place_pos) == BlockId::Air
+                            {
+                                hand_animation = 1.0;
+                                if place_id == BlockId::Door {
+                                    let top_pos = place_pos + IVec3::new(0, 1, 0);
+                                    if !block_intersects_player(place_pos, camera.position, current_eye_offset, current_player_height)
+                                        && !block_intersects_player(top_pos, camera.position, current_eye_offset, current_player_height)
+                                        && world.get_block(top_pos) == BlockId::Air
                                     {
                                         world.set_block(place_pos, BlockId::Door);
                                         world.set_block(top_pos, BlockId::Door);
@@ -993,13 +1008,14 @@ fn main() {
                                             }
                                         }
                                     }
-                            } else if !block_intersects_player(place_pos, camera.position, current_eye_offset, current_player_height) {
-                                world.set_block(place_pos, place_id);
-                                // Consume in survival
-                                if player.gamemode == GameMode::Survival {
-                                    if let Some(stack) = &mut player.inventory.hotbar[player.selected_hotbar_slot as usize] {
-                                        stack.count -= 1;
-                                        if stack.count == 0 { player.inventory.hotbar[player.selected_hotbar_slot as usize] = None; }
+                                } else if !block_intersects_player(place_pos, camera.position, current_eye_offset, current_player_height) {
+                                    world.set_block(place_pos, place_id);
+                                    // Consume in survival
+                                    if player.gamemode == GameMode::Survival {
+                                        if let Some(stack) = &mut player.inventory.hotbar[player.selected_hotbar_slot as usize] {
+                                            stack.count -= 1;
+                                            if stack.count == 0 { player.inventory.hotbar[player.selected_hotbar_slot as usize] = None; }
+                                        }
                                     }
                                 }
                             }
@@ -1294,20 +1310,6 @@ fn main() {
             GameState::Inventory => {
                 window.set_cursor_visibility(true);
 
-                // Nawigacja siatki ekwipunku za pomocą D-Pad / Analog na kontrolerze
-                if gp_events.dpad_up_just_pressed {
-                    inv_cursor.0 = if inv_cursor.0 == 0 { 4 } else { inv_cursor.0 - 1 };
-                }
-                if gp_events.dpad_down_just_pressed {
-                    inv_cursor.0 = if inv_cursor.0 >= 4 { 0 } else { inv_cursor.0 + 1 };
-                }
-                if gp_events.dpad_left_just_pressed {
-                    inv_cursor.1 = if inv_cursor.1 == 0 { 7 } else { inv_cursor.1 - 1 };
-                }
-                if gp_events.dpad_right_just_pressed {
-                    inv_cursor.1 = if inv_cursor.1 >= 7 { 0 } else { inv_cursor.1 + 1 };
-                }
-
                 // Zmiana aktywnego slotu hotbara na padzie za pomocą LB / RB
                 if gp_events.lb_just_pressed {
                     player.selected_hotbar_slot = if player.selected_hotbar_slot <= 0 { 9 } else { player.selected_hotbar_slot - 1 };
@@ -1322,44 +1324,104 @@ fn main() {
                     || gp_events.north_just_pressed
                     || gp_events.start_just_pressed
                 {
+                    player.inventory.return_crafting_items();
+                    crafting_table_open = false;
                     state = GameState::Playing;
                     mouse_capture.set_captured(true);
                     window.set_cursor_visibility(false);
                     last_mouse = None;
                 }
 
-                let start_x = renderer.width as i32 / 2 - 200;
-                let start_y = renderer.height as i32 / 2 - 150;
+                let layout = InventoryLayout::new(renderer.width, renderer.height, crafting_table_open);
+                let inv_hovered_target = mouse_pos.and_then(|(mx, my)| {
+                    layout.find_slot_at(mx as i32, my as i32, player.gamemode)
+                });
 
-                if let Some((mx, my)) = mouse_pos {
-                    let px = mx as i32;
-                    let py = my as i32;
-                    for row in 0..5 {
-                        for col in 0..8 {
-                            let x = start_x + col as i32 * 40;
-                            let y = start_y + row as i32 * 40;
-                            if px >= x && px < x + 36 && py >= y && py < y + 36 {
-                                inv_cursor = (row, col);
+                let click_left = (left_down && !left_was_down) || gp_events.south_just_pressed;
+                let click_right = (right_down && !right_was_down) || gp_events.west_just_pressed;
+
+                if click_left || click_right {
+                    if let Some(target) = inv_hovered_target {
+                        if player.gamemode == GameMode::Creative {
+                            if let InventorySlotTarget::Creative(id) = target {
+                                player.inventory.hotbar[player.selected_hotbar_slot as usize] = Some(ItemStack {
+                                    block: BlockId::from_u8(id),
+                                    count: 64,
+                                });
+                            }
+                        } else {
+                            match target {
+                                InventorySlotTarget::Hotbar(idx) => {
+                                    let slot = &mut player.inventory.hotbar[idx];
+                                    if click_left {
+                                        Inventory::handle_slot_left_click(slot, &mut player.inventory.held_item);
+                                    } else {
+                                        Inventory::handle_slot_right_click(slot, &mut player.inventory.held_item);
+                                    }
+                                }
+                                InventorySlotTarget::Main(idx) => {
+                                    let slot = &mut player.inventory.main[idx];
+                                    if click_left {
+                                        Inventory::handle_slot_left_click(slot, &mut player.inventory.held_item);
+                                    } else {
+                                        Inventory::handle_slot_right_click(slot, &mut player.inventory.held_item);
+                                    }
+                                }
+                                InventorySlotTarget::Crafting2x2(idx) => {
+                                    let slot = &mut player.inventory.crafting_2x2[idx];
+                                    if click_left {
+                                        Inventory::handle_slot_left_click(slot, &mut player.inventory.held_item);
+                                    } else {
+                                        Inventory::handle_slot_right_click(slot, &mut player.inventory.held_item);
+                                    }
+                                }
+                                InventorySlotTarget::Crafting3x3(idx) => {
+                                    let slot = &mut player.inventory.crafting_3x3[idx];
+                                    if click_left {
+                                        Inventory::handle_slot_left_click(slot, &mut player.inventory.held_item);
+                                    } else {
+                                        Inventory::handle_slot_right_click(slot, &mut player.inventory.held_item);
+                                    }
+                                }
+                                InventorySlotTarget::CraftingOutput => {
+                                    let result = if crafting_table_open {
+                                        recipe_book.match_grid(&player.inventory.crafting_3x3, 3, 3)
+                                    } else {
+                                        recipe_book.match_grid(&player.inventory.crafting_2x2, 2, 2)
+                                    };
+                                    if let Some(res) = result {
+                                        let can_take = match player.inventory.held_item {
+                                            None => true,
+                                            Some(h) => h.block == res.block && h.count + res.count <= 64,
+                                        };
+                                        if can_take {
+                                            if let Some(h) = &mut player.inventory.held_item {
+                                                h.count += res.count;
+                                            } else {
+                                                player.inventory.held_item = Some(res);
+                                            }
+                                            if crafting_table_open {
+                                                RecipeBook::consume_grid(&mut player.inventory.crafting_3x3);
+                                            } else {
+                                                RecipeBook::consume_grid(&mut player.inventory.crafting_2x2);
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
                             }
                         }
                     }
                 }
 
-                let click_inv = (left_down && !left_was_down) || gp_events.south_just_pressed;
-                if click_inv {
-                    let (row, col) = inv_cursor;
-                    let block_id = (row * 8 + col + 1) as u8;
-                    if block_id <= 19 {
-                        player.inventory.hotbar[player.selected_hotbar_slot as usize] = Some(ItemStack {
-                            block: BlockId::from_u8(block_id),
-                            count: 64,
-                        });
-                    }
-                }
-
                 renderer.render_frame(&mut world, &camera);
-                // Rysuj ekwipunek z podświetleniem wybranego kursorem slotu
-                renderer.draw_inventory(&player, Some(inv_cursor));
+                renderer.draw_inventory(
+                    &player,
+                    inv_hovered_target,
+                    crafting_table_open,
+                    &recipe_book,
+                    mouse_pos,
+                );
             }
             GameState::DeathScreen => {
                 window.set_cursor_visibility(true);

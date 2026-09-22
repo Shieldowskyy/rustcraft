@@ -584,6 +584,9 @@ pub enum TextureId {
     CowSnout,
     CowHorns,
     CowUdder,
+    CraftingTableTop,
+    CraftingTableSide,
+    CraftingTableFront,
     DestroyStage0,
     DestroyStage1,
     DestroyStage2,
@@ -823,6 +826,83 @@ fn destroy_stage(stage: usize) -> Texture {
     Texture { texels }
 }
 
+fn crafting_table_top() -> Texture {
+    let mut tex = planks();
+    let border = [0.32, 0.20, 0.10];
+    let grid_line = [0.28, 0.18, 0.08];
+    let tool_metal = [0.80, 0.82, 0.85];
+    let tool_handle = [0.45, 0.28, 0.12];
+
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            // Outer frame
+            if x <= 1 || x >= 14 || y <= 1 || y >= 14 {
+                tex.texels[y * TEX_SIZE + x] = border;
+            }
+            // 3x3 crafting grid in center (x: 3..13, y: 3..13)
+            if (x >= 3 && x <= 12) && (y >= 3 && y <= 12) {
+                if x == 6 || x == 9 || y == 6 || y == 9 {
+                    tex.texels[y * TEX_SIZE + x] = grid_line;
+                }
+            }
+        }
+    }
+    // Small saw & shears detail on top corners
+    tex.texels[2 * TEX_SIZE + 2] = tool_metal;
+    tex.texels[2 * TEX_SIZE + 3] = tool_handle;
+    tex.texels[13 * TEX_SIZE + 12] = tool_metal;
+    tex.texels[13 * TEX_SIZE + 13] = tool_metal;
+    tex
+}
+
+fn crafting_table_side() -> Texture {
+    let mut tex = planks();
+    let frame = [0.30, 0.18, 0.08];
+    let iron = [0.75, 0.78, 0.82];
+    let handle = [0.40, 0.24, 0.10];
+
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if x == 0 || x == 15 || y == 0 || y == 15 {
+                tex.texels[y * TEX_SIZE + x] = frame;
+            }
+        }
+    }
+    // Saw hanging on side
+    for y in 4..12 {
+        tex.texels[y * TEX_SIZE + 4] = iron;
+        if y % 2 == 0 {
+            tex.texels[y * TEX_SIZE + 5] = iron;
+        }
+    }
+    tex.texels[3 * TEX_SIZE + 4] = handle;
+    tex.texels[2 * TEX_SIZE + 4] = handle;
+    tex
+}
+
+fn crafting_table_front() -> Texture {
+    let mut tex = planks();
+    let frame = [0.30, 0.18, 0.08];
+    let iron = [0.75, 0.78, 0.82];
+    let handle = [0.40, 0.24, 0.10];
+
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if x == 0 || x == 15 || y == 0 || y == 15 {
+                tex.texels[y * TEX_SIZE + x] = frame;
+            }
+        }
+    }
+    // Hammer and shears on front
+    for y in 4..11 {
+        tex.texels[y * TEX_SIZE + 11] = handle;
+    }
+    for x in 9..14 {
+        tex.texels[4 * TEX_SIZE + x] = iron;
+    }
+    tex
+}
+
 pub struct TextureAtlas {
     pub grass_top: Texture,
     pub grass_side: Texture,
@@ -856,6 +936,9 @@ pub struct TextureAtlas {
     pub cow_snout: Texture,
     pub cow_horns: Texture,
     pub cow_udder: Texture,
+    pub crafting_table_top: Texture,
+    pub crafting_table_side: Texture,
+    pub crafting_table_front: Texture,
     pub destroy_stages: [Texture; 10],
 }
 
@@ -894,6 +977,9 @@ impl TextureAtlas {
             cow_snout: cow_snout(),
             cow_horns: cow_horns(),
             cow_udder: cow_udder(),
+            crafting_table_top: crafting_table_top(),
+            crafting_table_side: crafting_table_side(),
+            crafting_table_front: crafting_table_front(),
             destroy_stages: std::array::from_fn(destroy_stage),
         }
     }
@@ -932,6 +1018,9 @@ impl TextureAtlas {
             TextureId::CowSnout => &self.cow_snout,
             TextureId::CowHorns => &self.cow_horns,
             TextureId::CowUdder => &self.cow_udder,
+            TextureId::CraftingTableTop => &self.crafting_table_top,
+            TextureId::CraftingTableSide => &self.crafting_table_side,
+            TextureId::CraftingTableFront => &self.crafting_table_front,
             TextureId::DestroyStage0 => &self.destroy_stages[0],
             TextureId::DestroyStage1 => &self.destroy_stages[1],
             TextureId::DestroyStage2 => &self.destroy_stages[2],

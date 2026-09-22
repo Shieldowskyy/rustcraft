@@ -11,7 +11,7 @@ pub use hud::{
     draw_damage_flash, draw_death_screen, draw_debug_panel, draw_hotbar, draw_low_health_vignette,
     draw_pause_menu, draw_underwater_overlay, pause_menu_button_rects,
 };
-pub use inventory_ui::draw_inventory;
+pub use inventory_ui::{draw_inventory_screen, draw_item_icon, InventoryLayout, InventorySlotTarget};
 pub use menu::{draw_main_menu, draw_rustcraft_logo, main_menu_button_rects};
 pub use save_select::{draw_save_select_menu, save_bottom_button_rects, save_card_rects, MAX_SAVE_SLOTS, VISIBLE_SAVE_ROWS};
 pub use settings_ui::{draw_settings_menu, settings_option_rects};

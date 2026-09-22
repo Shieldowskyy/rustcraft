@@ -228,8 +228,24 @@ impl Renderer {
         crate::ui::draw_hotbar(&mut self.color_buffer, self.width, self.height, player);
     }
 
-    pub fn draw_inventory(&mut self, player: &crate::gameplay::Player, selected_slot: Option<(usize, usize)>) {
-        crate::ui::draw_inventory(&mut self.color_buffer, self.width, self.height, player, selected_slot);
+    pub fn draw_inventory(
+        &mut self,
+        player: &crate::gameplay::Player,
+        hovered_slot: Option<crate::ui::InventorySlotTarget>,
+        crafting_table_open: bool,
+        recipes: &crate::gameplay::RecipeBook,
+        mouse_pos: Option<(f32, f32)>,
+    ) {
+        crate::ui::draw_inventory_screen(
+            &mut self.color_buffer,
+            self.width,
+            self.height,
+            player,
+            hovered_slot,
+            crafting_table_open,
+            recipes,
+            mouse_pos,
+        );
     }
 
     pub fn draw_pause_menu(&mut self, fly_mode: bool, hovered: Option<usize>) {
@@ -1144,6 +1160,229 @@ impl Renderer {
         draw_quad(5, 1, 2, 6, b.tex_side, 0.70);
     }
 
+    pub fn draw_procedural_tool_3d(
+        &mut self,
+        block: crate::world::block::BlockId,
+        pos: Vec3,
+        tool_right: Vec3,
+        tool_up: Vec3,
+        tool_forward: Vec3,
+        scale: f32,
+        view_proj: &Mat4,
+    ) {
+        use crate::world::block::BlockId;
+        let mat_tex = match block {
+            BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword => TextureId::Planks,
+            BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword => TextureId::Stone,
+            BlockId::IronPickaxe | BlockId::IronAxe | BlockId::IronShovel | BlockId::IronSword => TextureId::IronOre,
+            _ => TextureId::WoodSide,
+        };
+        let handle_tex = TextureId::WoodSide;
+
+        match block {
+            BlockId::Stick => {
+                // Slender wooden rod
+                self.draw_cube_3d(
+                    pos,
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.016 * scale, 0.26 * scale, 0.016 * scale],
+                    handle_tex,
+                    view_proj,
+                );
+            }
+            BlockId::WoodenSword | BlockId::StoneSword | BlockId::IronSword => {
+                // Pommel
+                self.draw_cube_3d(
+                    pos - tool_up * (0.16 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.024 * scale, 0.018 * scale, 0.024 * scale],
+                    handle_tex,
+                    view_proj,
+                );
+                // Grip
+                self.draw_cube_3d(
+                    pos - tool_up * (0.08 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.016 * scale, 0.065 * scale, 0.016 * scale],
+                    handle_tex,
+                    view_proj,
+                );
+                // Crossguard
+                self.draw_cube_3d(
+                    pos,
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.085 * scale, 0.016 * scale, 0.026 * scale],
+                    mat_tex,
+                    view_proj,
+                );
+                // Blade
+                self.draw_cube_3d(
+                    pos + tool_up * (0.20 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.038 * scale, 0.180 * scale, 0.010 * scale],
+                    mat_tex,
+                    view_proj,
+                );
+                // Tip
+                self.draw_cube_3d(
+                    pos + tool_up * (0.41 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.020 * scale, 0.040 * scale, 0.008 * scale],
+                    mat_tex,
+                    view_proj,
+                );
+            }
+            BlockId::WoodenPickaxe | BlockId::StonePickaxe | BlockId::IronPickaxe => {
+                // Handle
+                self.draw_cube_3d(
+                    pos,
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.015 * scale, 0.28 * scale, 0.015 * scale],
+                    handle_tex,
+                    view_proj,
+                );
+                // Head center mount
+                self.draw_cube_3d(
+                    pos + tool_up * (0.26 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.032 * scale, 0.032 * scale, 0.032 * scale],
+                    mat_tex,
+                    view_proj,
+                );
+                // Head crossbar
+                self.draw_cube_3d(
+                    pos + tool_up * (0.27 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.130 * scale, 0.024 * scale, 0.024 * scale],
+                    mat_tex,
+                    view_proj,
+                );
+                // Left & right pick tips
+                self.draw_cube_3d(
+                    pos + tool_up * (0.23 * scale) - tool_right * (0.12 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.018 * scale, 0.032 * scale, 0.018 * scale],
+                    mat_tex,
+                    view_proj,
+                );
+                self.draw_cube_3d(
+                    pos + tool_up * (0.23 * scale) + tool_right * (0.12 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.018 * scale, 0.032 * scale, 0.018 * scale],
+                    mat_tex,
+                    view_proj,
+                );
+            }
+            BlockId::WoodenAxe | BlockId::StoneAxe | BlockId::IronAxe => {
+                // Handle
+                self.draw_cube_3d(
+                    pos,
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.015 * scale, 0.28 * scale, 0.015 * scale],
+                    handle_tex,
+                    view_proj,
+                );
+                // Axe Head Main
+                self.draw_cube_3d(
+                    pos + tool_up * (0.22 * scale) + tool_right * (0.045 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.048 * scale, 0.065 * scale, 0.022 * scale],
+                    mat_tex,
+                    view_proj,
+                );
+                // Blade edge
+                self.draw_cube_3d(
+                    pos + tool_up * (0.21 * scale) + tool_right * (0.088 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.014 * scale, 0.078 * scale, 0.012 * scale],
+                    mat_tex,
+                    view_proj,
+                );
+                // Poll (rear)
+                self.draw_cube_3d(
+                    pos + tool_up * (0.25 * scale) - tool_right * (0.024 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.020 * scale, 0.028 * scale, 0.020 * scale],
+                    mat_tex,
+                    view_proj,
+                );
+            }
+            BlockId::WoodenShovel | BlockId::StoneShovel | BlockId::IronShovel => {
+                // Handle
+                self.draw_cube_3d(
+                    pos,
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.015 * scale, 0.28 * scale, 0.015 * scale],
+                    handle_tex,
+                    view_proj,
+                );
+                // Grip Topper
+                self.draw_cube_3d(
+                    pos - tool_up * (0.27 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.042 * scale, 0.014 * scale, 0.018 * scale],
+                    handle_tex,
+                    view_proj,
+                );
+                // Spade Blade
+                self.draw_cube_3d(
+                    pos + tool_up * (0.33 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.065 * scale, 0.075 * scale, 0.012 * scale],
+                    mat_tex,
+                    view_proj,
+                );
+                // Spade Tip
+                self.draw_cube_3d(
+                    pos + tool_up * (0.42 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.038 * scale, 0.018 * scale, 0.010 * scale],
+                    mat_tex,
+                    view_proj,
+                );
+            }
+            _ => {}
+        }
+    }
+
     pub fn draw_hand_3d(
         &mut self,
         camera: &Camera,
@@ -1168,10 +1407,24 @@ impl Renderer {
         let arm_pos = hand_pos - right * 0.10 - up * 0.13;
         // Always draw arm
         self.draw_cube_3d(arm_pos, right, up, forward, [0.085, 0.085, 0.12], TextureId::Dirt, view_proj);
-        // Only draw block if player is holding something
+        // Draw held tool or block
         if let Some(id) = block_id {
             let block = crate::world::block::BlockId::from_u8(id);
-            self.draw_cube_3d(hand_pos, right, up, forward, [0.13, 0.13, 0.13], block.texture_id(crate::world::block::Face::Top), view_proj);
+            if block.is_tool() {
+                // Dynamic tool swing arc
+                let swing_pitch = attack * 0.85;
+                let tool_up = (up * (1.0 - swing_pitch * 0.5) + forward * (0.85 + swing_pitch) - right * 0.20).normalized();
+                let tool_right = (right * 0.95 + up * 0.15).normalized();
+                let tool_forward = tool_up.cross(tool_right).normalized();
+                let tool_origin = hand_pos + forward * (0.10 + attack * 0.15) + up * (0.12 - attack * 0.12) - right * 0.02;
+
+                self.draw_procedural_tool_3d(block, tool_origin, tool_right, tool_up, tool_forward, 1.0, view_proj);
+            } else {
+                let top_tex = block.texture_id(crate::world::block::Face::Top);
+                let side_tex = block.texture_id(crate::world::block::Face::North);
+                let bot_tex = block.texture_id(crate::world::block::Face::Bottom);
+                self.draw_multitex_cube_3d(hand_pos, right, up, forward, [0.13, 0.13, 0.13], top_tex, bot_tex, side_tex, view_proj);
+            }
         }
     }
 
@@ -1182,41 +1435,55 @@ impl Renderer {
         yaw: f32,
         view_proj: &Mat4,
     ) {
-        use crate::world::block::Face;
-        let size = 0.28;
-        let half = size * 0.5;
-        let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
-        let up = Vec3::new(0.0, 1.0, 0.0);
-        let forward = Vec3::new(yaw.sin(), 0.0, yaw.cos());
+        if block.is_tool() {
+            // Spinning tilted 3D tool
+            let tilt_angle = 0.38f32; // ~22 degrees
+            let base_up = Vec3::new(0.0, 1.0, 0.0);
+            let base_right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+            let base_forward = Vec3::new(yaw.sin(), 0.0, yaw.cos());
 
-        let corner = |x: f32, y: f32, z: f32| {
-            pos + right * (x * half) + up * (y * half) + forward * (z * half)
-        };
+            let tool_up = (base_up * tilt_angle.cos() + base_right * tilt_angle.sin()).normalized();
+            let tool_right = (base_right * tilt_angle.cos() - base_up * tilt_angle.sin()).normalized();
+            let tool_forward = base_forward;
 
-        let face_data = [
-            ([corner(-1.0, 1.0, 1.0), corner(1.0, 1.0, 1.0), corner(1.0, 1.0, -1.0), corner(-1.0, 1.0, -1.0)], block.texture_id(Face::Top), 1.00),
-            ([corner(-1.0, -1.0, -1.0), corner(1.0, -1.0, -1.0), corner(1.0, -1.0, 1.0), corner(-1.0, -1.0, 1.0)], block.texture_id(Face::Bottom), 0.55),
-            ([corner(-1.0, -1.0, 1.0), corner(1.0, -1.0, 1.0), corner(1.0, 1.0, 1.0), corner(-1.0, 1.0, 1.0)], block.texture_id(Face::South), 0.85),
-            ([corner(1.0, -1.0, -1.0), corner(-1.0, -1.0, -1.0), corner(-1.0, 1.0, -1.0), corner(1.0, 1.0, -1.0)], block.texture_id(Face::North), 0.85),
-            ([corner(-1.0, -1.0, -1.0), corner(-1.0, -1.0, 1.0), corner(-1.0, 1.0, 1.0), corner(-1.0, 1.0, -1.0)], block.texture_id(Face::West), 0.70),
-            ([corner(1.0, -1.0, 1.0), corner(1.0, -1.0, -1.0), corner(1.0, 1.0, -1.0), corner(1.0, 1.0, 1.0)], block.texture_id(Face::East), 0.70),
-        ];
+            self.draw_procedural_tool_3d(block, pos, tool_right, tool_up, tool_forward, 0.85, view_proj);
+        } else {
+            use crate::world::block::Face;
+            let size = 0.28;
+            let half = size * 0.5;
+            let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+            let up = Vec3::new(0.0, 1.0, 0.0);
+            let forward = Vec3::new(yaw.sin(), 0.0, yaw.cos());
 
-        for (corners, tex, ao) in face_data {
-            let t1 = Triangle {
-                v0: Vertex { pos: corners[0], uv: (0.0, 1.0), ao },
-                v1: Vertex { pos: corners[1], uv: (1.0, 1.0), ao },
-                v2: Vertex { pos: corners[2], uv: (1.0, 0.0), ao },
-                texture: tex,
+            let corner = |x: f32, y: f32, z: f32| {
+                pos + right * (x * half) + up * (y * half) + forward * (z * half)
             };
-            let t2 = Triangle {
-                v0: Vertex { pos: corners[0], uv: (0.0, 1.0), ao },
-                v1: Vertex { pos: corners[2], uv: (1.0, 0.0), ao },
-                v2: Vertex { pos: corners[3], uv: (0.0, 0.0), ao },
-                texture: tex,
-            };
-            self.raster_triangle(&t1, view_proj);
-            self.raster_triangle(&t2, view_proj);
+
+            let face_data = [
+                ([corner(-1.0, 1.0, 1.0), corner(1.0, 1.0, 1.0), corner(1.0, 1.0, -1.0), corner(-1.0, 1.0, -1.0)], block.texture_id(Face::Top), 1.00),
+                ([corner(-1.0, -1.0, -1.0), corner(1.0, -1.0, -1.0), corner(1.0, -1.0, 1.0), corner(-1.0, -1.0, 1.0)], block.texture_id(Face::Bottom), 0.55),
+                ([corner(-1.0, -1.0, 1.0), corner(1.0, -1.0, 1.0), corner(1.0, 1.0, 1.0), corner(-1.0, 1.0, 1.0)], block.texture_id(Face::South), 0.85),
+                ([corner(1.0, -1.0, -1.0), corner(-1.0, -1.0, -1.0), corner(-1.0, 1.0, -1.0), corner(1.0, 1.0, -1.0)], block.texture_id(Face::North), 0.85),
+                ([corner(-1.0, -1.0, -1.0), corner(-1.0, -1.0, 1.0), corner(-1.0, 1.0, 1.0), corner(-1.0, 1.0, -1.0)], block.texture_id(Face::West), 0.70),
+                ([corner(1.0, -1.0, 1.0), corner(1.0, -1.0, -1.0), corner(1.0, 1.0, -1.0), corner(1.0, 1.0, 1.0)], block.texture_id(Face::East), 0.70),
+            ];
+
+            for (corners, tex, ao) in face_data {
+                let t1 = Triangle {
+                    v0: Vertex { pos: corners[0], uv: (0.0, 1.0), ao },
+                    v1: Vertex { pos: corners[1], uv: (1.0, 1.0), ao },
+                    v2: Vertex { pos: corners[2], uv: (1.0, 0.0), ao },
+                    texture: tex,
+                };
+                let t2 = Triangle {
+                    v0: Vertex { pos: corners[0], uv: (0.0, 1.0), ao },
+                    v1: Vertex { pos: corners[2], uv: (1.0, 0.0), ao },
+                    v2: Vertex { pos: corners[3], uv: (0.0, 0.0), ao },
+                    texture: tex,
+                };
+                self.raster_triangle(&t1, view_proj);
+                self.raster_triangle(&t2, view_proj);
+            }
         }
     }
 
@@ -1300,6 +1567,45 @@ impl Renderer {
                 Vertex { pos: corners[1], uv: (1.0, 1.0), ao: 1.0 },
                 Vertex { pos: corners[2], uv: (1.0, 0.0), ao: 1.0 },
                 Vertex { pos: corners[3], uv: (0.0, 0.0), ao: 1.0 },
+            ];
+            let first = Triangle { v0: vertices[0], v1: vertices[1], v2: vertices[2], texture };
+            let second = Triangle { v0: vertices[0], v1: vertices[2], v2: vertices[3], texture };
+            self.raster_triangle(&first, view_proj);
+            self.raster_triangle(&second, view_proj);
+            self.raster_triangle(&Triangle { v0: first.v2, v1: first.v1, v2: first.v0, texture }, view_proj);
+            self.raster_triangle(&Triangle { v0: second.v2, v1: second.v2, v2: second.v0, texture }, view_proj);
+        }
+    }
+
+    fn draw_multitex_cube_3d(
+        &mut self,
+        center: Vec3,
+        right: Vec3,
+        up: Vec3,
+        forward: Vec3,
+        half: [f32; 3],
+        top_tex: TextureId,
+        bot_tex: TextureId,
+        side_tex: TextureId,
+        view_proj: &Mat4,
+    ) {
+        let corner = |x: f32, y: f32, z: f32| {
+            center + right * (x * half[0]) + up * (y * half[1]) + forward * (z * half[2])
+        };
+        let faces = [
+            ([corner(-1.0, -1.0, 1.0), corner(1.0, -1.0, 1.0), corner(1.0, 1.0, 1.0), corner(-1.0, 1.0, 1.0)], side_tex, 0.85),
+            ([corner(1.0, -1.0, -1.0), corner(-1.0, -1.0, -1.0), corner(-1.0, 1.0, -1.0), corner(1.0, 1.0, -1.0)], side_tex, 0.85),
+            ([corner(-1.0, -1.0, -1.0), corner(-1.0, -1.0, 1.0), corner(-1.0, 1.0, 1.0), corner(-1.0, 1.0, -1.0)], side_tex, 0.70),
+            ([corner(1.0, -1.0, 1.0), corner(1.0, -1.0, -1.0), corner(1.0, 1.0, -1.0), corner(1.0, 1.0, 1.0)], side_tex, 0.70),
+            ([corner(-1.0, 1.0, 1.0), corner(1.0, 1.0, 1.0), corner(1.0, 1.0, -1.0), corner(-1.0, 1.0, -1.0)], top_tex, 1.00),
+            ([corner(-1.0, -1.0, -1.0), corner(1.0, -1.0, -1.0), corner(1.0, -1.0, 1.0), corner(-1.0, -1.0, 1.0)], bot_tex, 0.55),
+        ];
+        for (corners, texture, ao) in faces {
+            let vertices = [
+                Vertex { pos: corners[0], uv: (0.0, 1.0), ao },
+                Vertex { pos: corners[1], uv: (1.0, 1.0), ao },
+                Vertex { pos: corners[2], uv: (1.0, 0.0), ao },
+                Vertex { pos: corners[3], uv: (0.0, 0.0), ao },
             ];
             let first = Triangle { v0: vertices[0], v1: vertices[1], v2: vertices[2], texture };
             let second = Triangle { v0: vertices[0], v1: vertices[2], v2: vertices[3], texture };
