@@ -182,8 +182,8 @@ impl Renderer {
         crate::ui::draw_hotbar(&mut self.color_buffer, self.width, self.height, player);
     }
 
-    pub fn draw_inventory(&mut self, player: &crate::gameplay::Player) {
-        crate::ui::draw_inventory(&mut self.color_buffer, self.width, self.height, player);
+    pub fn draw_inventory(&mut self, player: &crate::gameplay::Player, selected_slot: Option<(usize, usize)>) {
+        crate::ui::draw_inventory(&mut self.color_buffer, self.width, self.height, player, selected_slot);
     }
 
     pub fn draw_pause_menu(&mut self, fly_mode: bool, hovered: Option<usize>) {

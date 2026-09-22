@@ -33,6 +33,7 @@ use crate::gameplay::physics::{
 use crate::gameplay::player::{GameMode, Player};
 use crate::graphics::camera::Camera;
 use crate::graphics::software::Renderer;
+use crate::platform::gamepad::GamepadManager;
 use crate::platform::mouse_capture::{self, MouseCapture};
 use crate::world::block::{BlockId, Face};
 use crate::world::storage::{save_current_world, save_path};
@@ -167,19 +168,39 @@ fn main() {
     let world_rects = renderer.main_menu_world_rects();
     let pause_menu_rects = renderer.pause_menu_button_rects();
 
-    println!("Sterowanie:");
+    let mut gamepad_mgr = GamepadManager::new();
+    let mut menu_hovered_btn: Option<usize> = Some(0);
+    let mut pause_hovered_btn: Option<usize> = Some(0);
+    let mut inv_cursor: (usize, usize) = (0, 0);
+
+    println!("Sterowanie (Klawiatura / Mysz):");
     println!("  Kliknij w okno - zablokuj/przechwyc mysz");
-    println!("  Esc            - Menu pauzy / zwolnij mysz (w pauzie: powrot do gry)");
-    println!("  WASD           - ruch (z plynna inercja/akceleracja)");
-    println!("  Spacja         - skok (w trybie lotu: w gore)");
-    println!("  Shift (lewy)   - kucanie (w trybie lotu: w dol)");
-    println!("  Ctrl (lewy)    - bieg (z plynna zmiana FOV)");
-    println!("  F              - przelacz tryb lotu (bez kolizji/grawitacji)");
-    println!("  Mysz           - rozgladanie sie (gdy przechwycona)");
-    println!("  LPM            - niszcz blok / bij moby / uderz TNT aby podpalic / kliknij przycisk");
+    println!("  Esc            - Menu pauzy / zwolnij mysz");
+    println!("  WASD           - ruch");
+    println!("  Spacja         - skok (lot: w gore)");
+    println!("  Shift (lewy)   - kucanie (lot: w dol)");
+    println!("  Ctrl (lewy)    - bieg");
+    println!("  F              - przelacz tryb lotu");
+    println!("  Mysz           - rozgladanie sie");
+    println!("  LPM            - niszcz blok / bij moby / kliknij UI");
     println!("  PPM            - stawiaj blok");
-    println!("  Scroll / 1-9, F1-F4 - wybor typu bloku do stawiania");
-    println!("  Q              - wyjscie z gry w menu pauzy");
+    println!("  Scroll / 1-9   - wybor typu bloku");
+    println!("  Q              - wyjscie w menu / wyrzuc przedmiot");
+    println!("Sterowanie (Kontroler / Gamepad):");
+    println!("  Lewy analog   - ruch");
+    println!("  Prawy analog  - rozgladanie sie");
+    println!("  RT (R2)       - niszcz blok / atak");
+    println!("  LT (L2)       - stawiaj blok");
+    println!("  A (Krzyzyk)   - skok / potwierdz w UI");
+    println!("  B (Kolko)     - kucanie / wstecz w UI");
+    println!("  Y (Trojkat)   - ekwipunek");
+    println!("  X (Kwadrat)   - wyrzuc przedmiot");
+    println!("  LB / RB       - poprzedni / nastepny slot");
+    println!("  L3 (Wcisnij L)- bieg");
+    println!("  R3 (Wcisnij R)- tryb lotu");
+    println!("  Start         - pauza");
+    println!("  Select / Back - zmiana trybu gry (Survival/Creative)");
+    println!("  D-Pad         - nawigacja w menu i ekwipunku");
 
     while window.is_open() {
         let now = Instant::now();
@@ -187,6 +208,9 @@ fn main() {
         last_time = now;
         total_time += dt;
         hand_animation = (hand_animation - dt * 3.5).max(0.0);
+
+        let gp_events = gamepad_mgr.update(dt);
+        let gp = gamepad_mgr.state;
 
         let cur_size = window.get_size();
         if cur_size != win_size {
@@ -218,17 +242,37 @@ fn main() {
                 let slot_left_down = window.is_key_down(Key::Left);
                 let slot_right_down = window.is_key_down(Key::Right);
 
-                let mut hovered_idx = None;
+                let mut hovered_idx = menu_hovered_btn;
                 if let Some((mx, my)) = mouse_pos {
                     let px = mx as i32;
                     let py = my as i32;
                     for (i, &(bx, by, bw, bh)) in main_menu_rects.iter().enumerate() {
                         if px >= bx && px < bx + bw && py >= by && py < by + bh {
                             hovered_idx = Some(i);
+                            menu_hovered_btn = Some(i);
                             break;
                         }
                     }
                 }
+
+                // Nawigacja D-Pad / Analog na padzie w Menu Głównym
+                if gp_events.dpad_up_just_pressed {
+                    let next = match menu_hovered_btn {
+                        Some(0) | None => 2,
+                        Some(i) => i - 1,
+                    };
+                    menu_hovered_btn = Some(next);
+                    hovered_idx = Some(next);
+                }
+                if gp_events.dpad_down_just_pressed {
+                    let next = match menu_hovered_btn {
+                        Some(2) | None => 0,
+                        Some(i) => i + 1,
+                    };
+                    menu_hovered_btn = Some(next);
+                    hovered_idx = Some(next);
+                }
+
                 let mut clicked_world = false;
                 if left_down && !left_was_down {
                     if let Some((mx, my)) = mouse_pos {
@@ -243,13 +287,17 @@ fn main() {
                         }
                     }
                 }
-                if slot_left_down && !slot_left_was_down {
+                if (slot_left_down && !slot_left_was_down) || gp_events.dpad_left_just_pressed || gp_events.lb_just_pressed {
                     save_slot = if save_slot == 1 { MAX_SAVE_SLOTS } else { save_slot - 1 };
                 }
-                if slot_right_down && !slot_right_was_down {
+                if (slot_right_down && !slot_right_was_down) || gp_events.dpad_right_just_pressed || gp_events.rb_just_pressed {
                     save_slot = if save_slot == MAX_SAVE_SLOTS { 1 } else { save_slot + 1 };
                 }
-                let click_button = if !clicked_world && left_down && !left_was_down { hovered_idx } else { None };
+                let click_button = if !clicked_world && (left_down && !left_was_down || gp_events.south_just_pressed) {
+                    hovered_idx
+                } else {
+                    None
+                };
 
                 if enter_down && !enter_was_down || click_button == Some(0) {
                     seed = generate_random_seed();
@@ -279,7 +327,7 @@ fn main() {
                     });
 
                     state = GameState::Loading(rx);
-                } else if q_down && !q_was_down || click_button == Some(2) {
+                } else if (q_down && !q_was_down) || click_button == Some(2) || gp_events.east_just_pressed {
                     break;
                 }
                 renderer.draw_main_menu(seed, save_slot, &save_slots, hovered_idx);
@@ -325,7 +373,7 @@ fn main() {
                         Err(error) => eprintln!("{error}"),
                     }
                 }
-                if escape_down && !escape_was_down {
+                if (escape_down && !escape_was_down) || gp_events.start_just_pressed {
                     state = GameState::Paused;
                     mouse_capture.set_captured(false);
                     window.set_cursor_visibility(true);
@@ -333,7 +381,7 @@ fn main() {
                     fly_velocity = Vec3::zero();
                 }
 
-                if e_down && !e_was_down {
+                if (e_down && !e_was_down) || gp_events.north_just_pressed {
                     state = GameState::Inventory;
                     mouse_capture.set_captured(false);
                     window.set_cursor_visibility(true);
@@ -364,6 +412,13 @@ fn main() {
                     }
                 }
 
+                // Rozglądanie się prawym analogiem kontrolera
+                let gp_look_speed_x = 3.2;
+                let gp_look_speed_y = 2.8;
+                if gp.right_stick_x.abs() > 0.0 || gp.right_stick_y.abs() > 0.0 {
+                    camera.rotate(gp.right_stick_x * gp_look_speed_x * dt, gp.right_stick_y * gp_look_speed_y * dt);
+                }
+
                 let forward = camera.forward_flat();
                 let right = camera.right_flat();
                 let mut wish_dir = Vec3::zero();
@@ -382,19 +437,22 @@ fn main() {
                         wish_dir = wish_dir + right;
                     }
                 }
+                if gp.left_stick_y.abs() > 0.0 || gp.left_stick_x.abs() > 0.0 {
+                    wish_dir = wish_dir + forward * gp.left_stick_y + right * gp.left_stick_x;
+                }
                 if wish_dir.length_sq() > 0.0001 {
                     wish_dir = wish_dir.normalized();
                 }
 
                 let f_down = window.is_key_down(Key::F);
                 let g_down = window.is_key_down(Key::G);
-                if f_down && !fly_key_was_down {
+                if (f_down && !fly_key_was_down) || gp_events.r3_just_pressed {
                     fly_mode = !fly_mode;
                     horiz_velocity = Vec3::zero();
                     fly_velocity = Vec3::zero();
                 }
 
-                if g_down && !g_was_down {
+                if (g_down && !g_was_down) || gp_events.select_just_pressed {
                     player.gamemode = if player.gamemode == GameMode::Survival {
                         GameMode::Creative
                     } else {
@@ -404,8 +462,7 @@ fn main() {
                 g_was_down = g_down;
 
                 let is_crouching = !fly_mode
-                && mouse_capture.is_captured()
-                && (window.is_key_down(Key::LeftShift) || window.is_key_down(Key::C));
+                && ((mouse_capture.is_captured() && (window.is_key_down(Key::LeftShift) || window.is_key_down(Key::C))) || gp.btn_east);
 
                 let target_eye = if is_crouching { CROUCH_EYE_OFFSET } else { STANDING_EYE_OFFSET };
                 let target_h = if is_crouching { CROUCH_HEIGHT } else { STANDING_HEIGHT };
@@ -419,8 +476,7 @@ fn main() {
                 }
 
                 let is_sprinting = !is_crouching
-                && mouse_capture.is_captured()
-                && window.is_key_down(Key::LeftCtrl)
+                && ((mouse_capture.is_captured() && window.is_key_down(Key::LeftCtrl)) || gp.btn_l3)
                 && wish_dir.length_sq() > 0.01;
 
                 let target_fov_deg = if is_sprinting {
@@ -444,19 +500,17 @@ fn main() {
 
                 if fly_mode {
                     let mut move_dir = wish_dir;
-                    if mouse_capture.is_captured() {
-                        if window.is_key_down(Key::Space) {
-                            move_dir.y += 1.0;
-                        }
-                        if window.is_key_down(Key::LeftShift) {
-                            move_dir.y -= 1.0;
-                        }
+                    if (mouse_capture.is_captured() && window.is_key_down(Key::Space)) || gp.btn_south {
+                        move_dir.y += 1.0;
+                    }
+                    if (mouse_capture.is_captured() && window.is_key_down(Key::LeftShift)) || gp.btn_east {
+                        move_dir.y -= 1.0;
                     }
                     if move_dir.length_sq() > 0.0001 {
                         move_dir = move_dir.normalized();
                     }
 
-                    let fly_fast = window.is_key_down(Key::LeftCtrl);
+                    let fly_fast = (mouse_capture.is_captured() && window.is_key_down(Key::LeftCtrl)) || gp.btn_l3;
                     let fly_mult = if fly_fast { 2.0 } else { 1.0 };
                     let target_fly = move_dir * (FLY_SPEED * fly_mult);
                     let fly_damping = 14.0;
@@ -493,7 +547,7 @@ fn main() {
                         if vertical_velocity < -2.5 {
                             vertical_velocity = -2.5;
                         }
-                        if window.is_key_down(Key::Space) && mouse_capture.is_captured() {
+                        if (window.is_key_down(Key::Space) && mouse_capture.is_captured()) || gp.btn_south {
                             vertical_velocity = 3.2;
                         }
                     } else {
@@ -502,7 +556,7 @@ fn main() {
                             vertical_velocity = -TERMINAL_VELOCITY;
                         }
 
-                        if window.is_key_down(Key::Space) && on_ground && mouse_capture.is_captured() && !is_crouching {
+                        if ((window.is_key_down(Key::Space) && mouse_capture.is_captured()) || gp.btn_south) && on_ground && !is_crouching {
                             vertical_velocity = JUMP_SPEED;
                             if is_sprinting && wish_dir.length_sq() > 0.01 {
                                 horiz_velocity = horiz_velocity + wish_dir * SPRINT_JUMP_BOOST;
@@ -568,6 +622,12 @@ fn main() {
                         player.selected_hotbar_slot = if player.selected_hotbar_slot <= 0 { 9 } else { player.selected_hotbar_slot - 1 };
                     }
                 }
+                if gp_events.lb_just_pressed || gp_events.dpad_left_just_pressed {
+                    player.selected_hotbar_slot = if player.selected_hotbar_slot <= 0 { 9 } else { player.selected_hotbar_slot - 1 };
+                }
+                if gp_events.rb_just_pressed || gp_events.dpad_right_just_pressed {
+                    player.selected_hotbar_slot = if player.selected_hotbar_slot >= 9 { 0 } else { player.selected_hotbar_slot + 1 };
+                }
                 for (key, id) in [
                     (Key::Key1, 0),
                     (Key::Key2, 1),
@@ -611,14 +671,15 @@ fn main() {
                 }
                 renderer.set_selected_block(selected_block_id);
 
-                // Progressive block breaking (hold LMB like Minecraft)
-                let interact_left = mouse_capture.is_captured() && left_down;
+                // Progressive block breaking (hold LMB or RT like Minecraft)
+                let interact_left = (mouse_capture.is_captured() && left_down) || gp.right_trigger > 0.3;
+                let interact_left_just = (!left_was_down && left_down && mouse_capture.is_captured()) || gp_events.right_trigger_just_pressed;
 
                 if interact_left {
                     let forward = camera.forward();
 
                     // First frame: check for mob hit
-                    if !left_was_down {
+                    if interact_left_just {
                         hand_animation = 1.0;
                         if let Some((mob_idx, _)) = mob_manager.raycast_mob(camera.position, forward, 4.2) {
                             let mob = &mut mob_manager.mobs[mob_idx];
@@ -635,7 +696,7 @@ fn main() {
                         let broken_block = world.get_block(target);
 
                         // Handle instant-break blocks (TNT, water, lava)
-                        if broken_block == BlockId::Tnt && !left_was_down {
+                        if broken_block == BlockId::Tnt && interact_left_just {
                             world.prime_tnt(target);
                             break_target = None;
                             break_progress = 0.0;
@@ -700,12 +761,12 @@ fn main() {
                         break_progress = 0.0;
                     }
                 } else {
-                    // LMB released -> reset
+                    // LMB/RT released -> reset
                     break_target = None;
                     break_progress = 0.0;
                 }
-                let interact_right = mouse_capture.is_captured() && right_down;
-                if interact_right && !right_was_down {
+                let interact_right = (mouse_capture.is_captured() && right_down && !right_was_down) || gp_events.left_trigger_just_pressed;
+                if interact_right {
                     if let Some(hit) = world.raycast(camera.position, camera.forward(), 8.0) {
                         let place_pos = hit.block_pos + hit.normal;
                         let place_id = BlockId::from_u8(selected_block_id);
@@ -766,7 +827,7 @@ fn main() {
                     particles.spawn_mob_death_poof(poof_pos);
                 }
 
-                if q_down && !q_was_down && mouse_capture.is_captured() {
+                if (q_down && !q_was_down && mouse_capture.is_captured()) || gp_events.west_just_pressed {
                     if let Some(stack) = &mut player.inventory.hotbar[player.selected_hotbar_slot as usize] {
                         items.push(ItemEntity::new(
                             camera.position + camera.forward() * 0.5,
@@ -884,37 +945,62 @@ fn main() {
                 let t_fov = 1.0 - (-8.0 * dt).exp();
                 camera.fov_y += (BASE_FOV_DEG.to_radians() - camera.fov_y) * t_fov;
 
-                let mut hovered_idx = None;
+                let mut hovered_idx = pause_hovered_btn;
                 if let Some((mx, my)) = mouse_pos {
                     let px = mx as i32;
                     let py = my as i32;
                     for (i, &(bx, by, bw, bh)) in pause_menu_rects.iter().enumerate() {
                         if px >= bx && px < bx + bw && py >= by && py < by + bh {
                             hovered_idx = Some(i);
+                            pause_hovered_btn = Some(i);
                             break;
                         }
                     }
                 }
 
-                if left_down && !left_was_down {
-                    match hovered_idx {
-                        Some(0) => {
+                // Nawigacja D-Pad / Analog na padzie w Menu Pauzy
+                if gp_events.dpad_up_just_pressed {
+                    let next = match pause_hovered_btn {
+                        Some(0) | None => 3,
+                        Some(i) => i - 1,
+                    };
+                    pause_hovered_btn = Some(next);
+                    hovered_idx = Some(next);
+                }
+                if gp_events.dpad_down_just_pressed {
+                    let next = match pause_hovered_btn {
+                        Some(3) | None => 0,
+                        Some(i) => i + 1,
+                    };
+                    pause_hovered_btn = Some(next);
+                    hovered_idx = Some(next);
+                }
+
+                let click_pause_btn = if left_down && !left_was_down || gp_events.south_just_pressed {
+                    hovered_idx
+                } else {
+                    None
+                };
+
+                if let Some(btn) = click_pause_btn {
+                    match btn {
+                        0 => {
                             state = GameState::Playing;
                             mouse_capture.set_captured(true);
                             window.set_cursor_visibility(false);
                             last_mouse = None;
                         }
-                        Some(1) => {
+                        1 => {
                             fly_mode = !fly_mode;
                         }
-                        Some(2) => {
+                        2 => {
                             let _ = save_current_world(&mut world, &camera, save_slot);
                             save_slots[save_slot as usize - 1] = true;
                             state = GameState::MainMenu;
                             mouse_capture.set_captured(false);
                             window.set_cursor_visibility(true);
                         }
-                        Some(3) => {
+                        3 => {
                             let _ = save_current_world(&mut world, &camera, save_slot);
                             break;
                         }
@@ -922,7 +1008,7 @@ fn main() {
                     }
                 }
 
-                if escape_down && !escape_was_down {
+                if (escape_down && !escape_was_down) || gp_events.east_just_pressed || gp_events.start_just_pressed {
                     state = GameState::Playing;
                     mouse_capture.set_captured(true);
                     window.set_cursor_visibility(false);
@@ -948,42 +1034,73 @@ fn main() {
             }
             GameState::Inventory => {
                 window.set_cursor_visibility(true);
-                if e_down && !e_was_down || (escape_down && !escape_was_down) {
+
+                // Nawigacja siatki ekwipunku za pomocą D-Pad / Analog na kontrolerze
+                if gp_events.dpad_up_just_pressed {
+                    inv_cursor.0 = if inv_cursor.0 == 0 { 4 } else { inv_cursor.0 - 1 };
+                }
+                if gp_events.dpad_down_just_pressed {
+                    inv_cursor.0 = if inv_cursor.0 >= 4 { 0 } else { inv_cursor.0 + 1 };
+                }
+                if gp_events.dpad_left_just_pressed {
+                    inv_cursor.1 = if inv_cursor.1 == 0 { 7 } else { inv_cursor.1 - 1 };
+                }
+                if gp_events.dpad_right_just_pressed {
+                    inv_cursor.1 = if inv_cursor.1 >= 7 { 0 } else { inv_cursor.1 + 1 };
+                }
+
+                // Zmiana aktywnego slotu hotbara na padzie za pomocą LB / RB
+                if gp_events.lb_just_pressed {
+                    player.selected_hotbar_slot = if player.selected_hotbar_slot <= 0 { 9 } else { player.selected_hotbar_slot - 1 };
+                }
+                if gp_events.rb_just_pressed {
+                    player.selected_hotbar_slot = if player.selected_hotbar_slot >= 9 { 0 } else { player.selected_hotbar_slot + 1 };
+                }
+
+                if (e_down && !e_was_down)
+                    || (escape_down && !escape_was_down)
+                    || gp_events.east_just_pressed
+                    || gp_events.north_just_pressed
+                    || gp_events.start_just_pressed
+                {
                     state = GameState::Playing;
                     mouse_capture.set_captured(true);
                     window.set_cursor_visibility(false);
                     last_mouse = None;
                 }
 
-                if left_down && !left_was_down {
-                    if let Some((mx, my)) = mouse_pos {
-                        let px = mx as i32;
-                        let py = my as i32;
-                        // Render inventory grid and check clicks
-                        // We will draw it via renderer, but handle clicks here
-                        let start_x = renderer.width as i32 / 2 - 200;
-                        let start_y = renderer.height as i32 / 2 - 150;
-                        let mut block_id = 1;
-                        'outer: for row in 0..5 {
-                            for col in 0..8 {
-                                if block_id > 19 { break 'outer; }
-                                let x = start_x + col * 40;
-                                let y = start_y + row * 40;
-                                if px >= x && px < x + 36 && py >= y && py < y + 36 {
-                                    player.inventory.hotbar[player.selected_hotbar_slot as usize] = Some(ItemStack {
-                                        block: BlockId::from_u8(block_id),
-                                        count: 64,
-                                    });
-                                }
-                                block_id += 1;
+                let start_x = renderer.width as i32 / 2 - 200;
+                let start_y = renderer.height as i32 / 2 - 150;
+
+                if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    for row in 0..5 {
+                        for col in 0..8 {
+                            let x = start_x + col as i32 * 40;
+                            let y = start_y + row as i32 * 40;
+                            if px >= x && px < x + 36 && py >= y && py < y + 36 {
+                                inv_cursor = (row, col);
                             }
                         }
                     }
                 }
 
+                let click_inv = (left_down && !left_was_down) || gp_events.south_just_pressed;
+                if click_inv {
+                    let (row, col) = inv_cursor;
+                    let block_id = (row * 8 + col + 1) as u8;
+                    if block_id <= 19 {
+                        player.inventory.hotbar[player.selected_hotbar_slot as usize] = Some(ItemStack {
+                            block: BlockId::from_u8(block_id),
+                            count: 64,
+                        });
+                    }
+                }
+
                 renderer.render_frame(&mut world, &camera);
-                // Draw inventory
-                renderer.draw_inventory(&player);
+                // Rysuj ekwipunek z podświetleniem wybranego kursorem slotu
+                renderer.draw_inventory(&player, Some(inv_cursor));
             }
         }
 
