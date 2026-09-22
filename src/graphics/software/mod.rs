@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet};
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
 use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId};
 use crate::graphics::camera::Camera;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::graphics::gpu::VulkanContext;
 use crate::graphics::traits::RenderBackend;
 use crate::world::mesher::{build_chunk_mesh, Triangle, Vertex};
@@ -55,7 +57,10 @@ pub struct Renderer {
     mesh_cache: HashMap<(i32, i32), Vec<Triangle>>,
     selected_block: u8,
     textures: TextureAtlas,
+    #[cfg(not(target_arch = "wasm32"))]
     vulkan: Option<VulkanContext>,
+    #[cfg(target_arch = "wasm32")]
+    vulkan: Option<()>,
     loaded_keys: Vec<(i32, i32)>,
     dirty_keys: HashSet<(i32, i32)>,
     visible_keys: Vec<(i32, i32)>,
@@ -67,17 +72,20 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(width: usize, height: usize) -> Self {
-        let logical_threads = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4);
-        let worker_threads = if logical_threads <= 4 {
-            (logical_threads / 2).max(1)
-        } else {
-            logical_threads
-        };
-        let _ = rayon::ThreadPoolBuilder::new()
-            .num_threads(worker_threads)
-            .build_global();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let logical_threads = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4);
+            let worker_threads = if logical_threads <= 4 {
+                (logical_threads / 2).max(1)
+            } else {
+                logical_threads
+            };
+            let _ = rayon::ThreadPoolBuilder::new()
+                .num_threads(worker_threads)
+                .build_global();
+        }
 
         Renderer {
             width,
@@ -98,6 +106,7 @@ impl Renderer {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new_vulkan(width: usize, height: usize) -> Result<Self, String> {
         let mut renderer = Self::new(width, height);
         renderer.vulkan = Some(VulkanContext::new(width, height, &renderer.textures)?);
@@ -105,7 +114,9 @@ impl Renderer {
     }
 
     pub fn backend_name(&self) -> &'static str {
-        if self.vulkan.is_some() { "vulkan" } else { "software" }
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.vulkan.is_some() { return "vulkan"; }
+        "software"
     }
 
     pub fn pixel_buffer(&self) -> &[u32] {
@@ -125,26 +136,41 @@ impl Renderer {
         let height = self.height;
         let max_h = height.max(1) as f32;
 
+        let clear_tile = |(tile_idx, rows): (usize, &mut [u32])| {
+            let y_start = tile_idx * TILE_HEIGHT;
+            for (row_i, row) in rows.chunks_mut(width).enumerate() {
+                let y = y_start + row_i;
+                let t = y as f32 / max_h;
+                let t = (t + camera_pitch * 0.05).clamp(0.0, 1.0);
+                let top = (0.35f32, 0.55f32, 0.95f32);
+                let bottom = (0.75f32, 0.85f32, 1.0f32);
+                let r = top.0 + (bottom.0 - top.0) * t;
+                let g = top.1 + (bottom.1 - top.1) * t;
+                let b = top.2 + (bottom.2 - top.2) * t;
+                let color = pack_color(r, g, b);
+                row.fill(color);
+            }
+        };
+
+        #[cfg(not(target_arch = "wasm32"))]
         self.color_buffer
             .par_chunks_mut(width * TILE_HEIGHT)
             .enumerate()
-            .for_each(|(tile_idx, rows)| {
-                let y_start = tile_idx * TILE_HEIGHT;
-                for (row_i, row) in rows.chunks_mut(width).enumerate() {
-                    let y = y_start + row_i;
-                    let t = y as f32 / max_h;
-                    let t = (t + camera_pitch * 0.05).clamp(0.0, 1.0);
-                    let top = (0.35f32, 0.55f32, 0.95f32);
-                    let bottom = (0.75f32, 0.85f32, 1.0f32);
-                    let r = top.0 + (bottom.0 - top.0) * t;
-                    let g = top.1 + (bottom.1 - top.1) * t;
-                    let b = top.2 + (bottom.2 - top.2) * t;
-                    let color = pack_color(r, g, b);
-                    row.fill(color);
-                }
-            });
+            .for_each(clear_tile);
 
+        #[cfg(target_arch = "wasm32")]
+        self.color_buffer
+            .chunks_mut(width * TILE_HEIGHT)
+            .enumerate()
+            .for_each(clear_tile);
+
+        #[cfg(not(target_arch = "wasm32"))]
         self.depth_buffer.par_chunks_mut(width * TILE_HEIGHT).for_each(|chunk| {
+            chunk.fill(f32::INFINITY);
+        });
+
+        #[cfg(target_arch = "wasm32")]
+        self.depth_buffer.chunks_mut(width * TILE_HEIGHT).for_each(|chunk| {
             chunk.fill(f32::INFINITY);
         });
     }
@@ -305,13 +331,22 @@ impl Renderer {
             .collect();
 
         if !dirty_keys_to_build.is_empty() {
+            let build_mesh = |&key: &(i32, i32)| {
+                let chunk = world.chunks.get(&key).unwrap();
+                let mesh = build_chunk_mesh(chunk, world);
+                (key, mesh)
+            };
+
+            #[cfg(not(target_arch = "wasm32"))]
             let new_meshes: Vec<((i32, i32), Vec<Triangle>)> = dirty_keys_to_build
                 .par_iter()
-                .map(|&key| {
-                    let chunk = world.chunks.get(&key).unwrap();
-                    let mesh = build_chunk_mesh(chunk, world);
-                    (key, mesh)
-                })
+                .map(build_mesh)
+                .collect();
+
+            #[cfg(target_arch = "wasm32")]
+            let new_meshes: Vec<((i32, i32), Vec<Triangle>)> = dirty_keys_to_build
+                .iter()
+                .map(build_mesh)
                 .collect();
 
             for (key, mesh) in new_meshes {
@@ -323,6 +358,7 @@ impl Renderer {
             }
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(vulkan) = self.vulkan.as_mut() {
             self.visible_keys.clear();
             for key in &self.loaded_keys {
@@ -346,9 +382,18 @@ impl Renderer {
             return;
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
         let mut visible: Vec<(i32, i32)> = self
             .loaded_keys
             .par_iter()
+            .copied()
+            .filter(|&key| Self::chunk_visible(key, &view_proj))
+            .collect();
+
+        #[cfg(target_arch = "wasm32")]
+        let mut visible: Vec<(i32, i32)> = self
+            .loaded_keys
+            .iter()
             .copied()
             .filter(|&key| Self::chunk_visible(key, &view_proj))
             .collect();
@@ -369,68 +414,85 @@ impl Renderer {
         let height = self.height;
         let mesh_cache = &self.mesh_cache;
 
-        let (opaque_chunks, transparent_chunks): (Vec<Vec<ScreenTriangle>>, Vec<Vec<ScreenTriangle>>) = visible
-            .par_iter()
-            .map(|key| {
-                let mut local_opaque = Vec::with_capacity(256);
-                let mut local_transparent = Vec::with_capacity(64);
+        let process_chunk = |key: &(i32, i32)| {
+            let mut local_opaque = Vec::with_capacity(256);
+            let mut local_transparent = Vec::with_capacity(64);
 
-                if let Some(tris) = mesh_cache.get(key) {
-                    for tri in tris {
-                        let c0 = to_clip_ao(tri.v0, &view_proj);
-                        let c1 = to_clip_ao(tri.v1, &view_proj);
-                        let c2 = to_clip_ao(tri.v2, &view_proj);
+            if let Some(tris) = mesh_cache.get(key) {
+                for tri in tris {
+                    let c0 = to_clip_ao(tri.v0, &view_proj);
+                    let c1 = to_clip_ao(tri.v1, &view_proj);
+                    let c2 = to_clip_ao(tri.v2, &view_proj);
 
-                        let clipped = clip_near_ao(&[c0, c1, c2]);
-                        if clipped.len() < 3 {
+                    let clipped = clip_near_ao(&[c0, c1, c2]);
+                    if clipped.len() < 3 {
+                        continue;
+                    }
+
+                    let is_transparent = matches!(
+                        tri.texture,
+                        TextureId::Water | TextureId::Glass
+                    );
+
+                    for i in 1..clipped.len() - 1 {
+                        let sa = project_to_screen_ao(&clipped[0], width, height);
+                        let sb = project_to_screen_ao(&clipped[i], width, height);
+                        let sc = project_to_screen_ao(&clipped[i + 1], width, height);
+
+                        let area = edge(sa.x, sa.y, sb.x, sb.y, sc.x, sc.y);
+                        if area <= 0.0 {
                             continue;
                         }
 
-                        let is_transparent = matches!(
-                            tri.texture,
-                            TextureId::Water | TextureId::Glass
-                        );
+                        let min_y = sa.y.min(sb.y).min(sc.y).floor() as i32;
+                        let max_y = sa.y.max(sb.y).max(sc.y).ceil() as i32;
 
-                        for i in 1..clipped.len() - 1 {
-                            let sa = project_to_screen_ao(&clipped[0], width, height);
-                            let sb = project_to_screen_ao(&clipped[i], width, height);
-                            let sc = project_to_screen_ao(&clipped[i + 1], width, height);
+                        if min_y >= height as i32 || max_y < 0 {
+                            continue;
+                        }
 
-                            let area = edge(sa.x, sa.y, sb.x, sb.y, sc.x, sc.y);
-                            if area <= 0.0 {
-                                continue;
-                            }
+                        let stri = ScreenTriangle {
+                            sa,
+                            sb,
+                            sc,
+                            texture: tri.texture,
+                            min_y,
+                            max_y,
+                        };
 
-                            let min_y = sa.y.min(sb.y).min(sc.y).floor() as i32;
-                            let max_y = sa.y.max(sb.y).max(sc.y).ceil() as i32;
-
-                            if min_y >= height as i32 || max_y < 0 {
-                                continue;
-                            }
-
-                            let stri = ScreenTriangle {
-                                sa,
-                                sb,
-                                sc,
-                                texture: tri.texture,
-                                min_y,
-                                max_y,
-                            };
-
-                            if is_transparent {
-                                local_transparent.push(stri);
-                            } else {
-                                local_opaque.push(stri);
-                            }
+                        if is_transparent {
+                            local_transparent.push(stri);
+                        } else {
+                            local_opaque.push(stri);
                         }
                     }
                 }
-                (local_opaque, local_transparent)
-            })
+            }
+            (local_opaque, local_transparent)
+        };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let (opaque_chunks, transparent_chunks): (Vec<Vec<ScreenTriangle>>, Vec<Vec<ScreenTriangle>>) = visible
+            .par_iter()
+            .map(process_chunk)
             .unzip();
 
-        self.opaque_tris_buf = opaque_chunks.into_par_iter().flatten().collect();
-        self.transparent_tris_buf = transparent_chunks.into_par_iter().flatten().collect();
+        #[cfg(target_arch = "wasm32")]
+        let (opaque_chunks, transparent_chunks): (Vec<Vec<ScreenTriangle>>, Vec<Vec<ScreenTriangle>>) = visible
+            .iter()
+            .map(process_chunk)
+            .unzip();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.opaque_tris_buf = opaque_chunks.into_par_iter().flatten().collect();
+            self.transparent_tris_buf = transparent_chunks.into_par_iter().flatten().collect();
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.opaque_tris_buf = opaque_chunks.into_iter().flatten().collect();
+            self.transparent_tris_buf = transparent_chunks.into_iter().flatten().collect();
+        }
 
         let textures = &self.textures;
         let opaque_slice = self.opaque_tris_buf.as_slice();
@@ -440,55 +502,64 @@ impl Renderer {
         let depth_chunks = self.depth_buffer.chunks_mut(width * TILE_HEIGHT);
 
         let fog_enabled = self.fog_enabled;
+        let render_tile = |(tile_idx, (c_slice, d_slice)): (usize, (&mut [u32], &mut [f32]))| {
+            let tile_y_start = tile_idx * TILE_HEIGHT;
+            let tile_y_end = (tile_y_start + TILE_HEIGHT).min(height);
+
+            for stri in opaque_slice {
+                if stri.max_y < tile_y_start as i32 || stri.min_y >= tile_y_end as i32 {
+                    continue;
+                }
+                raster_screen_triangle_ao_tile(
+                    stri.sa,
+                    stri.sb,
+                    stri.sc,
+                    stri.texture,
+                    0.0,
+                    width,
+                    tile_y_start,
+                    tile_y_end,
+                    c_slice,
+                    d_slice,
+                    textures,
+                    fog_enabled,
+                );
+            }
+
+            for stri in transparent_slice.iter().rev() {
+                if stri.max_y < tile_y_start as i32 || stri.min_y >= tile_y_end as i32 {
+                    continue;
+                }
+                raster_screen_triangle_ao_tile(
+                    stri.sa,
+                    stri.sb,
+                    stri.sc,
+                    stri.texture,
+                    0.0,
+                    width,
+                    tile_y_start,
+                    tile_y_end,
+                    c_slice,
+                    d_slice,
+                    textures,
+                    fog_enabled,
+                );
+            }
+        };
+
+        #[cfg(not(target_arch = "wasm32"))]
         color_chunks
             .zip(depth_chunks)
             .enumerate()
             .collect::<Vec<_>>()
             .into_par_iter()
-            .for_each(|(tile_idx, (c_slice, d_slice))| {
-                let tile_y_start = tile_idx * TILE_HEIGHT;
-                let tile_y_end = (tile_y_start + TILE_HEIGHT).min(height);
+            .for_each(render_tile);
 
-                for stri in opaque_slice {
-                    if stri.max_y < tile_y_start as i32 || stri.min_y >= tile_y_end as i32 {
-                        continue;
-                    }
-                    raster_screen_triangle_ao_tile(
-                        stri.sa,
-                        stri.sb,
-                        stri.sc,
-                        stri.texture,
-                        0.0,
-                        width,
-                        tile_y_start,
-                        tile_y_end,
-                        c_slice,
-                        d_slice,
-                        textures,
-                        fog_enabled,
-                    );
-                }
-
-                for stri in transparent_slice.iter().rev() {
-                    if stri.max_y < tile_y_start as i32 || stri.min_y >= tile_y_end as i32 {
-                        continue;
-                    }
-                    raster_screen_triangle_ao_tile(
-                        stri.sa,
-                        stri.sb,
-                        stri.sc,
-                        stri.texture,
-                        0.0,
-                        width,
-                        tile_y_start,
-                        tile_y_end,
-                        c_slice,
-                        d_slice,
-                        textures,
-                        fog_enabled,
-                    );
-                }
-            });
+        #[cfg(target_arch = "wasm32")]
+        color_chunks
+            .zip(depth_chunks)
+            .enumerate()
+            .for_each(render_tile);
     }
 
     fn chunk_visible(key: (i32, i32), view_proj: &Mat4) -> bool {

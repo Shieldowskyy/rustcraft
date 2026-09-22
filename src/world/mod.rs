@@ -3,9 +3,11 @@ pub mod mesher;
 pub mod storage;
 
 use std::collections::{HashMap, HashSet};
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
 pub use block::{BlockId, Face};
+
 pub use mesher::{build_chunk_mesh, Triangle, Vertex};
 pub use storage::{save_current_world, save_path};
 
@@ -870,8 +872,12 @@ impl World {
 
         if !missing_chunks.is_empty() {
             let seed = self.seed;
-            let generated_chunks: Vec<Chunk> = missing_chunks
-                .into_par_iter()
+            #[cfg(not(target_arch = "wasm32"))]
+            let iter = missing_chunks.into_par_iter();
+            #[cfg(target_arch = "wasm32")]
+            let iter = missing_chunks.into_iter();
+
+            let generated_chunks: Vec<Chunk> = iter
                 .map(|(cx, cz)| Chunk::generate(cx, cz, seed))
                 .collect();
 

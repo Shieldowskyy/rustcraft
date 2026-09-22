@@ -1,0 +1,407 @@
+:root {
+  --bg-dark: #0b0f19;
+  --bg-card: rgba(18, 24, 38, 0.75);
+  --bg-glass: rgba(255, 255, 255, 0.04);
+  --border-glass: rgba(255, 255, 255, 0.08);
+  --border-active: rgba(99, 102, 241, 0.4);
+  
+  --primary: #6366f1;
+  --primary-glow: rgba(99, 102, 241, 0.35);
+  --accent: #10b981;
+  --accent-orange: #f59e0b;
+  --text-main: #f3f4f6;
+  --text-muted: #9ca3af;
+  --text-dim: #6b7280;
+
+  --radius-lg: 16px;
+  --radius-md: 10px;
+  --radius-sm: 6px;
+
+  --shadow-glow: 0 0 25px rgba(99, 102, 241, 0.2);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Tło z dynamicznymi promieniami świetlnymi */
+.app-background {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.glow-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.25;
+}
+
+.orb-1 {
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, #6366f1, #3b82f6);
+  top: -100px;
+  left: -100px;
+}
+
+.orb-2 {
+  width: 450px;
+  height: 450px;
+  background: radial-gradient(circle, #10b981, #06b6d4);
+  bottom: -100px;
+  right: -100px;
+}
+
+/* Główny kontener */
+.main-container {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1100px;
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Nagłówek */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-card);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  padding: 16px 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.logo-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* 3D Logo Cube */
+.logo-cube {
+  width: 38px;
+  height: 38px;
+  position: relative;
+  transform: rotateX(60deg) rotateZ(45deg);
+  transform-style: preserve-3d;
+  animation: cube-float 3s ease-in-out infinite alternate;
+}
+
+@keyframes cube-float {
+  0% { transform: translateY(0px) rotateX(60deg) rotateZ(45deg); }
+  100% { transform: translateY(-6px) rotateX(60deg) rotateZ(45deg); }
+}
+
+.cube-face {
+  position: absolute;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.cube-face.top {
+  background: linear-gradient(135deg, #4ade80, #22c55e);
+  transform: translateZ(19px);
+}
+
+.cube-face.front {
+  background: linear-gradient(135deg, #78350f, #92400e);
+  transform: rotateX(-90deg) translateZ(19px);
+}
+
+.cube-face.side {
+  background: linear-gradient(135deg, #b45309, #78350f);
+  transform: rotateY(90deg) translateZ(19px);
+}
+
+.app-title {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.app-title span {
+  color: var(--primary);
+  background: linear-gradient(135deg, #818cf8, #6366f1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.app-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-glass);
+  padding: 8px 14px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  background-color: var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--accent);
+  animation: pulse-dot 2s infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.85); }
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(99, 102, 241, 0.05));
+  border: 1px solid var(--border-active);
+  color: var(--text-main);
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-btn:hover {
+  background: var(--primary);
+  box-shadow: var(--shadow-glow);
+  transform: translateY(-1px);
+}
+
+/* Kontener gry i Canvas */
+.game-wrapper {
+  width: 100%;
+}
+
+.canvas-container {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--border-glass);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), var(--shadow-glow);
+}
+
+#game-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  cursor: crosshair;
+}
+
+/* Ekrany nakładek */
+.overlay-screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(11, 15, 25, 0.94);
+  backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  z-index: 10;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.overlay-screen:not(.active) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.loader-spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid var(--border-glass);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.pointerlock-prompt {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(18, 24, 38, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-active);
+  padding: 10px 20px;
+  border-radius: 9999px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  z-index: 5;
+}
+
+.pointerlock-prompt.hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(12px);
+}
+
+.prompt-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.prompt-key {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 3px 8px;
+  border-radius: 4px;
+  color: var(--text-muted);
+}
+
+/* Stopka i Panele Sterowania */
+.app-footer {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 800px) {
+  .app-footer {
+    grid-template-columns: 1fr;
+  }
+}
+
+.controls-card, .gamepad-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.controls-card h3, .gamepad-card h3 {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-main);
+}
+
+.controls-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px 14px;
+}
+
+.control-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+kbd {
+  display: inline-block;
+  background: linear-gradient(180deg, #2a3449, #1a2233);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-bottom: 2px solid rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.gamepad-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-glass);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.dot-indicator {
+  width: 8px;
+  height: 8px;
+  background: var(--text-dim);
+  border-radius: 50%;
+}
+
+.dot-indicator.connected {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.gamepad-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}

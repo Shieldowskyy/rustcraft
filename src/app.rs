@@ -1,0 +1,1576 @@
+use std::fmt::Write;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::mpsc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::thread;
+
+use crate::cli::generate_random_seed;
+use crate::core::math::{IVec3, Mat4, Vec3};
+use crate::core::settings::GameSettings;
+use crate::gameplay::inventory::{Inventory, ItemStack};
+use crate::gameplay::item::ItemEntity;
+use crate::gameplay::mob::MobManager;
+use crate::gameplay::particles::ParticleSystem;
+use crate::gameplay::physics::{
+    block_intersects_player, move_player_with_collision, CROUCH_EYE_OFFSET, CROUCH_HEIGHT,
+    FLY_SPEED, GRAVITY, JUMP_SPEED, SNEAK_SPEED, SPRINT_JUMP_BOOST, SPRINT_SPEED,
+    STANDING_EYE_OFFSET, STANDING_HEIGHT, SWIM_SPEED, TERMINAL_VELOCITY, WALK_SPEED,
+};
+use crate::gameplay::player::{GameMode, Player};
+use crate::gameplay::recipe::RecipeBook;
+use crate::graphics::camera::Camera;
+use crate::graphics::software::Renderer;
+use crate::ui::{InventoryLayout, InventorySlotTarget, VISIBLE_SAVE_ROWS};
+use crate::world::block::{BlockId, Face};
+use crate::world::storage::{delete_save, get_save_metadata, save_current_world, save_path, SaveMetadata};
+use crate::world::World;
+
+pub const WIDTH: usize = 960;
+pub const HEIGHT: usize = 540;
+pub const MAX_SAVE_SLOTS: u8 = 32;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PreviousMenu {
+    MainMenu,
+    Paused,
+}
+
+pub enum WorldLoadResult {
+    Success(World, Option<Vec3>),
+    Error(String),
+}
+
+pub enum GameState {
+    MainMenu,
+    SaveSelect,
+    Settings(PreviousMenu),
+    #[cfg(not(target_arch = "wasm32"))]
+    Loading(mpsc::Receiver<WorldLoadResult>),
+    #[cfg(target_arch = "wasm32")]
+    Loading,
+    Playing,
+    Paused,
+    Inventory,
+    DeathScreen,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct InputState {
+    pub mouse_dx: f32,
+    pub mouse_dy: f32,
+    pub mouse_pos: Option<(f32, f32)>,
+    pub mouse_left: bool,
+    pub mouse_right: bool,
+    pub scroll_delta: f32,
+
+    pub key_w: bool,
+    pub key_s: bool,
+    pub key_a: bool,
+    pub key_d: bool,
+    pub key_space: bool,
+    pub key_shift: bool,
+    pub key_ctrl: bool,
+    pub key_c: bool,
+    pub key_escape: bool,
+    pub key_p: bool,
+    pub key_f: bool,
+    pub key_e: bool,
+    pub key_q: bool,
+    pub key_g: bool,
+    pub key_m: bool,
+    pub key_f5: bool,
+    pub key_enter: bool,
+    pub key_up: bool,
+    pub key_down: bool,
+    pub key_left: bool,
+    pub key_right: bool,
+    pub key_n: bool,
+    pub key_del: bool,
+    pub key_digits: [bool; 10],
+
+    // Gamepad (analog axes & buttons)
+    pub gp_left_stick_x: f32,
+    pub gp_left_stick_y: f32,
+    pub gp_right_stick_x: f32,
+    pub gp_right_stick_y: f32,
+    pub gp_left_trigger: f32,
+    pub gp_right_trigger: f32,
+    pub gp_btn_south: bool,
+    pub gp_btn_east: bool,
+    pub gp_btn_west: bool,
+    pub gp_btn_north: bool,
+    pub gp_btn_lb: bool,
+    pub gp_btn_rb: bool,
+    pub gp_btn_l3: bool,
+    pub gp_btn_r3: bool,
+    pub gp_btn_start: bool,
+    pub gp_btn_select: bool,
+    pub gp_dpad_up: bool,
+    pub gp_dpad_down: bool,
+    pub gp_dpad_left: bool,
+    pub gp_dpad_right: bool,
+
+    // One-shot edge events
+    pub gp_south_just_pressed: bool,
+    pub gp_east_just_pressed: bool,
+    pub gp_west_just_pressed: bool,
+    pub gp_north_just_pressed: bool,
+    pub gp_lb_just_pressed: bool,
+    pub gp_rb_just_pressed: bool,
+    pub gp_r3_just_pressed: bool,
+    pub gp_start_just_pressed: bool,
+    pub gp_select_just_pressed: bool,
+    pub gp_dpad_up_just_pressed: bool,
+    pub gp_dpad_down_just_pressed: bool,
+    pub gp_dpad_left_just_pressed: bool,
+    pub gp_dpad_right_just_pressed: bool,
+    pub gp_right_trigger_just_pressed: bool,
+    pub gp_left_trigger_just_pressed: bool,
+
+    pub is_mouse_captured: bool,
+}
+
+pub struct AppOutput {
+    pub request_capture_mouse: bool,
+    pub request_release_mouse: bool,
+    pub quit_requested: bool,
+    pub is_playing: bool,
+    pub title: String,
+}
+
+pub struct RustCraftApp {
+    pub width: usize,
+    pub height: usize,
+    pub renderer: Renderer,
+    pub world: World,
+    pub camera: Camera,
+    pub particles: ParticleSystem,
+    pub mob_manager: MobManager,
+    pub player: Player,
+    pub items: Vec<ItemEntity>,
+    pub recipe_book: RecipeBook,
+    pub crafting_table_open: bool,
+    pub settings: GameSettings,
+    pub state: GameState,
+    pub save_slot: u8,
+    pub save_select_slot: u8,
+    pub save_select_scroll: usize,
+    pub save_metadata_cache: [SaveMetadata; MAX_SAVE_SLOTS as usize],
+    pub settings_hovered_opt: Option<usize>,
+    pub menu_hovered_btn: Option<usize>,
+    pub pause_hovered_btn: Option<usize>,
+    pub death_hovered_btn: Option<usize>,
+    pub vertical_velocity: f32,
+    pub horiz_velocity: Vec3,
+    pub fly_velocity: Vec3,
+    pub on_ground: bool,
+    pub fly_mode: bool,
+    pub current_eye_offset: f32,
+    pub current_player_height: f32,
+    pub break_progress: f32,
+    pub break_target: Option<IVec3>,
+    pub total_time: f32,
+    pub material_timer: f32,
+    pub hand_animation: f32,
+    pub walk_phase: f32,
+    pub damage_tilt_timer: f32,
+    pub damage_tilt_dir: f32,
+    pub debug_lines: Vec<String>,
+    pub last_fov: f32,
+    pub last_aspect: f32,
+    pub proj_matrix: Mat4,
+    pub main_menu_rects: [(i32, i32, i32, i32); 3],
+    pub save_card_rects: [(i32, i32, i32, i32); VISIBLE_SAVE_ROWS],
+    pub save_btn_rects: [(i32, i32, i32, i32); 4],
+    pub settings_rects: [(i32, i32, i32, i32); 6],
+    pub pause_menu_rects: [(i32, i32, i32, i32); 5],
+    pub death_screen_rects: [(i32, i32, i32, i32); 2],
+    pub seed: u32,
+    pub fps_display: u32,
+
+    // Previous input state for edge detection
+    prev_left_down: bool,
+    prev_right_down: bool,
+    prev_escape_down: bool,
+    prev_p_down: bool,
+    prev_e_down: bool,
+    prev_f_down: bool,
+    prev_q_down: bool,
+    prev_m_down: bool,
+    prev_g_down: bool,
+    prev_f5_down: bool,
+    prev_enter_down: bool,
+    prev_up_arrow_down: bool,
+    prev_down_arrow_down: bool,
+    prev_left_arrow_down: bool,
+    prev_right_arrow_down: bool,
+    prev_n_down: bool,
+    prev_del_down: bool,
+}
+
+impl RustCraftApp {
+    pub fn new(width: usize, height: usize, renderer_choice: &str, seed: u32) -> Self {
+        let settings = GameSettings::load();
+        let mut renderer = match renderer_choice {
+            #[cfg(not(target_arch = "wasm32"))]
+            "vulkan" => Renderer::new_vulkan(width, height).unwrap_or_else(|error| {
+                eprintln!("Nie można uruchomić renderera Vulkan: {error}, przełączam na software");
+                Renderer::new(width, height)
+            }),
+            _ => Renderer::new(width, height),
+        };
+        renderer.fog_enabled = settings.fog;
+
+        let world = World::new_with_seed(seed);
+        let camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
+
+        let mut player = Player::new();
+        player.gamemode = GameMode::Survival;
+
+        let main_menu_rects = renderer.main_menu_button_rects();
+        let save_card_rects = renderer.save_card_rects();
+        let save_btn_rects = renderer.save_bottom_button_rects();
+        let settings_rects = renderer.settings_option_rects();
+        let pause_menu_rects = renderer.pause_menu_button_rects();
+        let death_screen_rects = renderer.death_screen_button_rects();
+
+        let aspect = width as f32 / height as f32;
+        let last_fov = camera.fov_y;
+        let proj_matrix = camera.projection_matrix(aspect);
+
+        let save_metadata_cache = std::array::from_fn(|index| {
+            get_save_metadata(index as u8 + 1)
+        });
+
+        Self {
+            width,
+            height,
+            renderer,
+            world,
+            camera,
+            particles: ParticleSystem::new(),
+            mob_manager: MobManager::new(),
+            player,
+            items: Vec::new(),
+            recipe_book: RecipeBook::new(),
+            crafting_table_open: false,
+            settings,
+            state: GameState::MainMenu,
+            save_slot: 1,
+            save_select_slot: 1,
+            save_select_scroll: 0,
+            save_metadata_cache,
+            settings_hovered_opt: Some(0),
+            menu_hovered_btn: Some(0),
+            pause_hovered_btn: Some(0),
+            death_hovered_btn: Some(0),
+            vertical_velocity: 0.0,
+            horiz_velocity: Vec3::zero(),
+            fly_velocity: Vec3::zero(),
+            on_ground: false,
+            fly_mode: false,
+            current_eye_offset: STANDING_EYE_OFFSET,
+            current_player_height: STANDING_HEIGHT,
+            break_progress: 0.0,
+            break_target: None,
+            total_time: 0.0,
+            material_timer: 0.0,
+            hand_animation: 0.0,
+            walk_phase: 0.0,
+            damage_tilt_timer: 0.0,
+            damage_tilt_dir: 1.0,
+            debug_lines: vec![
+                String::with_capacity(32),
+                String::with_capacity(64),
+                String::with_capacity(32),
+                String::with_capacity(32),
+                String::with_capacity(32),
+            ],
+            last_fov,
+            last_aspect: aspect,
+            proj_matrix,
+            main_menu_rects,
+            save_card_rects,
+            save_btn_rects,
+            settings_rects,
+            pause_menu_rects,
+            death_screen_rects,
+            seed,
+            fps_display: 60,
+
+            prev_left_down: false,
+            prev_right_down: false,
+            prev_escape_down: false,
+            prev_p_down: false,
+            prev_e_down: false,
+            prev_f_down: false,
+            prev_q_down: false,
+            prev_m_down: false,
+            prev_g_down: false,
+            prev_f5_down: false,
+            prev_enter_down: false,
+            prev_up_arrow_down: false,
+            prev_down_arrow_down: false,
+            prev_left_arrow_down: false,
+            prev_right_arrow_down: false,
+            prev_n_down: false,
+            prev_del_down: false,
+        }
+    }
+
+    pub fn pixel_buffer(&self) -> &[u32] {
+        self.renderer.pixel_buffer()
+    }
+
+    pub fn update_and_render(&mut self, dt: f32, input: &InputState) -> AppOutput {
+        self.total_time += dt;
+        self.hand_animation = (self.hand_animation - dt * 3.5).max(0.0);
+
+        let mut out = AppOutput {
+            request_capture_mouse: false,
+            request_release_mouse: false,
+            quit_requested: false,
+            is_playing: matches!(self.state, GameState::Playing),
+            title: String::new(),
+        };
+
+        let mouse_pos = input.mouse_pos;
+        let left_down = input.mouse_left;
+        let right_down = input.mouse_right;
+        let escape_down = input.key_escape;
+        let p_down = input.key_p;
+        let f_down = input.key_f;
+        let e_down = input.key_e;
+        let q_down = input.key_q;
+        let m_down = input.key_m;
+        let g_down = input.key_g;
+        let f5_down = input.key_f5;
+        let enter_down = input.key_enter;
+        let n_down = input.key_n;
+        let del_down = input.key_del;
+        let left_arrow_down = input.key_left;
+        let right_arrow_down = input.key_right;
+        let up_arrow_down = input.key_up;
+        let down_arrow_down = input.key_down;
+
+
+        match self.state {
+            GameState::MainMenu => {
+                let mut hovered_idx = self.menu_hovered_btn;
+                if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    for (i, &(bx, by, bw, bh)) in self.main_menu_rects.iter().enumerate() {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            hovered_idx = Some(i);
+                            self.menu_hovered_btn = Some(i);
+                            break;
+                        }
+                    }
+                }
+
+                if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
+                    let next = match self.menu_hovered_btn {
+                        Some(0) | None => 2,
+                        Some(i) => i - 1,
+                    };
+                    self.menu_hovered_btn = Some(next);
+                    hovered_idx = Some(next);
+                }
+                if input.gp_dpad_down_just_pressed || (down_arrow_down && !self.prev_down_arrow_down) {
+                    let next = match self.menu_hovered_btn {
+                        Some(2) | None => 0,
+                        Some(i) => i + 1,
+                    };
+                    self.menu_hovered_btn = Some(next);
+                    hovered_idx = Some(next);
+                }
+
+                let click_button = if (left_down && !self.prev_left_down) || input.gp_south_just_pressed {
+                    hovered_idx
+                } else {
+                    None
+                };
+
+                if (enter_down && !self.prev_enter_down) || click_button == Some(0) {
+                    self.state = GameState::SaveSelect;
+                    self.save_select_slot = self.save_slot;
+                    self.save_select_scroll = ((self.save_slot as usize - 1).saturating_sub(1))
+                        .min(MAX_SAVE_SLOTS as usize - VISIBLE_SAVE_ROWS);
+                } else if click_button == Some(1) {
+                    self.state = GameState::Settings(PreviousMenu::MainMenu);
+                    self.settings_hovered_opt = Some(0);
+                } else if (q_down && !self.prev_q_down) || click_button == Some(2) || input.gp_east_just_pressed {
+                    out.quit_requested = true;
+                }
+
+                self.renderer.draw_main_menu(hovered_idx);
+            }
+            GameState::SaveSelect => {
+                if input.scroll_delta > 0.0 {
+                    self.save_select_scroll = self.save_select_scroll.saturating_sub(1);
+                } else if input.scroll_delta < 0.0 {
+                    self.save_select_scroll = (self.save_select_scroll + 1).min(MAX_SAVE_SLOTS as usize - VISIBLE_SAVE_ROWS);
+                }
+
+                if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
+                    self.save_select_slot = if self.save_select_slot <= 1 { MAX_SAVE_SLOTS } else { self.save_select_slot - 1 };
+                    let slot_idx = self.save_select_slot as usize - 1;
+                    if slot_idx < self.save_select_scroll {
+                        self.save_select_scroll = slot_idx;
+                    } else if slot_idx >= self.save_select_scroll + VISIBLE_SAVE_ROWS {
+                        self.save_select_scroll = slot_idx - VISIBLE_SAVE_ROWS + 1;
+                    }
+                }
+                if input.gp_dpad_down_just_pressed || (down_arrow_down && !self.prev_down_arrow_down) {
+                    self.save_select_slot = if self.save_select_slot >= MAX_SAVE_SLOTS { 1 } else { self.save_select_slot + 1 };
+                    let slot_idx = self.save_select_slot as usize - 1;
+                    if slot_idx >= self.save_select_scroll + VISIBLE_SAVE_ROWS {
+                        self.save_select_scroll = slot_idx - VISIBLE_SAVE_ROWS + 1;
+                    } else if slot_idx < self.save_select_scroll {
+                        self.save_select_scroll = slot_idx;
+                    }
+                }
+
+                let mut save_select_hovered_card = None;
+                let mut save_select_hovered_btn = None;
+
+                if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    for (row, &(bx, by, bw, bh)) in self.save_card_rects.iter().enumerate() {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            save_select_hovered_card = Some(row);
+                            if left_down && !self.prev_left_down {
+                                self.save_select_slot = (self.save_select_scroll + row + 1) as u8;
+                            }
+                            break;
+                        }
+                    }
+                    for (i, &(bx, by, bw, bh)) in self.save_btn_rects.iter().enumerate() {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            save_select_hovered_btn = Some(i);
+                            break;
+                        }
+                    }
+                }
+
+                let play_action = (enter_down && !self.prev_enter_down)
+                    || (left_down && !self.prev_left_down && save_select_hovered_btn == Some(0))
+                    || input.gp_south_just_pressed;
+                let new_action = (n_down && !self.prev_n_down)
+                    || (left_down && !self.prev_left_down && save_select_hovered_btn == Some(1))
+                    || input.gp_north_just_pressed;
+                let delete_action = (del_down && !self.prev_del_down)
+                    || (left_down && !self.prev_left_down && save_select_hovered_btn == Some(2))
+                    || input.gp_west_just_pressed;
+                let back_action = (escape_down && !self.prev_escape_down)
+                    || (left_down && !self.prev_left_down && save_select_hovered_btn == Some(3))
+                    || input.gp_east_just_pressed;
+
+                if play_action {
+                    self.save_slot = self.save_select_slot;
+                    let meta = &self.save_metadata_cache[self.save_slot as usize - 1];
+                    if meta.exists {
+                        let path = save_path(self.save_slot);
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            let (tx, rx) = mpsc::channel();
+                            thread::spawn(move || {
+                                match World::load(&path) {
+                                    Ok(loaded_world) => {
+                                        let pos = loaded_world.player_position;
+                                        let _ = tx.send(WorldLoadResult::Success(loaded_world, Some(pos)));
+                                    }
+                                    Err(error) => {
+                                        let _ = tx.send(WorldLoadResult::Error(error.to_string()));
+                                    }
+                                }
+                            });
+                            self.state = GameState::Loading(rx);
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            match World::load(&path) {
+                                Ok(loaded_world) => {
+                                    let pos = loaded_world.player_position;
+                                    self.world = loaded_world;
+                                    self.camera = Camera::new(pos);
+                                    self.mob_manager = MobManager::new();
+                                    self.state = GameState::Playing;
+                                }
+                                Err(_) => {
+                                    self.world = World::new_with_seed(self.seed);
+                                    self.camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
+                                    self.mob_manager = MobManager::new();
+                                    self.state = GameState::Playing;
+                                }
+                            }
+                        }
+                    } else {
+                        self.seed = generate_random_seed();
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            let (tx, rx) = mpsc::channel();
+                            let thread_seed = self.seed;
+                            thread::spawn(move || {
+                                let new_world = World::new_with_seed(thread_seed);
+                                let _ = tx.send(WorldLoadResult::Success(new_world, None));
+                            });
+                            self.state = GameState::Loading(rx);
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            self.world = World::new_with_seed(self.seed);
+                            self.camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
+                            self.mob_manager = MobManager::new();
+                            self.state = GameState::Playing;
+                        }
+                    }
+                } else if new_action {
+                    self.save_slot = self.save_select_slot;
+                    self.seed = generate_random_seed();
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        let (tx, rx) = mpsc::channel();
+                        let thread_seed = self.seed;
+                        thread::spawn(move || {
+                            let new_world = World::new_with_seed(thread_seed);
+                            let _ = tx.send(WorldLoadResult::Success(new_world, None));
+                        });
+                        self.state = GameState::Loading(rx);
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        self.world = World::new_with_seed(self.seed);
+                        self.camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
+                        self.mob_manager = MobManager::new();
+                        self.state = GameState::Playing;
+                    }
+                } else if delete_action {
+                    let _ = delete_save(self.save_select_slot);
+                    self.save_metadata_cache[self.save_select_slot as usize - 1] = get_save_metadata(self.save_select_slot);
+                } else if back_action {
+                    self.state = GameState::MainMenu;
+                }
+
+                self.renderer.draw_save_select_menu(
+                    self.save_select_slot,
+                    self.save_select_scroll,
+                    &self.save_metadata_cache,
+                    save_select_hovered_card,
+                    save_select_hovered_btn,
+                );
+            }
+            GameState::Settings(prev) => {
+                let mut hovered_opt = self.settings_hovered_opt;
+                if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    for (i, &(bx, by, bw, bh)) in self.settings_rects.iter().enumerate() {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            hovered_opt = Some(i);
+                            self.settings_hovered_opt = Some(i);
+                            break;
+                        }
+                    }
+                }
+
+                if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
+                    let next = match self.settings_hovered_opt {
+                        Some(0) | None => 5,
+                        Some(i) => i - 1,
+                    };
+                    self.settings_hovered_opt = Some(next);
+                    hovered_opt = Some(next);
+                }
+                if input.gp_dpad_down_just_pressed || (down_arrow_down && !self.prev_down_arrow_down) {
+                    let next = match self.settings_hovered_opt {
+                        Some(5) | None => 0,
+                        Some(i) => i + 1,
+                    };
+                    self.settings_hovered_opt = Some(next);
+                    hovered_opt = Some(next);
+                }
+
+                let click_opt = if (left_down && !self.prev_left_down) || input.gp_south_just_pressed || (enter_down && !self.prev_enter_down) {
+                    hovered_opt
+                } else {
+                    None
+                };
+
+                let left_key_just = left_arrow_down && !self.prev_left_arrow_down;
+                let right_key_just = right_arrow_down && !self.prev_right_arrow_down;
+
+                if let Some(opt_idx) = click_opt {
+                    match opt_idx {
+                        0 => self.settings.cycle_render_distance(true),
+                        1 => self.settings.fog = !self.settings.fog,
+                        2 => self.settings.clouds = !self.settings.clouds,
+                        3 => self.settings.cycle_fov(true),
+                        4 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                        5 => {
+                            let _ = self.settings.save();
+                            self.state = match prev {
+                                PreviousMenu::MainMenu => GameState::MainMenu,
+                                PreviousMenu::Paused => GameState::Paused,
+                            };
+                        }
+                        _ => {}
+                    }
+                } else if input.gp_dpad_left_just_pressed || left_key_just {
+                    if let Some(opt_idx) = hovered_opt {
+                        match opt_idx {
+                            0 => self.settings.cycle_render_distance(false),
+                            1 => self.settings.fog = !self.settings.fog,
+                            2 => self.settings.clouds = !self.settings.clouds,
+                            3 => self.settings.cycle_fov(false),
+                            4 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                            _ => {}
+                        }
+                    }
+                } else if input.gp_dpad_right_just_pressed || right_key_just {
+                    if let Some(opt_idx) = hovered_opt {
+                        match opt_idx {
+                            0 => self.settings.cycle_render_distance(true),
+                            1 => self.settings.fog = !self.settings.fog,
+                            2 => self.settings.clouds = !self.settings.clouds,
+                            3 => self.settings.cycle_fov(true),
+                            4 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                            _ => {}
+                        }
+                    }
+                }
+
+                if (escape_down && !self.prev_escape_down) || (p_down && !self.prev_p_down) || input.gp_east_just_pressed {
+                    let _ = self.settings.save();
+                    self.state = match prev {
+                        PreviousMenu::MainMenu => GameState::MainMenu,
+                        PreviousMenu::Paused => GameState::Paused,
+                    };
+                }
+
+                self.renderer.fog_enabled = self.settings.fog;
+                if prev == PreviousMenu::Paused {
+                    self.renderer.render_frame(&mut self.world, &self.camera);
+                }
+                self.renderer.draw_settings_menu(&self.settings, hovered_opt);
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            GameState::Loading(ref rx) => {
+                self.renderer.draw_main_menu(None);
+
+                if let Ok(result) = rx.try_recv() {
+                    match result {
+                        WorldLoadResult::Success(loaded_world, loaded_pos) => {
+                            self.world = loaded_world;
+                            let start_pos = loaded_pos.unwrap_or_else(|| Vec3::new(8.0, 90.0, 8.0));
+                            self.camera = Camera::new(start_pos);
+                            self.mob_manager = MobManager::new();
+                            self.state = GameState::Playing;
+                        }
+                        WorldLoadResult::Error(e) => {
+                            eprintln!("Błąd ładowania świata: {e}");
+                            self.state = GameState::MainMenu;
+                        }
+                    }
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            GameState::Loading => {
+                self.renderer.draw_main_menu(None);
+                self.state = GameState::Playing;
+            }
+            GameState::Playing => {
+                if f5_down && !self.prev_f5_down {
+                    let path = save_path(self.save_slot);
+                    match save_current_world(&mut self.world, &self.camera, self.save_slot) {
+                        Ok(()) => println!("Zapisano świat do {path}"),
+                        Err(error) => eprintln!("{error}"),
+                    }
+                }
+                if (escape_down && !self.prev_escape_down) || (p_down && !self.prev_p_down) || input.gp_start_just_pressed {
+                    self.state = GameState::Paused;
+                    out.request_release_mouse = true;
+                    self.horiz_velocity = Vec3::zero();
+                    self.fly_velocity = Vec3::zero();
+                }
+
+                if (e_down && !self.prev_e_down) || input.gp_north_just_pressed {
+                    self.crafting_table_open = false;
+                    self.state = GameState::Inventory;
+                    out.request_release_mouse = true;
+                    self.horiz_velocity = Vec3::zero();
+                    self.fly_velocity = Vec3::zero();
+                }
+
+                let any_click = left_down || right_down;
+                if any_click && !input.is_mouse_captured {
+                    out.request_capture_mouse = true;
+                }
+
+                if input.is_mouse_captured {
+                    self.camera.rotate(input.mouse_dx * 0.0025, -input.mouse_dy * 0.0025);
+                }
+
+                let gp_look_speed_x = 3.2;
+                let gp_look_speed_y = 2.8;
+                if input.gp_right_stick_x.abs() > 0.0 || input.gp_right_stick_y.abs() > 0.0 {
+                    self.camera.rotate(
+                        input.gp_right_stick_x * gp_look_speed_x * dt,
+                        input.gp_right_stick_y * gp_look_speed_y * dt,
+                    );
+                }
+
+                let forward = self.camera.forward_flat();
+                let right = self.camera.right_flat();
+                let mut wish_dir = Vec3::zero();
+
+                if input.is_mouse_captured {
+                    if input.key_w { wish_dir = wish_dir + forward; }
+                    if input.key_s { wish_dir = wish_dir - forward; }
+                    if input.key_a { wish_dir = wish_dir - right; }
+                    if input.key_d { wish_dir = wish_dir + right; }
+                }
+                if input.gp_left_stick_y.abs() > 0.0 || input.gp_left_stick_x.abs() > 0.0 {
+                    wish_dir = wish_dir + forward * input.gp_left_stick_y + right * input.gp_left_stick_x;
+                }
+                if wish_dir.length_sq() > 0.0001 {
+                    wish_dir = wish_dir.normalized();
+                }
+
+                if (f_down && !self.prev_f_down) || input.gp_r3_just_pressed {
+                    self.fly_mode = !self.fly_mode;
+                    self.horiz_velocity = Vec3::zero();
+                    self.fly_velocity = Vec3::zero();
+                }
+
+                if (g_down && !self.prev_g_down) || input.gp_select_just_pressed {
+                    self.player.gamemode = if self.player.gamemode == GameMode::Survival {
+                        GameMode::Creative
+                    } else {
+                        GameMode::Survival
+                    };
+                }
+
+                let is_crouching = !self.fly_mode
+                    && ((input.is_mouse_captured && (input.key_shift || input.key_c)) || input.gp_btn_east);
+
+                let target_eye = if is_crouching { CROUCH_EYE_OFFSET } else { STANDING_EYE_OFFSET };
+                let target_h = if is_crouching { CROUCH_HEIGHT } else { STANDING_HEIGHT };
+                let t_eye = 1.0 - (-14.0 * dt).exp();
+                let old_eye = self.current_eye_offset;
+                self.current_eye_offset += (target_eye - self.current_eye_offset) * t_eye;
+                self.current_player_height += (target_h - self.current_player_height) * t_eye;
+
+                if !self.fly_mode {
+                    self.camera.position.y += self.current_eye_offset - old_eye;
+                }
+
+                let is_sprinting = !is_crouching
+                    && ((input.is_mouse_captured && input.key_ctrl) || input.gp_btn_l3)
+                    && wish_dir.length_sq() > 0.01;
+
+                let target_fov_deg = if is_sprinting {
+                    self.settings.fov_deg + 15.0
+                } else if is_crouching {
+                    self.settings.fov_deg - 5.0
+                } else {
+                    self.settings.fov_deg
+                };
+                let target_fov = target_fov_deg.to_radians();
+                let t_fov = 1.0 - (-8.0 * dt).exp();
+                self.camera.fov_y += (target_fov - self.camera.fov_y) * t_fov;
+
+                let move_speed = if is_crouching {
+                    SNEAK_SPEED
+                } else if is_sprinting {
+                    SPRINT_SPEED
+                } else {
+                    WALK_SPEED
+                };
+
+                if self.fly_mode {
+                    let mut move_dir = wish_dir;
+                    if (input.is_mouse_captured && input.key_space) || input.gp_btn_south {
+                        move_dir.y += 1.0;
+                    }
+                    if (input.is_mouse_captured && input.key_shift) || input.gp_btn_east {
+                        move_dir.y -= 1.0;
+                    }
+                    if move_dir.length_sq() > 0.0001 {
+                        move_dir = move_dir.normalized();
+                    }
+
+                    let fly_fast = (input.is_mouse_captured && input.key_ctrl) || input.gp_btn_l3;
+                    let fly_mult = if fly_fast { 2.0 } else { 1.0 };
+                    let target_fly = move_dir * (FLY_SPEED * fly_mult);
+                    let fly_damping = 14.0;
+                    let t_fly = 1.0 - (-fly_damping * dt).exp();
+                    self.fly_velocity = self.fly_velocity.lerp(target_fly, t_fly);
+
+                    self.camera.position = self.camera.position + self.fly_velocity * dt;
+                    self.vertical_velocity = 0.0;
+                    self.horiz_velocity = Vec3::zero();
+                } else {
+                    let feet_pos = Vec3::new(
+                        self.camera.position.x,
+                        self.camera.position.y - self.current_eye_offset - 0.08,
+                        self.camera.position.z,
+                    );
+                    let feet_block = self.world.get_block(feet_pos.floor_to_ivec());
+                    let eye_block = self.world.get_block(self.camera.position.floor_to_ivec());
+                    let in_water = feet_block == BlockId::Water || eye_block == BlockId::Water;
+
+                    let target_horiz = wish_dir * (if in_water { SWIM_SPEED } else { move_speed });
+                    let on_ice = feet_block == BlockId::Ice;
+                    let damping = if in_water {
+                        8.0
+                    } else if self.on_ground {
+                        if on_ice { 2.0 } else if is_crouching { 18.0 } else { 15.0 }
+                    } else {
+                        2.0
+                    };
+                    let t_horiz = 1.0 - (-damping * dt).exp();
+                    self.horiz_velocity = self.horiz_velocity.lerp(target_horiz, t_horiz);
+
+                    if in_water {
+                        self.vertical_velocity -= 4.0 * dt;
+                        if self.vertical_velocity < -2.5 {
+                            self.vertical_velocity = -2.5;
+                        }
+                        if (input.key_space && input.is_mouse_captured) || input.gp_btn_south {
+                            self.vertical_velocity = 3.2;
+                        }
+                    } else {
+                        self.vertical_velocity -= GRAVITY * dt;
+                        if self.vertical_velocity < -TERMINAL_VELOCITY {
+                            self.vertical_velocity = -TERMINAL_VELOCITY;
+                        }
+
+                        if ((input.key_space && input.is_mouse_captured) || input.gp_btn_south) && self.on_ground {
+                            self.vertical_velocity = JUMP_SPEED;
+                            if is_sprinting && wish_dir.length_sq() > 0.01 {
+                                self.horiz_velocity = self.horiz_velocity + wish_dir * SPRINT_JUMP_BOOST;
+                            }
+                        }
+                    }
+
+                    let old_y = self.camera.position.y;
+                    let motion = Vec3::new(self.horiz_velocity.x, self.vertical_velocity, self.horiz_velocity.z) * dt;
+                    self.on_ground = move_player_with_collision(
+                        &self.world,
+                        &mut self.camera.position,
+                        motion,
+                        &mut self.vertical_velocity,
+                        self.current_eye_offset,
+                        self.current_player_height,
+                        is_crouching,
+                    );
+                    if self.vertical_velocity < 0.0 && !self.fly_mode && !in_water {
+                        self.player.fall_distance += old_y - self.camera.position.y;
+                    } else if self.vertical_velocity > 0.0 || self.fly_mode || in_water {
+                        self.player.fall_distance = 0.0;
+                    }
+
+                    if self.on_ground {
+                        if !self.player.has_landed {
+                            self.player.has_landed = true;
+                            self.player.fall_distance = 0.0;
+                        } else if self.player.fall_distance > 3.0 {
+                            let damage = self.player.fall_distance - 3.0;
+                            if self.player.take_damage(damage) {
+                                self.damage_tilt_timer = 0.4;
+                                self.damage_tilt_dir = 1.0;
+                            }
+                        }
+                        self.player.fall_distance = 0.0;
+                    }
+                    if self.player.is_dead() {
+                        self.state = GameState::DeathScreen;
+                        out.request_release_mouse = true;
+                        self.death_hovered_btn = Some(0);
+                        self.horiz_velocity = Vec3::zero();
+                        self.fly_velocity = Vec3::zero();
+                    }
+                }
+
+                if self.player.invulnerability_timer > 0.0 {
+                    self.player.invulnerability_timer -= dt;
+                }
+                if self.damage_tilt_timer > 0.0 {
+                    self.damage_tilt_timer = (self.damage_tilt_timer - dt).max(0.0);
+                }
+
+                if self.camera.position.y < -32.0 {
+                    if self.player.take_damage(20.0) {
+                        self.damage_tilt_timer = 0.4;
+                    }
+                    if !self.player.is_dead() {
+                        self.camera.position.y = 80.0;
+                        self.vertical_velocity = 0.0;
+                    }
+                }
+                if self.camera.position.y > 250.0 {
+                    self.camera.position.y = 250.0;
+                    self.vertical_velocity = self.vertical_velocity.min(0.0);
+                }
+
+                if input.scroll_delta > 0.0 {
+                    self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
+                } else if input.scroll_delta < 0.0 {
+                    self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
+                }
+
+                if input.gp_lb_just_pressed || input.gp_dpad_left_just_pressed {
+                    self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
+                }
+                if input.gp_rb_just_pressed || input.gp_dpad_right_just_pressed {
+                    self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
+                }
+
+                for i in 0..10 {
+                    if input.key_digits[i] {
+                        self.player.selected_hotbar_slot = i as u8;
+                    }
+                }
+
+                let mut selected_block_id = 0u8;
+                if let Some(stack) = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                    selected_block_id = stack.block.to_u8();
+                }
+                self.renderer.set_selected_block(selected_block_id);
+
+                let interact_left = (input.is_mouse_captured && left_down) || input.gp_right_trigger > 0.15;
+                let interact_left_just = (!self.prev_left_down && left_down && input.is_mouse_captured) || input.gp_right_trigger_just_pressed;
+
+                if interact_left {
+                    if self.hand_animation < 0.1 {
+                        self.hand_animation = 1.0;
+                    }
+                    let forward = self.camera.forward();
+                    let held_tool = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
+
+                    if interact_left_just {
+                        if let Some((mob_idx, _)) = self.mob_manager.raycast_mob(self.camera.position, forward, 4.2) {
+                            let mob = &mut self.mob_manager.mobs[mob_idx];
+                            let hit_pos = mob.center_pos();
+                            let dmg = held_tool.map(|b| b.attack_damage()).unwrap_or(1.5);
+                            mob.take_damage(dmg, forward);
+                            self.particles.spawn_mob_hit(hit_pos);
+                            self.break_target = None;
+                            self.break_progress = 0.0;
+                        }
+                    }
+
+                    if let Some(hit) = self.world.raycast(self.camera.position, forward, 8.0) {
+                        let target = hit.block_pos;
+                        let broken_block = self.world.get_block(target);
+
+                        if broken_block == BlockId::Tnt && interact_left_just {
+                            self.world.prime_tnt(target);
+                            self.break_target = None;
+                            self.break_progress = 0.0;
+                        } else {
+                            if self.break_target != Some(target) {
+                                self.break_target = Some(target);
+                                self.break_progress = 0.0;
+                            }
+
+                            let break_time = if self.player.gamemode == GameMode::Creative {
+                                0.0
+                            } else {
+                                broken_block.break_time_with_tool(held_tool)
+                            };
+
+                            if break_time == 0.0 {
+                                self.break_progress = 1.0;
+                            } else {
+                                self.break_progress += dt / break_time;
+                            }
+
+                            if self.break_progress >= 1.0 {
+                                self.break_progress = 0.0;
+                                self.break_target = None;
+                                self.hand_animation = 1.0;
+
+                                let bx = target.x as f32 + 0.5;
+                                let by = target.y as f32 + 0.5;
+                                let bz = target.z as f32 + 0.5;
+                                let color = broken_block.face_color(Face::Top);
+                                self.particles.spawn_block_break(Vec3::new(bx - 0.5, by - 0.5, bz - 0.5), color);
+                                self.world.set_block(target, BlockId::Air);
+
+                                if self.player.gamemode == GameMode::Survival {
+                                    let seed = ((target.x as u32).wrapping_mul(73856093) ^ (target.y as u32).wrapping_mul(19349663) ^ (target.z as u32).wrapping_mul(83492791)) % 1000;
+                                    let rx = ((seed % 100) as f32 / 100.0 - 0.5) * 1.8;
+                                    let rz = (((seed / 10) % 100) as f32 / 100.0 - 0.5) * 1.8;
+                                    let drop_vel = Vec3::new(rx, 3.2, rz);
+                                    self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, broken_block, 1));
+                                }
+
+                                if broken_block == BlockId::Door {
+                                    let above = target + IVec3::new(0, 1, 0);
+                                    let below = target - IVec3::new(0, 1, 0);
+                                    if self.world.get_block(above) == BlockId::Door {
+                                        self.world.set_block(above, BlockId::Air);
+                                        if self.player.gamemode == GameMode::Survival {
+                                            self.items.push(ItemEntity::new(Vec3::new(bx, by + 1.0, bz), Vec3::new(0.0, 3.2, 0.0), BlockId::Door, 1));
+                                        }
+                                    }
+                                    if self.world.get_block(below) == BlockId::Door {
+                                        self.world.set_block(below, BlockId::Air);
+                                        if self.player.gamemode == GameMode::Survival {
+                                            self.items.push(ItemEntity::new(Vec3::new(bx, by - 1.0, bz), Vec3::new(0.0, 3.2, 0.0), BlockId::Door, 1));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        self.break_target = None;
+                        self.break_progress = 0.0;
+                    }
+                } else {
+                    self.break_target = None;
+                    self.break_progress = 0.0;
+                }
+
+                let interact_right = (input.is_mouse_captured && right_down && !self.prev_right_down) || input.gp_left_trigger_just_pressed;
+                if interact_right {
+                    if let Some(hit) = self.world.raycast(self.camera.position, self.camera.forward(), 8.0) {
+                        let targeted_block = self.world.get_block(hit.block_pos);
+                        if targeted_block == BlockId::CraftingTable && !is_crouching {
+                            self.crafting_table_open = true;
+                            self.state = GameState::Inventory;
+                            out.request_release_mouse = true;
+                            self.horiz_velocity = Vec3::zero();
+                            self.fly_velocity = Vec3::zero();
+                        } else {
+                            let place_pos = hit.block_pos + hit.normal;
+                            let place_id = BlockId::from_u8(selected_block_id);
+                            if place_id != BlockId::Air
+                                && place_id.is_placeable()
+                                && self.world.get_block(place_pos) == BlockId::Air
+                            {
+                                self.hand_animation = 1.0;
+                                if place_id == BlockId::Door {
+                                    let top_pos = place_pos + IVec3::new(0, 1, 0);
+                                    if !block_intersects_player(place_pos, self.camera.position, self.current_eye_offset, self.current_player_height)
+                                        && !block_intersects_player(top_pos, self.camera.position, self.current_eye_offset, self.current_player_height)
+                                        && self.world.get_block(top_pos) == BlockId::Air
+                                    {
+                                        self.world.set_block(place_pos, BlockId::Door);
+                                        self.world.set_block(top_pos, BlockId::Door);
+                                        if self.player.gamemode == GameMode::Survival {
+                                            if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                                                stack.count -= 1;
+                                                if stack.count == 0 { self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = None; }
+                                            }
+                                        }
+                                    }
+                                } else if !block_intersects_player(place_pos, self.camera.position, self.current_eye_offset, self.current_player_height) {
+                                    self.world.set_block(place_pos, place_id);
+                                    if self.player.gamemode == GameMode::Survival {
+                                        if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                                            stack.count -= 1;
+                                            if stack.count == 0 { self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = None; }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                self.world.update(self.camera.position, self.settings.render_distance);
+                let hand_speed = if self.fly_mode {
+                    self.fly_velocity.length()
+                } else {
+                    self.horiz_velocity.length()
+                };
+                if hand_speed > 0.05 {
+                    self.walk_phase += dt * (5.0 + hand_speed * 0.9);
+                }
+                self.material_timer += dt;
+                if self.material_timer >= 0.25 {
+                    self.material_timer = 0.0;
+                    self.world.simulate_materials(self.camera.position);
+                }
+
+                self.world.update_primed_tnts(dt);
+
+                self.mob_manager.update(dt, &self.world, self.camera.position);
+                for mob in &self.mob_manager.mobs {
+                    if !mob.is_dead {
+                        let dist_sq = (mob.pos.x - self.camera.position.x).powi(2) + (mob.pos.z - self.camera.position.z).powi(2);
+                        if dist_sq < 1.4 * 1.4 && (mob.pos.y - self.camera.position.y).abs() < 1.8 {
+                            if self.player.take_damage(2.0) {
+                                self.damage_tilt_timer = 0.4;
+                                self.damage_tilt_dir = if mob.pos.x > self.camera.position.x { -1.0 } else { 1.0 };
+                            }
+                        }
+                    }
+                }
+                for poof_pos in self.mob_manager.dying_poofs.drain(..) {
+                    self.particles.spawn_mob_death_poof(poof_pos);
+                }
+
+                if self.player.is_dead() {
+                    self.state = GameState::DeathScreen;
+                    out.request_release_mouse = true;
+                    self.death_hovered_btn = Some(0);
+                    self.horiz_velocity = Vec3::zero();
+                    self.fly_velocity = Vec3::zero();
+                }
+
+                if (q_down && !self.prev_q_down && input.is_mouse_captured) || input.gp_west_just_pressed {
+                    if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                        self.items.push(ItemEntity::new(
+                            self.camera.position + self.camera.forward() * 0.5,
+                            self.camera.forward() * 5.0,
+                            stack.block,
+                            1,
+                        ));
+                        stack.count -= 1;
+                        if stack.count == 0 {
+                            self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = None;
+                        }
+                    }
+                }
+
+                let player_center = self.camera.position - Vec3::new(0.0, 0.8, 0.0);
+                let mut i = 0;
+                while i < self.items.len() {
+                    self.items[i].update(dt, &self.world, Some(player_center));
+                    let dist_sq = (self.items[i].position - player_center).length_sq();
+                    if self.items[i].pickup_delay <= 0.0 && dist_sq < 3.24 {
+                        let remaining = self.player.inventory.add_item(self.items[i].block, self.items[i].count);
+                        if remaining == 0 {
+                            self.items.remove(i);
+                            continue;
+                        } else {
+                            self.items[i].count = remaining;
+                        }
+                    }
+                    i += 1;
+                }
+
+                for exp_pos in self.world.pending_explosions.drain(..) {
+                    self.particles.spawn_explosion(exp_pos);
+                    self.mob_manager.apply_explosion(exp_pos, 5.0, 30.0);
+                    let dist = (self.camera.position - exp_pos).length();
+                    if dist < 6.0 {
+                        let dmg = (1.0 - dist / 6.0) * 18.0;
+                        if self.player.take_damage(dmg) {
+                            self.damage_tilt_timer = 0.4;
+                            self.damage_tilt_dir = if exp_pos.x > self.camera.position.x { -1.0 } else { 1.0 };
+                        }
+                    }
+                }
+
+                self.particles.update(dt);
+
+                let aspect = self.width as f32 / self.height as f32;
+
+                if (self.camera.fov_y - self.last_fov).abs() > 0.0001 || (aspect - self.last_aspect).abs() > 0.0001 {
+                    self.last_fov = self.camera.fov_y;
+                    self.last_aspect = aspect;
+                    self.proj_matrix = self.camera.projection_matrix(aspect);
+                }
+                let (shake_offset, roll) = if self.damage_tilt_timer > 0.0 {
+                    let progress = self.damage_tilt_timer / 0.4;
+                    let roll = (progress * std::f32::consts::PI).sin() * 0.14 * self.damage_tilt_dir;
+                    let sx = (self.total_time * 50.0).sin() * 0.08 * progress;
+                    let sy = (self.total_time * 60.0).cos() * 0.05 * progress;
+                    (self.camera.right_flat() * sx + Vec3::new(0.0, sy, 0.0), roll)
+                } else {
+                    (Vec3::zero(), 0.0)
+                };
+                let view_proj = self.proj_matrix.mul(&self.camera.view_matrix_with_tilt(shake_offset, roll));
+                self.renderer.fog_enabled = self.settings.fog;
+                self.renderer.render_frame(&mut self.world, &self.camera);
+
+                for mob in &self.mob_manager.mobs {
+                    self.renderer.draw_mob(mob, &self.camera, &view_proj);
+                }
+
+                for tnt in &self.world.primed_tnts {
+                    self.renderer.draw_tnt_cube(tnt.pos, tnt.fuse, &self.camera, &view_proj);
+                }
+
+                if self.settings.clouds {
+                    self.renderer.draw_clouds(self.camera.position, &view_proj, self.total_time);
+                }
+
+                for item in &self.items {
+                    let y_offset = (item.age * 3.0).sin() * 0.08;
+                    let mut pos = item.position;
+                    pos.y += y_offset;
+                    let yaw = item.age * 2.5;
+                    self.renderer.draw_item_3d(item.block, pos, yaw, &view_proj);
+                }
+
+                if let Some(target) = self.break_target {
+                    if self.break_progress > 0.0 {
+                        self.renderer.draw_block_break_cracks(target, self.break_progress, &view_proj);
+                    }
+                }
+
+                let block_at_camera = self.world.get_block(self.camera.position.floor_to_ivec());
+                if self.settings.underwater_fx && block_at_camera == BlockId::Water {
+                    self.renderer.draw_underwater_overlay(self.total_time);
+                }
+
+                for p in &self.particles.particles {
+                    self.renderer.draw_billboard(p.pos, p.size, p.color, &self.camera, &view_proj);
+                }
+
+                if self.damage_tilt_timer > 0.0 {
+                    self.renderer.draw_damage_flash(self.damage_tilt_timer / 0.4);
+                }
+                if self.player.gamemode == GameMode::Survival && self.player.health <= 2.0 && self.player.health > 0.0 {
+                    self.renderer.draw_low_health_vignette(self.total_time);
+                }
+
+                self.renderer.draw_crosshair();
+                self.renderer.draw_break_progress(self.break_progress);
+                let hand_block: Option<u8> = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize]
+                    .map(|s| s.block.to_u8());
+                self.renderer.draw_hand_3d(&self.camera, &view_proj, hand_block, self.walk_phase, hand_speed, self.hand_animation);
+                self.renderer.draw_hotbar(&self.player);
+
+                let mode_str = if self.fly_mode {
+                    "LOT"
+                } else if is_crouching {
+                    "KUCANIE"
+                } else if is_sprinting {
+                    "BIEG"
+                } else {
+                    "NORMALNY"
+                };
+
+                self.debug_lines[0].clear();
+                let _ = write!(&mut self.debug_lines[0], "FPS: {}", self.fps_display);
+                self.debug_lines[1].clear();
+                let _ = write!(&mut self.debug_lines[1], "POZYCJA X:{} Y:{} Z:{}", self.camera.position.x as i32, self.camera.position.y as i32, self.camera.position.z as i32);
+                self.debug_lines[2].clear();
+                let _ = write!(&mut self.debug_lines[2], "BLOK: {}", BlockId::from_u8(self.renderer.selected_block()).name().to_uppercase());
+                self.debug_lines[3].clear();
+                let _ = write!(&mut self.debug_lines[3], "MOBY: {}", self.mob_manager.mobs.len());
+                self.debug_lines[4].clear();
+                let _ = write!(&mut self.debug_lines[4], "TRYB: {}", mode_str);
+
+                self.renderer.draw_debug_panel(&self.debug_lines);
+
+                if !input.is_mouse_captured {
+                    self.renderer.draw_capture_prompt(true);
+                }
+            }
+            GameState::Paused => {
+                let t_fov = 1.0 - (-8.0 * dt).exp();
+                self.camera.fov_y += (self.settings.fov_deg.to_radians() - self.camera.fov_y) * t_fov;
+
+                let mut hovered_idx = self.pause_hovered_btn;
+                if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    for (i, &(bx, by, bw, bh)) in self.pause_menu_rects.iter().enumerate() {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            hovered_idx = Some(i);
+                            self.pause_hovered_btn = Some(i);
+                            break;
+                        }
+                    }
+                }
+
+                if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
+                    let next = match self.pause_hovered_btn {
+                        Some(0) | None => 4,
+                        Some(i) => i - 1,
+                    };
+                    self.pause_hovered_btn = Some(next);
+                    hovered_idx = Some(next);
+                }
+                if input.gp_dpad_down_just_pressed || (down_arrow_down && !self.prev_down_arrow_down) {
+                    let next = match self.pause_hovered_btn {
+                        Some(4) | None => 0,
+                        Some(i) => i + 1,
+                    };
+                    self.pause_hovered_btn = Some(next);
+                    hovered_idx = Some(next);
+                }
+
+                let click_pause_btn = if (left_down && !self.prev_left_down) || input.gp_south_just_pressed || (enter_down && !self.prev_enter_down) {
+                    hovered_idx
+                } else {
+                    None
+                };
+
+                if let Some(btn) = click_pause_btn {
+                    match btn {
+                        0 => {
+                            self.state = GameState::Playing;
+                            out.request_capture_mouse = true;
+                        }
+                        1 => {
+                            self.state = GameState::Settings(PreviousMenu::Paused);
+                            self.settings_hovered_opt = Some(0);
+                        }
+                        2 => {
+                            self.fly_mode = !self.fly_mode;
+                        }
+                        3 => {
+                            let _ = save_current_world(&mut self.world, &self.camera, self.save_slot);
+                            self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
+                            self.state = GameState::MainMenu;
+                            out.request_release_mouse = true;
+                        }
+                        4 => {
+                            let _ = save_current_world(&mut self.world, &self.camera, self.save_slot);
+                            out.quit_requested = true;
+                        }
+                        _ => {}
+                    }
+                }
+
+                if (escape_down && !self.prev_escape_down) || (p_down && !self.prev_p_down) || input.gp_east_just_pressed || input.gp_start_just_pressed {
+                    self.state = GameState::Playing;
+                    out.request_capture_mouse = true;
+                }
+                if f_down && !self.prev_f_down {
+                    self.fly_mode = !self.fly_mode;
+                }
+                if q_down && !self.prev_q_down {
+                    let _ = save_current_world(&mut self.world, &self.camera, self.save_slot);
+                    out.quit_requested = true;
+                }
+                if m_down && !self.prev_m_down {
+                    let _ = save_current_world(&mut self.world, &self.camera, self.save_slot);
+                    self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
+                    self.state = GameState::MainMenu;
+                    out.request_release_mouse = true;
+                }
+
+                self.renderer.fog_enabled = self.settings.fog;
+                self.renderer.render_frame(&mut self.world, &self.camera);
+                self.renderer.draw_pause_menu(self.fly_mode, hovered_idx);
+            }
+            GameState::Inventory => {
+                if input.gp_lb_just_pressed {
+                    self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
+                }
+                if input.gp_rb_just_pressed {
+                    self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
+                }
+
+                if (e_down && !self.prev_e_down)
+                    || (escape_down && !self.prev_escape_down)
+                    || (p_down && !self.prev_p_down)
+                    || input.gp_east_just_pressed
+                    || input.gp_north_just_pressed
+                    || input.gp_start_just_pressed
+                {
+                    self.player.inventory.return_crafting_items();
+                    self.crafting_table_open = false;
+                    self.state = GameState::Playing;
+                    out.request_capture_mouse = true;
+                }
+
+                let layout = InventoryLayout::new(self.renderer.width, self.renderer.height, self.crafting_table_open);
+                let inv_hovered_target = mouse_pos.and_then(|(mx, my)| {
+                    layout.find_slot_at(mx as i32, my as i32, self.player.gamemode)
+                });
+
+                let click_left = (left_down && !self.prev_left_down) || input.gp_south_just_pressed;
+                let click_right = (right_down && !self.prev_right_down) || input.gp_west_just_pressed;
+
+                if click_left || click_right {
+                    if let Some(target) = inv_hovered_target {
+                        if self.player.gamemode == GameMode::Creative {
+                            if let InventorySlotTarget::Creative(id) = target {
+                                self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = Some(ItemStack {
+                                    block: BlockId::from_u8(id),
+                                    count: 64,
+                                });
+                            }
+                        } else {
+                            match target {
+                                InventorySlotTarget::Hotbar(idx) => {
+                                    let slot = &mut self.player.inventory.hotbar[idx];
+                                    if click_left {
+                                        Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
+                                    } else {
+                                        Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                    }
+                                }
+                                InventorySlotTarget::Main(idx) => {
+                                    let slot = &mut self.player.inventory.main[idx];
+                                    if click_left {
+                                        Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
+                                    } else {
+                                        Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                    }
+                                }
+                                InventorySlotTarget::Crafting2x2(idx) => {
+                                    let slot = &mut self.player.inventory.crafting_2x2[idx];
+                                    if click_left {
+                                        Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
+                                    } else {
+                                        Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                    }
+                                }
+                                InventorySlotTarget::Crafting3x3(idx) => {
+                                    let slot = &mut self.player.inventory.crafting_3x3[idx];
+                                    if click_left {
+                                        Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
+                                    } else {
+                                        Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                    }
+                                }
+                                InventorySlotTarget::CraftingOutput => {
+                                    let result = if self.crafting_table_open {
+                                        self.recipe_book.match_grid(&self.player.inventory.crafting_3x3, 3, 3)
+                                    } else {
+                                        self.recipe_book.match_grid(&self.player.inventory.crafting_2x2, 2, 2)
+                                    };
+                                    if let Some(res) = result {
+                                        let can_take = match self.player.inventory.held_item {
+                                            None => true,
+                                            Some(h) => h.block == res.block && h.count + res.count <= 64,
+                                        };
+                                        if can_take {
+                                            if let Some(h) = &mut self.player.inventory.held_item {
+                                                h.count += res.count;
+                                            } else {
+                                                self.player.inventory.held_item = Some(res);
+                                            }
+                                            if self.crafting_table_open {
+                                                RecipeBook::consume_grid(&mut self.player.inventory.crafting_3x3);
+                                            } else {
+                                                RecipeBook::consume_grid(&mut self.player.inventory.crafting_2x2);
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+
+                self.renderer.render_frame(&mut self.world, &self.camera);
+                self.renderer.draw_inventory(
+                    &self.player,
+                    inv_hovered_target,
+                    self.crafting_table_open,
+                    &self.recipe_book,
+                    mouse_pos,
+                );
+            }
+            GameState::DeathScreen => {
+                let mut hovered_idx = self.death_hovered_btn;
+                if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    for (i, &(bx, by, bw, bh)) in self.death_screen_rects.iter().enumerate() {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            hovered_idx = Some(i);
+                            self.death_hovered_btn = Some(i);
+                            break;
+                        }
+                    }
+                }
+
+                if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
+                    let next = match self.death_hovered_btn {
+                        Some(0) | None => 1,
+                        Some(i) => i - 1,
+                    };
+                    self.death_hovered_btn = Some(next);
+                    hovered_idx = Some(next);
+                }
+                if input.gp_dpad_down_just_pressed || (down_arrow_down && !self.prev_down_arrow_down) {
+                    let next = match self.death_hovered_btn {
+                        Some(1) | None => 0,
+                        Some(i) => i + 1,
+                    };
+                    self.death_hovered_btn = Some(next);
+                    hovered_idx = Some(next);
+                }
+
+                let click_death_btn = if (left_down && !self.prev_left_down) || input.gp_south_just_pressed || (enter_down && !self.prev_enter_down) {
+                    hovered_idx
+                } else {
+                    None
+                };
+
+                if let Some(btn) = click_death_btn {
+                    match btn {
+                        0 => {
+                            self.player.health = self.player.max_health;
+                            self.camera.position = Vec3::new(8.0, 90.0, 8.0);
+                            self.camera.pitch = 0.0;
+                            self.vertical_velocity = 0.0;
+                            self.horiz_velocity = Vec3::zero();
+                            self.player.fall_distance = 0.0;
+                            self.player.invulnerability_timer = 3.0;
+                            self.player.has_landed = false;
+                            self.damage_tilt_timer = 0.0;
+                            self.state = GameState::Playing;
+                            out.request_capture_mouse = true;
+                        }
+                        1 => {
+                            let _ = save_current_world(&mut self.world, &self.camera, self.save_slot);
+                            self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
+                            self.state = GameState::MainMenu;
+                            out.request_release_mouse = true;
+                        }
+                        _ => {}
+                    }
+                }
+
+                if (escape_down && !self.prev_escape_down) || (p_down && !self.prev_p_down) || input.gp_east_just_pressed {
+                    let _ = save_current_world(&mut self.world, &self.camera, self.save_slot);
+                    self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
+                    self.state = GameState::MainMenu;
+                    out.request_release_mouse = true;
+                }
+
+                self.renderer.fog_enabled = self.settings.fog;
+                self.renderer.render_frame(&mut self.world, &self.camera);
+                self.renderer.draw_death_screen(hovered_idx);
+            }
+        }
+
+        self.prev_left_down = left_down;
+        self.prev_right_down = right_down;
+        self.prev_escape_down = escape_down;
+        self.prev_p_down = p_down;
+        self.prev_e_down = e_down;
+        self.prev_f_down = f_down;
+        self.prev_q_down = q_down;
+
+        self.prev_m_down = m_down;
+        self.prev_g_down = g_down;
+        self.prev_f5_down = f5_down;
+        self.prev_enter_down = enter_down;
+        self.prev_up_arrow_down = up_arrow_down;
+        self.prev_down_arrow_down = down_arrow_down;
+        self.prev_left_arrow_down = left_arrow_down;
+        self.prev_right_arrow_down = right_arrow_down;
+        self.prev_n_down = n_down;
+        self.prev_del_down = del_down;
+
+        out.title = format!(
+            "RustCraft [{} renderer] - {} FPS - blok: {}{}{}",
+            self.renderer.backend_name(),
+            self.fps_display,
+            BlockId::from_u8(self.renderer.selected_block()).name(),
+            if self.fly_mode { " - [LOT]" } else { "" },
+            if matches!(self.state, GameState::Paused) { " - [PAUZA]" } else { "" }
+        );
+
+        out
+    }
+}

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RustCraft - WebAssembly Voxel Engine</title>
+  <meta name="description" content="Lekki wokselowy silnik gry typu sandbox napisany w języku Rust, działający w przeglądarce za pośrednictwem WebAssembly i HTML5 Canvas.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-background">
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+  </div>
+
+  <div class="main-container">
+    <header class="app-header">
+      <div class="logo-wrapper">
+        <div class="logo-cube">
+          <div class="cube-face front"></div>
+          <div class="cube-face top"></div>
+          <div class="cube-face side"></div>
+        </div>
+        <div>
+          <h1 class="app-title">Rust<span>Craft</span></h1>
+          <p class="app-subtitle">WASM Web Edition &bull; CPU Software Rasterizer</p>
+        </div>
+      </div>
+
+      <div class="header-status">
+        <div class="status-badge" id="fps-badge">
+          <span class="status-dot"></span>
+          <span id="fps-text">60 FPS</span>
+        </div>
+        <button id="fullscreen-btn" class="action-btn" title="Tryb pełnoekranowy">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+          </svg>
+          <span>Pełny ekran</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="game-wrapper">
+      <div class="canvas-container" id="canvas-container">
+        <canvas id="game-canvas" width="960" height="540"></canvas>
+        
+        <div id="loading-overlay" class="overlay-screen active">
+          <div class="loader-spinner"></div>
+          <h2>Ładowanie RustCraft WebAssembly...</h2>
+          <p>Kompilowanie i inicjalizacja struktur silnika...</p>
+        </div>
+
+        <div id="pointerlock-prompt" class="pointerlock-prompt hidden">
+          <div class="prompt-content">
+            <span class="prompt-icon">&#128432;</span>
+            <p>Kliknij w grę, aby przechwycić mysz i sterować kamerą</p>
+            <span class="prompt-key">Esc &bull; Menu Pauzy</span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="app-footer">
+      <div class="controls-card">
+        <h3><span class="icon">&#9000;</span> Sterowanie Klawiaturą &amp; Myszą</h3>
+        <div class="controls-grid">
+          <div class="control-item"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Ruch</span></div>
+          <div class="control-item"><kbd>Mysz</kbd><span>Kamera 3D</span></div>
+          <div class="control-item"><kbd>LPM</kbd><span>Niszczenie / Atak</span></div>
+          <div class="control-item"><kbd>PPM</kbd><span>Stawianie / Użycie</span></div>
+          <div class="control-item"><kbd>Spacja</kbd><span>Skok / Lot w górę</span></div>
+          <div class="control-item"><kbd>Shift</kbd><span>Kucanie / Lot w dół</span></div>
+          <div class="control-item"><kbd>Ctrl</kbd><span>Sprint / Szybki lot</span></div>
+          <div class="control-item"><kbd>F</kbd><span>Tryb Lotu</span></div>
+          <div class="control-item"><kbd>E</kbd><span>Ekwipunek / Crafting</span></div>
+          <div class="control-item"><kbd>Q</kbd><span>Wyrzuć przedmiot</span></div>
+          <div class="control-item"><kbd>G</kbd><span>Tryb gry (Survival/Creative)</span></div>
+          <div class="control-item"><kbd>1-9</kbd><span>Wybór slotu hotbara</span></div>
+          <div class="control-item"><kbd>P</kbd> / <kbd>Esc</kbd><span>Menu Pauzy / Mysz</span></div>
+        </div>
+      </div>
+
+
+      <div class="gamepad-card">
+        <h3><span class="icon">&#127918;</span> Wsparcie dla Gamepada</h3>
+        <div class="gamepad-status" id="gamepad-status">
+          <span class="dot-indicator" id="gamepad-dot"></span>
+          <span id="gamepad-name">Brak podłączonego kontrolera</span>
+        </div>
+        <p class="gamepad-desc">Podłącz pad (PS4/PS5/Xbox/Switch/Vita Controller) i naciśnij dowolny przycisk, aby natychmiast grać analogami!</p>
+      </div>
+    </footer>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
