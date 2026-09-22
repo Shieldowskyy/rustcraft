@@ -1,6 +1,6 @@
-use crate::block::BlockId;
+use crate::world::block::BlockId;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ItemStack {
     pub block: BlockId,
     pub count: u8,
@@ -64,6 +64,22 @@ impl Inventory {
                 return 0;
             }
         }
-        count // return remaining
+        count
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_inventory_add_and_stack() {
+        let mut inv = Inventory::new();
+        assert_eq!(inv.add_item(BlockId::Dirt, 30), 0);
+        assert_eq!(inv.hotbar[0], Some(ItemStack { block: BlockId::Dirt, count: 30 }));
+
+        assert_eq!(inv.add_item(BlockId::Dirt, 40), 0);
+        assert_eq!(inv.hotbar[0], Some(ItemStack { block: BlockId::Dirt, count: 64 }));
+        assert_eq!(inv.hotbar[1], Some(ItemStack { block: BlockId::Dirt, count: 6 }));
     }
 }

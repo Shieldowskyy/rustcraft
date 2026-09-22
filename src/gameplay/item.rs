@@ -1,5 +1,5 @@
-use crate::math::Vec3;
-use crate::block::BlockId;
+use crate::core::math::Vec3;
+use crate::world::block::BlockId;
 use crate::world::World;
 
 pub struct ItemEntity {
@@ -7,8 +7,8 @@ pub struct ItemEntity {
     pub velocity: Vec3,
     pub block: BlockId,
     pub count: u8,
-    pub pickup_delay: f32, // Delay before it can be picked up
-    pub age: f32,          // For despawning and floating animation
+    pub pickup_delay: f32,
+    pub age: f32,
 }
 
 impl ItemEntity {
@@ -18,7 +18,7 @@ impl ItemEntity {
             velocity,
             block,
             count,
-            pickup_delay: 1.0, // 1 second before it can be picked up
+            pickup_delay: 1.0,
             age: 0.0,
         }
     }
@@ -29,10 +29,8 @@ impl ItemEntity {
             self.pickup_delay -= dt;
         }
 
-        self.velocity.y -= crate::physics::GRAVITY * dt;
+        self.velocity.y -= crate::gameplay::physics::GRAVITY * dt;
 
-        // Simple collision: just check block below/around
-        // We can reuse AABB but items are small, let's treat it as a point or small box
         let item_half = 0.125;
         let mut p = self.position;
         

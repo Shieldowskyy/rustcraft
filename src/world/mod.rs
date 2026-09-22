@@ -1,9 +1,16 @@
-use std::collections::{HashMap, HashSet};
-use rayon::prelude::*; // Dodano obsługę wielowątkowości dla chunków
+pub mod block;
+pub mod mesher;
+pub mod storage;
 
-use crate::block::BlockId;
-use crate::math::{IVec3, Vec3};
-use crate::noise::fractal_noise2;
+use std::collections::{HashMap, HashSet};
+use rayon::prelude::*;
+
+pub use block::{BlockId, Face};
+pub use mesher::{build_chunk_mesh, Triangle, Vertex};
+pub use storage::{save_current_world, save_path};
+
+use crate::core::math::{IVec3, Vec3};
+use crate::core::noise::{fractal_noise2, fractal_noise3};
 
 pub const CHUNK_SIZE_X: i32 = 16;
 pub const CHUNK_SIZE_Y: i32 = 64;
@@ -22,8 +29,6 @@ pub struct Chunk {
 impl Chunk {
     #[inline(always)]
     pub fn index(x: i32, y: i32, z: i32) -> usize {
-        // Optymalizacja 1: Zamiast (x * 64 + y) * 16 + z
-        // Używamy szybkich przesunięć bitowych: x * 1024 + y * 16 + z
         ((x << 10) | (y << 4) | z) as usize
     }
 
@@ -44,9 +49,7 @@ impl Chunk {
         self.dirty = true;
     }
 
-    fn generate(cx: i32, cz: i32, seed: u32) -> Chunk {
-        use crate::noise::fractal_noise3;
-
+    pub fn generate(cx: i32, cz: i32, seed: u32) -> Chunk {
         let mut blocks = vec![0u8; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize];
 
         enum Decoration {
@@ -62,7 +65,6 @@ impl Chunk {
             ForestCabin(i32, i32, i32),
         }
 
-        // Biome sampling at chunk center (8, 8) to determine structure eligibility
         let center_wx = cx * CHUNK_SIZE_X + 8;
         let center_wz = cz * CHUNK_SIZE_Z + 8;
         let c_temp = fractal_noise2(center_wx as f32 * 0.006, center_wz as f32 * 0.006, seed.wrapping_add(500), 3, 0.5);
@@ -89,7 +91,7 @@ impl Chunk {
 
         let chunk_hash = hash_coords(cx, cz, seed.wrapping_add(77777));
         let mut structure: Option<Structure> = None;
-        let mut struct_exclusion = (100, -100, 100, -100); // min_lx, max_lx, min_lz, max_lz
+        let mut struct_exclusion = (100, -100, 100, -100);
 
         if center_height > 22 && center_height < CHUNK_SIZE_Y - 14 {
             if c_is_desert && (chunk_hash % 71 == 0) {
@@ -210,7 +212,6 @@ impl Chunk {
                 }
 
                 if height > 21 {
-                    // Do not place trees/cacti inside the structure's exclusion zone
                     if lx >= struct_exclusion.0 && lx <= struct_exclusion.1 && lz >= struct_exclusion.2 && lz <= struct_exclusion.3 {
                         continue;
                     }
@@ -240,7 +241,6 @@ impl Chunk {
             }
         }
 
-        // Pass 2: Place structures first, then decorations
         if let Some(struct_type) = structure {
             match struct_type {
                 Structure::DesertWell(cx, base_y, cz) => place_desert_well(&mut blocks, cx, base_y, cz),
@@ -268,19 +268,19 @@ impl Chunk {
 
 fn hash_coords(x: i32, z: i32, seed: u32) -> u32 {
     let mut h: u32 = (x as u32)
-    .wrapping_mul(374761393)
-    .wrapping_add((z as u32).wrapping_mul(668265263))
-    .wrapping_add(seed);
+        .wrapping_mul(374761393)
+        .wrapping_add((z as u32).wrapping_mul(668265263))
+        .wrapping_add(seed);
     h = (h ^ (h >> 13)).wrapping_mul(1274126177);
     h ^ (h >> 16)
 }
 
 fn hash_coords_3d(x: i32, y: i32, z: i32, seed: u32) -> u32 {
     let mut h: u32 = (x as u32)
-    .wrapping_mul(374761393)
-    .wrapping_add((y as u32).wrapping_mul(1103515245))
-    .wrapping_add((z as u32).wrapping_mul(668265263))
-    .wrapping_add(seed);
+        .wrapping_mul(374761393)
+        .wrapping_add((y as u32).wrapping_mul(1103515245))
+        .wrapping_add((z as u32).wrapping_mul(668265263))
+        .wrapping_add(seed);
     h = (h ^ (h >> 13)).wrapping_mul(1274126177);
     h ^ (h >> 16)
 }
@@ -377,7 +377,6 @@ fn place_desert_well(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i3
         }
     };
 
-    // 1. Foundation down to ground and clear above
     for x in min_x..=max_x {
         for z in min_z..=max_z {
             for y in (base_y - 4)..base_y {
@@ -397,14 +396,12 @@ fn place_desert_well(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i3
         }
     }
 
-    // 2. Corner pillars
     for &(cx, cz) in &[(min_x, min_z), (min_x, max_z), (max_x, min_z), (max_x, max_z)] {
         for dy in 1..=3 {
             set(blocks, cx, base_y + dy, cz, BlockId::Sand);
         }
     }
 
-    // 3. Roof
     for x in min_x..=max_x {
         for z in min_z..=max_z {
             set(blocks, x, base_y + 4, z, BlockId::Sand);
@@ -425,7 +422,6 @@ fn place_stone_ruin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32
         }
     };
 
-    // 1. Foundation and clear above
     for x in min_x..=max_x {
         for z in min_z..=max_z {
             for y in (base_y - 4)..base_y {
@@ -447,7 +443,6 @@ fn place_stone_ruin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32
         }
     }
 
-    // 2. Ruined perimeter walls
     for x in min_x..=max_x {
         for z in min_z..=max_z {
             let is_border = x == min_x || x == max_x || z == min_z || z == max_z;
@@ -455,7 +450,7 @@ fn place_stone_ruin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32
                 continue;
             }
             if (x == center_x || x == center_x + 1) && z == min_z {
-                continue; // Opening
+                continue;
             }
             let wall_h = (hash_coords_3d(x, 101, z, seed) % 4) as i32;
             for dy in 1..=wall_h {
@@ -464,7 +459,6 @@ fn place_stone_ruin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32
         }
     }
 
-    // 3. Pillars at corners
     for &(cx, cz) in &[(min_x, min_z), (min_x, max_z), (max_x, min_z), (max_x, max_z)] {
         let pil_h = 2 + (hash_coords_3d(cx, 137, cz, seed) % 3) as i32;
         for dy in 1..=pil_h {
@@ -472,7 +466,6 @@ fn place_stone_ruin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32
         }
     }
 
-    // 4. Central altar with glowing relic
     set(blocks, center_x, base_y + 1, center_z, BlockId::Stone);
     set(blocks, center_x, base_y + 2, center_z, BlockId::Lava);
     set(blocks, center_x - 1, base_y + 1, center_z, BlockId::Stone);
@@ -493,7 +486,6 @@ fn place_forest_cabin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i
         }
     };
 
-    // 1. Clear area around and above cabin
     for x in (min_x - 1)..=(max_x + 1) {
         for z in (min_z - 1)..=(max_z + 1) {
             for y in (base_y + 1)..=(base_y + 8) {
@@ -502,7 +494,6 @@ fn place_forest_cabin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i
         }
     }
 
-    // 2. Foundation and floor
     for x in min_x..=max_x {
         for z in min_z..=max_z {
             for y in (base_y - 4)..base_y {
@@ -512,7 +503,6 @@ fn place_forest_cabin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i
         }
     }
 
-    // 3. Walls & corner wood logs
     for x in min_x..=max_x {
         for z in min_z..=max_z {
             let is_corner = (x == min_x || x == max_x) && (z == min_z || z == max_z);
@@ -525,7 +515,6 @@ fn place_forest_cabin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i
             } else if is_border {
                 for dy in 1..=3 {
                     if x == center_x && z == min_z {
-                        // Front door opening
                         if dy == 1 || dy == 2 {
                             set(blocks, x, base_y + dy, z, BlockId::Door);
                         } else {
@@ -534,18 +523,16 @@ fn place_forest_cabin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i
                     } else if dy == 2
                         && (((x == min_x || x == max_x) && (z == min_z + 2 || z == min_z + 3))
                         || (z == max_z && (x == min_x + 2 || x == min_x + 3)))
-                        {
-                            // Glass windows on sides and back
-                            set(blocks, x, base_y + dy, z, BlockId::Glass);
-                        } else {
-                            set(blocks, x, base_y + dy, z, BlockId::Planks);
-                        }
+                    {
+                        set(blocks, x, base_y + dy, z, BlockId::Glass);
+                    } else {
+                        set(blocks, x, base_y + dy, z, BlockId::Planks);
+                    }
                 }
             }
         }
     }
 
-    // 4. Pitched roof
     for x in (min_x - 1)..=(max_x + 1) {
         for z in (min_z - 1)..=(max_z + 1) {
             let is_edge = x == min_x - 1 || x == max_x + 1 || z == min_z - 1 || z == max_z + 1;
@@ -563,17 +550,15 @@ fn place_forest_cabin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i
         }
     }
 
-    // 5. Interior small table
     set(blocks, min_x + 1, base_y + 1, max_z - 1, BlockId::Wood);
     set(blocks, min_x + 1, base_y + 2, max_z - 1, BlockId::Planks);
 }
 
-/// Aktywny obiekt TNT odliczający czas do wybuchu
 #[derive(Clone)]
 pub struct PrimedTnt {
     pub pos: Vec3,
     pub velocity: Vec3,
-    pub fuse: f32, // Czas w sekundach do wybuchu (domyślnie ~3.5-4s)
+    pub fuse: f32,
 }
 
 pub struct World {
@@ -585,9 +570,6 @@ pub struct World {
     pub sim_tick: u64,
     pub pending_explosions: Vec<Vec3>,
     pub primed_tnts: Vec<PrimedTnt>,
-    /// Chunk (cx, cz), w którym gracz stał podczas ostatniego wywołania
-    /// `update()`, który faktycznie wykonało pracę streamingu. `None`
-    /// wymusza pełne przeliczenie przy pierwszym wywołaniu.
     last_stream_chunk: Option<(i32, i32)>,
 }
 
@@ -656,8 +638,8 @@ impl World {
         let player_position = if format == b"RUSTCRAFT2" || format == b"RUSTCRAFT3" {
             Vec3::new(
                 f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
-                      f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
-                      f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
+                f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
+                f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
             )
         } else {
             Vec3::new(8.0, 90.0, 8.0)
@@ -681,8 +663,8 @@ impl World {
             for _ in 0..fluid_count {
                 let pos = IVec3::new(
                     i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
-                                     i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
-                                     i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
+                    i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
+                    i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
                 );
                 let level = read_bytes(&bytes, &mut cursor, 1)?[0].clamp(1, 8);
                 world.fluid_levels.insert(pos, level);
@@ -693,8 +675,6 @@ impl World {
 
     #[inline(always)]
     fn world_to_chunk(wx: i32, wz: i32) -> (i32, i32, i32, i32) {
-        // Optymalizacja 2: Operacje bitowe są znacznie szybsze niż div_euclid/rem_euclid
-        // i działają idealnie poprawnie również dla liczb ujemnych (przy dzieleniu przez potęgę 2).
         let cx = wx >> 4;
         let cz = wz >> 4;
         let lx = wx & 15;
@@ -771,38 +751,32 @@ impl World {
         }
     }
 
-    /// Uzbraja podany blok TNT (zamienia go na obiekt opadający z timerem)
     pub fn prime_tnt(&mut self, pos: IVec3) {
         if self.get_block(pos) == BlockId::Tnt {
             self.set_block(pos, BlockId::Air);
             self.primed_tnts.push(PrimedTnt {
                 pos: Vec3::new(pos.x as f32 + 0.5, pos.y as f32, pos.z as f32 + 0.5),
-                                  velocity: Vec3::new(0.0, 2.0, 0.0), // Lekki wyskok w górę jak w MC
-                                  fuse: 3.5,                          // ~3.5 sekundy odliczania
+                velocity: Vec3::new(0.0, 2.0, 0.0),
+                fuse: 3.5,
             });
         }
     }
 
-    /// Aktualizuje pozycje i timery uzbrojonych obiektów TNT
     pub fn update_primed_tnts(&mut self, dt: f32) {
         let mut exploded_positions = Vec::new();
 
         for i in 0..self.primed_tnts.len() {
             self.primed_tnts[i].fuse -= dt;
-
-            // Grawitacja
             self.primed_tnts[i].velocity.y -= 20.0 * dt;
 
             let dy = self.primed_tnts[i].velocity.y * dt;
             let mut new_pos = self.primed_tnts[i].pos;
             new_pos.y += dy;
 
-            // Sprawdzanie kolizji spodu kostki z blokami pod spodem
             let box_min = Vec3::new(new_pos.x - 0.49, new_pos.y, new_pos.z - 0.49);
             let box_max = Vec3::new(new_pos.x + 0.49, new_pos.y + 0.99, new_pos.z + 0.49);
 
             if self.box_collides(box_min, box_max) {
-                // Lądowanie na podłożu
                 self.primed_tnts[i].velocity = Vec3::zero();
                 self.primed_tnts[i].pos.y = self.primed_tnts[i].pos.y.floor();
             } else {
@@ -812,8 +786,8 @@ impl World {
             if self.primed_tnts[i].fuse <= 0.0 {
                 exploded_positions.push(IVec3::new(
                     self.primed_tnts[i].pos.x.floor() as i32,
-                                                   self.primed_tnts[i].pos.y.floor() as i32,
-                                                   self.primed_tnts[i].pos.z.floor() as i32,
+                    self.primed_tnts[i].pos.y.floor() as i32,
+                    self.primed_tnts[i].pos.z.floor() as i32,
                 ));
             }
         }
@@ -825,7 +799,6 @@ impl World {
         }
     }
 
-    /// Wyzwala eksplozję, niszczy teren i uzbraja sąsiadujące TNT (reakcja łańcuchowa z odliczaniem)
     pub fn explode(&mut self, center: IVec3, radius: f32) {
         let r_int = radius.ceil() as i32;
         let r_sq = radius * radius;
@@ -856,7 +829,6 @@ impl World {
             center.z as f32 + 0.5,
         ));
 
-        // Uzbrajamy odnalezione w zasięgu TNT
         for tnt_pos in tnts_to_prime {
             self.prime_tnt(tnt_pos);
         }
@@ -877,8 +849,6 @@ impl World {
         }
         self.last_stream_chunk = Some((pcx, pcz));
 
-        // Optymalizacja 3: Równoległe generowanie brakujących chunków
-        // Zamiast generować w głównym wątku jeden po drugim, wyszukujemy brakujące i delegujemy do Rayona
         let mut missing_chunks = Vec::new();
 
         for dz in -VIEW_DISTANCE..=VIEW_DISTANCE {
@@ -896,11 +866,10 @@ impl World {
 
         if !missing_chunks.is_empty() {
             let seed = self.seed;
-            // Generowanie równoległe zapobiega drastycznym spadkom FPS przy przemieszczaniu się
             let generated_chunks: Vec<Chunk> = missing_chunks
-            .into_par_iter()
-            .map(|(cx, cz)| Chunk::generate(cx, cz, seed))
-            .collect();
+                .into_par_iter()
+                .map(|(cx, cz)| Chunk::generate(cx, cz, seed))
+                .collect();
 
             for chunk in generated_chunks {
                 self.chunks.insert((chunk.cx, chunk.cz), chunk);
@@ -915,15 +884,6 @@ impl World {
         });
     }
 
-    /// Jak `get_block`, ale przyjmuje "podpowiedź" ostatnio użytego chunka
-    /// (klucz + referencja) i unika ponownego przeszukiwania `self.chunks`
-    /// (hashmap lookup), jeśli żądana pozycja nadal leży w tym samym chunku
-    /// co poprzednie zapytanie. Zwraca zaktualizowaną podpowiedź do
-    /// przekazania w kolejnym wywołaniu. Wynik jest identyczny z
-    /// `get_block` - to czysto optymalizacja dostępu, nie zmiana logiki.
-    /// Używane w gorących, potrójnie zagnieżdżonych pętlach symulacji
-    /// materiałów, gdzie kolejne odwiedzane pozycje (zwłaszcza wzdłuż osi X)
-    /// w zdecydowanej większości trafiają w ten sam chunk co poprzednia.
     #[inline]
     fn get_block_cached<'a>(
         &'a self,
@@ -954,11 +914,6 @@ impl World {
         let min_y = (py - 12).max(1);
         let max_y = (py + 8).min(CHUNK_SIZE_Y - 1);
 
-        // Optymalizacja 4 (główna dla symulacji):
-        // Wcześniej silnik robił DWA pełne obchody (~9200 bloków każdy)
-        // raz dla TNT i zapłonu od lawy, drugi dla fizyki płynów.
-        // Skonsolidowaliśmy je w JEDNĄ pętlę.
-
         let sim_lava = self.sim_tick % 3 == 0;
         let mut fluid_spawns: Vec<(IVec3, BlockId, u8)> = Vec::new();
         let mut fluid_despawns: Vec<IVec3> = Vec::new();
@@ -974,7 +929,6 @@ impl World {
                     let (block, new_hint) = self.get_block_cached(pos, hint);
                     hint = new_hint;
 
-                    // -- Logika zapłonu TNT (bezpośrednio w pętli materiałów) --
                     if block == BlockId::Tnt {
                         let neighbors = [
                             IVec3::new(x + 1, y, z),
@@ -996,10 +950,9 @@ impl World {
                         if found_lava {
                             tnts_to_prime.push(pos);
                         }
-                        continue; // TNT nie jest płynem
+                        continue;
                     }
 
-                    // -- Skrócony warunek logiki płynów --
                     if block != BlockId::Water && block != BlockId::Lava {
                         continue;
                     }
@@ -1007,7 +960,6 @@ impl World {
                         continue;
                     }
 
-                    // -- Logika symulacji płynów --
                     let level = self.fluid_level(pos);
                     let below = IVec3::new(x, y - 1, z);
                     let below_block = self.get_block(below);
@@ -1022,7 +974,7 @@ impl World {
 
                     if block == BlockId::Lava {
                         let touches_water = below_block == BlockId::Water
-                        || cardinals.iter().any(|&p| self.get_block(p) == BlockId::Water);
+                            || cardinals.iter().any(|&p| self.get_block(p) == BlockId::Water);
                         if touches_water {
                             solidifications.push((pos, BlockId::Stone));
                             continue;
@@ -1062,7 +1014,6 @@ impl World {
             }
         }
 
-        // Aktywacja podpalonego z lawy TNT
         for tnt_pos in tnts_to_prime {
             self.prime_tnt(tnt_pos);
         }
@@ -1082,7 +1033,6 @@ impl World {
             }
         }
 
-        // 3. Sand gravity simulation (oparte na secie Aktywnego Piasku, jest super szybkie)
         if !self.active_sand.is_empty() {
             let mut sand_moves: Vec<(IVec3, IVec3)> = Vec::new();
             let mut sand_stopped: Vec<IVec3> = Vec::new();
@@ -1166,7 +1116,7 @@ impl World {
             if block.is_solid() {
                 return Some(RaycastHit {
                     block_pos: IVec3::new(x, y, z),
-                            normal: last_normal,
+                    normal: last_normal,
                 });
             }
 
@@ -1219,4 +1169,30 @@ fn read_bytes<'a>(bytes: &'a [u8], cursor: &mut usize, count: usize) -> Result<&
     let slice = &bytes[*cursor..*cursor + count];
     *cursor += count;
     Ok(slice)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chunk_index_and_local_blocks() {
+        let mut chunk = Chunk {
+            cx: 0,
+            cz: 0,
+            blocks: vec![0u8; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
+            dirty: false,
+        };
+
+        chunk.set_local(0, 0, 0, BlockId::Stone);
+        assert_eq!(chunk.get_local(0, 0, 0), BlockId::Stone);
+        assert!(chunk.dirty);
+
+        chunk.set_local(15, 63, 15, BlockId::IronOre);
+        assert_eq!(chunk.get_local(15, 63, 15), BlockId::IronOre);
+
+        // Out of bounds returns Air
+        assert_eq!(chunk.get_local(-1, 0, 0), BlockId::Air);
+        assert_eq!(chunk.get_local(16, 0, 0), BlockId::Air);
+    }
 }

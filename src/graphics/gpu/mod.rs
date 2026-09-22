@@ -3,9 +3,9 @@ use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use wgpu::util::DeviceExt;
 
-use crate::math::{Mat4, Vec3};
-use crate::mesher::Triangle;
-use crate::texture::{TextureAtlas, TextureId, TEX_SIZE};
+use crate::core::math::{Mat4, Vec3};
+use crate::graphics::atlas::{TextureAtlas, TextureId, TEX_SIZE};
+use crate::world::mesher::Triangle;
 
 pub const TEXTURE_LAYER_COUNT: u32 = 32;
 
@@ -37,12 +37,10 @@ pub struct VulkanContext {
     chunk_buffers: HashMap<(i32, i32), GpuChunk>,
     target_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,
-    // Bufory Compute
     post_pipeline: wgpu::ComputePipeline,
     post_bind_group: wgpu::BindGroup,
     color_ssbo: wgpu::Buffer,
     depth_ssbo: wgpu::Buffer,
-    // Zoptymalizowany Readback
     readback: wgpu::Buffer,
     depth_readback: wgpu::Buffer,
     width: u32,
@@ -128,7 +126,6 @@ fn sky_fragment(input: SkyOutput) -> @location(0) vec4<f32> {
 }
 "#;
 
-// Shader obliczeniowy do post-processingu (uruchamiany na GPU przed readbackiem)
 const POST_PROCESS_SHADER: &str = r#"
 @group(0) @binding(0) var color_tex: texture_2d<f32>;
 @group(0) @binding(1) var depth_tex: texture_depth_2d;
@@ -143,14 +140,12 @@ fn post_process(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     let idx = id.y * dim.x + id.x;
 
-    // Pakowanie koloru do u32 (xRGB)
     let color = textureLoad(color_tex, id.xy, 0);
     let r = u32(color.r * 255.0);
     let g = u32(color.g * 255.0);
     let b = u32(color.b * 255.0);
     out_color[idx] = (r << 16u) | (g << 8u) | b;
 
-    // Linearyzacja głębi
     let d = textureLoad(depth_tex, id.xy, 0);
     let near_far = 0.05 * 400.0;
     let far = 400.0;
@@ -159,7 +154,6 @@ fn post_process(@builtin(global_invocation_id) id: vec3<u32>) {
     if (d < 1.0) {
         out_depth[idx] = near_far / (far - d * far_minus_near);
     } else {
-        // Zwracamy nieskończoność jako f32 reprezentowane bitowo
         out_depth[idx] = bitcast<f32>(0x7F800000u);
     }
 }
@@ -288,7 +282,6 @@ impl VulkanContext {
             multiview: None,
         });
 
-        // --- Konfiguracja Compute Shadera ---
         let post_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("RustCraft compute post-process"),
             source: wgpu::ShaderSource::Wgsl(POST_PROCESS_SHADER.into()),
@@ -508,7 +501,6 @@ impl VulkanContext {
             }
         }
 
-        // --- GPU Compute Pass: Linearyzacja i pakowanie ---
         {
             let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("RustCraft Post Process"),
@@ -516,11 +508,9 @@ impl VulkanContext {
             });
             cpass.set_pipeline(&self.post_pipeline);
             cpass.set_bind_group(0, &self.post_bind_group, &[]);
-            // Wywołanie shaderów w grupach 16x16
             cpass.dispatch_workgroups((self.width + 15) / 16, (self.height + 15) / 16, 1);
         }
 
-        // Kopiowanie gotowych wyników ze spakowanego bufora na GPU do readbacku na CPU
         let buffer_size = (self.width * self.height * 4) as wgpu::BufferAddress;
         encoder.copy_buffer_to_buffer(&self.color_ssbo, 0, &self.readback, 0, buffer_size);
         encoder.copy_buffer_to_buffer(&self.depth_ssbo, 0, &self.depth_readback, 0, buffer_size);
@@ -537,8 +527,6 @@ impl VulkanContext {
         let mapped_color = slice.get_mapped_range();
         let mapped_depth = depth_slice.get_mapped_range();
 
-        // 🚀 Optymalizacja CPU:
-        // Brak pętli, brak Rayon i matematyki. Skopiowanie gotowych pamięci od Compute Shadera.
         out_pixels.copy_from_slice(bytemuck::cast_slice(&mapped_color));
         out_depths.copy_from_slice(bytemuck::cast_slice(&mapped_depth));
 
@@ -661,22 +649,20 @@ impl VulkanContext {
 
         let elements = (width * height) as u64;
 
-        // Bufory przechowujące przetworzone przez Compute Shader dane
         let color_ssbo = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("RustCraft color ssbo"),
-            size: elements * 4, // u32
+            size: elements * 4,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
 
         let depth_ssbo = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("RustCraft depth ssbo"),
-            size: elements * 4, // f32
+            size: elements * 4,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
 
-        // Bufory czytające przetworzone liniowe tablice
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("RustCraft frame readback"),
             size: elements * 4,

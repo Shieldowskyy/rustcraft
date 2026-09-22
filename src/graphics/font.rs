@@ -1,9 +1,6 @@
 // A minimal built-in bitmap font (3 pixels wide, 5 pixels tall per glyph)
 // so the UI can draw text without any external font files or font-loading
-// dependencies. Supports uppercase letters, digits, and a few symbols -
-// enough for a debug overlay / basic HUD.
-//
-// Each glyph is 5 rows of a 3-bit mask (bit 2 = leftmost column).
+// dependencies. Supports uppercase letters, digits, and a few symbols.
 
 pub const GLYPH_W: usize = 3;
 pub const GLYPH_H: usize = 5;
@@ -70,14 +67,13 @@ fn glyph(c: char) -> [u8; 5] {
         'Ś' => [0b011, 0b100, 0b010, 0b001, 0b110],
         'Ź' => [0b111, 0b001, 0b010, 0b100, 0b111],
         'Ż' => [0b111, 0b001, 0b010, 0b100, 0b111],
-        _ => [0b111, 0b101, 0b101, 0b101, 0b111], // fallback box for unknown chars
+        _ => [0b111, 0b101, 0b101, 0b101, 0b111],
     }
 }
 
 /// Calls `plot(x, y)` for every "on" pixel of `text` rendered at the given
 /// top-left origin, scaled by `scale` (integer pixel multiplier), with
-/// `spacing` pixels (pre-scale) between glyphs. Text is uppercased
-/// automatically since only uppercase glyphs are defined.
+/// `spacing` pixels (pre-scale) between glyphs.
 pub fn draw_text(text: &str, origin_x: i32, origin_y: i32, scale: i32, spacing: i32, mut plot: impl FnMut(i32, i32)) {
     let mut cursor_x = origin_x;
     for ch in text.chars() {

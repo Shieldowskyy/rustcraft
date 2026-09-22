@@ -1,5 +1,7 @@
 // Block type definitions and their solid colors.
-// (No textures - colors are used since this is a software rasterizer demo.)
+
+use crate::core::math::IVec3;
+use crate::graphics::atlas::TextureId;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BlockId {
@@ -140,7 +142,6 @@ impl BlockId {
     }
 
     /// Base RGB color for each face; grass has a green top and dirt sides.
-    /// Used as a lighting/tint multiplier on top of the procedural texture.
     pub fn face_color(self, face: Face) -> [f32; 3] {
         match self {
             BlockId::Grass => match face {
@@ -180,8 +181,7 @@ impl BlockId {
     }
 
     /// Which procedural texture to use for a given face of this block.
-    pub fn texture_id(self, face: Face) -> crate::texture::TextureId {
-        use crate::texture::TextureId;
+    pub fn texture_id(self, face: Face) -> TextureId {
         match self {
             BlockId::Grass => match face {
                 Face::Top => TextureId::GrassTop,
@@ -215,7 +215,7 @@ impl BlockId {
                 Face::Top | Face::Bottom => TextureId::TntTop,
                 _ => TextureId::TntSide,
             },
-            BlockId::Air => TextureId::Stone, // never sampled
+            BlockId::Air => TextureId::Stone,
         }
     }
 }
@@ -251,14 +251,14 @@ impl Face {
         }
     }
 
-    pub fn normal(self) -> crate::math::IVec3 {
+    pub fn normal(self) -> IVec3 {
         match self {
-            Face::Top => crate::math::IVec3::new(0, 1, 0),
-            Face::Bottom => crate::math::IVec3::new(0, -1, 0),
-            Face::North => crate::math::IVec3::new(0, 0, -1),
-            Face::South => crate::math::IVec3::new(0, 0, 1),
-            Face::East => crate::math::IVec3::new(1, 0, 0),
-            Face::West => crate::math::IVec3::new(-1, 0, 0),
+            Face::Top => IVec3::new(0, 1, 0),
+            Face::Bottom => IVec3::new(0, -1, 0),
+            Face::North => IVec3::new(0, 0, -1),
+            Face::South => IVec3::new(0, 0, 1),
+            Face::East => IVec3::new(1, 0, 0),
+            Face::West => IVec3::new(-1, 0, 0),
         }
     }
 }

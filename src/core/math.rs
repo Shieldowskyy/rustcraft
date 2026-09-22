@@ -232,3 +232,37 @@ impl Mat4 {
         ]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vec3_operations() {
+        let v1 = Vec3::new(1.0, 2.0, 3.0);
+        let v2 = Vec3::new(4.0, 5.0, 6.0);
+        let sum = v1 + v2;
+        assert_eq!(sum, Vec3::new(5.0, 7.0, 9.0));
+
+        let dot = v1.dot(v2);
+        assert_eq!(dot, 1.0 * 4.0 + 2.0 * 5.0 + 3.0 * 6.0);
+
+        let cross = Vec3::new(1.0, 0.0, 0.0).cross(Vec3::new(0.0, 1.0, 0.0));
+        assert_eq!(cross, Vec3::new(0.0, 0.0, 1.0));
+    }
+
+    #[test]
+    fn test_ivec3_conversion() {
+        let v = Vec3::new(1.8, -2.3, 0.0);
+        let iv = v.floor_to_ivec();
+        assert_eq!(iv, IVec3::new(1, -3, 0));
+    }
+
+    #[test]
+    fn test_mat4_identity_mul() {
+        let id = Mat4::identity();
+        let pt = Vec3::new(3.0, 4.0, 5.0);
+        let transformed = id.transform_point(pt);
+        assert_eq!(transformed, [3.0, 4.0, 5.0, 1.0]);
+    }
+}

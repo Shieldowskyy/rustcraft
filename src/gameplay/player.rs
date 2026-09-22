@@ -1,4 +1,4 @@
-use crate::inventory::Inventory;
+use crate::gameplay::inventory::Inventory;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum GameMode {
@@ -20,7 +20,7 @@ pub struct Player {
 impl Player {
     pub fn new() -> Self {
         Self {
-            gamemode: GameMode::Creative, // Start in Creative for compatibility, or allow change
+            gamemode: GameMode::Creative,
             health: 20.0,
             max_health: 20.0,
             fall_distance: 0.0,

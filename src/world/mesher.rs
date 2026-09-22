@@ -4,9 +4,9 @@
 // follow. Still efficient enough for modest view distances at
 // software-render scale.
 
-use crate::block::{BlockId, Face};
-use crate::math::Vec3;
-use crate::texture::TextureId;
+use crate::core::math::{IVec3, Vec3};
+use crate::graphics::atlas::TextureId;
+use crate::world::block::{BlockId, Face};
 use crate::world::{Chunk, World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
 
 #[derive(Copy, Clone)]
@@ -57,8 +57,8 @@ pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
                                 } else {
                                     let above_neighbor = sample_block(chunk, world, lx + n.x, ly + 1, lz + n.z, base_x, base_z);
                                     if above_neighbor != block {
-                                        let my_lvl = world.fluid_level(crate::math::IVec3::new(wx, wy, wz));
-                                        let neighbor_lvl = world.fluid_level(crate::math::IVec3::new(wx + n.x, wy, wz + n.z));
+                                        let my_lvl = world.fluid_level(IVec3::new(wx, wy, wz));
+                                        let neighbor_lvl = world.fluid_level(IVec3::new(wx + n.x, wy, wz + n.z));
                                         my_lvl > neighbor_lvl
                                     } else {
                                         false
@@ -100,7 +100,7 @@ fn sample_block(
     }
     let wx = base_x + lx;
     let wz = base_z + lz;
-    world.get_block(crate::math::IVec3::new(wx, ly, wz))
+    world.get_block(IVec3::new(wx, ly, wz))
 }
 
 #[inline(always)]
@@ -155,7 +155,7 @@ fn emit_face(
         if above == block {
             y + 1.0
         } else {
-            let lvl = world.fluid_level(crate::math::IVec3::new(wx, wy, wz));
+            let lvl = world.fluid_level(IVec3::new(wx, wy, wz));
             if lvl >= 8 {
                 y + 0.90
             } else {
@@ -180,39 +180,39 @@ fn emit_face(
     let (a, ao_a, b, ao_b, c, ao_c, d, ao_d) = match face {
         Face::Top => (
             c010, vertex_ao(s(-1,1,0), s(0,1,-1), s(-1,1,-1)),
-                      c011, vertex_ao(s(-1,1,0), s(0,1, 1), s(-1,1, 1)),
-                      c111, vertex_ao(s( 1,1,0), s(0,1, 1), s( 1,1, 1)),
-                      c110, vertex_ao(s( 1,1,0), s(0,1,-1), s( 1,1,-1)),
+            c011, vertex_ao(s(-1,1,0), s(0,1, 1), s(-1,1, 1)),
+            c111, vertex_ao(s( 1,1,0), s(0,1, 1), s( 1,1, 1)),
+            c110, vertex_ao(s( 1,1,0), s(0,1,-1), s( 1,1,-1)),
         ),
         Face::Bottom => (
             c001, vertex_ao(s(-1,-1,0), s(0,-1, 1), s(-1,-1, 1)),
-                         c000, vertex_ao(s(-1,-1,0), s(0,-1,-1), s(-1,-1,-1)),
-                         c100, vertex_ao(s( 1,-1,0), s(0,-1,-1), s( 1,-1,-1)),
-                         c101, vertex_ao(s( 1,-1,0), s(0,-1, 1), s( 1,-1, 1)),
+            c000, vertex_ao(s(-1,-1,0), s(0,-1,-1), s(-1,-1,-1)),
+            c100, vertex_ao(s( 1,-1,0), s(0,-1,-1), s( 1,-1,-1)),
+            c101, vertex_ao(s( 1,-1,0), s(0,-1, 1), s( 1,-1, 1)),
         ),
         Face::North => (
             c100, vertex_ao(s( 1,0,-1), s(0,-1,-1), s( 1,-1,-1)),
-                        c000, vertex_ao(s(-1,0,-1), s(0,-1,-1), s(-1,-1,-1)),
-                        c010, vertex_ao(s(-1,0,-1), s(0, 1,-1), s(-1, 1,-1)),
-                        c110, vertex_ao(s( 1,0,-1), s(0, 1,-1), s( 1, 1,-1)),
+            c000, vertex_ao(s(-1,0,-1), s(0,-1,-1), s(-1,-1,-1)),
+            c010, vertex_ao(s(-1,0,-1), s(0, 1,-1), s(-1, 1,-1)),
+            c110, vertex_ao(s( 1,0,-1), s(0, 1,-1), s( 1, 1,-1)),
         ),
         Face::South => (
             c001, vertex_ao(s(-1,0,1), s(0,-1,1), s(-1,-1,1)),
-                        c101, vertex_ao(s( 1,0,1), s(0,-1,1), s( 1,-1,1)),
-                        c111, vertex_ao(s( 1,0,1), s(0, 1,1), s( 1, 1,1)),
-                        c011, vertex_ao(s(-1,0,1), s(0, 1,1), s(-1, 1,1)),
+            c101, vertex_ao(s( 1,0,1), s(0,-1,1), s( 1,-1,1)),
+            c111, vertex_ao(s( 1,0,1), s(0, 1,1), s( 1, 1,1)),
+            c011, vertex_ao(s(-1,0,1), s(0, 1,1), s(-1, 1,1)),
         ),
         Face::East => (
             c101, vertex_ao(s(1,0, 1), s(1,-1,0), s(1,-1, 1)),
-                       c100, vertex_ao(s(1,0,-1), s(1,-1,0), s(1,-1,-1)),
-                       c110, vertex_ao(s(1,0,-1), s(1, 1,0), s(1, 1,-1)),
-                       c111, vertex_ao(s(1,0, 1), s(1, 1,0), s(1, 1, 1)),
+            c100, vertex_ao(s(1,0,-1), s(1,-1,0), s(1,-1,-1)),
+            c110, vertex_ao(s(1,0,-1), s(1, 1,0), s(1, 1,-1)),
+            c111, vertex_ao(s(1,0, 1), s(1, 1,0), s(1, 1, 1)),
         ),
         Face::West => (
             c000, vertex_ao(s(-1,0,-1), s(-1,-1,0), s(-1,-1,-1)),
-                       c001, vertex_ao(s(-1,0, 1), s(-1,-1,0), s(-1,-1, 1)),
-                       c011, vertex_ao(s(-1,0, 1), s(-1, 1,0), s(-1, 1, 1)),
-                       c010, vertex_ao(s(-1,0,-1), s(-1, 1,0), s(-1, 1,-1)),
+            c001, vertex_ao(s(-1,0, 1), s(-1,-1,0), s(-1,-1, 1)),
+            c011, vertex_ao(s(-1,0, 1), s(-1, 1,0), s(-1, 1, 1)),
+            c010, vertex_ao(s(-1,0,-1), s(-1, 1,0), s(-1, 1,-1)),
         ),
     };
 

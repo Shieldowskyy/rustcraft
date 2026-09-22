@@ -1,22 +1,9 @@
-// Real FPS-style mouse capture.
+// Cross-platform mouse capture and window management.
 //
-// `minifb` (used only for the window/input, never for rendering) has no
-// built-in way to warp or confine the OS cursor on any platform, so by
-// default the cursor can wander off the game window while looking around.
-//
-// On Linux/X11 we fix this properly: we pull the raw Xlib `Display`/`Window`
-// handles out of the `minifb::Window` (via the `raw-window-handle` crate,
-// which minifb already implements) and call Xlib directly to:
-//   1. Hide the cursor (recolor it fully transparent) while captured.
-//   2. Confine pointer motion to the window (`XGrabPointer`).
-//   3. After reading the mouse delta each frame, warp the cursor back to
-//      the window center (`XWarpPointer`) so it can never reach the edge.
-//
-// On non-Linux platforms (Windows/macOS) or if X11 setup fails for any
-// reason (e.g. running under Wayland without XWayland, or headless), we
-// fall back to the previous best-effort approach: track deltas from the
-// last observed cursor position and simply accept that the cursor can
-// reach the window edge. The game remains fully playable either way.
+// Supports:
+// - Linux / X11 (via x11-dl: XGrabPointer, XWarpPointer, transparent cursor)
+// - Windows (via windows-sys: ClipCursor, SetCursorPos, ShowCursor)
+// - Fallback for Wayland / macOS / non-native environments (delta tracking)
 
 use minifb::Window;
 
@@ -36,21 +23,14 @@ mod x11_capture {
         center_y: i32,
     }
 
-    // Raw Xlib pointers are safe to send between... actually we keep this
-    // single-threaded (used only from main.rs's game loop), so we simply
-    // avoid Send/Sync entirely by not requiring them.
-
     impl X11Capture {
-        /// Attempts to set up X11 pointer capture for the given minifb
-        /// window. Returns None if the window isn't backed by X11 (e.g.
-        /// running under pure Wayland) or if Xlib can't be loaded.
         pub fn new(window: &minifb::Window, width: i32, height: i32) -> Option<X11Capture> {
             let display_handle = window.display_handle().ok()?;
             let window_handle = window.window_handle().ok()?;
 
             let xlib_display = match display_handle.as_raw() {
                 RawDisplayHandle::Xlib(h) => h,
-                _ => return None, // not X11 (e.g. Wayland) - fall back
+                _ => return None,
             };
             let xlib_window = match window_handle.as_raw() {
                 RawWindowHandle::Xlib(h) => h,
@@ -61,8 +41,6 @@ mod x11_capture {
             let display = xlib_display.display?.as_ptr() as *mut xlib::Display;
             let xid = xlib_window.window as c_ulong;
 
-            // Build a fully-transparent 1x1 cursor so the real OS cursor is
-            // invisible while captured (we draw our own crosshair instead).
             let blank_cursor = unsafe { create_blank_cursor(&lib, display, xid) };
 
             Some(X11Capture {
@@ -132,10 +110,6 @@ mod x11_capture {
             }
         }
 
-        /// Reads the current pointer position (relative to the window),
-        /// computes the delta from the window center, then warps the
-        /// pointer back to the center so it never escapes. Returns
-        /// (dx, dy) in pixels, or (0, 0) if not captured or on error.
         pub fn poll_delta_and_recenter(&self) -> (f32, f32) {
             if !self.grabbed {
                 return (0.0, 0.0);
@@ -168,8 +142,6 @@ mod x11_capture {
                 let dx = (win_x - self.center_x) as f32;
                 let dy = (win_y - self.center_y) as f32;
 
-                // Only warp (and thus generate the next frame's delta) if
-                // the pointer actually moved, to avoid needless X calls.
                 if win_x != self.center_x || win_y != self.center_y {
                     self.warp_to_center();
                 }
@@ -196,7 +168,6 @@ mod x11_capture {
         display: *mut xlib::Display,
         window: c_ulong,
     ) -> c_ulong {
-        // A 1x1 fully-transparent pixmap-based cursor.
         let data: [u8; 1] = [0];
         let pixmap = (lib.XCreateBitmapFromData)(display, window, data.as_ptr() as *const i8, 1, 1);
         let mut color: xlib::XColor = std::mem::zeroed();
@@ -252,10 +223,10 @@ mod x11_capture {
             xev.message_type = wm_state;
             xev.format = 32;
             let longs = xev.data.as_longs_mut();
-            longs[0] = 1; // 1 = _NET_WM_STATE_ADD
+            longs[0] = 1;
             longs[1] = max_vert as std::os::raw::c_long;
             longs[2] = max_horz as std::os::raw::c_long;
-            longs[3] = 1; // normal application
+            longs[3] = 1;
             longs[4] = 0;
 
             let mut event: xlib::XEvent = std::mem::zeroed();
@@ -272,12 +243,134 @@ mod x11_capture {
     }
 }
 
-/// Public, cross-platform handle used by main.rs. Wraps the Linux X11
-/// implementation when available, otherwise behaves as an inert fallback
-/// and the caller keeps using ordinary `get_mouse_pos` delta tracking.
+#[cfg(windows)]
+mod win32_capture {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::Foundation::{HWND, RECT};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        ClipCursor, GetClientRect, GetCursorPos, ClientToScreen, SetCursorPos, ShowWindow,
+        SW_MAXIMIZE, POINT,
+    };
+
+    pub struct Win32Capture {
+        hwnd: HWND,
+        grabbed: bool,
+        center_x: i32,
+        center_y: i32,
+    }
+
+    impl Win32Capture {
+        pub fn new(window: &minifb::Window, width: i32, height: i32) -> Option<Win32Capture> {
+            let window_handle = window.window_handle().ok()?;
+            let hwnd = match window_handle.as_raw() {
+                RawWindowHandle::Win32(h) => h.hwnd.get() as HWND,
+                _ => return None,
+            };
+
+            Some(Win32Capture {
+                hwnd,
+                grabbed: false,
+                center_x: width / 2,
+                center_y: height / 2,
+            })
+        }
+
+        pub fn set_captured(&mut self, captured: bool) {
+            if captured == self.grabbed {
+                return;
+            }
+            unsafe {
+                if captured {
+                    let mut rect: RECT = std::mem::zeroed();
+                    if GetClientRect(self.hwnd, &mut rect) != 0 {
+                        let mut pt_top_left = POINT { x: rect.left, y: rect.top };
+                        let mut pt_bottom_right = POINT { x: rect.right, y: rect.bottom };
+                        ClientToScreen(self.hwnd, &mut pt_top_left);
+                        ClientToScreen(self.hwnd, &mut pt_bottom_right);
+                        let screen_rect = RECT {
+                            left: pt_top_left.x,
+                            top: pt_top_left.y,
+                            right: pt_bottom_right.x,
+                            bottom: pt_bottom_right.y,
+                        };
+                        ClipCursor(&screen_rect);
+                    }
+                    self.warp_to_center();
+                } else {
+                    ClipCursor(std::ptr::null());
+                }
+            }
+            self.grabbed = captured;
+        }
+
+        pub fn is_captured(&self) -> bool {
+            self.grabbed
+        }
+
+        pub fn resize(&mut self, width: i32, height: i32) {
+            self.center_x = width / 2;
+            self.center_y = height / 2;
+        }
+
+        fn warp_to_center(&self) {
+            unsafe {
+                let mut pt = POINT { x: self.center_x, y: self.center_y };
+                ClientToScreen(self.hwnd, &mut pt);
+                SetCursorPos(pt.x, pt.y);
+            }
+        }
+
+        pub fn poll_delta_and_recenter(&self) -> (f32, f32) {
+            if !self.grabbed {
+                return (0.0, 0.0);
+            }
+            unsafe {
+                let mut cur_pos: POINT = std::mem::zeroed();
+                if GetCursorPos(&mut cur_pos) == 0 {
+                    return (0.0, 0.0);
+                }
+                let mut center_pt = POINT { x: self.center_x, y: self.center_y };
+                ClientToScreen(self.hwnd, &mut center_pt);
+
+                let dx = (cur_pos.x - center_pt.x) as f32;
+                let dy = (cur_pos.y - center_pt.y) as f32;
+
+                if cur_pos.x != center_pt.x || cur_pos.y != center_pt.y {
+                    self.warp_to_center();
+                }
+
+                (dx, dy)
+            }
+        }
+    }
+
+    impl Drop for Win32Capture {
+        fn drop(&mut self) {
+            if self.grabbed {
+                unsafe {
+                    ClipCursor(std::ptr::null());
+                }
+            }
+        }
+    }
+
+    pub fn maximize_win32(window: &minifb::Window) {
+        if let Ok(window_handle) = window.window_handle() {
+            if let RawWindowHandle::Win32(h) = window_handle.as_raw() {
+                let hwnd = h.hwnd.get() as HWND;
+                unsafe {
+                    ShowWindow(hwnd, SW_MAXIMIZE);
+                }
+            }
+        }
+    }
+}
+
 pub struct MouseCapture {
     #[cfg(target_os = "linux")]
     inner: Option<x11_capture::X11Capture>,
+    #[cfg(windows)]
+    inner: Option<win32_capture::Win32Capture>,
     captured: bool,
 }
 
@@ -291,22 +384,31 @@ impl MouseCapture {
                 captured: false,
             }
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(windows)]
+        {
+            let inner = win32_capture::Win32Capture::new(window, width, height);
+            MouseCapture {
+                inner,
+                captured: false,
+            }
+        }
+        #[cfg(not(any(target_os = "linux", windows)))]
         {
             let _ = (window, width, height);
             MouseCapture { captured: false }
         }
     }
 
-    /// True if real OS-level pointer capture is active (Linux/X11 only).
-    /// When false, the caller should fall back to plain delta tracking of
-    /// `get_mouse_pos`, and the cursor may be able to reach the window edge.
     pub fn has_native_capture(&self) -> bool {
         #[cfg(target_os = "linux")]
         {
             self.inner.is_some()
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(windows)]
+        {
+            self.inner.is_some()
+        }
+        #[cfg(not(any(target_os = "linux", windows)))]
         {
             false
         }
@@ -315,6 +417,12 @@ impl MouseCapture {
     pub fn set_captured(&mut self, captured: bool) {
         self.captured = captured;
         #[cfg(target_os = "linux")]
+        {
+            if let Some(inner) = &mut self.inner {
+                inner.set_captured(captured);
+            }
+        }
+        #[cfg(windows)]
         {
             if let Some(inner) = &mut self.inner {
                 inner.set_captured(captured);
@@ -333,15 +441,18 @@ impl MouseCapture {
                 inner.resize(width, height);
             }
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(windows)]
+        {
+            if let Some(inner) = &mut self.inner {
+                inner.resize(width, height);
+            }
+        }
+        #[cfg(not(any(target_os = "linux", windows)))]
         {
             let _ = (width, height);
         }
     }
 
-    /// Returns the mouse motion delta since the last call, already
-    /// re-centering the OS cursor under the hood when native capture is
-    /// active. Returns (0, 0) if not captured.
     pub fn poll_delta(&self) -> (f32, f32) {
         #[cfg(target_os = "linux")]
         {
@@ -350,20 +461,30 @@ impl MouseCapture {
             }
             (0.0, 0.0)
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(windows)]
+        {
+            if let Some(inner) = &self.inner {
+                return inner.poll_delta_and_recenter();
+            }
+            (0.0, 0.0)
+        }
+        #[cfg(not(any(target_os = "linux", windows)))]
         {
             (0.0, 0.0)
         }
     }
 }
 
-/// Requests the window manager to maximize the window.
 pub fn maximize_window(window: &Window) {
     #[cfg(target_os = "linux")]
     {
         x11_capture::maximize_x11(window);
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        win32_capture::maximize_win32(window);
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         let _ = window;
     }

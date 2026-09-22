@@ -1,6 +1,6 @@
 use std::f32::consts::PI;
-use crate::block::BlockId;
-use crate::math::{IVec3, Vec3};
+use crate::core::math::{IVec3, Vec3};
+use crate::world::block::BlockId;
 use crate::world::World;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -137,7 +137,6 @@ impl Mob {
 
         if self.is_dead {
             self.death_timer += dt;
-            // Apply gravity while dying
             self.velocity.y -= 22.0 * dt;
             self.apply_movement(dt, world);
             if self.death_timer >= 0.8 {
@@ -146,7 +145,6 @@ impl Mob {
             return;
         }
 
-        // --- Lava damage check ---
         let (min, max) = self.aabb();
         let min_x = min.x.floor() as i32;
         let max_x = max.x.floor() as i32;
@@ -170,7 +168,6 @@ impl Mob {
         }
 
         if in_lava {
-            // Fluid drag in lava
             self.velocity.x *= 0.8;
             self.velocity.z *= 0.8;
             if self.velocity.y < -3.0 {
@@ -188,16 +185,13 @@ impl Mob {
             self.panic_timer = (self.panic_timer - dt).max(0.0);
         }
 
-        // --- AI Decision Making ---
         self.ai_timer -= dt;
         if self.ai_timer <= 0.0 {
             if self.panic_timer > 0.0 {
-                // Running around erratically when panicked
                 self.ai_state_is_moving = true;
                 self.target_yaw += (rand_f32(rng) - 0.5) * 1.6;
                 self.ai_timer = 0.4 + rand_f32(rng) * 0.5;
             } else {
-                // Normal wander/idle cycle
                 let roll = rand_f32(rng);
                 if roll < 0.45 {
                     self.ai_state_is_moving = false;
@@ -212,14 +206,12 @@ impl Mob {
             }
         }
 
-        // Smooth rotation towards target yaw
         let mut diff = self.target_yaw - self.yaw;
         while diff > PI { diff -= PI * 2.0; }
         while diff < -PI { diff += PI * 2.0; }
         let turn_speed = if self.panic_timer > 0.0 { 10.0 } else { 4.0 };
         self.yaw += diff * (turn_speed * dt).min(1.0);
 
-        // Desired horizontal speed
         let move_speed = if self.panic_timer > 0.0 {
             3.8
         } else if self.ai_state_is_moving {
@@ -237,18 +229,15 @@ impl Mob {
             self.velocity.x += (target_vel_x - self.velocity.x) * (accel * dt).min(1.0);
             self.velocity.z += (target_vel_z - self.velocity.z) * (accel * dt).min(1.0);
         } else {
-            // Air drag
             self.velocity.x *= (1.0 - 2.0 * dt).max(0.0);
             self.velocity.z *= (1.0 - 2.0 * dt).max(0.0);
         }
 
-        // Gravity
         self.velocity.y -= 22.0 * dt;
         if self.velocity.y < -30.0 {
             self.velocity.y = -30.0;
         }
 
-        // Auto-jump if walking toward a 1-block obstacle
         if self.on_ground && (self.ai_state_is_moving || self.panic_timer > 0.0) {
             let forward = Vec3::new(self.yaw.sin(), 0.0, self.yaw.cos());
             let hw = self.kind.half_width();
@@ -265,23 +254,19 @@ impl Mob {
             }
         }
 
-        // Apply movement with collision & step-up
         let _hit_wall = self.apply_movement(dt, world);
 
         let horizontal_speed = (self.velocity.x * self.velocity.x + self.velocity.z * self.velocity.z).sqrt();
 
-        // Update leg walk animation phase
         if self.on_ground && horizontal_speed > 0.05 {
             self.walk_phase += dt * (horizontal_speed * 4.5);
         } else if !self.on_ground {
             self.walk_phase += dt * 3.0;
         } else {
-            // Smoothly ease leg swing back to rest
             self.walk_phase *= (1.0 - 6.0 * dt).max(0.0);
         }
     }
 
-    /// Move with 3-axis separate AABB collision and step-up (1-block height assistance)
     fn apply_movement(&mut self, dt: f32, world: &World) -> bool {
         let hw = self.kind.half_width();
         let h = self.kind.height();
@@ -302,7 +287,6 @@ impl Mob {
             let test_x = Vec3::new(self.pos.x + dx, self.pos.y, self.pos.z);
             let (min_x, max_x) = aabb_at(test_x);
             if world.box_collides(min_x, max_x) {
-                // Try step-up over 1-block obstacle
                 let (head_min, head_max) = aabb_at(Vec3::new(self.pos.x, self.pos.y + step_height, self.pos.z));
                 let (step_min, step_max) = aabb_at(Vec3::new(self.pos.x + dx, self.pos.y + step_height, self.pos.z));
                 if self.on_ground && !world.box_collides(head_min, head_max) && !world.box_collides(step_min, step_max) {
@@ -323,7 +307,6 @@ impl Mob {
             let test_z = Vec3::new(self.pos.x, self.pos.y, self.pos.z + dz);
             let (min_z, max_z) = aabb_at(test_z);
             if world.box_collides(min_z, max_z) {
-                // Try step-up over 1-block obstacle
                 let (head_min, head_max) = aabb_at(Vec3::new(self.pos.x, self.pos.y + step_height, self.pos.z));
                 let (step_min, step_max) = aabb_at(Vec3::new(self.pos.x, self.pos.y + step_height, self.pos.z + dz));
                 if self.on_ground && !world.box_collides(head_min, head_max) && !world.box_collides(step_min, step_max) {
@@ -361,7 +344,7 @@ pub struct MobManager {
     next_mob_id: u32,
     spawn_timer: f32,
     rng_state: u32,
-    pub dying_poofs: Vec<Vec3>, // Positions of mobs that evaporated this frame
+    pub dying_poofs: Vec<Vec3>,
 }
 
 impl MobManager {
@@ -385,11 +368,9 @@ impl MobManager {
     pub fn update(&mut self, dt: f32, world: &World, player_pos: Vec3) {
         let mut rng = self.rng_state;
 
-        // Update all active mobs
         for mob in &mut self.mobs {
             mob.update(dt, world, &mut rng);
 
-            // Despawn mobs that wander too far from player (> 75 blocks)
             let dist_sq = (mob.pos.x - player_pos.x) * (mob.pos.x - player_pos.x)
                 + (mob.pos.z - player_pos.z) * (mob.pos.z - player_pos.z);
             if dist_sq > 75.0 * 75.0 && !mob.is_dead {
@@ -397,7 +378,6 @@ impl MobManager {
             }
         }
 
-        // Collect dying poofs and remove despawned mobs
         self.dying_poofs.clear();
         self.mobs.retain(|m| {
             if m.despawn_pending {
@@ -410,17 +390,15 @@ impl MobManager {
             }
         });
 
-        // Rare natural mob spawning
         self.spawn_timer -= dt;
         if self.spawn_timer <= 0.0 {
-            self.spawn_timer = 4.0; // Check every 4 seconds
+            self.spawn_timer = 4.0;
             self.try_natural_spawn(world, player_pos, &mut rng);
         }
 
         self.rng_state = rng;
     }
 
-    /// Applies explosion damage and knockback to all mobs within blast radius
     pub fn apply_explosion(&mut self, explosion_pos: Vec3, radius: f32, max_damage: f32) {
         for mob in &mut self.mobs {
             if mob.is_dead {
@@ -438,7 +416,6 @@ impl MobManager {
                     Vec3::new(0.0, 1.0, 0.0)
                 };
                 mob.take_damage(damage, kb_dir);
-                // Extra knockback impulse for TNT blast
                 let kb_strength = factor * 12.0;
                 mob.velocity.x += kb_dir.x * kb_strength;
                 mob.velocity.y = (mob.velocity.y + kb_dir.y * kb_strength + 4.0).min(14.0);
@@ -459,18 +436,15 @@ impl MobManager {
             (*state as f32) / (u32::MAX as f32)
         };
 
-        // Rare chance per check (e.g. 35% chance to attempt a spawn)
         if rand_f32(rng) > 0.40 {
             return;
         }
 
-        // Pick a point 18..42 blocks away in horizontal plane
         let angle = rand_f32(rng) * PI * 2.0;
         let dist = 18.0 + rand_f32(rng) * 24.0;
         let target_x = (player_pos.x + angle.cos() * dist).floor() as i32;
         let target_z = (player_pos.z + angle.sin() * dist).floor() as i32;
 
-        // Find surface grass block
         let mut surface_y = None;
         for y in (1..62).rev() {
             let block = world.get_block(IVec3::new(target_x, y, target_z));
@@ -482,7 +456,6 @@ impl MobManager {
                     break;
                 }
             } else if block != BlockId::Air && block != BlockId::Leaves && block != BlockId::SnowLeaves {
-                // Obstructed by something else on top
                 break;
             }
         }
@@ -499,7 +472,6 @@ impl MobManager {
         }
     }
 
-    /// Raycast from camera against all living mobs. Returns (mob_index, hit_distance) if hit.
     pub fn raycast_mob(&self, origin: Vec3, dir: Vec3, max_reach: f32) -> Option<(usize, f32)> {
         let dir = dir.normalized();
         let mut closest_hit: Option<(usize, f32)> = None;
@@ -510,7 +482,6 @@ impl MobManager {
             }
 
             let (min, max) = mob.aabb();
-            // Expand AABB slightly for smoother hit detection
             let padding = 0.15;
             let min = Vec3::new(min.x - padding, min.y, min.z - padding);
             let max = Vec3::new(max.x + padding, max.y + padding, max.z + padding);
@@ -535,7 +506,6 @@ impl MobManager {
     }
 }
 
-/// Ray - Axis-Aligned Bounding Box intersection test
 fn ray_aabb_intersect(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
     let mut t_min = (min.x - origin.x) / if dir.x != 0.0 { dir.x } else { 1e-8 };
     let mut t_max = (max.x - origin.x) / if dir.x != 0.0 { dir.x } else { 1e-8 };

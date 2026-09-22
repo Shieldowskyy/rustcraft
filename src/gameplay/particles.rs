@@ -1,13 +1,14 @@
 // System cząsteczek: efekty rozbicia bloku, eksplozji, trafienia moba
 // i "poofu" po jego śmierci. Czysto kosmetyczne - nie wpływa na logikę gry.
 
-use crate::math::Vec3;
+use crate::core::math::Vec3;
 
+#[derive(Clone, Copy)]
 pub struct Particle {
     pub pos: Vec3,
     pub vel: Vec3,
     pub color: [f32; 3],
-    pub life: f32, // pozostały czas życia w sekundach
+    pub life: f32,
     pub size: f32,
 }
 
