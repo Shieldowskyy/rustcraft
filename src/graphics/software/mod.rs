@@ -56,7 +56,7 @@ pub struct Renderer {
     pub depth_buffer: Vec<f32>,
     mesh_cache: HashMap<(i32, i32), Vec<Triangle>>,
     selected_block: u8,
-    textures: TextureAtlas,
+    pub textures: TextureAtlas,
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
     vulkan: Option<VulkanContext>,
     #[cfg(any(target_arch = "wasm32", target_os = "vita"))]

@@ -1,0 +1,15 @@
+/**
+ * RustCraft – Voxel Fragment Shader (Cg / psp2cgc)
+ * Kompilacja: psp2cgc -profile sce_fp_psp2 voxel.frag.cg -o voxel.frag.gxp
+ */
+float4 main(
+    float2  oUV : TEXCOORD0,
+    float   oAO : TEXCOORD1,
+
+    uniform sampler2D uTexture
+) : COLOR
+{
+    float4 color = tex2D(uTexture, oUV);
+    // Ambient Occlusion + fog falloff
+    return float4(color.rgb * oAO, color.a);
+}

@@ -322,6 +322,14 @@ impl RustCraftApp {
         self.renderer.pixel_buffer()
     }
 
+    /// Alias dla PS Vita – pełna aktualizacja logiki i software renderingu.
+    /// Na Vita software renderer jest zbędny, ale wywoływany aby zachować logikę gry.
+    /// GXM renderer rysuje niezależnie na GPU.
+    #[cfg(target_os = "vita")]
+    pub fn update(&mut self, dt: f32, input: &crate::app::InputState) -> AppOutput {
+        self.update_and_render(dt, input)
+    }
+
     pub fn update_and_render(&mut self, dt: f32, input: &InputState) -> AppOutput {
         self.total_time += dt;
         self.hand_animation = (self.hand_animation - dt * 3.5).max(0.0);

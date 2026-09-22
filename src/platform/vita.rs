@@ -470,18 +470,16 @@ fn load_module(path: &[u8]) {
     }
 }
 
-/// Główna funkcja uruchomieniowa dla PlayStation Vita
+/// Główna funkcja uruchomieniowa dla PlayStation Vita – używa GXM hardware renderer
 pub fn run_vita_app() {
     // 1. Załadowanie wymaganych modułów systemowych Vita
-    //    BEZ tego moduły SCE nie odpowiadają -> czarny ekran
-    load_module(b"vs0:sys/external/libScePiglet.suprx\0");
+    //    GXM wymaga libSceGxm; libc.suprx potrzebne dla malloc/free w shader patcher
     load_module(b"vs0:sys/external/libSceGxm.suprx\0");
-    load_module(b"vs0:sys/external/libSceShaccCg.suprx\0");
     load_module(b"app0:sce_module/libc.suprx\0");
     load_module(b"app0:sce_module/libfios2.suprx\0");
-    load_module(b"app0:sce_module/libult.suprx\0");
 
-    // 2. Podkręcenie zegarów PS Vita do maksimum dla optymalnej liczby FPS
+    // 2. Podkręcenie zegarów PS Vita do maksimum
+    //    444MHz ARM, 222MHz BUS, 222MHz GPU, 166MHz XBAR
     unsafe {
         scePowerSetArmClockFrequency(444);
         scePowerSetBusClockFrequency(222);
@@ -489,25 +487,19 @@ pub fn run_vita_app() {
         scePowerSetGpuXbarClockFrequency(166);
     }
 
-    // 3. Inicjalizacja ekranu i podwójnego bufora CDRAM
-    let mut display = match VitaDisplay::new() {
-        Ok(d) => d,
-        Err(_) => {
-            unsafe { sceKernelExitProcess(0); }
-            return;
-        }
-    };
-
-    // 4. Inicjalizacja kontrolera i wejścia
-    let mut input_tracker = VitaInputTracker::new();
-
-    // 5. Inicjalizacja silnika RustCraft (Software Renderer dla 960x540)
-    // Losowy seed na podstawie czasu systemowego
+    // 3. Inicjalizacja silnika gry (logika + świat)
     let seed = unsafe { sceKernelGetProcessTimeWide() } as u32;
-    let mut app = RustCraftApp::new(960, 540, "software", seed);
+    let mut app = RustCraftApp::new(960, 544, "software", seed);
+
+    // 4. Inicjalizacja GXM Hardware Renderer
+    //    Alokuje CDRAM triple-buffering, ShaderPatcher, atlas GPU, render target.
+    let mut gxm = crate::platform::vita_gxm::GxmRenderer::new(&app.renderer.textures);
+
+    // 5. Inicjalizacja kontrolera pada
+    let mut input_tracker = VitaInputTracker::new();
+    let is_captured = true; // Na Vita kamera zawsze aktywna (brak myszy)
 
     let mut last_time = unsafe { sceKernelGetProcessTimeWide() };
-    let mut is_captured = false;
 
     // Główna pętla gry
     loop {
@@ -516,22 +508,20 @@ pub fn run_vita_app() {
         last_time = current_time;
         let dt = (dt_us as f32 / 1_000_000.0).clamp(0.001, 0.1);
 
+        // Odczyt wejścia z kontrolera Vita
         let input = input_tracker.poll(is_captured);
 
-        let output: AppOutput = app.update_and_render(dt, &input);
+        // Aktualizacja logiki gry (fizyka, kamera, świat, AI)
+        let output = app.update(dt, &input);
 
-        if output.request_capture_mouse {
-            is_captured = true;
-        }
-        if output.request_release_mouse {
-            is_captured = false;
-        }
         if output.quit_requested {
             break;
         }
 
-        // Prezentacja klatki na ekranie Vita
-        display.present(app.pixel_buffer(), 960, 540);
+        // Hardware rendering przez GPU Vita (SGX543MP4)
+        // sceGxmBeginScene → ustaw shadery → rysuj chunki → sceGxmEndScene → display swap
+        gxm.render_frame(&app.camera, &mut app.world);
+        gxm.next_buffer();
     }
 
     unsafe {

@@ -10,3 +10,5 @@ pub use mouse_capture::{maximize_window, MouseCapture};
 
 pub mod vita;
 
+#[cfg(target_os = "vita")]
+pub mod vita_gxm;

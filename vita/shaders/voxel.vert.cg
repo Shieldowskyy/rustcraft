@@ -1,0 +1,20 @@
+/**
+ * RustCraft – Voxel Vertex Shader (Cg / psp2cgc)
+ * Kompilacja: psp2cgc -profile sce_vp_psp2 voxel.vert.cg -o voxel.vert.gxp
+ */
+void main(
+    float3  aPosition : POSITION,
+    float2  aUV       : TEXCOORD0,
+    float   aAO       : TEXCOORD1,
+
+    uniform float4x4 uViewProj,
+
+    float4  out oPosition : POSITION,
+    float2  out oUV       : TEXCOORD0,
+    float   out oAO       : TEXCOORD1
+)
+{
+    oPosition = mul(uViewProj, float4(aPosition, 1.0f));
+    oUV       = aUV;
+    oAO       = aAO;
+}
