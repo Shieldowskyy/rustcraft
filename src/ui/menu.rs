@@ -78,6 +78,9 @@ pub fn draw_main_menu(
         }
     }
 
+    #[cfg(target_os = "vita")]
+    let footer = "STEROWANIE: [D-PAD / DOTYK] NAWIGACJA | [X] WYBIERZ | [O] WYJSCIE";
+    #[cfg(not(target_os = "vita"))]
     let footer = "STEROWANIE: [D-PAD / STRZALKI] NAWIGACJA | [A / ENTER] WYBIERZ | [B / ESC] WYJSCIE";
     let fw = font::measure_text(footer, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, footer, cx - fw / 2, 460, 1, 1, pack_color(0.6, 0.65, 0.75));

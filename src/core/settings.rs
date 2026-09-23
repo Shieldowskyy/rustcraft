@@ -5,8 +5,11 @@ pub struct GameSettings {
     pub render_distance: i32, // 2, 4, 6, 8, 10, 12, 16 (domyślnie: 6)
     pub fog: bool,            // domyślnie: true
     pub clouds: bool,         // domyślnie: true
+    pub particles: bool,      // domyślnie: true
+    pub chunk_anim: bool,     // domyślnie: true
     pub fov_deg: f32,         // domyślnie: 70.0
     pub underwater_fx: bool,  // domyślnie: true
+    pub debug_overlay: bool,  // domyślnie: true
 }
 
 impl Default for GameSettings {
@@ -15,8 +18,11 @@ impl Default for GameSettings {
             render_distance: 6,
             fog: true,
             clouds: true,
+            particles: true,
+            chunk_anim: true,
             fov_deg: 70.0,
             underwater_fx: true,
+            debug_overlay: true,
         }
     }
 }
@@ -35,12 +41,18 @@ impl GameSettings {
                     70.0
                 };
                 let fog = bytes.get(14).copied().unwrap_or(1) != 0;
+                let chunk_anim = bytes.get(15).copied().unwrap_or(1) != 0;
+                let particles = bytes.get(16).copied().unwrap_or(1) != 0;
+                let debug_overlay = bytes.get(17).copied().unwrap_or(1) != 0;
                 return Self {
                     render_distance,
                     fog,
                     clouds,
+                    particles,
+                    chunk_anim,
                     fov_deg,
                     underwater_fx,
+                    debug_overlay,
                 };
             }
         }
@@ -52,13 +64,16 @@ impl GameSettings {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let mut bytes = Vec::with_capacity(16);
+        let mut bytes = Vec::with_capacity(18);
         bytes.extend_from_slice(b"RCST");
         bytes.extend_from_slice(&self.render_distance.to_le_bytes());
         bytes.push(if self.clouds { 1 } else { 0 });
         bytes.push(if self.underwater_fx { 1 } else { 0 });
         bytes.extend_from_slice(&self.fov_deg.to_le_bytes());
         bytes.push(if self.fog { 1 } else { 0 });
+        bytes.push(if self.chunk_anim { 1 } else { 0 });
+        bytes.push(if self.particles { 1 } else { 0 });
+        bytes.push(if self.debug_overlay { 1 } else { 0 });
         std::fs::write(&path, bytes).map_err(|e| e.to_string())
     }
 

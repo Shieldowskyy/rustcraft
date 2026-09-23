@@ -128,11 +128,19 @@ pub fn draw_save_select_menu(
     fill_rect(buffer, width, height, sb_x, thumb_y, 6, thumb_h, pack_color(0.5, 0.7, 1.0));
 
     // Dolny pasek przycisków
+    #[cfg(target_os = "vita")]
     let buttons = [
-        "GRAJ (A)",
-        "NOWY (Y)",
-        "USUN (X)",
-        "WSTECZ (B)",
+        "GRAJ [X]",
+        "NOWY [T]",
+        "USUN [KW]",
+        "WSTECZ [O]",
+    ];
+    #[cfg(not(target_os = "vita"))]
+    let buttons = [
+        "GRAJ (ENTER)",
+        "NOWY (N)",
+        "USUN (DEL)",
+        "WSTECZ (ESC)",
     ];
     let btn_rects = save_bottom_button_rects(width, height);
 
@@ -165,4 +173,12 @@ pub fn draw_save_select_menu(
             draw_text_shadowed(buffer, width, height, label, tx, ty, scale, 1);
         }
     }
+
+    #[cfg(target_os = "vita")]
+    let footer_tooltip = "[D-PAD] WYBIERZ | [L/R] PRZEWIN | [X] GRAJ | [TROJKAT] NOWY | [KWADRAT] USUN | [O] WSTECZ";
+    #[cfg(not(target_os = "vita"))]
+    let footer_tooltip = "[STRZALKI / D-PAD] WYBIERZ | [ENTER/A] GRAJ | [N/Y] NOWY | [DEL/X] USUN | [ESC/B] WSTECZ";
+
+    let ft_w = font::measure_text(footer_tooltip, 1, 1);
+    draw_text_colored_shadowed(buffer, width, height, footer_tooltip, cx - ft_w / 2, height as i32 - 18, 1, 1, pack_color(0.65, 0.72, 0.85));
 }

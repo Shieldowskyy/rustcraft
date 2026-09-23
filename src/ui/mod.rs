@@ -8,7 +8,7 @@ pub mod settings_ui;
 pub use draw::{draw_text_colored_shadowed, draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color, set_px, unpack_color};
 pub use hud::{
     death_screen_button_rects, draw_break_progress, draw_capture_prompt, draw_crosshair,
-    draw_damage_flash, draw_death_screen, draw_debug_panel, draw_hotbar, draw_low_health_vignette,
+    draw_damage_flash, draw_death_screen, draw_debug_panel, draw_hotbar, draw_lava_overlay, draw_low_health_vignette,
     draw_pause_menu, draw_underwater_overlay, pause_menu_button_rects,
 };
 pub use inventory_ui::{draw_inventory_screen, draw_item_icon, InventoryLayout, InventorySlotTarget};

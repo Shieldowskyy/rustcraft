@@ -142,7 +142,10 @@ pub fn draw_inventory_screen(
 
     if player.gamemode == GameMode::Creative {
         draw_text_shadowed(buffer, width, height, "EKWIPUNEK KREATYWNY", start_x + 10, start_y + 10, 2, 1);
-        draw_text_shadowed(buffer, width, height, "[A]/LPM Wybierz caly stack   [B]/[Y] Zamknij", start_x + 10, start_y + 335, 1, 1);
+        #[cfg(target_os = "vita")]
+        draw_text_shadowed(buffer, width, height, "[X]/DOTYK: POBIERZ STACK   [O]/[TROJKAT]: ZAMKNIJ", start_x + 10, start_y + 335, 1, 1);
+        #[cfg(not(target_os = "vita"))]
+        draw_text_shadowed(buffer, width, height, "[A]/LPM: POBIERZ STACK   [B]/[ESC]/[E]: ZAMKNIJ", start_x + 10, start_y + 335, 1, 1);
 
         let mut block_id = 1;
         for row in 0..5 {
@@ -169,7 +172,10 @@ pub fn draw_inventory_screen(
         // Survival Mode
         let title = if crafting_table_open { "STOL RZEMIESLNICZY" } else { "EKWIPUNEK" };
         draw_text_shadowed(buffer, width, height, title, start_x + 10, start_y + 8, 2, 1);
-        draw_text_shadowed(buffer, width, height, "LPM: Podnies/Upusc   PPM: 1 szt / Polowa   [B]/[Y]: Zamknij", start_x + 10, start_y + 342, 1, 1);
+        #[cfg(target_os = "vita")]
+        draw_text_shadowed(buffer, width, height, "[X]/DOTYK: CALOSC | [KWADRAT]: 1 SZT/POLOWA | [O]/[TROJKAT]: ZAMKNIJ", start_x + 10, start_y + 342, 1, 1);
+        #[cfg(not(target_os = "vita"))]
+        draw_text_shadowed(buffer, width, height, "LPM: CALOSC | PPM: 1 SZT / POLOWA | [E]/[ESC]/[B]: ZAMKNIJ", start_x + 10, start_y + 342, 1, 1);
 
         // Crafting section
         if crafting_table_open {
@@ -307,6 +313,11 @@ pub fn draw_inventory_screen(
     }
 
     draw_hotbar(buffer, width, height, player);
+
+    // Draw Cursor Pointer on screen
+    if let Some((mx, my)) = mouse_pos {
+        crate::ui::draw::draw_cursor_pointer(buffer, width, height, mx as i32, my as i32);
+    }
 }
 
 fn draw_slot(

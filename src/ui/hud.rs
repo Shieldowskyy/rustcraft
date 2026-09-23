@@ -44,6 +44,16 @@ pub fn draw_underwater_overlay(buffer: &mut [u32], width: usize, height: usize, 
     }
 }
 
+pub fn draw_lava_overlay(buffer: &mut [u32], width: usize, height: usize, time: f32) {
+    fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.92, 0.28, 0.02), 0.85);
+    let wave = ((time * 2.5).sin() * 4.0) as i32;
+    for y in (10 + wave)..height as i32 {
+        if y % 17 == 0 {
+            fill_rect_alpha(buffer, width, height, 0, y, width as i32, 2, pack_color(1.0, 0.55, 0.05), 0.18);
+        }
+    }
+}
+
 pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Player) {
     let slot_size = 28i32;
     let margin = 3i32;
@@ -167,6 +177,15 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
     let t_w = font::measure_text(title, t_scale, 2);
     draw_text_shadowed(buffer, width, height, title, cx - t_w / 2, cy - 150, t_scale, 2);
 
+    #[cfg(target_os = "vita")]
+    let buttons = [
+        "WZNOW GRE (START)",
+        "USTAWIENIA GRAFIKI",
+        if fly_mode { "TRYB LOTU: WLACZONY (SELECT)" } else { "TRYB LOTU: WYLACZONY (SELECT)" },
+        "MENU GLOWNE",
+        "WYJDZ Z GRY",
+    ];
+    #[cfg(not(target_os = "vita"))]
     let buttons = [
         "WZNOW GRE (ESC)",
         "USTAWIENIA GRAFIKI",
@@ -215,8 +234,16 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
         }
     }
 
-    let footer1 = "STEROWANIE: WASD - RUCH | SHIFT - KUCANIE | CTRL - BIEG | SPACJA - SKOK";
-    let footer2 = "LPM - NISZCZ | PPM - STAWIAJ | SCROLL / 1-9 - WYBOR BLOKU";
+    #[cfg(target_os = "vita")]
+    let (footer1, footer2) = (
+        "STEROWANIE: L-GALKA: RUCH | R-GALKA: KAMERA | [X]: SKOK | [O]: KUCANIE",
+        "[R]: NISZCZ/ATAK | [L]: STAWIAJ/UZYJ | [D-PAD / HUD]: WYBOR BLOKU",
+    );
+    #[cfg(not(target_os = "vita"))]
+    let (footer1, footer2) = (
+        "STEROWANIE: WASD - RUCH | SHIFT - KUCANIE | CTRL - BIEG | SPACJA - SKOK",
+        "LPM - NISZCZ | PPM - STAWIAJ | SCROLL / 1-9 - WYBOR BLOKU",
+    );
     let f_scale = 1;
     let f1_w = font::measure_text(footer1, f_scale, 1);
     let f2_w = font::measure_text(footer2, f_scale, 1);
@@ -289,6 +316,12 @@ pub fn draw_death_screen(
     let sw = font::measure_text(subtitle, s_scale, 1);
     draw_text_colored_shadowed(buffer, width, height, subtitle, cx - sw / 2, cy - 40, s_scale, 1, pack_color(0.9, 0.85, 0.85));
 
+    #[cfg(target_os = "vita")]
+    let buttons = [
+        "ODRODZENIE [X]",
+        "MENU GLOWNE [O]",
+    ];
+    #[cfg(not(target_os = "vita"))]
     let buttons = [
         "ODRODZENIE (ENTER)",
         "MENU GLOWNE (ESC)",

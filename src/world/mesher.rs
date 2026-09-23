@@ -24,11 +24,87 @@ pub struct Triangle {
     pub texture: TextureId,
 }
 
-pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
-    let mut tris = Vec::new();
+pub struct ChunkNeighborCache<'a> {
+    pub center: &'a Chunk,
+    pub east: Option<&'a Chunk>,   // +X
+    pub west: Option<&'a Chunk>,   // -X
+    pub south: Option<&'a Chunk>,  // +Z
+    pub north: Option<&'a Chunk>,  // -Z
+    pub se: Option<&'a Chunk>,     // +X, +Z
+    pub sw: Option<&'a Chunk>,     // -X, +Z
+    pub ne: Option<&'a Chunk>,     // +X, -Z
+    pub nw: Option<&'a Chunk>,     // -X, -Z
+    pub world: &'a World,
+    pub base_x: i32,
+    pub base_z: i32,
+}
 
-    let base_x = chunk.cx * CHUNK_SIZE_X;
-    let base_z = chunk.cz * CHUNK_SIZE_Z;
+impl<'a> ChunkNeighborCache<'a> {
+    pub fn new(chunk: &'a Chunk, world: &'a World) -> Self {
+        let cx = chunk.cx;
+        let cz = chunk.cz;
+        Self {
+            center: chunk,
+            east: world.chunks.get(&(cx + 1, cz)),
+            west: world.chunks.get(&(cx - 1, cz)),
+            south: world.chunks.get(&(cx, cz + 1)),
+            north: world.chunks.get(&(cx, cz - 1)),
+            se: world.chunks.get(&(cx + 1, cz + 1)),
+            sw: world.chunks.get(&(cx - 1, cz + 1)),
+            ne: world.chunks.get(&(cx + 1, cz - 1)),
+            nw: world.chunks.get(&(cx - 1, cz - 1)),
+            world,
+            base_x: chunk.cx * CHUNK_SIZE_X,
+            base_z: chunk.cz * CHUNK_SIZE_Z,
+        }
+    }
+
+    #[inline(always)]
+    pub fn sample_block(&self, lx: i32, ly: i32, lz: i32) -> BlockId {
+        if (ly as u32) >= CHUNK_SIZE_Y as u32 {
+            return BlockId::Air;
+        }
+        if (lx as u32) < CHUNK_SIZE_X as u32 && (lz as u32) < CHUNK_SIZE_Z as u32 {
+            return self.center.get_local(lx, ly, lz);
+        }
+        if lx >= CHUNK_SIZE_X {
+            if lz >= CHUNK_SIZE_Z {
+                self.se.map(|c| c.get_local(lx - CHUNK_SIZE_X, ly, lz - CHUNK_SIZE_Z)).unwrap_or(BlockId::Air)
+            } else if lz < 0 {
+                self.ne.map(|c| c.get_local(lx - CHUNK_SIZE_X, ly, lz + CHUNK_SIZE_Z)).unwrap_or(BlockId::Air)
+            } else {
+                self.east.map(|c| c.get_local(lx - CHUNK_SIZE_X, ly, lz)).unwrap_or(BlockId::Air)
+            }
+        } else if lx < 0 {
+            if lz >= CHUNK_SIZE_Z {
+                self.sw.map(|c| c.get_local(lx + CHUNK_SIZE_X, ly, lz - CHUNK_SIZE_Z)).unwrap_or(BlockId::Air)
+            } else if lz < 0 {
+                self.nw.map(|c| c.get_local(lx + CHUNK_SIZE_X, ly, lz + CHUNK_SIZE_Z)).unwrap_or(BlockId::Air)
+            } else {
+                self.west.map(|c| c.get_local(lx + CHUNK_SIZE_X, ly, lz)).unwrap_or(BlockId::Air)
+            }
+        } else if lz >= CHUNK_SIZE_Z {
+            self.south.map(|c| c.get_local(lx, ly, lz - CHUNK_SIZE_Z)).unwrap_or(BlockId::Air)
+        } else if lz < 0 {
+            self.north.map(|c| c.get_local(lx, ly, lz + CHUNK_SIZE_Z)).unwrap_or(BlockId::Air)
+        } else {
+            BlockId::Air
+        }
+    }
+
+    #[inline(always)]
+    pub fn solid_at(&self, lx: i32, ly: i32, lz: i32) -> bool {
+        self.sample_block(lx, ly, lz).is_solid()
+    }
+}
+
+pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
+    let mut solid_tris = Vec::new();
+    let mut trans_tris = Vec::new();
+    let cache = ChunkNeighborCache::new(chunk, world);
+
+    let base_x = cache.base_x;
+    let base_z = cache.base_z;
 
     for lx in 0..CHUNK_SIZE_X {
         for ly in 0..CHUNK_SIZE_Y {
@@ -42,10 +118,11 @@ pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
                 let wy = ly;
                 let wz = base_z + lz;
                 let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
+                let is_trans = matches!(block, BlockId::Water | BlockId::Glass);
 
                 for face in Face::ALL {
                     let n = face.normal();
-                    let neighbor = sample_block(chunk, world, lx + n.x, ly + n.y, lz + n.z, base_x, base_z);
+                    let neighbor = cache.sample_block(lx + n.x, ly + n.y, lz + n.z);
 
                     let visible = if is_fluid {
                         match face {
@@ -55,7 +132,7 @@ pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
                                 if neighbor != block {
                                     neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)
                                 } else {
-                                    let above_neighbor = sample_block(chunk, world, lx + n.x, ly + 1, lz + n.z, base_x, base_z);
+                                    let above_neighbor = cache.sample_block(lx + n.x, ly + 1, lz + n.z);
                                     if above_neighbor != block {
                                         let my_lvl = world.fluid_level(IVec3::new(wx, wy, wz));
                                         let neighbor_lvl = world.fluid_level(IVec3::new(wx + n.x, wy, wz + n.z));
@@ -72,40 +149,19 @@ pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
                     };
 
                     if visible {
-                        emit_face(&mut tris, wx, wy, wz, face, block, chunk, world, base_x, base_z);
+                        if is_trans {
+                            emit_face(&mut trans_tris, wx, wy, wz, face, block, &cache);
+                        } else {
+                            emit_face(&mut solid_tris, wx, wy, wz, face, block, &cache);
+                        }
                     }
                 }
             }
         }
     }
 
-    tris
-}
-
-#[inline(always)]
-fn sample_block(
-    chunk: &Chunk,
-    world: &World,
-    lx: i32,
-    ly: i32,
-    lz: i32,
-    base_x: i32,
-    base_z: i32,
-) -> BlockId {
-    if (lx as u32) < CHUNK_SIZE_X as u32 && (lz as u32) < CHUNK_SIZE_Z as u32 && (ly as u32) < CHUNK_SIZE_Y as u32 {
-        return chunk.get_local(lx, ly, lz);
-    }
-    if (ly as u32) >= CHUNK_SIZE_Y as u32 {
-        return BlockId::Air;
-    }
-    let wx = base_x + lx;
-    let wz = base_z + lz;
-    world.get_block(IVec3::new(wx, ly, wz))
-}
-
-#[inline(always)]
-fn solid_at(chunk: &Chunk, world: &World, base_x: i32, base_z: i32, lx: i32, ly: i32, lz: i32) -> bool {
-    sample_block(chunk, world, lx, ly, lz, base_x, base_z).is_solid()
+    solid_tris.extend(trans_tris);
+    solid_tris
 }
 
 #[inline(always)]
@@ -125,17 +181,14 @@ fn emit_face(
     wx: i32, wy: i32, wz: i32,
     face: Face,
     block: BlockId,
-    chunk: &Chunk,
-    world: &World,
-    base_x: i32,
-    base_z: i32,
+    cache: &ChunkNeighborCache,
 ) {
     let shade = face.shade();
-    let lx = wx - base_x;
-    let lz = wz - base_z;
+    let lx = wx - cache.base_x;
+    let lz = wz - cache.base_z;
 
     let texture = if block == BlockId::Door {
-        let below = sample_block(chunk, world, lx, wy - 1, lz, base_x, base_z);
+        let below = cache.sample_block(lx, wy - 1, lz);
         if below == BlockId::Door {
             TextureId::DoorTop
         } else {
@@ -151,11 +204,11 @@ fn emit_face(
     let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
 
     let top_y = if is_fluid {
-        let above = sample_block(chunk, world, lx, wy + 1, lz, base_x, base_z);
+        let above = cache.sample_block(lx, wy + 1, lz);
         if above == block {
             y + 1.0
         } else {
-            let lvl = world.fluid_level(IVec3::new(wx, wy, wz));
+            let lvl = cache.world.fluid_level(IVec3::new(wx, wy, wz));
             if lvl >= 8 {
                 y + 0.90
             } else {
@@ -175,7 +228,7 @@ fn emit_face(
     let c011 = Vec3::new(x,       top_y, z + 1.0);
     let c111 = Vec3::new(x + 1.0, top_y, z + 1.0);
 
-    let s = |dx: i32, dy: i32, dz: i32| solid_at(chunk, world, base_x, base_z, lx+dx, wy+dy, lz+dz);
+    let s = |dx: i32, dy: i32, dz: i32| cache.solid_at(lx + dx, wy + dy, lz + dz);
 
     let (a, ao_a, b, ao_b, c, ao_c, d, ao_d) = match face {
         Face::Top => (

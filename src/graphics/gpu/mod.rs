@@ -732,6 +732,10 @@ impl VulkanContext {
             TextureId::CraftingTableTop => 42,
             TextureId::CraftingTableSide => 43,
             TextureId::CraftingTableFront => 44,
+            TextureId::DamageFlash => 45,
+            TextureId::UnderwaterTint => 46,
+            TextureId::VignetteTint => 47,
+            TextureId::LavaTint => 48,
         }
     }
 
@@ -781,6 +785,11 @@ impl VulkanContext {
             41 => TextureId::DestroyStage9,
             42 => TextureId::CraftingTableTop,
             43 => TextureId::CraftingTableSide,
+            44 => TextureId::CraftingTableFront,
+            45 => TextureId::DamageFlash,
+            46 => TextureId::UnderwaterTint,
+            47 => TextureId::VignetteTint,
+            48 => TextureId::LavaTint,
             _ => TextureId::CraftingTableFront,
         }
     }

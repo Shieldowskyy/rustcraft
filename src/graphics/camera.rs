@@ -40,6 +40,17 @@ impl Camera {
         f.cross(Vec3::new(0.0, 1.0, 0.0)).normalized()
     }
 
+    pub fn right(&self) -> Vec3 {
+        let f = self.forward();
+        f.cross(Vec3::new(0.0, 1.0, 0.0)).normalized()
+    }
+
+    pub fn up(&self) -> Vec3 {
+        let r = self.right();
+        let f = self.forward();
+        r.cross(f).normalized()
+    }
+
     pub fn view_matrix(&self) -> Mat4 {
         let target = self.position + self.forward();
         Mat4::look_at(self.position, target, Vec3::new(0.0, 1.0, 0.0))

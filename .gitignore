@@ -14,3 +14,5 @@ Cargo.lock
 *.pdb
 /target_user
 *.bin
+*.psp2dmp
+*.gxp

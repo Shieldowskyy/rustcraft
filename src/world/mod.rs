@@ -3,8 +3,6 @@ pub mod mesher;
 pub mod storage;
 
 use std::collections::{HashMap, HashSet};
-#[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
-use rayon::prelude::*;
 
 pub use block::{BlockId, Face};
 
@@ -572,6 +570,11 @@ pub struct World {
     pub sim_tick: u64,
     pub pending_explosions: Vec<Vec3>,
     pub primed_tnts: Vec<PrimedTnt>,
+    #[cfg(not(target_arch = "wasm32"))]
+    chunk_req_tx: Option<std::sync::mpsc::Sender<(i32, i32, u32)>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    chunk_res_rx: Option<std::sync::Mutex<std::sync::mpsc::Receiver<Chunk>>>,
+    pending_chunks: HashSet<(i32, i32)>,
     last_stream_chunk: Option<(i32, i32)>,
     last_stream_dist: Option<i32>,
 }
@@ -593,6 +596,25 @@ impl World {
     }
 
     pub fn new_with_seed(seed: u32) -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
+        let (chunk_req_tx, chunk_res_rx) = {
+            let (req_tx, req_rx) = std::sync::mpsc::channel::<(i32, i32, u32)>();
+            let (res_tx, res_rx) = std::sync::mpsc::channel::<Chunk>();
+
+            let _ = std::thread::Builder::new()
+                .name("chunk_gen".to_string())
+                .spawn(move || {
+                    while let Ok((cx, cz, chunk_seed)) = req_rx.recv() {
+                        let chunk = Chunk::generate(cx, cz, chunk_seed);
+                        if res_tx.send(chunk).is_err() {
+                            break;
+                        }
+                    }
+                });
+
+            (Some(req_tx), Some(std::sync::Mutex::new(res_rx)))
+        };
+
         World {
             chunks: HashMap::new(),
             seed,
@@ -602,6 +624,11 @@ impl World {
             sim_tick: 0,
             pending_explosions: Vec::new(),
             primed_tnts: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            chunk_req_tx,
+            #[cfg(not(target_arch = "wasm32"))]
+            chunk_res_rx,
+            pending_chunks: HashSet::new(),
             last_stream_chunk: None,
             last_stream_dist: None,
         }
@@ -846,48 +873,91 @@ impl World {
 
     pub fn update(&mut self, player_pos: Vec3, view_distance: i32) {
         let view_distance = view_distance.clamp(2, 16);
-        let pcx = (player_pos.x as i32).div_euclid(CHUNK_SIZE_X);
-        let pcz = (player_pos.z as i32).div_euclid(CHUNK_SIZE_Z);
+        let pcx = (player_pos.x.floor() as i32) >> 4;
+        let pcz = (player_pos.z.floor() as i32) >> 4;
 
-        if self.last_stream_chunk == Some((pcx, pcz)) && self.last_stream_dist == Some(view_distance) {
+        // Drain chunks generated asynchronously in the background thread
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(rx_mutex) = &self.chunk_res_rx {
+            if let Ok(rx) = rx_mutex.lock() {
+                while let Ok(chunk) = rx.try_recv() {
+                    let cx = chunk.cx;
+                    let cz = chunk.cz;
+                    self.pending_chunks.remove(&(cx, cz));
+                    self.chunks.insert((cx, cz), chunk);
+                    if let Some(n) = self.chunks.get_mut(&(cx + 1, cz)) { n.dirty = true; }
+                    if let Some(n) = self.chunks.get_mut(&(cx - 1, cz)) { n.dirty = true; }
+                    if let Some(n) = self.chunks.get_mut(&(cx, cz + 1)) { n.dirty = true; }
+                    if let Some(n) = self.chunks.get_mut(&(cx, cz - 1)) { n.dirty = true; }
+                }
+            }
+        }
+
+        if self.last_stream_chunk == Some((pcx, pcz))
+            && self.last_stream_dist == Some(view_distance)
+            && self.pending_chunks.is_empty()
+        {
             return;
         }
-        self.last_stream_chunk = Some((pcx, pcz));
-        self.last_stream_dist = Some(view_distance);
 
         let mut missing_chunks = Vec::new();
 
         for dz in -view_distance..=view_distance {
             for dx in -view_distance..=view_distance {
-                if dx * dx + dz * dz > view_distance * view_distance {
-                    continue;
-                }
                 let cx = pcx + dx;
                 let cz = pcz + dz;
-                if !self.chunks.contains_key(&(cx, cz)) {
+                if !self.chunks.contains_key(&(cx, cz)) && !self.pending_chunks.contains(&(cx, cz)) {
                     missing_chunks.push((cx, cz));
                 }
             }
         }
 
         if !missing_chunks.is_empty() {
-            let seed = self.seed;
-            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
-            let iter = missing_chunks.into_par_iter();
-            #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
-            let iter = missing_chunks.into_iter();
+            // Sort missing chunks so the closest chunks to the player generate first
+            missing_chunks.sort_unstable_by_key(|&(cx, cz)| {
+                let dx = cx - pcx;
+                let dz = cz - pcz;
+                dx * dx + dz * dz
+            });
 
-            let generated_chunks: Vec<Chunk> = iter
-                .map(|(cx, cz)| Chunk::generate(cx, cz, seed))
-                .collect();
-
-            for chunk in generated_chunks {
-                self.chunks.insert((chunk.cx, chunk.cz), chunk);
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if let Some(tx) = &self.chunk_req_tx {
+                    for (cx, cz) in missing_chunks {
+                        self.pending_chunks.insert((cx, cz));
+                        let _ = tx.send((cx, cz, self.seed));
+                    }
+                }
             }
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let count = missing_chunks.len().min(1);
+                for (cx, cz) in missing_chunks.into_iter().take(count) {
+                    let chunk = Chunk::generate(cx, cz, self.seed);
+                    self.chunks.insert((cx, cz), chunk);
+                    if let Some(n) = self.chunks.get_mut(&(cx + 1, cz)) { n.dirty = true; }
+                    if let Some(n) = self.chunks.get_mut(&(cx - 1, cz)) { n.dirty = true; }
+                    if let Some(n) = self.chunks.get_mut(&(cx, cz + 1)) { n.dirty = true; }
+                    if let Some(n) = self.chunks.get_mut(&(cx, cz - 1)) { n.dirty = true; }
+                }
+            }
+        }
+
+        if self.pending_chunks.is_empty() {
+            self.last_stream_chunk = Some((pcx, pcz));
+            self.last_stream_dist = Some(view_distance);
+        } else {
+            self.last_stream_chunk = None;
         }
 
         let unload_dist = view_distance + 2;
         self.chunks.retain(|&(cx, cz), _| {
+            let ddx = cx - pcx;
+            let ddz = cz - pcz;
+            ddx * ddx + ddz * ddz <= unload_dist * unload_dist
+        });
+        self.pending_chunks.retain(|&(cx, cz)| {
             let ddx = cx - pcx;
             let ddz = cz - pcz;
             ddx * ddx + ddz * ddz <= unload_dist * unload_dist

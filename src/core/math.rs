@@ -156,6 +156,15 @@ impl Mat4 {
         Mat4 { m }
     }
 
+    #[inline(always)]
+    pub fn translation(x: f32, y: f32, z: f32) -> Self {
+        let mut m = Self::identity().m;
+        m[12] = x;
+        m[13] = y;
+        m[14] = z;
+        Mat4 { m }
+    }
+
     /// Right-handed perspective projection matrix (like gluPerspective).
     pub fn perspective(fov_y_rad: f32, aspect: f32, near: f32, far: f32) -> Self {
         let f = 1.0 / (fov_y_rad / 2.0).tan();
