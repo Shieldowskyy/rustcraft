@@ -547,7 +547,27 @@ fn door_bottom() -> Texture {
         }
     }
 
+
     Texture { texels }
+}
+
+fn cherry_leaves() -> Texture {
+    // Soft pink base with lighter petal highlights and occasional white spots
+    let base = [0.92, 0.55, 0.72];
+    let light = [0.98, 0.75, 0.88];
+    let white = [1.0, 0.94, 0.97];
+    let mut tex = speckled(base, 0.22, 77);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if rand_at(x, y, 131) > 0.82 {
+                tex.texels[y * TEX_SIZE + x] = light;
+            }
+            if rand_at(x, y, 199) > 0.94 {
+                tex.texels[y * TEX_SIZE + x] = white;
+            }
+        }
+    }
+    tex
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -601,6 +621,8 @@ pub enum TextureId {
     UnderwaterTint,
     VignetteTint,
     LavaTint,
+    /// Pink cherry-blossom leaves texture
+    CherryLeaves,
 }
 
 impl TextureId {
@@ -948,6 +970,7 @@ pub struct TextureAtlas {
     pub underwater_tint: Texture,
     pub vignette_tint: Texture,
     pub lava_tint: Texture,
+    pub cherry_leaves: Texture,
 }
 
 impl TextureAtlas {
@@ -993,6 +1016,7 @@ impl TextureAtlas {
             underwater_tint: speckled([0.05, 0.25, 0.75], 0.0, 0),
             vignette_tint: speckled([0.85, 0.02, 0.02], 0.0, 0),
             lava_tint: speckled([0.95, 0.25, 0.02], 0.0, 0),
+            cherry_leaves: cherry_leaves(),
         }
     }
 
@@ -1047,6 +1071,7 @@ impl TextureAtlas {
             TextureId::UnderwaterTint => &self.underwater_tint,
             TextureId::VignetteTint => &self.vignette_tint,
             TextureId::LavaTint => &self.lava_tint,
+            TextureId::CherryLeaves => &self.cherry_leaves,
         }
     }
     /// Zwraca referencję do tekstury dla danego TextureId

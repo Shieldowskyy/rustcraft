@@ -7,7 +7,7 @@ use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId, TEX_SIZE};
 use crate::world::mesher::Triangle;
 
-pub const TEXTURE_LAYER_COUNT: u32 = 45;
+pub const TEXTURE_LAYER_COUNT: u32 = 50;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -736,6 +736,7 @@ impl VulkanContext {
             TextureId::UnderwaterTint => 46,
             TextureId::VignetteTint => 47,
             TextureId::LavaTint => 48,
+            TextureId::CherryLeaves => 49,
         }
     }
 
@@ -790,6 +791,7 @@ impl VulkanContext {
             46 => TextureId::UnderwaterTint,
             47 => TextureId::VignetteTint,
             48 => TextureId::LavaTint,
+            49 => TextureId::CherryLeaves,
             _ => TextureId::CraftingTableFront,
         }
     }

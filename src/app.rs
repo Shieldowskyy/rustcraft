@@ -296,6 +296,7 @@ impl RustCraftApp {
                 String::with_capacity(64),
                 String::with_capacity(64),
                 String::with_capacity(64),
+                String::with_capacity(64),
             ],
             debug_timer: 0.25,
             cpu_time_ms: 16.6,
@@ -1415,6 +1416,13 @@ impl RustCraftApp {
                         // Linia 5: Entities & Gamemode
                         self.debug_lines[5].clear();
                         let _ = write!(&mut self.debug_lines[5], "MOBY: {} | ENTCJE: {} | TRYB: {}", self.mob_manager.mobs.len(), self.particles.particles.len(), mode_str);
+
+                        // Linia 6: Biom
+                        self.debug_lines[6].clear();
+                        let px = self.camera.position.x as i32;
+                        let pz = self.camera.position.z as i32;
+                        let biome = self.world.biome_name_at(px, pz);
+                        let _ = write!(&mut self.debug_lines[6], "BIOM: {}", biome);
                     }
 
                     self.renderer.draw_debug_panel(&self.debug_lines);
