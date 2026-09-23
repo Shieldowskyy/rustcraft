@@ -83,6 +83,39 @@ impl ParticleSystem {
         }
     }
 
+    /// Efekt spalenia przedmiotu / bytu w lawie (płomienie i dym)
+    pub fn spawn_lava_burn(&mut self, pos: Vec3) {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut rng = {
+            let mut h = DefaultHasher::new();
+            (pos.x as i32, (pos.y * 100.0) as i32, pos.z as i32).hash(&mut h);
+            h.finish()
+        };
+        let mut next = || -> f32 {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((rng >> 33) as f32) / (u32::MAX as f32)
+        };
+        for _ in 0..16 {
+            let vx = (next() - 0.5) * 2.5;
+            let vy = next() * 4.0 + 1.5;
+            let vz = (next() - 0.5) * 2.5;
+            let is_smoke = next() > 0.5;
+            let color = if is_smoke {
+                [0.2, 0.2, 0.2]
+            } else {
+                [1.0, 0.25 + next() * 0.45, 0.02]
+            };
+            self.particles.push(Particle {
+                pos,
+                vel: Vec3::new(vx, vy, vz),
+                color,
+                life: 0.35 + next() * 0.35,
+                size: 0.08 + next() * 0.08,
+            });
+        }
+    }
+
     /// Efekt uderzenia moba (krytyczne/czerwone iskry)
     pub fn spawn_mob_hit(&mut self, pos: Vec3) {
         use std::collections::hash_map::DefaultHasher;

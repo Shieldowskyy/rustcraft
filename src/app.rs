@@ -1,7 +1,7 @@
 use std::fmt::Write;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 use std::sync::mpsc;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 use std::thread;
 
 use crate::cli::generate_random_seed;
@@ -44,9 +44,9 @@ pub enum GameState {
     MainMenu,
     SaveSelect,
     Settings(PreviousMenu),
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
     Loading(mpsc::Receiver<WorldLoadResult>),
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
     Loading,
     Playing,
     Paused,
@@ -175,18 +175,26 @@ pub struct RustCraftApp {
     pub walk_phase: f32,
     pub damage_tilt_timer: f32,
     pub damage_tilt_dir: f32,
+    pub lava_damage_timer: f32,
     pub debug_lines: Vec<String>,
+    pub debug_timer: f32,
+    pub cpu_time_ms: f32,
+    pub gpu_triangles: u32,
+    pub cdram_mb: f32,
+    pub ram_mb: f32,
+    pub chunk_slots_info: (usize, usize),
     pub last_fov: f32,
     pub last_aspect: f32,
     pub proj_matrix: Mat4,
     pub main_menu_rects: [(i32, i32, i32, i32); 3],
     pub save_card_rects: [(i32, i32, i32, i32); VISIBLE_SAVE_ROWS],
     pub save_btn_rects: [(i32, i32, i32, i32); 4],
-    pub settings_rects: [(i32, i32, i32, i32); 6],
+    pub settings_rects: [(i32, i32, i32, i32); 9],
     pub pause_menu_rects: [(i32, i32, i32, i32); 5],
     pub death_screen_rects: [(i32, i32, i32, i32); 2],
     pub seed: u32,
     pub fps_display: u32,
+    pub frozen_frame: Option<Vec<u32>>,
 
     // Previous input state for edge detection
     prev_left_down: bool,
@@ -279,13 +287,21 @@ impl RustCraftApp {
             walk_phase: 0.0,
             damage_tilt_timer: 0.0,
             damage_tilt_dir: 1.0,
+            lava_damage_timer: 0.45,
             debug_lines: vec![
-                String::with_capacity(32),
                 String::with_capacity(64),
-                String::with_capacity(32),
-                String::with_capacity(32),
-                String::with_capacity(32),
+                String::with_capacity(64),
+                String::with_capacity(64),
+                String::with_capacity(64),
+                String::with_capacity(64),
+                String::with_capacity(64),
             ],
+            debug_timer: 0.25,
+            cpu_time_ms: 16.6,
+            gpu_triangles: 0,
+            cdram_mb: 0.0,
+            ram_mb: 0.0,
+            chunk_slots_info: (0, 144),
             last_fov,
             last_aspect: aspect,
             proj_matrix,
@@ -297,6 +313,7 @@ impl RustCraftApp {
             death_screen_rects,
             seed,
             fps_display: 60,
+            frozen_frame: None,
 
             prev_left_down: false,
             prev_right_down: false,
@@ -332,6 +349,8 @@ impl RustCraftApp {
 
     pub fn update_and_render(&mut self, dt: f32, input: &InputState) -> AppOutput {
         self.total_time += dt;
+        self.renderer.total_time = self.total_time;
+        self.renderer.chunk_anim = self.settings.chunk_anim;
         self.hand_animation = (self.hand_animation - dt * 3.5).max(0.0);
 
         let mut out = AppOutput {
@@ -415,10 +434,13 @@ impl RustCraftApp {
                 self.renderer.draw_main_menu(hovered_idx);
             }
             GameState::SaveSelect => {
-                if input.scroll_delta > 0.0 {
-                    self.save_select_scroll = self.save_select_scroll.saturating_sub(1);
-                } else if input.scroll_delta < 0.0 {
-                    self.save_select_scroll = (self.save_select_scroll + 1).min(MAX_SAVE_SLOTS as usize - VISIBLE_SAVE_ROWS);
+                if input.scroll_delta > 0.0 || input.gp_lb_just_pressed {
+                    self.save_select_scroll = self.save_select_scroll.saturating_sub(VISIBLE_SAVE_ROWS);
+                    self.save_select_slot = (self.save_select_scroll + 1) as u8;
+                } else if input.scroll_delta < 0.0 || input.gp_rb_just_pressed {
+                    let max_scroll = (MAX_SAVE_SLOTS as usize).saturating_sub(VISIBLE_SAVE_ROWS);
+                    self.save_select_scroll = (self.save_select_scroll + VISIBLE_SAVE_ROWS).min(max_scroll);
+                    self.save_select_slot = (self.save_select_scroll + 1) as u8;
                 }
 
                 if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
@@ -443,18 +465,41 @@ impl RustCraftApp {
                 let mut save_select_hovered_card = None;
                 let mut save_select_hovered_btn = None;
 
+                let mut card_launch_action = false;
                 if let Some((mx, my)) = mouse_pos {
                     let px = mx as i32;
                     let py = my as i32;
+
+                    // Dotyk w karty zapisów
                     for (row, &(bx, by, bw, bh)) in self.save_card_rects.iter().enumerate() {
                         if px >= bx && px < bx + bw && py >= by && py < by + bh {
                             save_select_hovered_card = Some(row);
                             if left_down && !self.prev_left_down {
-                                self.save_select_slot = (self.save_select_scroll + row + 1) as u8;
+                                let target_slot = (self.save_select_scroll + row + 1) as u8;
+                                if self.save_select_slot == target_slot {
+                                    // Ponowne dotknięcie już zaznaczonego slotu -> uruchomienie gry
+                                    card_launch_action = true;
+                                } else {
+                                    self.save_select_slot = target_slot;
+                                }
                             }
                             break;
                         }
                     }
+
+                    // Dotyk i przeciąganie paska przewijania (Scrollbar)
+                    let cx = self.width as i32 / 2;
+                    let sb_x = cx + 340;
+                    let sb_w = 40; // powiększona strefa dotyku dla scrollbara
+                    let sb_y = 70;
+                    let sb_h = (VISIBLE_SAVE_ROWS as i32) * 76;
+                    if px >= sb_x && px <= sb_x + sb_w && py >= sb_y && py <= sb_y + sb_h && left_down {
+                        let rel_y = ((py - sb_y) as f32 / sb_h as f32).clamp(0.0, 1.0);
+                        let max_scroll = (MAX_SAVE_SLOTS as usize).saturating_sub(VISIBLE_SAVE_ROWS);
+                        self.save_select_scroll = (rel_y * max_scroll as f32).round() as usize;
+                    }
+
+                    // Dolne przyciski
                     for (i, &(bx, by, bw, bh)) in self.save_btn_rects.iter().enumerate() {
                         if px >= bx && px < bx + bw && py >= by && py < by + bh {
                             save_select_hovered_btn = Some(i);
@@ -465,6 +510,7 @@ impl RustCraftApp {
 
                 let play_action = (enter_down && !self.prev_enter_down)
                     || (left_down && !self.prev_left_down && save_select_hovered_btn == Some(0))
+                    || card_launch_action
                     || input.gp_south_just_pressed;
                 let new_action = (n_down && !self.prev_n_down)
                     || (left_down && !self.prev_left_down && save_select_hovered_btn == Some(1))
@@ -481,7 +527,7 @@ impl RustCraftApp {
                     let meta = &self.save_metadata_cache[self.save_slot as usize - 1];
                     if meta.exists {
                         let path = save_path(self.save_slot);
-                        #[cfg(not(target_arch = "wasm32"))]
+                        #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
                         {
                             let (tx, rx) = mpsc::channel();
                             thread::spawn(move || {
@@ -497,7 +543,7 @@ impl RustCraftApp {
                             });
                             self.state = GameState::Loading(rx);
                         }
-                        #[cfg(target_arch = "wasm32")]
+                        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
                         {
                             match World::load(&path) {
                                 Ok(loaded_world) => {
@@ -517,7 +563,7 @@ impl RustCraftApp {
                         }
                     } else {
                         self.seed = generate_random_seed();
-                        #[cfg(not(target_arch = "wasm32"))]
+                        #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
                         {
                             let (tx, rx) = mpsc::channel();
                             let thread_seed = self.seed;
@@ -527,7 +573,7 @@ impl RustCraftApp {
                             });
                             self.state = GameState::Loading(rx);
                         }
-                        #[cfg(target_arch = "wasm32")]
+                        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
                         {
                             self.world = World::new_with_seed(self.seed);
                             self.camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
@@ -538,7 +584,7 @@ impl RustCraftApp {
                 } else if new_action {
                     self.save_slot = self.save_select_slot;
                     self.seed = generate_random_seed();
-                    #[cfg(not(target_arch = "wasm32"))]
+                    #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
                     {
                         let (tx, rx) = mpsc::channel();
                         let thread_seed = self.seed;
@@ -548,7 +594,7 @@ impl RustCraftApp {
                         });
                         self.state = GameState::Loading(rx);
                     }
-                    #[cfg(target_arch = "wasm32")]
+                    #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
                     {
                         self.world = World::new_with_seed(self.seed);
                         self.camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
@@ -586,7 +632,7 @@ impl RustCraftApp {
 
                 if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
                     let next = match self.settings_hovered_opt {
-                        Some(0) | None => 5,
+                        Some(0) | None => 8,
                         Some(i) => i - 1,
                     };
                     self.settings_hovered_opt = Some(next);
@@ -594,7 +640,7 @@ impl RustCraftApp {
                 }
                 if input.gp_dpad_down_just_pressed || (down_arrow_down && !self.prev_down_arrow_down) {
                     let next = match self.settings_hovered_opt {
-                        Some(5) | None => 0,
+                        Some(8) | None => 0,
                         Some(i) => i + 1,
                     };
                     self.settings_hovered_opt = Some(next);
@@ -615,9 +661,12 @@ impl RustCraftApp {
                         0 => self.settings.cycle_render_distance(true),
                         1 => self.settings.fog = !self.settings.fog,
                         2 => self.settings.clouds = !self.settings.clouds,
-                        3 => self.settings.cycle_fov(true),
-                        4 => self.settings.underwater_fx = !self.settings.underwater_fx,
-                        5 => {
+                        3 => self.settings.particles = !self.settings.particles,
+                        4 => self.settings.chunk_anim = !self.settings.chunk_anim,
+                        5 => self.settings.cycle_fov(true),
+                        6 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                        7 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                        8 => {
                             let _ = self.settings.save();
                             self.state = match prev {
                                 PreviousMenu::MainMenu => GameState::MainMenu,
@@ -632,8 +681,11 @@ impl RustCraftApp {
                             0 => self.settings.cycle_render_distance(false),
                             1 => self.settings.fog = !self.settings.fog,
                             2 => self.settings.clouds = !self.settings.clouds,
-                            3 => self.settings.cycle_fov(false),
-                            4 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                            3 => self.settings.particles = !self.settings.particles,
+                            4 => self.settings.chunk_anim = !self.settings.chunk_anim,
+                            5 => self.settings.cycle_fov(false),
+                            6 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                            7 => self.settings.debug_overlay = !self.settings.debug_overlay,
                             _ => {}
                         }
                     }
@@ -643,8 +695,11 @@ impl RustCraftApp {
                             0 => self.settings.cycle_render_distance(true),
                             1 => self.settings.fog = !self.settings.fog,
                             2 => self.settings.clouds = !self.settings.clouds,
-                            3 => self.settings.cycle_fov(true),
-                            4 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                            3 => self.settings.particles = !self.settings.particles,
+                            4 => self.settings.chunk_anim = !self.settings.chunk_anim,
+                            5 => self.settings.cycle_fov(true),
+                            6 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                            7 => self.settings.debug_overlay = !self.settings.debug_overlay,
                             _ => {}
                         }
                     }
@@ -660,11 +715,16 @@ impl RustCraftApp {
 
                 self.renderer.fog_enabled = self.settings.fog;
                 if prev == PreviousMenu::Paused {
+                    #[cfg(not(target_os = "vita"))]
                     self.renderer.render_frame(&mut self.world, &self.camera);
+                    #[cfg(target_os = "vita")]
+                    {
+                        self.renderer.color_buffer.fill(0x0C0C10);
+                    }
                 }
                 self.renderer.draw_settings_menu(&self.settings, hovered_opt);
             }
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
             GameState::Loading(ref rx) => {
                 self.renderer.draw_main_menu(None);
 
@@ -684,7 +744,7 @@ impl RustCraftApp {
                     }
                 }
             }
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
             GameState::Loading => {
                 self.renderer.draw_main_menu(None);
                 self.state = GameState::Playing;
@@ -776,7 +836,7 @@ impl RustCraftApp {
                 }
 
                 let is_sprinting = !is_crouching
-                    && ((input.is_mouse_captured && input.key_ctrl) || input.gp_btn_l3)
+                    && ((input.is_mouse_captured && input.key_ctrl) || input.gp_btn_l3 || input.gp_left_stick_y > 0.85)
                     && wish_dir.length_sq() > 0.01;
 
                 let target_fov_deg = if is_sprinting {
@@ -829,10 +889,13 @@ impl RustCraftApp {
                     let feet_block = self.world.get_block(feet_pos.floor_to_ivec());
                     let eye_block = self.world.get_block(self.camera.position.floor_to_ivec());
                     let in_water = feet_block == BlockId::Water || eye_block == BlockId::Water;
+                    let in_lava = feet_block == BlockId::Lava || eye_block == BlockId::Lava;
 
-                    let target_horiz = wish_dir * (if in_water { SWIM_SPEED } else { move_speed });
+                    let target_horiz = wish_dir * (if in_lava { SWIM_SPEED * 0.55 } else if in_water { SWIM_SPEED } else { move_speed });
                     let on_ice = feet_block == BlockId::Ice;
-                    let damping = if in_water {
+                    let damping = if in_lava {
+                        12.0
+                    } else if in_water {
                         8.0
                     } else if self.on_ground {
                         if on_ice { 2.0 } else if is_crouching { 18.0 } else { 15.0 }
@@ -842,7 +905,15 @@ impl RustCraftApp {
                     let t_horiz = 1.0 - (-damping * dt).exp();
                     self.horiz_velocity = self.horiz_velocity.lerp(target_horiz, t_horiz);
 
-                    if in_water {
+                    if in_lava {
+                        self.vertical_velocity -= 2.5 * dt;
+                        if self.vertical_velocity < -1.8 {
+                            self.vertical_velocity = -1.8;
+                        }
+                        if (input.key_space && input.is_mouse_captured) || input.gp_btn_south {
+                            self.vertical_velocity = 2.2;
+                        }
+                    } else if in_water {
                         self.vertical_velocity -= 4.0 * dt;
                         if self.vertical_velocity < -2.5 {
                             self.vertical_velocity = -2.5;
@@ -875,10 +946,25 @@ impl RustCraftApp {
                         self.current_player_height,
                         is_crouching,
                     );
-                    if self.vertical_velocity < 0.0 && !self.fly_mode && !in_water {
+                    if self.vertical_velocity < 0.0 && !self.fly_mode && !in_water && !in_lava {
                         self.player.fall_distance += old_y - self.camera.position.y;
-                    } else if self.vertical_velocity > 0.0 || self.fly_mode || in_water {
+                    } else if self.vertical_velocity > 0.0 || self.fly_mode || in_water || in_lava {
                         self.player.fall_distance = 0.0;
+                    }
+
+                    // Obrażenia od lawy (4.0 pkt = 2 serca co 0.5s)
+                    if in_lava && self.player.gamemode == GameMode::Survival {
+                        self.lava_damage_timer += dt;
+                        if self.lava_damage_timer >= 0.5 {
+                            self.lava_damage_timer = 0.0;
+                            if self.player.take_damage(4.0) {
+                                self.damage_tilt_timer = 0.4;
+                                self.damage_tilt_dir = 1.0;
+                                self.particles.spawn_lava_burn(feet_pos);
+                            }
+                        }
+                    } else if !in_lava {
+                        self.lava_damage_timer = 0.45;
                     }
 
                     if self.on_ground {
@@ -1151,6 +1237,16 @@ impl RustCraftApp {
                 let mut i = 0;
                 while i < self.items.len() {
                     self.items[i].update(dt, &self.world, Some(player_center));
+
+                    // Spalanie przedmiotów w lawie
+                    let item_pos = self.items[i].position;
+                    let item_block = self.world.get_block(item_pos.floor_to_ivec());
+                    if item_block == BlockId::Lava {
+                        self.particles.spawn_lava_burn(item_pos);
+                        self.items.remove(i);
+                        continue;
+                    }
+
                     let dist_sq = (self.items[i].position - player_center).length_sq();
                     if self.items[i].pickup_delay <= 0.0 && dist_sq < 3.24 {
                         let remaining = self.player.inventory.add_item(self.items[i].block, self.items[i].count);
@@ -1186,6 +1282,7 @@ impl RustCraftApp {
                     self.last_aspect = aspect;
                     self.proj_matrix = self.camera.projection_matrix(aspect);
                 }
+                #[cfg(not(target_os = "vita"))]
                 let (shake_offset, roll) = if self.damage_tilt_timer > 0.0 {
                     let progress = self.damage_tilt_timer / 0.4;
                     let roll = (progress * std::f32::consts::PI).sin() * 0.14 * self.damage_tilt_dir;
@@ -1195,81 +1292,131 @@ impl RustCraftApp {
                 } else {
                     (Vec3::zero(), 0.0)
                 };
+                #[cfg(not(target_os = "vita"))]
                 let view_proj = self.proj_matrix.mul(&self.camera.view_matrix_with_tilt(shake_offset, roll));
-                self.renderer.fog_enabled = self.settings.fog;
-                self.renderer.render_frame(&mut self.world, &self.camera);
+                #[cfg(not(target_os = "vita"))]
+                {
+                    self.renderer.fog_enabled = self.settings.fog;
+                    self.renderer.render_frame(&mut self.world, &self.camera);
 
-                for mob in &self.mob_manager.mobs {
-                    self.renderer.draw_mob(mob, &self.camera, &view_proj);
-                }
+                    for mob in &self.mob_manager.mobs {
+                        self.renderer.draw_mob(mob, &self.camera, &view_proj);
+                    }
 
-                for tnt in &self.world.primed_tnts {
-                    self.renderer.draw_tnt_cube(tnt.pos, tnt.fuse, &self.camera, &view_proj);
-                }
+                    for tnt in &self.world.primed_tnts {
+                        self.renderer.draw_tnt_cube(tnt.pos, tnt.fuse, &self.camera, &view_proj);
+                    }
 
-                if self.settings.clouds {
-                    self.renderer.draw_clouds(self.camera.position, &view_proj, self.total_time);
-                }
+                    if self.settings.clouds {
+                        self.renderer.draw_clouds(self.camera.position, &view_proj, self.total_time);
+                    }
 
-                for item in &self.items {
-                    let y_offset = (item.age * 3.0).sin() * 0.08;
-                    let mut pos = item.position;
-                    pos.y += y_offset;
-                    let yaw = item.age * 2.5;
-                    self.renderer.draw_item_3d(item.block, pos, yaw, &view_proj);
-                }
+                    for item in &self.items {
+                        let y_offset = (item.age * 3.0).sin() * 0.08;
+                        let mut pos = item.position;
+                        pos.y += y_offset;
+                        let yaw = item.age * 2.5;
+                        self.renderer.draw_item_3d(item.block, pos, yaw, &view_proj);
+                    }
 
-                if let Some(target) = self.break_target {
-                    if self.break_progress > 0.0 {
-                        self.renderer.draw_block_break_cracks(target, self.break_progress, &view_proj);
+                    if let Some(target) = self.break_target {
+                        if self.break_progress > 0.0 {
+                            self.renderer.draw_block_break_cracks(target, self.break_progress, &view_proj);
+                        }
+                    }
+
+                    let block_at_camera = self.world.get_block(self.camera.position.floor_to_ivec());
+                    if block_at_camera == BlockId::Lava {
+                        self.renderer.draw_lava_overlay(self.total_time);
+                    } else if self.settings.underwater_fx && block_at_camera == BlockId::Water {
+                        self.renderer.draw_underwater_overlay(self.total_time);
+                    }
+
+                    if self.settings.particles {
+                        for p in &self.particles.particles {
+                            self.renderer.draw_billboard(p.pos, p.size, p.color, &self.camera, &view_proj);
+                        }
+                    }
+
+                    if self.damage_tilt_timer > 0.0 {
+                        self.renderer.draw_damage_flash(self.damage_tilt_timer / 0.4);
+                    }
+                    if self.player.gamemode == GameMode::Survival && self.player.health <= 2.0 && self.player.health > 0.0 {
+                        self.renderer.draw_low_health_vignette(self.total_time);
                     }
                 }
 
-                let block_at_camera = self.world.get_block(self.camera.position.floor_to_ivec());
-                if self.settings.underwater_fx && block_at_camera == BlockId::Water {
-                    self.renderer.draw_underwater_overlay(self.total_time);
-                }
-
-                for p in &self.particles.particles {
-                    self.renderer.draw_billboard(p.pos, p.size, p.color, &self.camera, &view_proj);
-                }
-
-                if self.damage_tilt_timer > 0.0 {
-                    self.renderer.draw_damage_flash(self.damage_tilt_timer / 0.4);
-                }
-                if self.player.gamemode == GameMode::Survival && self.player.health <= 2.0 && self.player.health > 0.0 {
-                    self.renderer.draw_low_health_vignette(self.total_time);
+                #[cfg(target_os = "vita")]
+                {
+                    self.renderer.color_buffer.fill(0);
                 }
 
                 self.renderer.draw_crosshair();
                 self.renderer.draw_break_progress(self.break_progress);
-                let hand_block: Option<u8> = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize]
-                    .map(|s| s.block.to_u8());
-                self.renderer.draw_hand_3d(&self.camera, &view_proj, hand_block, self.walk_phase, hand_speed, self.hand_animation);
+                #[cfg(not(target_os = "vita"))]
+                {
+                    let hand_block: Option<u8> = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize]
+                        .map(|s| s.block.to_u8());
+                    self.renderer.draw_hand_3d(&self.camera, &view_proj, hand_block, self.walk_phase, hand_speed, self.hand_animation);
+                }
                 self.renderer.draw_hotbar(&self.player);
 
-                let mode_str = if self.fly_mode {
-                    "LOT"
-                } else if is_crouching {
-                    "KUCANIE"
-                } else if is_sprinting {
-                    "BIEG"
-                } else {
-                    "NORMALNY"
-                };
+                if self.settings.debug_overlay {
+                    self.debug_timer += dt;
+                    if self.debug_timer >= 0.25 {
+                        self.debug_timer = 0.0;
+                        self.cpu_time_ms = dt * 1000.0;
+                        self.fps_display = (1.0 / dt.max(0.001)).round() as u32;
 
-                self.debug_lines[0].clear();
-                let _ = write!(&mut self.debug_lines[0], "FPS: {}", self.fps_display);
-                self.debug_lines[1].clear();
-                let _ = write!(&mut self.debug_lines[1], "POZYCJA X:{} Y:{} Z:{}", self.camera.position.x as i32, self.camera.position.y as i32, self.camera.position.z as i32);
-                self.debug_lines[2].clear();
-                let _ = write!(&mut self.debug_lines[2], "BLOK: {}", BlockId::from_u8(self.renderer.selected_block()).name().to_uppercase());
-                self.debug_lines[3].clear();
-                let _ = write!(&mut self.debug_lines[3], "MOBY: {}", self.mob_manager.mobs.len());
-                self.debug_lines[4].clear();
-                let _ = write!(&mut self.debug_lines[4], "TRYB: {}", mode_str);
+                        let mode_str = if self.fly_mode {
+                            "LOT"
+                        } else if is_crouching {
+                            "KUCANIE"
+                        } else if is_sprinting {
+                            "BIEG"
+                        } else {
+                            "NORMALNY"
+                        };
 
-                self.renderer.draw_debug_panel(&self.debug_lines);
+                        // Linia 0: FPS & CPU Time
+                        self.debug_lines[0].clear();
+                        let _ = write!(&mut self.debug_lines[0], "FPS: {} ({:.1}MS) | CPU: {:.1}MS", self.fps_display, dt * 1000.0, self.cpu_time_ms);
+
+                        // Linia 1: GPU Triangles & Chunks
+                        self.debug_lines[1].clear();
+                        #[cfg(target_os = "vita")]
+                        let _ = write!(&mut self.debug_lines[1], "GPU: {:.1}K TRI | CHUNKI: {}/{}", self.gpu_triangles as f32 / 1000.0, self.chunk_slots_info.0, self.chunk_slots_info.1);
+                        #[cfg(not(target_os = "vita"))]
+                        let _ = write!(&mut self.debug_lines[1], "CHUNKI: {}", self.world.chunks.len());
+
+                        // Linia 2: RAM / VRAM Allocations
+                        self.debug_lines[2].clear();
+                        #[cfg(target_os = "vita")]
+                        let _ = write!(&mut self.debug_lines[2], "RAM: {:.1}MB | CDRAM: {:.1}MB", self.ram_mb, self.cdram_mb);
+                        #[cfg(not(target_os = "vita"))]
+                        let _ = write!(&mut self.debug_lines[2], "RAM (SZAC): ~{:.1}MB", (self.world.chunks.len() * 32 * 32 * 128) as f32 / (1024.0 * 1024.0));
+
+                        // Linia 3: Position
+                        self.debug_lines[3].clear();
+                        let _ = write!(&mut self.debug_lines[3], "POZYCJA: X:{:.1} Y:{:.1} Z:{:.1}", self.camera.position.x, self.camera.position.y, self.camera.position.z);
+
+                        // Linia 4: Selected or Targeted Block
+                        self.debug_lines[4].clear();
+                        let sel_name = BlockId::from_u8(self.renderer.selected_block()).name().to_uppercase();
+                        if let Some(target) = self.break_target {
+                            let target_block = self.world.get_block(target);
+                            let _ = write!(&mut self.debug_lines[4], "CEL: {} X:{} Y:{} Z:{}", target_block.name().to_uppercase(), target.x, target.y, target.z);
+                        } else {
+                            let _ = write!(&mut self.debug_lines[4], "BLOK: {}", sel_name);
+                        }
+
+                        // Linia 5: Entities & Gamemode
+                        self.debug_lines[5].clear();
+                        let _ = write!(&mut self.debug_lines[5], "MOBY: {} | ENTCJE: {} | TRYB: {}", self.mob_manager.mobs.len(), self.particles.particles.len(), mode_str);
+                    }
+
+                    self.renderer.draw_debug_panel(&self.debug_lines);
+                }
 
                 if !input.is_mouse_captured {
                     self.renderer.draw_capture_prompt(true);
@@ -1361,7 +1508,12 @@ impl RustCraftApp {
                 }
 
                 self.renderer.fog_enabled = self.settings.fog;
+                #[cfg(not(target_os = "vita"))]
                 self.renderer.render_frame(&mut self.world, &self.camera);
+                #[cfg(target_os = "vita")]
+                {
+                    self.renderer.color_buffer.fill(0x0C0C10);
+                }
                 self.renderer.draw_pause_menu(self.fly_mode, hovered_idx);
             }
             GameState::Inventory => {
@@ -1467,7 +1619,12 @@ impl RustCraftApp {
                     }
                 }
 
+                #[cfg(not(target_os = "vita"))]
                 self.renderer.render_frame(&mut self.world, &self.camera);
+                #[cfg(target_os = "vita")]
+                {
+                    self.renderer.color_buffer.fill(0x0C0C10);
+                }
                 self.renderer.draw_inventory(
                     &self.player,
                     inv_hovered_target,
@@ -1546,7 +1703,12 @@ impl RustCraftApp {
                 }
 
                 self.renderer.fog_enabled = self.settings.fog;
+                #[cfg(not(target_os = "vita"))]
                 self.renderer.render_frame(&mut self.world, &self.camera);
+                #[cfg(target_os = "vita")]
+                {
+                    self.renderer.color_buffer.fill(0x0C0C10);
+                }
                 self.renderer.draw_death_screen(hovered_idx);
             }
         }

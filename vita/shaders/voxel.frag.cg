@@ -10,6 +10,9 @@ float4 main(
 ) : COLOR
 {
     float4 color = tex2D(uTexture, oUV);
-    // Ambient Occlusion + fog falloff
+    if (color.a < 0.05f) {
+        discard;
+    }
+    // Ambient Occlusion + color
     return float4(color.rgb * oAO, color.a);
 }

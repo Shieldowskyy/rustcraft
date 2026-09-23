@@ -597,6 +597,10 @@ pub enum TextureId {
     DestroyStage7,
     DestroyStage8,
     DestroyStage9,
+    DamageFlash,
+    UnderwaterTint,
+    VignetteTint,
+    LavaTint,
 }
 
 impl TextureId {
@@ -940,6 +944,10 @@ pub struct TextureAtlas {
     pub crafting_table_side: Texture,
     pub crafting_table_front: Texture,
     pub destroy_stages: [Texture; 10],
+    pub damage_flash: Texture,
+    pub underwater_tint: Texture,
+    pub vignette_tint: Texture,
+    pub lava_tint: Texture,
 }
 
 impl TextureAtlas {
@@ -981,6 +989,10 @@ impl TextureAtlas {
             crafting_table_side: crafting_table_side(),
             crafting_table_front: crafting_table_front(),
             destroy_stages: std::array::from_fn(destroy_stage),
+            damage_flash: speckled([0.95, 0.05, 0.05], 0.0, 0),
+            underwater_tint: speckled([0.05, 0.25, 0.75], 0.0, 0),
+            vignette_tint: speckled([0.85, 0.02, 0.02], 0.0, 0),
+            lava_tint: speckled([0.95, 0.25, 0.02], 0.0, 0),
         }
     }
 
@@ -1031,56 +1043,14 @@ impl TextureAtlas {
             TextureId::DestroyStage7 => &self.destroy_stages[7],
             TextureId::DestroyStage8 => &self.destroy_stages[8],
             TextureId::DestroyStage9 => &self.destroy_stages[9],
+            TextureId::DamageFlash => &self.damage_flash,
+            TextureId::UnderwaterTint => &self.underwater_tint,
+            TextureId::VignetteTint => &self.vignette_tint,
+            TextureId::LavaTint => &self.lava_tint,
         }
     }
     /// Zwraca referencję do tekstury dla danego TextureId
     pub fn texture_for(&self, id: TextureId) -> &Texture {
-        match id {
-            TextureId::GrassTop => &self.grass_top,
-            TextureId::GrassSide => &self.grass_side,
-            TextureId::Dirt => &self.dirt,
-            TextureId::Stone => &self.stone,
-            TextureId::Sand => &self.sand,
-            TextureId::WoodTop => &self.wood_top,
-            TextureId::WoodSide => &self.wood_side,
-            TextureId::Leaves => &self.leaves,
-            TextureId::Water => &self.water,
-            TextureId::Snow => &self.snow,
-            TextureId::CactusTop => &self.cactus_top,
-            TextureId::CactusSide => &self.cactus_side,
-            TextureId::CoalOre => &self.coal_ore,
-            TextureId::IronOre => &self.iron_ore,
-            TextureId::Bedrock => &self.bedrock,
-            TextureId::Lava => &self.lava,
-            TextureId::SnowLeaves => &self.snow_leaves,
-            TextureId::Planks => &self.planks,
-            TextureId::Door => &self.door,
-            TextureId::DoorTop => &self.door_top,
-            TextureId::Glass => &self.glass,
-            TextureId::Ice => &self.ice,
-            TextureId::TntTop => &self.tnt_top,
-            TextureId::TntSide => &self.tnt_side,
-            TextureId::PigSkin => &self.pig_skin,
-            TextureId::PigFace => &self.pig_face,
-            TextureId::PigSnout => &self.pig_snout,
-            TextureId::CowSkin => &self.cow_skin,
-            TextureId::CowFace => &self.cow_face,
-            TextureId::CowSnout => &self.cow_snout,
-            TextureId::CowHorns => &self.cow_horns,
-            TextureId::CowUdder => &self.cow_udder,
-            TextureId::CraftingTableTop => &self.crafting_table_top,
-            TextureId::CraftingTableSide => &self.crafting_table_side,
-            TextureId::CraftingTableFront => &self.crafting_table_front,
-            TextureId::DestroyStage0 => &self.destroy_stages[0],
-            TextureId::DestroyStage1 => &self.destroy_stages[1],
-            TextureId::DestroyStage2 => &self.destroy_stages[2],
-            TextureId::DestroyStage3 => &self.destroy_stages[3],
-            TextureId::DestroyStage4 => &self.destroy_stages[4],
-            TextureId::DestroyStage5 => &self.destroy_stages[5],
-            TextureId::DestroyStage6 => &self.destroy_stages[6],
-            TextureId::DestroyStage7 => &self.destroy_stages[7],
-            TextureId::DestroyStage8 => &self.destroy_stages[8],
-            TextureId::DestroyStage9 => &self.destroy_stages[9],
-        }
+        self.get(id)
     }
 }

@@ -6,7 +6,7 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 
-use crate::app::{AppOutput, InputState, RustCraftApp};
+use crate::app::{InputState, RustCraftApp};
 
 // ============================================================================
 // 1. VitaSDK Low-Level FFI Definitions (Zero external dependency requirement)
@@ -79,10 +79,9 @@ pub const SCE_TOUCH_PORT_BACK: i32 = 1;
 pub struct SceTouchReport {
     pub id: u8,
     pub force: u8,
-    pub reserved: [u8; 2],
     pub x: i16,
     pub y: i16,
-    pub reserved2: [u8; 8],
+    pub reserved: [u8; 8],
     pub info: u16,
 }
 
@@ -137,7 +136,7 @@ extern "C" {
     pub fn sceKernelAllocMemBlock(
         name: *const u8,
         type_: u32,
-        size: i32,
+        size: u32,
         optp: *const core::ffi::c_void,
     ) -> SceUID;
     pub fn sceKernelGetMemBlockBase(uid: SceUID, basep: *mut *mut core::ffi::c_void) -> i32;
@@ -148,7 +147,7 @@ extern "C" {
 extern "C" {
     pub fn sceKernelDelayThread(delay: u32) -> i32;
     pub fn sceKernelGetProcessTimeWide() -> u64;
-    pub fn sceKernelExitProcess(res: i32);
+    pub fn sceKernelExitProcess(res: i32) -> !;
     pub fn sceKernelLoadStartModule(
         path: *const u8,
         args: usize,
@@ -157,6 +156,19 @@ extern "C" {
         option: *const core::ffi::c_void,
         status: *mut i32,
     ) -> SceUID;
+}
+
+#[macro_export]
+macro_rules! vita_log {
+    ($($arg:tt)*) => {{
+        let msg = format!($($arg)*);
+        unsafe {
+            extern "C" { fn sceClibPrintf(fmt: *const core::ffi::c_char, ...); }
+            if let Ok(c_msg) = std::ffi::CString::new(msg) {
+                sceClibPrintf(b"%s\n\0".as_ptr() as *const core::ffi::c_char, c_msg.as_ptr());
+            }
+        }
+    }};
 }
 
 // ============================================================================
@@ -179,12 +191,12 @@ impl VitaDisplay {
             let name = if i == 0 { b"RustCraft_FB0\0".as_ptr() } else { b"RustCraft_FB1\0".as_ptr() };
             // Spróbuj najpierw w pamięci CDRAM (najszybsza pamięć wideo na Vita)
             let mut uid = unsafe {
-                sceKernelAllocMemBlock(name, SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, fb_size, core::ptr::null())
+                sceKernelAllocMemBlock(name, SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, fb_size as u32, core::ptr::null())
             };
             // Fallback do standardowej pamięci RAM jeśli CDRAM byłby zajęty
             if uid < 0 {
                 uid = unsafe {
-                    sceKernelAllocMemBlock(name, SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, fb_size, core::ptr::null())
+                    sceKernelAllocMemBlock(name, SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, fb_size as u32, core::ptr::null())
                 };
             }
             if uid < 0 {
@@ -282,6 +294,8 @@ impl Drop for VitaDisplay {
 pub struct VitaInputTracker {
     prev_buttons: u32,
     prev_touch_count: u32,
+    pub cursor_x: f32,
+    pub cursor_y: f32,
 }
 
 impl VitaInputTracker {
@@ -294,10 +308,12 @@ impl VitaInputTracker {
         Self {
             prev_buttons: 0,
             prev_touch_count: 0,
+            cursor_x: 480.0,
+            cursor_y: 272.0,
         }
     }
 
-    pub fn poll(&mut self, is_mouse_captured: bool) -> InputState {
+    pub fn poll(&mut self, is_mouse_captured: bool, dt: f32) -> InputState {
         let mut pad = SceCtrlData::default();
         unsafe {
             sceCtrlPeekBufferPositive(0, &mut pad, 1);
@@ -348,28 +364,57 @@ impl VitaInputTracker {
             sceTouchPeek(SCE_TOUCH_PORT_FRONT, &mut touch, 1);
         }
 
-        let mut touch_pos: Option<(f32, f32)> = None;
-        let mut touch_active = false;
-        if touch.report_num > 0 {
-            // Współrzędne Vita touch: 0..1919 x 0..1087 -> skalujemy do 960 x 540
+        let touch_active = touch.report_num > 0;
+        let touch_just_pressed = touch.report_num > 0 && self.prev_touch_count == 0;
+
+        if touch_active {
+            // Bezpośrednie dotknięcie ekranu natychmiast przesuwa kursor pod palec
             let tx = (touch.report[0].x as f32 / 1919.0) * 960.0;
-            let ty = (touch.report[0].y as f32 / 1087.0) * 540.0;
-            touch_pos = Some((tx.clamp(0.0, 959.0), ty.clamp(0.0, 539.0)));
-            touch_active = true;
+            let ty = (touch.report[0].y as f32 / 1087.0) * 544.0;
+            self.cursor_x = tx.clamp(5.0, 955.0);
+            self.cursor_y = ty.clamp(5.0, 539.0);
+        } else if !is_mouse_captured {
+            // Płynny ruch kursora lewą lub prawą gałką analogową w menu i ekwipunku
+            let cursor_speed = 650.0;
+            let move_x = left_x + right_x;
+            let move_y = left_y + right_y;
+            if move_x.abs() > 0.05 || move_y.abs() > 0.05 {
+                self.cursor_x += move_x * cursor_speed * dt;
+                self.cursor_y += move_y * cursor_speed * dt;
+            }
+
+            // Skokowe przeskakiwanie po slotach D-Padem
+            let slot_step = 42.0;
+            if just_pressed(SCE_CTRL_UP) { self.cursor_y -= slot_step; }
+            if just_pressed(SCE_CTRL_DOWN) { self.cursor_y += slot_step; }
+            if just_pressed(SCE_CTRL_LEFT) { self.cursor_x -= slot_step; }
+            if just_pressed(SCE_CTRL_RIGHT) { self.cursor_x += slot_step; }
+
+            self.cursor_x = self.cursor_x.clamp(5.0, 955.0);
+            self.cursor_y = self.cursor_y.clamp(5.0, 539.0);
         }
 
-        // Ruch kamery z prawej gałki
-        let mouse_dx = right_x * 8.0;
-        let mouse_dy = right_y * 8.0;
-
-        // Hotbar scroll za pomocą D-Pad lewo/prawo
-        let scroll_delta = if just_pressed(SCE_CTRL_RIGHT) {
-            1.0
-        } else if just_pressed(SCE_CTRL_LEFT) {
-            -1.0
+        let mouse_pos = if is_mouse_captured {
+            None
         } else {
-            0.0
+            Some((self.cursor_x, self.cursor_y))
         };
+
+        let mouse_left = if is_mouse_captured {
+            btn_r || touch_active
+        } else {
+            btn_r || touch_just_pressed || just_pressed(SCE_CTRL_CROSS)
+        };
+
+        let mouse_right = if is_mouse_captured {
+            btn_l
+        } else {
+            btn_l || just_pressed(SCE_CTRL_SQUARE)
+        };
+
+        let mouse_dx = 0.0;
+        let mouse_dy = 0.0;
+        let scroll_delta = 0.0;
 
         self.prev_buttons = buttons;
         self.prev_touch_count = touch.report_num;
@@ -377,15 +422,15 @@ impl VitaInputTracker {
         InputState {
             mouse_dx,
             mouse_dy,
-            mouse_pos: touch_pos,
-            mouse_left: btn_r || (touch_active && !is_mouse_captured),
-            mouse_right: btn_l,
+            mouse_pos,
+            mouse_left,
+            mouse_right,
             scroll_delta,
 
-            key_w: left_y < -0.3 || dpad_up,
-            key_s: left_y > 0.3 || dpad_down,
-            key_a: left_x < -0.3,
-            key_d: left_x > 0.3,
+            key_w: dpad_up,
+            key_s: dpad_down,
+            key_a: dpad_left,
+            key_d: dpad_right,
             key_space: btn_cross,
             key_shift: btn_circle,
             key_ctrl: false,
@@ -410,9 +455,9 @@ impl VitaInputTracker {
             ],
 
             gp_left_stick_x: left_x,
-            gp_left_stick_y: left_y,
+            gp_left_stick_y: -left_y,
             gp_right_stick_x: right_x,
-            gp_right_stick_y: right_y,
+            gp_right_stick_y: -right_y,
             gp_left_trigger: if btn_l { 1.0 } else { 0.0 },
             gp_right_trigger: if btn_r { 1.0 } else { 0.0 },
             gp_btn_south: btn_cross,
@@ -478,6 +523,8 @@ pub fn run_vita_app() {
     load_module(b"app0:sce_module/libc.suprx\0");
     load_module(b"app0:sce_module/libfios2.suprx\0");
 
+    crate::vita_log!("Moduly zaladowane. Zegary...");
+
     // 2. Podkręcenie zegarów PS Vita do maksimum
     //    444MHz ARM, 222MHz BUS, 222MHz GPU, 166MHz XBAR
     unsafe {
@@ -487,18 +534,22 @@ pub fn run_vita_app() {
         scePowerSetGpuXbarClockFrequency(166);
     }
 
+    crate::vita_log!("Inicjalizacja RustCraftApp...");
+
     // 3. Inicjalizacja silnika gry (logika + świat)
     let seed = unsafe { sceKernelGetProcessTimeWide() } as u32;
     let mut app = RustCraftApp::new(960, 544, "software", seed);
+
+    crate::vita_log!("Inicjalizacja GxmRenderer...");
 
     // 4. Inicjalizacja GXM Hardware Renderer
     //    Alokuje CDRAM triple-buffering, ShaderPatcher, atlas GPU, render target.
     let mut gxm = crate::platform::vita_gxm::GxmRenderer::new(&app.renderer.textures);
 
+    crate::vita_log!("Inicjalizacja kontrolera...");
+
     // 5. Inicjalizacja kontrolera pada
     let mut input_tracker = VitaInputTracker::new();
-    let is_captured = true; // Na Vita kamera zawsze aktywna (brak myszy)
-
     let mut last_time = unsafe { sceKernelGetProcessTimeWide() };
 
     // Główna pętla gry
@@ -508,20 +559,57 @@ pub fn run_vita_app() {
         last_time = current_time;
         let dt = (dt_us as f32 / 1_000_000.0).clamp(0.001, 0.1);
 
-        // Odczyt wejścia z kontrolera Vita
-        let input = input_tracker.poll(is_captured);
+        // Odczyt wejścia z kontrolera Vita (w menu kursor/dotyk jest wolny, w grze kamera zablokowana)
+        let is_captured = matches!(app.state, crate::app::GameState::Playing);
+        let input = input_tracker.poll(is_captured, dt);
 
-        // Aktualizacja logiki gry (fizyka, kamera, świat, AI)
-        let output = app.update(dt, &input);
+        // Aktualizacja logiki gry (fizyka, kamera, świat, AI, UI)
+        let output = app.update_and_render(dt, &input);
 
         if output.quit_requested {
             break;
         }
 
-        // Hardware rendering przez GPU Vita (SGX543MP4)
-        // sceGxmBeginScene → ustaw shadery → rysuj chunki → sceGxmEndScene → display swap
-        gxm.render_frame(&app.camera, &mut app.world);
-        gxm.next_buffer();
+        if matches!(app.state, crate::app::GameState::Playing) {
+            let hand_block: Option<u8> = app.player.inventory.hotbar[app.player.selected_hotbar_slot as usize]
+                .map(|s| s.block.to_u8());
+            let hand_speed = (app.horiz_velocity.length() + app.fly_velocity.length()).max(0.0);
+
+            let block_at_camera = app.world.get_block(app.camera.position.floor_to_ivec());
+            let is_underwater = app.settings.underwater_fx && block_at_camera == crate::world::block::BlockId::Water;
+            let is_in_lava = block_at_camera == crate::world::block::BlockId::Lava;
+            let low_health = app.player.gamemode == crate::gameplay::player::GameMode::Survival && app.player.health <= 2.0 && app.player.health > 0.0;
+
+            let tri_count = gxm.render_frame(
+                &app.camera,
+                &mut app.world,
+                Some(app.renderer.pixel_buffer()),
+                app.break_target,
+                app.break_progress,
+                &app.items,
+                &app.mob_manager.mobs,
+                hand_block,
+                app.walk_phase,
+                hand_speed,
+                app.hand_animation,
+                app.settings.render_distance,
+                app.settings.clouds,
+                app.settings.chunk_anim,
+                app.total_time,
+                if app.settings.particles { &app.particles.particles } else { &[] },
+                app.damage_tilt_timer,
+                is_underwater,
+                is_in_lava,
+                low_health,
+            );
+            app.gpu_triangles = tri_count;
+            let (slots_used, max_slots, cdram, ram) = gxm.get_perf_stats();
+            app.chunk_slots_info = (slots_used, max_slots);
+            app.cdram_mb = cdram as f32 / (1024.0 * 1024.0);
+            app.ram_mb = ram as f32 / (1024.0 * 1024.0);
+        } else {
+            gxm.present_2d_buffer(app.renderer.pixel_buffer(), app.width, app.height);
+        }
     }
 
     unsafe {

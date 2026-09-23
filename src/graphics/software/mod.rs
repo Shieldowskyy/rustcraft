@@ -55,6 +55,9 @@ pub struct Renderer {
     pub color_buffer: Vec<u32>,
     pub depth_buffer: Vec<f32>,
     mesh_cache: HashMap<(i32, i32), Vec<Triangle>>,
+    pub chunk_spawn_times: HashMap<(i32, i32), f32>,
+    pub total_time: f32,
+    pub chunk_anim: bool,
     selected_block: u8,
     pub textures: TextureAtlas,
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
@@ -63,6 +66,7 @@ pub struct Renderer {
     vulkan: Option<()>,
     loaded_keys: Vec<(i32, i32)>,
     dirty_keys: HashSet<(i32, i32)>,
+    #[allow(dead_code)]
     visible_keys: Vec<(i32, i32)>,
     opaque_tris_buf: Vec<ScreenTriangle>,
     transparent_tris_buf: Vec<ScreenTriangle>,
@@ -93,6 +97,9 @@ impl Renderer {
             color_buffer: vec![0; width * height],
             depth_buffer: vec![f32::INFINITY; width * height],
             mesh_cache: HashMap::new(),
+            chunk_spawn_times: HashMap::new(),
+            total_time: 0.0,
+            chunk_anim: true,
             selected_block: 1,
             textures: TextureAtlas::generate(),
             vulkan: None,
@@ -191,7 +198,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 6] {
+    pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 9] {
         crate::ui::settings_option_rects(self.width, self.height)
     }
 
@@ -248,6 +255,10 @@ impl Renderer {
 
     pub fn draw_underwater_overlay(&mut self, time: f32) {
         crate::ui::draw_underwater_overlay(&mut self.color_buffer, self.width, self.height, time);
+    }
+
+    pub fn draw_lava_overlay(&mut self, time: f32) {
+        crate::ui::draw_lava_overlay(&mut self.color_buffer, self.width, self.height, time);
     }
 
     pub fn draw_hotbar(&mut self, player: &crate::gameplay::Player) {
@@ -316,7 +327,12 @@ impl Renderer {
         self.loaded_keys.clear();
         self.loaded_keys.extend(world.chunks.keys().copied());
         self.mesh_cache.retain(|k, _| world.chunks.contains_key(k));
+        self.chunk_spawn_times.retain(|k, _| world.chunks.contains_key(k));
         self.dirty_keys.clear();
+
+        for key in &self.loaded_keys {
+            self.chunk_spawn_times.entry(*key).or_insert(self.total_time);
+        }
 
         let dirty_keys_to_build: Vec<(i32, i32)> = self
             .loaded_keys
@@ -413,16 +429,35 @@ impl Renderer {
         let width = self.width;
         let height = self.height;
         let mesh_cache = &self.mesh_cache;
+        let chunk_spawn_times = &self.chunk_spawn_times;
+        let current_time = self.total_time;
+        let chunk_anim = self.chunk_anim;
 
         let process_chunk = |key: &(i32, i32)| {
             let mut local_opaque = Vec::with_capacity(256);
             let mut local_transparent = Vec::with_capacity(64);
 
+            let spawn_time = chunk_spawn_times.get(key).copied().unwrap_or(current_time);
+            let elapsed = current_time - spawn_time;
+            let y_offset = if chunk_anim && elapsed >= 0.0 && elapsed < 0.35 {
+                let t = (elapsed / 0.35).clamp(0.0, 1.0);
+                let ease = 1.0 - (1.0 - t).powi(3);
+                (1.0 - ease) * -14.0
+            } else {
+                0.0
+            };
+
+            let chunk_vp = if y_offset != 0.0 {
+                view_proj.mul(&Mat4::translation(0.0, y_offset, 0.0))
+            } else {
+                view_proj
+            };
+
             if let Some(tris) = mesh_cache.get(key) {
                 for tri in tris {
-                    let c0 = to_clip_ao(tri.v0, &view_proj);
-                    let c1 = to_clip_ao(tri.v1, &view_proj);
-                    let c2 = to_clip_ao(tri.v2, &view_proj);
+                    let c0 = to_clip_ao(tri.v0, &chunk_vp);
+                    let c1 = to_clip_ao(tri.v1, &chunk_vp);
+                    let c2 = to_clip_ao(tri.v2, &chunk_vp);
 
                     let clipped = clip_near_ao(&[c0, c1, c2]);
                     if clipped.len() < 3 {
@@ -564,7 +599,7 @@ impl Renderer {
 
     fn chunk_visible(key: (i32, i32), view_proj: &Mat4) -> bool {
         let min_x = key.0 as f32 * CHUNK_SIZE_X as f32;
-        let min_y = 0.0;
+        let min_y = -16.0;
         let min_z = key.1 as f32 * CHUNK_SIZE_Z as f32;
         let max_x = min_x + CHUNK_SIZE_X as f32;
         let max_y = CHUNK_SIZE_Y as f32;
