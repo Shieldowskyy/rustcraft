@@ -1,18 +1,28 @@
 # RustCraft Porting Guide (Platforms & Graphics APIs)
 
-This guide provides architectural instructions for porting RustCraft to other operating systems (Windows, macOS, WebAssembly/Web, Android/iOS) and integrating new graphics APIs (Metal, DirectX 12, WebGPU, OpenGL/WebGL, Vulkan).
+This guide provides architectural instructions for porting RustCraft to other operating systems and integrating new graphics APIs. It also documents all currently supported ports.
 
 ---
 
-## 1. Porting to New Operating Systems
+## 1. Currently Supported Platforms
 
-RustCraft isolates platform-specific code in `src/platform/`.
+### Linux (x86_64) — Primary Platform
+* **Status**: Fully supported.
+* **Windowing & Mouse**: `minifb` window + native X11 mouse capture (`XGrabPointer`, `XWarpPointer`, `XFixesHideCursor`) in `src/platform/mouse_capture.rs`.
+* **Graphics**: Software rasterizer (Rayon multi-threaded) or WGPU/Vulkan GPU backend.
+* **Gamepad**: `gilrs` via `src/platform/gamepad.rs`.
+* **Build**:
+  ```bash
+  ./compile_linux.sh   # release + strip + UPX compression
+  # or:
+  cargo build --release
+  ```
 
-### Windows (Win32)
+### Windows (x86_64) — Fully Supported
 * **Status**: Fully supported.
 * **Windowing & Mouse**: Handled in `src/platform/mouse_capture.rs` using `windows-sys` (`ClipCursor`, `SetCursorPos`, `ShowCursor`).
 * **Graphics**: Software rasterizer works out of the box; GPU backend utilizes Vulkan or DirectX 12 via WGPU.
-* **Build Command**:
+* **Build**:
   ```bash
   cargo build --release --target x86_64-pc-windows-msvc
   ```
@@ -23,21 +33,59 @@ RustCraft isolates platform-specific code in `src/platform/`.
 * **Graphics**:
   * Software rasterizer blits directly to window via minifb / winit.
   * GPU pipeline uses Metal through `wgpu::Backends::METAL`.
-* **Build Command**:
+* **Build**:
   ```bash
   cargo build --release --target aarch64-apple-darwin
   ```
 
-### WebAssembly (Browser / WebGL / WebGPU)
+### WebAssembly (Browser) — Implemented
+* **Status**: Fully implemented in `src/web.rs` and `src/lib.rs`.
 * **Windowing & Input**:
-  * Replace `minifb` loop with `requestAnimationFrame` loop using `wasm-bindgen` and `web-sys`.
-  * Pointer lock API: `element.requestPointerLock()` for mouse capture.
-* **Threading**:
-  * Either compile Rayon with `wasm-bindgen-rayon` (Web Workers + SharedArrayBuffer) or use single-threaded rasterizer / WebGPU backend.
-* **Graphics**:
-  * WGPU compiles to WebGPU or WebGL2 out of the box in WASM.
-* **Storage**:
-  * Replace filesystem `save_path` with browser `IndexedDB` or `localStorage` serialization.
+  * `wasm-bindgen` bindings expose `RustCraftApp` to JavaScript.
+  * Zero-copy framebuffer blit to HTML5 `<canvas>` via `ImageData`.
+  * Pointer Lock API: `element.requestPointerLock()` for mouse capture.
+  * Gamepad API support (browser gamepad mapped in `web/app.js`).
+* **Threading**: Rayon multi-threading is conditionally disabled (`#[cfg(not(target_arch = "wasm32"))]`). WASM runs single-threaded rasterizer.
+* **Graphics**: Software CPU rasterizer (WGPU WebGPU backend possible via WGPU, not currently enabled).
+* **Storage**: Filesystem I/O replaced with `localStorage`/`IndexedDB` hooks (or in-memory only in current port).
+* **Frontend**: `web/index.html`, `web/app.js`, `web/style.css` — modern CSS UI with Pointer Lock and gamepad support.
+* **Build**:
+  ```bash
+  ./build_web.sh
+  ```
+
+### PlayStation Vita — Implemented
+* **Status**: Fully implemented. Native GXM hardware renderer on the **PowerVR SGX543MP4** GPU.
+* **Target triple**: `armv7-sony-vita-newlibeabihf`
+* **Platform layer** (`src/platform/vita.rs`):
+  * `sceKernelLoadStartModule` bootstrap — must be called before using `SceDisplay`, `SceCtrl`, `SceTouch`.
+  * Framebuffer pixel format: ABGR8888 (not XRGB — required by `SceDisplay`).
+  * `sceKernelGetProcessTimeWide()` used as random seed.
+  * `SceTouch` panel input mapped to mouse deltas for camera look.
+  * Button mapping: ×/○/□/△, triggers (RT/LT), D-Pad, Start → game actions.
+* **GXM renderer** (`src/platform/vita_gxm.rs`):
+  * Full GXM init: ring buffers (VDM/vertex/fragment, 3 MB total), USSE shader memory.
+  * CDRAM triple-buffering: 3× color buffers + depth buffer, async display swap callback.
+  * Vertex/index GPU buffers: 2 MB each, uncached (UC) GPU memory.
+  * Texture atlas: 50 textures → 128×128 px ABGR8888 single GPU texture.
+  * Cg shaders (`vita/shaders/voxel.vert.cg` / `voxel.frag.cg`) compiled to GXP by `psp2cgc`.
+  * Backface culling (CW winding), depth test `LESS_EQUAL`.
+  * Hardware-rendered: world chunks, dropped items, mobs, 3D hand/tool, water transparency, screen overlays.
+  * Chunk fade/slide-in animation: 100% GPU-uniform driven (zero CPU overhead).
+  * Performance profiler: 250 ms sampling of CPU, GPU, RAM, CDRAM, chunk slots.
+* **Shaders** (`vita/shaders/`):
+  * `voxel.vert.cg` — vertex shader: MVP transform, UV pass-through, fog depth.
+  * `voxel.frag.cg` — fragment shader: texture sample, AO multiply, fog blend.
+  * Compiled at build time via `build.rs` → `psp2cgc -profile sce_vp_psp2 / sce_fp_psp2`.
+  * Fallback: `vita/shaders/prebuilt/*.gxp` if VitaSDK not found.
+* **Storage**: Save files stored at `ux0:data/RustCraft/rustcraft_world_NN.bin` via `SceIo`.
+* **Build**:
+  ```bash
+  ./build_vita.sh
+  # Output: RustCraft.vpk — install via VitaShell
+  ```
+  Prerequisites: VitaSDK at `/usr/local/vitasdk`, Rust target `armv7-sony-vita-newlibeabihf`,
+  `vita-elf-create`, `vita-make-fself`, optionally `psp2cgc` (vdpm: `vdpm install psp2cgc-linux`).
 
 ---
 
@@ -67,29 +115,73 @@ pub trait RenderBackend {
 }
 ```
 
-### Steps to Implement a New GPU Backend (e.g. Raw OpenGL, Metal, or Custom DirectX 12)
+### Steps to Implement a New GPU Backend (e.g. Raw OpenGL, Metal, or DirectX 12)
 1. **Create Submodule**:
    Create `src/graphics/backend_name/mod.rs` (e.g. `src/graphics/metal/mod.rs`).
 2. **Chunk Mesh Upload**:
    Query `world.chunks` or meshed triangles from `crate::world::mesher::build_chunk_mesh`.
    Each chunk mesh contains arrays of `Vertex { pos, uv, ao, tex }`.
 3. **Texture Atlas Bind**:
-   Upload the texture data generated by `crate::graphics::TextureAtlas::generate()` as a 2D Texture Array (`TEX_SIZE = 16x16`, `TEXTURE_LAYER_COUNT = 32`).
+   Upload the texture data generated by `crate::graphics::TextureAtlas::generate()` as a 2D Texture Array (`TEX_SIZE = 16×16`, `TEXTURE_LAYER_COUNT = 50`).
 4. **Shader Pipeline**:
    - Transform `v.pos` with `view_proj * pos`.
    - Shade texture texel multiplied by vertex AO (`ao` in range 0.0..1.0).
    - Apply fog: `lerp(color, fog_color, clamp(depth / 180.0, 0.0, 1.0))`.
 5. **Implement `RenderBackend`**:
-   Implement `RenderBackend for MetalRenderer` and add it to `src/cli.rs` and `main.rs`.
+   Implement `RenderBackend for YourRenderer` and add it to `src/cli.rs` and `main.rs` / `app.rs`.
+
+> **Vita note**: The GXM backend does **not** use the `RenderBackend` trait — it is integrated
+> directly in `src/platform/vita_gxm.rs` and called from the Vita-specific branch in `src/app.rs`,
+> because GXM operates on GPU-native buffers without a CPU-side pixel buffer.
 
 ---
 
-## 3. Storage & Save Compatibility
+## 3. Adding a New Platform
 
-Chunk data serialization in `src/world/storage.rs` uses portable little-endian binary format:
-* Magic header: `0x52, 0x43, 0x57, 0x31` (`RCW1` - RustCraft World 1)
+1. **Create** `src/platform/<platform_name>.rs`.
+2. **Add** `#[cfg(target_os = "<platform>")]` module entry in `src/platform/mod.rs`.
+3. **Implement** the required platform surface:
+   - Window creation and event loop (or use `minifb` / `winit` if available).
+   - Mouse/pointer capture (implement the three functions from `mouse_capture.rs` contract).
+   - Input translation to `InputState` (keyboard, mouse deltas, gamepad if applicable).
+4. **Wire up** in `src/app.rs` or `src/main.rs` with a `#[cfg]` branch.
+5. **Save path**: return a platform-appropriate path from `src/world/storage.rs::save_path()`.
+
+---
+
+## 4. Storage & Save Compatibility
+
+Chunk data serialization in `src/world/storage.rs` uses a portable little-endian binary format:
+* Magic header: `0x52, 0x43, 0x57, 0x31` (`RCW1` — RustCraft World 1)
 * Seed (`u32` little-endian)
 * Player position (`f32` x, y, z)
-* Chunk count & chunk blocks array (`16 * 64 * 16` bytes per chunk)
+* Chunk count & chunk blocks array (`16 × 64 × 16` bytes per chunk)
 
-This format is platform-agnostic and endian-safe across Linux, Windows, macOS, and WebAssembly.
+This format is platform-agnostic and endian-safe across Linux, Windows, macOS, WebAssembly, and PlayStation Vita.
+
+Save file paths per platform:
+| Platform | Path |
+|---|---|
+| Linux / Windows / macOS | `./rustcraft_world_NN.bin` (cwd) |
+| WebAssembly | In-memory / IndexedDB (platform-specific hook) |
+| PlayStation Vita | `ux0:data/RustCraft/rustcraft_world_NN.bin` |
+
+---
+
+## 5. Shader Compilation Pipeline (Vita)
+
+```
+vita/shaders/voxel.vert.cg  ──psp2cgc──► vita/shaders/voxel.vert.gxp
+vita/shaders/voxel.frag.cg  ──psp2cgc──► vita/shaders/voxel.frag.gxp
+                                                    │
+                           build.rs embeds GXP bytes ──► vita_gxm.rs
+```
+
+`build.rs` auto-detects `psp2cgc` in `$VITASDK/bin`. If not found, falls back to
+`vita/shaders/prebuilt/*.gxp`. The compiled GXP binaries are embedded at link time
+and uploaded to GPU USSE memory on startup via `sceGxmShaderPatcherRegisterProgram`.
+
+To install `psp2cgc` on Linux:
+```bash
+vdpm install psp2cgc-linux
+```

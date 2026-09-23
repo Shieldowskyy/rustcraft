@@ -1,182 +1,233 @@
-# RustCraft — wokselowa gra Minecraft-podobna z wybieralnym rendererem
+# RustCraft — wokselowa gra Minecraft-podobna, wieloplatformowa
 
-Mały silnik wokselowy w Rust z dwoma trybami uruchomienia. Renderer programowy
-wykonuje **cały rendering na CPU**:
-transformacje 3D, przycinanie (clipping), rasteryzacja trójkątów, bufor
-głębokości (z-buffer), oświetlenie per-face i mgła dystansowa — wszystko
-liczone ręcznie, piksel po pikselu. Tryb Vulkan inicjalizuje urządzenie Vulkan,
-zachowując tę samą prezentację okna i obsługę wejścia przez `minifb`.
+Lekki silnik wokselowy napisany w Rust z obsługą **czterech platform**:
+desktopu (Linux/Windows), PlayStation Vita, przeglądarki (WebAssembly/HTML5)
+i macOS. Renderer programowy wykonuje cały rendering na CPU — rasteryzacja
+trójkątów, z-buffer, AO, mgła dystansowa — bez żadnych zależności graficznych.
+Tryb GPU (WGPU/Vulkan) i dedykowany renderer GXM na PlayStation Vita
+(GPU SGX543MP4) zapewniają płynne 60 FPS na każdej platformie.
 
-Biblioteka `minifb` jest użyta **wyłącznie** do stworzenia okna systemowego
-i odczytu klawiatury/myszy — nie renderuje niczego sama. Program co klatkę
-sam wypełnia bufor pikseli (`Vec<u32>`) i przekazuje go do `minifb`, które
-tylko kopiuje go na ekran (`update_with_buffer`).
+---
+
+## Obsługiwane platformy
+
+| Platforma | Renderer | Skrypt / polecenie |
+|---|---|---|
+| Linux (x86_64) | Software CPU lub WGPU/Vulkan | `./compile_linux.sh` |
+| Windows (x86_64) | Software CPU lub WGPU/Vulkan | `cargo build --release` |
+| WebAssembly | Software CPU (Rayon wyłączony) | `./build_web.sh` |
+| PlayStation Vita | GXM GPU (SGX543MP4) | `./build_vita.sh` |
+
+---
 
 ## Wymagania
 
+### Desktop (Linux / Windows / macOS)
 - Rust (stable) — zalecany `rustup` (https://rustup.rs), wersja 1.75+
-- Linux: pakiety deweloperskie X11 (najczęściej już są, ale w razie błędów
-  linkera zainstaluj np. `libx11-dev` na Debian/Ubuntu)
-- Windows / macOS: nic dodatkowego — `minifb` korzysta z natywnych API okien
+- **Linux**: pakiety deweloperskie X11 (`libx11-dev` na Debian/Ubuntu)
+- **Windows / macOS**: nic dodatkowego — `minifb` korzysta z natywnych API okien
+- Renderer Vulkan wymaga zainstalowanego loadera Vulkan i urządzenia z kolejką graficzną
+
+### PlayStation Vita
+- [VitaSDK](https://vitasdk.org) zainstalowany w `/usr/local/vitasdk`
+- Target Rust: `armv7-sony-vita-newlibeabihf`
+- Kompilator shaderów Cg: `psp2cgc` (automatycznie wykrywany przez `build.rs`)
+- Narzędzia: `vita-elf-create`, `vita-make-fself`, opcjonalnie UPX
+
+### WebAssembly
+- `wasm-pack` lub `wasm-bindgen-cli`
+- Serwer HTTP (np. `python3 -m http.server`) do podglądu lokalnego
+
+---
 
 ## Budowanie i uruchamianie
 
+### Linux / Desktop (domyślny — software renderer)
 ```bash
-cd rustcraft
+./compile_linux.sh          # release + strip + UPX
+# lub ręcznie:
 cargo run --release
 ```
 
-Domyślnie używany jest renderer programowy. Renderer Vulkan można wybrać przy
-uruchamianiu:
-
+Renderer Vulkan można wybrać przy uruchamianiu:
 ```bash
 cargo run --release -- --renderer vulkan
 # skróty: --vulkan oraz --software
 ```
 
 Custom seed można podać przy uruchamianiu:
-
 ```bash
 cargo run --release -- --seed 8675309
 cargo run --release -- --renderer vulkan --seed 8675309
 ```
 
-Po uruchomieniu pojawia się menu główne. Strzałki `Left/Right` wybierają jeden
-z 32 slotów zapisu, `Enter` tworzy nowy świat, `L` wczytuje wybrany zapis,
-a `Q` kończy program. `F5` zapisuje aktywny świat, podobnie jak wyjście z
-pauzy. Pliki mają nazwy `rustcraft_world_01.bin` do `rustcraft_world_32.bin`.
-
-Tryb Vulkan wymaga zainstalowanego loadera Vulkan i urządzenia z kolejką
-graficzną. Bez obsługi Vulkan użyj `--renderer software`.
-
-Pierwsza kompilacja pobierze i skompiluje zależności, w tym `wgpu` z backendem Vulkan dla trybu
-Vulkan oraz `minifb` dla okna i wejścia.
-
-Na Linuksie/X11 dodatkowo używamy bezpośrednio Xlib (przez `x11-dl`, bez
-GPU) do **prawdziwego przechwycenia i ukrycia kursora myszy** w oknie gry —
-patrz sekcja "Przechwytywanie myszy" niżej.
-
-## Wymagania
-
-- Rust (stable) — zalecany `rustup` (https://rustup.rs), wersja 1.75+
-- Linux: pakiety deweloperskie X11 (najczęściej już są; w razie błędów
-  linkera zainstaluj np. `libx11-dev` na Debian/Ubuntu)
-- Windows / macOS: nic dodatkowego — `minifb` korzysta z natywnych API okien
-  (na tych platformach mysz działa w trybie "śledzenia delty" — patrz niżej)
-
-## Budowanie i uruchamianie
-
+### PlayStation Vita
 ```bash
-cd rustcraft
-cargo run --release
+./build_vita.sh
+# Wynik: RustCraft.vpk — instalacja przez VitaShell
+```
+`build.rs` automatycznie kompiluje shadery Cg (`vita/shaders/*.cg → *.gxp`)
+za pomocą `psp2cgc`. Jeśli kompilator nie jest dostępny, używane są shadery
+prebuilt z `vita/shaders/prebuilt/`.
+
+### WebAssembly / HTML5
+```bash
+./build_web.sh
+# Następnie otwórz web/index.html przez lokalny serwer HTTP
 ```
 
-## Sterowanie
+---
+
+## Menu i zapis
+
+Po uruchomieniu pojawia się menu główne. Strzałki `Left/Right` wybierają jeden
+z 32 slotów zapisu, `Enter` tworzy nowy świat, `L` wczytuje wybrany zapis,
+a `Q` kończy program. `F5` zapisuje aktywny świat, podobnie jak wyjście z pauzy.
+
+Pliki zapisu: `rustcraft_world_01.bin` … `rustcraft_world_32.bin`.
+Na PlayStation Vita: `ux0:data/RustCraft/rustcraft_world_01.bin` itd.
+
+---
+
+## Sterowanie — Desktop
 
 | Klawisz / przycisk | Akcja |
 |---|---|
 | Kliknięcie w okno | zablokuj/przechwyć mysz (rozpocznij grę) |
-| Esc | zwolnij mysz; drugi raz (gdy mysz już zwolniona) — wyjście |
+| Esc | zwolnij mysz; drugi raz — wyjście |
 | W / A / S / D | ruch w poziomie |
 | Spacja | skok (w trybie lotu: w górę) |
-| Lewy Shift | w dół (tylko w trybie lotu) |
+| Lewy Shift | kucanie / w dół (lot) |
 | Lewy Ctrl (przytrzymaj) | bieg |
-| F | przełącz tryb lotu (bez grawitacji/kolizji — wygodne do budowania) |
-| Mysz | rozglądanie się (tylko gdy przechwycona) |
-| Lewy przycisk myszy | zniszcz blok, na który patrzysz |
-| Prawy przycisk myszy | postaw wybrany blok |
-| 1–6 | wybierz typ bloku do stawiania |
+| F | przełącz tryb lotu |
+| Mysz | rozglądanie się |
+| LMB | zniszcz blok |
+| RMB | postaw blok |
+| 1–0 | wybierz slot na hotbarze (10 slotów) |
+| E | otwórz ekwipunek / crafting 2×2 |
+| Tab / F1 | kreatywny selektor bloków (Creative mode) |
+| F5 | zapisz świat |
+| P | menu pauzy |
+| F3 | panel debugowy (FPS, pozycja, biom, renderer) |
 
-Dodatkowe bloki: deski (`0`), drzwi (`F1`), szyby (`F2`) i lód (`F3`). Woda i
-szyby są renderowane półprzezroczysto, lód zmniejsza tarcie gracza, a tekstury
-używają powtarzalnego próbkowania nearest-neighbor, więc dobrze się tilują na
-ścianach. Piasek spada, a woda i lawa rozlewają się lokalnie w czasie gry,
-z zachowaniem źródeł przy przepływie poziomym.
+## Sterowanie — PlayStation Vita
+
+| Przycisk Vita | Akcja |
+|---|---|
+| Lewy stick | ruch (WASD) |
+| Prawy stick | kamera |
+| × | skok |
+| ○ | postaw blok |
+| □ | zniszcz blok |
+| R Trigger (RT) | zniszcz blok (zamiennie) |
+| L Trigger (LT) | postaw blok (zamiennie) |
+| Start | menu pauzy |
+| D-Pad | nawigacja hotbara / UI |
+| Panel dotykowy | obrót kamery (delta dotyku) |
+
+## Sterowanie — przeglądarka (WASM)
+- Mysz + klawiatura identyczne jak desktop
+- Gamepad API: mapowanie analogicznie do PS Vita / kontrolera Xbox
+
+---
 
 ## Przechwytywanie myszy
 
-`minifb` nie ma żadnego wbudowanego API do "zablokowania"/"warpowania"
-kursora na żadnej platformie. Żeby mysz naprawdę nie uciekała z okna
-podczas rozglądania się, projekt implementuje własny moduł
-(`mouse_capture.rs`):
+`minifb` nie ma wbudowanego API do blokowania kursora. Projekt implementuje
+własny moduł (`src/platform/mouse_capture.rs`):
 
-- **Na Linuksie/X11**: po kliknięciu w okno program pobiera surowy uchwyt
-  Xlib z okna `minifb` (przez `raw-window-handle`) i wywołuje bezpośrednio
-  `XGrabPointer` (przechwycenie kursora), ukrywa kursor (`XDefineCursor` z
-  niewidocznym kursorem 1×1) i co klatkę odczytuje pozycję kursora
-  względem środka okna (`XQueryPointer`), po czym **warpuje go z powrotem
-  na środek** (`XWarpPointer`) — dzięki temu kursor nigdy nie dotrze do
-  krawędzi okna, a delta ruchu jest liczona bez ograniczeń.
-- **Na Windows / macOS lub jeśli X11 nie jest dostępne** (np. czysty
-  Wayland bez XWayland): program automatycznie przechodzi na tryb
-  zapasowy — śledzenie różnicy pozycji kursora między klatkami. W tym
-  trybie kursor może dotrzeć do krawędzi okna, ale gra pozostaje w pełni
-  grywalna.
+- **Linux/X11**: `XGrabPointer`, `XWarpPointer`, `XFixesHideCursor` —
+  kursor jest warpowany na środek okna co klatkę; prawdziwa blokada bez utraty delty.
+- **Windows (Win32)**: `ClipCursor`, `SetCursorPos`, `ShowCursor`.
+- **Fallback**: śledzenie różnicy pozycji między klatkami (Wayland, macOS bez obsługi natywnej).
+- **Vita**: kursor jest zawsze przechwycony (brak kursora systemowego).
 
-Naciśnięcie Esc zwalnia przechwycenie (kursor wraca, widoczny), drugie Esc
-(gdy mysz jest już zwolniona) zamyka grę.
+---
+
+## Gamepad (`src/platform/gamepad.rs`)
+
+Obsługa gamepadów via `gilrs`. Mapowanie obejmuje osie analogowe (ruch, kamera),
+triggery RT/LT do niszczenia/stawiania bloków, pełną nawigację UI za pomocą D-Pad
+i przycisków akcji. Działa na Linuksie, Windows i macOS.
+
+---
+
+## Biomy
+
+Świat zawiera 8 biomów dobieranych proceduralnie na podstawie szumu:
+
+| Biom | Opis |
+|---|---|
+| Plains | Płaskie równiny, dęby |
+| Forest | Pagórki, gęste dęby |
+| Desert | Piasek, kaktusy |
+| Mountains | Wysokie szczyty kamienne |
+| Snowy | Ośnieżony teren, świerki |
+| Cherry Blossom | Wiśniowe drzewa z różowymi liśćmi (`CherryLeaves`) |
+| Ocean | Płaskie dno morskie, woda do y=20 |
+| Savanna | Suche równiny, akacjopodobne drzewa |
+
+Aktualny biom widoczny jest w panelu debugowym (klawisz `F3`).
+
+---
 
 ## Tekstury proceduralne
 
-Zamiast plików graficznych, wszystkie tekstury bloków (trawa, ziemia,
-kamień, piasek, drewno, liście, woda) są **generowane proceduralnie w
-`texture.rs`** jako bitmapy 16×16 pikseli, przy starcie programu — przy
-użyciu deterministycznego szumu (hash-based), bez żadnych zewnętrznych
-plików graficznych czy assetów. Każdy blok ma osobne tekstury dla różnych
-ścian (np. trawa: zielony, cętkowany wierzch, ziemisty spód, i "przejściowy"
-bok z pasem trawy nad ziemią — jak w oryginalnym Minecrafcie).
+Wszystkie tekstury bloków generowane są proceduralnie w `src/graphics/atlas.rs`
+jako bitmapy 16×16 pikseli przy starcie programu — bez żadnych zewnętrznych
+plików graficznych. Atlas zawiera 50 warstw tekstur (`TEXTURE_LAYER_COUNT = 50`).
+Na Vita atlas jest przesyłany jako pojedyncza tekstura GPU 128×128 px ABGR8888.
 
-Renderer próbkuje te tekstury per-piksel z perspektywicznie poprawną
-interpolacją UV (nearest-neighbor, żeby zachować pikselowy klimat), a
-następnie mnoży wynik przez stałe cieniowanie kierunkowe per ściana
-(imitacja ambient occlusion) i mgłę dystansową.
+---
 
-## Podstawowe UI
+## Nowe funkcje gameplay (ostatnie commity)
 
-Doszedł prosty interfejs, rysowany bezpośrednio w buforze pikseli (bez
-żadnej biblioteki UI):
+- **Lawa** — opór ruchu gracza w lawie, obrażenia, mgła lawy/efekt winiety
+  z cząsteczkami płomieni i dymu
+- **Crafting** — stół craftingowy (2×2 w ekwipunku, 3×3 przy crafting table),
+  przepisy zdefiniowane w `src/gameplay/recipe.rs`
+- **Narzędzia** — kilof, siekiera, łopata ze zwiększoną szybkością kopania
+- **Kreatywny selektor bloków** — siatka wszystkich bloków z możliwością
+  przewijania, szybki dostęp przez hotbar
+- **Efekty obrażeń** — winieta czerwona przy trafieniu, ekran śmierci
+- **Pęknięcia przy niszczeniu** — 10-stopniowa animacja crack overlay na bloku
+- **Wypadające itemy** — fizyczne 3D itemy na ziemi z animacją unoszenia
+- **Ustawienia graficzne** — dystans renderowania, mgła, chmury, FOV,
+  cząsteczki, nakładka debugowa, animacja chunk fade, efekty podwodne
 
-- **Celownik** na środku ekranu.
-- **Hotbar** na dole z 6 slotami bloków, podświetlonym aktualnie wybranym
-  slotem i numerkami 1–6 (rysowanymi wbudowaną, własną czcionką bitmapową
-  3×5 z `font.rs`).
-- **Panel debugowy** w lewym górnym rogu: FPS, pozycja gracza (X/Y/Z),
-  nazwa wybranego bloku, tryb (normalny/lot).
-- **Ekran "kliknij aby grać"** wyświetlany zawsze, gdy mysz nie jest
-  przechwycona, z informacją czy przechwycenie będzie natywne (X11) czy w
-  trybie zapasowym.
+---
 
 ## Jak to działa (skrót architektury)
 
-- `math.rs` — własna implementacja `Vec3`, `IVec3` i macierzy 4x4.
-- `noise.rs` — deterministyczny szum wartościowy do generowania terenu.
-- `world.rs` — chunki 16×64×16, streaming, generacja terenu, raycasting DDA,
-  oraz test kolizji AABB (`box_collides`) używany przez fizykę gracza.
-- `block.rs` — definicje bloków, kolory-tinty i przypisanie tekstur per
-  ściana.
-- `texture.rs` — generator proceduralnych tekstur 16×16 dla każdego bloku.
-- `font.rs` — wbudowana bitmapowa czcionka 3×5 do rysowania tekstu w UI.
-- `mesher.rs` — zamienia siatkę wokseli chunku na trójkąty z UV, z
-  cullingiem niewidocznych ścian.
-- `renderer.rs` — **serce projektu**: transformacja do przestrzeni clip,
-  przycinanie do płaszczyzny bliskiej (Sutherland–Hodgman), rzutowanie
-  perspektywiczne, rasteryzacja (edge function) z perspektywicznie poprawną
-  interpolacją UV, próbkowanie tekstur, z-bufor, mgła, oraz rysowanie UI
-  (crosshair, hotbar, panel debugowy, prompt przechwycenia myszy).
-- `mouse_capture.rs` — prawdziwe przechwycenie/ukrycie kursora na
-  Linuksie/X11 przez bezpośrednie wywołania Xlib, z bezpiecznym fallbackiem
-  na innych platformach.
-- `camera.rs` — kamera FPS (yaw/pitch).
-- `main.rs` — pętla gry: input, fizyka (grawitacja + kolizja AABB), tryb
-  lotu, interakcja z blokami, wywołanie renderera/UI, wysłanie klatki.
+- `src/core/math.rs` — własna implementacja `Vec3`, `IVec3`, `Mat4`.
+- `src/core/noise.rs` — deterministyczny szum do generowania terenu i biomów.
+- `src/core/settings.rs` — `GameSettings`: ustawienia graficzne zapisywane na dysk.
+- `src/world/block.rs` — definicje 34+ typów bloków, właściwości, przypisanie tekstur.
+- `src/world/mesher.rs` — buduje siatki trójkątów z Ambient Occlusion per wierzchołek.
+- `src/world/mod.rs` — chunki 16×64×16, streaming, generacja terenu, biomy, raycasting.
+- `src/world/storage.rs` — binarny zapis/odczyt świata (format `RCW1`).
+- `src/gameplay/player.rs` — gracz, `GameMode` (Survival/Creative), zdrowie.
+- `src/gameplay/physics.rs` — kolizje AABB, skoki, kucanie, tarcie, opór lawy.
+- `src/gameplay/inventory.rs` — hotbar (10 slotów) + plecak (27 slotów).
+- `src/gameplay/recipe.rs` — receptury craftingowe 2×2/3×3.
+- `src/gameplay/item.rs` — fizyczne itemy na ziemi.
+- `src/gameplay/mob.rs` — maszyny stanu mobów (Pig, Zombie), pathfinding.
+- `src/gameplay/particles.rs` — cząsteczki bloków, lawa, uderzenia.
+- `src/graphics/atlas.rs` — proceduralny generator tekstur (50 bloków).
+- `src/graphics/software/` — wielowątkowy rasterizer CPU (Rayon, kafelki).
+- `src/graphics/gpu/` — backend WGPU (Vulkan/DX12/Metal/WebGPU).
+- `src/platform/mouse_capture.rs` — przechwycenie kursora X11/Win32/fallback.
+- `src/platform/gamepad.rs` — obsługa gamepadów via gilrs.
+- `src/platform/vita.rs` — warstwa platformowa PS Vita (display, input, moduły).
+- `src/platform/vita_gxm.rs` — pełny renderer GXM na SGX543MP4 (~2500 linii).
+- `src/web.rs` — bindingi wasm-bindgen, blit do `<canvas>`, Pointer Lock API.
+- `src/ui/` — HUD, menu, ekwipunek, selektor bloków, ustawienia (rysowane w buforze pikseli).
+- `src/app.rs` — główna pętla gry: input, fizyka, AI, render. Współdzielona między desktop, Vita i WASM.
+
+---
 
 ## Znane uproszczenia
 
 - Brak oświetlenia dynamicznego/cieni — stałe cieniowanie per ściana + mgła.
 - Drzewa mogą być lekko przycinane na granicy chunków.
-- Rozmiar okna jest stały (bez obsługi zmiany rozmiaru w locie).
-
-Projekt był kompilowany od zera i uruchamiany (pod Xvfb, z symulowanymi
-zdarzeniami myszy/klawiatury przez `xdotool`, potwierdzającymi że
-przechwycenie X11 działa bez paniki) w środowisku testowym przed wysłaniem.
-
+- Rozmiar okna na desktopie jest stały.
