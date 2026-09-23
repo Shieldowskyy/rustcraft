@@ -2,7 +2,6 @@ use crate::gameplay::inventory::ItemStack;
 use crate::gameplay::player::{GameMode, Player};
 use crate::gameplay::recipe::RecipeBook;
 use crate::ui::draw::{draw_text_colored_shadowed, draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color};
-use crate::ui::hud::draw_hotbar;
 use crate::world::block::{BlockId, Face};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -13,6 +12,93 @@ pub enum InventorySlotTarget {
     Crafting3x3(usize),
     CraftingOutput,
     Creative(u8),
+    CreativeTab(usize),
+    Trash,
+}
+
+pub const CREATIVE_TABS: [&str; 4] = [
+    "BUDULEC",
+    "NARZEDZIA",
+    "WSZYSTKIE",
+    "EKWIPUNEK",
+];
+
+pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
+    match tab {
+        0 => &[
+            BlockId::Grass,
+            BlockId::Dirt,
+            BlockId::Stone,
+            BlockId::Sand,
+            BlockId::Wood,
+            BlockId::Leaves,
+            BlockId::SnowLeaves,
+            BlockId::Snow,
+            BlockId::Cactus,
+            BlockId::CoalOre,
+            BlockId::IronOre,
+            BlockId::Bedrock,
+            BlockId::Planks,
+            BlockId::Glass,
+            BlockId::Ice,
+        ],
+        1 => &[
+            BlockId::WoodenPickaxe,
+            BlockId::StonePickaxe,
+            BlockId::IronPickaxe,
+            BlockId::WoodenAxe,
+            BlockId::StoneAxe,
+            BlockId::IronAxe,
+            BlockId::WoodenShovel,
+            BlockId::StoneShovel,
+            BlockId::IronShovel,
+            BlockId::WoodenSword,
+            BlockId::StoneSword,
+            BlockId::IronSword,
+            BlockId::Stick,
+            BlockId::CraftingTable,
+            BlockId::Door,
+            BlockId::Tnt,
+            BlockId::Water,
+            BlockId::Lava,
+        ],
+        2 => &[
+            BlockId::Grass,
+            BlockId::Dirt,
+            BlockId::Stone,
+            BlockId::Sand,
+            BlockId::Wood,
+            BlockId::Leaves,
+            BlockId::Snow,
+            BlockId::Cactus,
+            BlockId::CoalOre,
+            BlockId::IronOre,
+            BlockId::Water,
+            BlockId::Bedrock,
+            BlockId::Lava,
+            BlockId::SnowLeaves,
+            BlockId::Planks,
+            BlockId::Door,
+            BlockId::Glass,
+            BlockId::Ice,
+            BlockId::Tnt,
+            BlockId::CraftingTable,
+            BlockId::Stick,
+            BlockId::WoodenPickaxe,
+            BlockId::StonePickaxe,
+            BlockId::IronPickaxe,
+            BlockId::WoodenAxe,
+            BlockId::StoneAxe,
+            BlockId::IronAxe,
+            BlockId::WoodenShovel,
+            BlockId::StoneShovel,
+            BlockId::IronShovel,
+            BlockId::WoodenSword,
+            BlockId::StoneSword,
+            BlockId::IronSword,
+        ],
+        _ => &[],
+    }
 }
 
 pub struct InventoryLayout {
@@ -23,8 +109,8 @@ pub struct InventoryLayout {
 
 impl InventoryLayout {
     pub fn new(width: usize, height: usize, crafting_table_open: bool) -> Self {
-        let start_x = (width as i32 - 450) / 2;
-        let start_y = (height as i32 - 350) / 2;
+        let start_x = (width as i32 - 464) / 2;
+        let start_y = (height as i32 - 360) / 2;
         Self {
             start_x,
             start_y,
@@ -32,30 +118,115 @@ impl InventoryLayout {
         }
     }
 
-    pub fn find_slot_at(&self, px: i32, py: i32, gamemode: GameMode) -> Option<InventorySlotTarget> {
-        if gamemode == GameMode::Creative {
-            let mut block_id = 1;
-            for row in 0..5 {
-                for col in 0..8 {
-                    if block_id > 33 {
-                        return None;
-                    }
-                    let x = self.start_x + 35 + col as i32 * 46;
-                    let y = self.start_y + 40 + row as i32 * 46;
-                    if px >= x && px < x + 40 && py >= y && py < y + 40 {
-                        return Some(InventorySlotTarget::Creative(block_id));
-                    }
-                    block_id += 1;
+    pub fn find_slot_at(&self, px: i32, py: i32, player: &Player) -> Option<InventorySlotTarget> {
+        if player.gamemode == GameMode::Creative {
+            // Check top tabs (4 tabs)
+            for i in 0..4 {
+                let tab_x = self.start_x + 8 + i as i32 * 112;
+                let tab_y = self.start_y - 24;
+                if px >= tab_x && px < tab_x + 108 && py >= tab_y && py < tab_y + 26 {
+                    return Some(InventorySlotTarget::CreativeTab(i));
                 }
             }
-            return None;
+
+            if player.creative_tab < 3 {
+                // Creative item grid (9 cols x 4 rows)
+                let blocks = creative_tab_blocks(player.creative_tab);
+                let grid_x = self.start_x + 22;
+                let grid_y = self.start_y + 36;
+                for row in 0..4 {
+                    for col in 0..9 {
+                        let idx = row * 9 + col;
+                        if idx < blocks.len() {
+                            let x = grid_x + col as i32 * 42;
+                            let y = grid_y + row as i32 * 42;
+                            if px >= x && px < x + 38 && py >= y && py < y + 38 {
+                                return Some(InventorySlotTarget::Creative(blocks[idx].to_u8()));
+                            }
+                        }
+                    }
+                }
+
+                // Hotbar: 10 slots
+                let hotbar_x = self.start_x + 16;
+                let hotbar_y = self.start_y + 242;
+                for i in 0..10 {
+                    let x = hotbar_x + i as i32 * 40;
+                    let y = hotbar_y;
+                    if px >= x && px < x + 38 && py >= y && py < y + 38 {
+                        return Some(InventorySlotTarget::Hotbar(i));
+                    }
+                }
+
+                // Trash slot
+                let trash_x = self.start_x + 420;
+                let trash_y = self.start_y + 242;
+                if px >= trash_x && px < trash_x + 36 && py >= trash_y && py < trash_y + 38 {
+                    return Some(InventorySlotTarget::Trash);
+                }
+
+                return None;
+            } else {
+                // Tab 3: Survival Inventory in Creative
+                // Hotbar: 10 slots
+                let hotbar_x = self.start_x + 16;
+                let hotbar_y = self.start_y + 276;
+                for i in 0..10 {
+                    let x = hotbar_x + i as i32 * 40;
+                    let y = hotbar_y;
+                    if px >= x && px < x + 38 && py >= y && py < y + 38 {
+                        return Some(InventorySlotTarget::Hotbar(i));
+                    }
+                }
+
+                // Trash slot
+                let trash_x = self.start_x + 420;
+                let trash_y = self.start_y + 276;
+                if px >= trash_x && px < trash_x + 36 && py >= trash_y && py < trash_y + 38 {
+                    return Some(InventorySlotTarget::Trash);
+                }
+
+                // Main inventory: 3 rows x 9 cols (27 slots)
+                let main_x = self.start_x + 22;
+                let main_y = self.start_y + 144;
+                for row in 0..3 {
+                    for col in 0..9 {
+                        let x = main_x + col as i32 * 42;
+                        let y = main_y + row as i32 * 42;
+                        if px >= x && px < x + 38 && py >= y && py < y + 38 {
+                            return Some(InventorySlotTarget::Main(row * 9 + col));
+                        }
+                    }
+                }
+
+                // 2x2 crafting grid
+                let craft_x = self.start_x + 220;
+                let craft_y = self.start_y + 42;
+                for row in 0..2 {
+                    for col in 0..2 {
+                        let x = craft_x + col as i32 * 40;
+                        let y = craft_y + row as i32 * 40;
+                        if px >= x && px < x + 36 && py >= y && py < y + 36 {
+                            return Some(InventorySlotTarget::Crafting2x2(row * 2 + col));
+                        }
+                    }
+                }
+                // 2x2 Output slot
+                let out_x = self.start_x + 350;
+                let out_y = self.start_y + 60;
+                if px >= out_x && px < out_x + 42 && py >= out_y && py < out_y + 42 {
+                    return Some(InventorySlotTarget::CraftingOutput);
+                }
+
+                return None;
+            }
         }
 
-        // Hotbar: 10 slots
-        let hotbar_x = self.start_x + 15;
+        // Survival Mode (regular)
+        let hotbar_x = self.start_x + 16;
         let hotbar_y = self.start_y + 295;
         for i in 0..10 {
-            let x = hotbar_x + i as i32 * 42;
+            let x = hotbar_x + i as i32 * 40;
             let y = hotbar_y;
             if px >= x && px < x + 38 && py >= y && py < y + 38 {
                 return Some(InventorySlotTarget::Hotbar(i));
@@ -63,8 +234,8 @@ impl InventoryLayout {
         }
 
         // Main inventory: 3 rows x 9 cols (27 slots)
-        let main_x = self.start_x + 36;
-        let main_y = self.start_y + 165;
+        let main_x = self.start_x + 22;
+        let main_y = self.start_y + 160;
         for row in 0..3 {
             for col in 0..9 {
                 let x = main_x + col as i32 * 42;
@@ -97,7 +268,7 @@ impl InventoryLayout {
         } else {
             // 2x2 crafting grid
             let craft_x = self.start_x + 220;
-            let craft_y = self.start_y + 50;
+            let craft_y = self.start_y + 48;
             for row in 0..2 {
                 for col in 0..2 {
                     let x = craft_x + col as i32 * 40;
@@ -109,7 +280,7 @@ impl InventoryLayout {
             }
             // 2x2 Output slot
             let out_x = self.start_x + 350;
-            let out_y = self.start_y + 70;
+            let out_y = self.start_y + 68;
             if px >= out_x && px < out_x + 42 && py >= out_y && py < out_y + 42 {
                 return Some(InventorySlotTarget::CraftingOutput);
             }
@@ -135,38 +306,220 @@ pub fn draw_inventory_screen(
     let start_x = layout.start_x;
     let start_y = layout.start_y;
 
-    // Outer window frame
-    fill_rect_alpha(buffer, width, height, start_x - 10, start_y - 10, 470, 365, pack_color(0.12, 0.12, 0.14), 0.95);
-    fill_rect(buffer, width, height, start_x - 10, start_y - 10, 470, 3, pack_color(0.35, 0.35, 0.38));
-    fill_rect(buffer, width, height, start_x - 10, start_y + 352, 470, 3, pack_color(0.05, 0.05, 0.06));
-
     if player.gamemode == GameMode::Creative {
-        draw_text_shadowed(buffer, width, height, "EKWIPUNEK KREATYWNY", start_x + 10, start_y + 10, 2, 1);
-        #[cfg(target_os = "vita")]
-        draw_text_shadowed(buffer, width, height, "[X]/DOTYK: POBIERZ STACK   [O]/[TROJKAT]: ZAMKNIJ", start_x + 10, start_y + 335, 1, 1);
-        #[cfg(not(target_os = "vita"))]
-        draw_text_shadowed(buffer, width, height, "[A]/LPM: POBIERZ STACK   [B]/[ESC]/[E]: ZAMKNIJ", start_x + 10, start_y + 335, 1, 1);
+        // Draw 4 Top Tabs
+        for i in 0..4 {
+            let tab_x = start_x + 8 + i as i32 * 112;
+            let tab_y = start_y - 24;
+            let is_active = player.creative_tab == i;
+            let is_hovered = hovered_slot == Some(InventorySlotTarget::CreativeTab(i));
 
-        let mut block_id = 1;
-        for row in 0..5 {
-            for col in 0..8 {
-                if block_id > 33 {
-                    break;
+            let bg_color = if is_active {
+                pack_color(0.20, 0.20, 0.24)
+            } else if is_hovered {
+                pack_color(0.16, 0.16, 0.19)
+            } else {
+                pack_color(0.10, 0.10, 0.12)
+            };
+
+            let border_top = if is_active {
+                pack_color(1.0, 0.88, 0.2)
+            } else if is_hovered {
+                pack_color(0.65, 0.65, 0.70)
+            } else {
+                pack_color(0.30, 0.30, 0.34)
+            };
+
+            fill_rect(buffer, width, height, tab_x, tab_y, 108, 26, bg_color);
+            fill_rect(buffer, width, height, tab_x, tab_y, 108, 2, border_top);
+            fill_rect(buffer, width, height, tab_x, tab_y, 2, 26, border_top);
+            fill_rect(buffer, width, height, tab_x + 106, tab_y, 2, 26, pack_color(0.06, 0.06, 0.08));
+
+            let text_color = if is_active {
+                pack_color(1.0, 0.95, 0.3)
+            } else if is_hovered {
+                pack_color(0.9, 0.9, 0.9)
+            } else {
+                pack_color(0.55, 0.55, 0.60)
+            };
+
+            let label = CREATIVE_TABS[i];
+            let tw = crate::graphics::font::measure_text(label, 1, 1);
+            let tx = tab_x + (108 - tw) / 2;
+            let ty = tab_y + 8;
+            draw_text_colored_shadowed(buffer, width, height, label, tx, ty, 1, 1, text_color);
+        }
+
+        // Main creative window frame
+        fill_rect_alpha(buffer, width, height, start_x - 8, start_y, 480, 360, pack_color(0.14, 0.14, 0.16), 0.98);
+        fill_rect(buffer, width, height, start_x - 8, start_y, 480, 3, pack_color(0.38, 0.38, 0.42));
+        fill_rect(buffer, width, height, start_x - 8, start_y + 357, 480, 3, pack_color(0.05, 0.05, 0.06));
+        fill_rect(buffer, width, height, start_x - 8, start_y, 3, 360, pack_color(0.38, 0.38, 0.42));
+        fill_rect(buffer, width, height, start_x + 469, start_y, 3, 360, pack_color(0.05, 0.05, 0.06));
+
+        if player.creative_tab < 3 {
+            // Category title
+            let title = match player.creative_tab {
+                0 => "BLOKI I BUDULEC",
+                1 => "NARZEDZIA I PRZEDMIOTY",
+                2 => "WSZYSTKIE PRZEDMIOTY",
+                _ => "",
+            };
+            draw_text_shadowed(buffer, width, height, title, start_x + 18, start_y + 14, 2, 1);
+
+            // Creative block grid (9 cols x 4 rows)
+            let blocks = creative_tab_blocks(player.creative_tab);
+            let grid_x = start_x + 22;
+            let grid_y = start_y + 36;
+            for row in 0..4 {
+                for col in 0..9 {
+                    let idx = row * 9 + col;
+                    let x = grid_x + col as i32 * 42;
+                    let y = grid_y + row as i32 * 42;
+
+                    if idx < blocks.len() {
+                        let block = blocks[idx];
+                        let is_hovered = hovered_slot == Some(InventorySlotTarget::Creative(block.to_u8()));
+                        draw_slot_custom(buffer, width, height, x, y, 38, 38, Some(ItemStack { block, count: 64 }), is_hovered, None);
+                    } else {
+                        // Empty slot frame
+                        draw_slot_custom(buffer, width, height, x, y, 38, 38, None, false, Some(pack_color(0.18, 0.18, 0.20)));
+                    }
                 }
-                let x = start_x + 35 + col as i32 * 46;
-                let y = start_y + 40 + row as i32 * 46;
-
-                let is_hovered = hovered_slot == Some(InventorySlotTarget::Creative(block_id));
-                let border_col = if is_hovered { pack_color(1.0, 0.9, 0.2) } else { pack_color(0.25, 0.25, 0.28) };
-
-                fill_rect(buffer, width, height, x, y, 40, 40, border_col);
-                fill_rect(buffer, width, height, x + 2, y + 2, 36, 36, pack_color(0.18, 0.18, 0.20));
-
-                let block = BlockId::from_u8(block_id);
-                draw_item_icon(buffer, width, height, block, x + 6, y + 6, 24);
-
-                block_id += 1;
             }
+
+            // Divider & Hotbar Header
+            fill_rect(buffer, width, height, start_x + 16, start_y + 218, 432, 2, pack_color(0.25, 0.25, 0.28));
+            draw_text_colored_shadowed(buffer, width, height, "PASEK SZYBKIEGO DOSTEPU", start_x + 16, start_y + 226, 1, 1, pack_color(0.85, 0.85, 0.4));
+            draw_text_colored_shadowed(buffer, width, height, "KOSZ", start_x + 424, start_y + 226, 1, 1, pack_color(1.0, 0.4, 0.4));
+
+            // Hotbar 10 slots
+            let hotbar_x = start_x + 16;
+            let hotbar_y = start_y + 242;
+            for i in 0..10 {
+                let x = hotbar_x + i as i32 * 40;
+                let y = hotbar_y;
+                let is_hovered = hovered_slot == Some(InventorySlotTarget::Hotbar(i));
+                let is_selected = player.selected_hotbar_slot as usize == i;
+                let border_override = if is_selected && !is_hovered {
+                    Some(pack_color(0.4, 0.75, 1.0))
+                } else {
+                    None
+                };
+                draw_slot_custom(buffer, width, height, x, y, 38, 38, player.inventory.hotbar[i], is_hovered, border_override);
+            }
+
+            // Trash Slot (Kosz)
+            let trash_x = start_x + 420;
+            let trash_y = start_y + 242;
+            let is_trash_hover = hovered_slot == Some(InventorySlotTarget::Trash);
+            let trash_border = if is_trash_hover {
+                pack_color(1.0, 0.25, 0.25)
+            } else {
+                pack_color(0.45, 0.18, 0.18)
+            };
+            fill_rect(buffer, width, height, trash_x, trash_y, 36, 38, trash_border);
+            fill_rect(buffer, width, height, trash_x + 2, trash_y + 2, 32, 34, pack_color(0.16, 0.08, 0.08));
+            draw_trash_icon(buffer, width, height, trash_x + 6, trash_y + 7);
+
+            // Controls Footer
+            #[cfg(target_os = "vita")]
+            draw_text_colored_shadowed(
+                buffer, width, height,
+                "[X]/DOTYK: WEZ STACK | [KWADRAT]: USUN | [D-PAD]: WYBOR | [O]: ZAMKNIJ",
+                start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75)
+            );
+            #[cfg(not(target_os = "vita"))]
+            draw_text_colored_shadowed(
+                buffer, width, height,
+                "LPM: WEZ (64) | SHIFT+LPM: DO PASKA | 1-0: WYBIERZ SLOT | [E]/[ESC]: ZAMKNIJ",
+                start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75)
+            );
+        } else {
+            // Tab 3: Survival Inventory inside Creative
+            draw_text_shadowed(buffer, width, height, "EKWIPUNEK PRZETRWANIA", start_x + 18, start_y + 14, 2, 1);
+
+            // Character Info Box
+            fill_rect_alpha(buffer, width, height, start_x + 22, start_y + 38, 130, 92, pack_color(0.08, 0.08, 0.10), 0.85);
+            draw_text_shadowed(buffer, width, height, "POSTAC (KREATYWNY)", start_x + 30, start_y + 46, 1, 1);
+            draw_text_colored_shadowed(buffer, width, height, "NIESKONCZONE ZASOBY", start_x + 30, start_y + 68, 1, 1, pack_color(0.4, 0.9, 0.4));
+            draw_text_colored_shadowed(buffer, width, height, "LATANIE: WLACZONE", start_x + 30, start_y + 88, 1, 1, pack_color(0.4, 0.8, 1.0));
+
+            // 2x2 Crafting Grid
+            draw_text_colored_shadowed(buffer, width, height, "Tworzenie 2x2", start_x + 220, start_y + 26, 1, 1, pack_color(0.85, 0.85, 0.85));
+            let craft_x = start_x + 220;
+            let craft_y = start_y + 42;
+            for row in 0..2 {
+                for col in 0..2 {
+                    let idx = row * 2 + col;
+                    let x = craft_x + col as i32 * 40;
+                    let y = craft_y + row as i32 * 40;
+                    let is_hovered = hovered_slot == Some(InventorySlotTarget::Crafting2x2(idx));
+                    draw_slot(buffer, width, height, x, y, 36, 36, player.inventory.crafting_2x2[idx], is_hovered);
+                }
+            }
+
+            // Arrow & Output slot
+            draw_text_colored_shadowed(buffer, width, height, "==>", start_x + 310, start_y + 70, 2, 1, pack_color(0.9, 0.85, 0.3));
+            let out_x = start_x + 350;
+            let out_y = start_y + 60;
+            let result_item = recipes.match_grid(&player.inventory.crafting_2x2, 2, 2);
+            let is_out_hovered = hovered_slot == Some(InventorySlotTarget::CraftingOutput);
+            draw_slot(buffer, width, height, out_x, out_y, 42, 42, result_item, is_out_hovered);
+
+            // Main 27 slots
+            draw_text_colored_shadowed(buffer, width, height, "Plecak", start_x + 22, start_y + 132, 1, 1, pack_color(0.75, 0.75, 0.75));
+            let main_x = start_x + 22;
+            let main_y = start_y + 144;
+            for row in 0..3 {
+                for col in 0..9 {
+                    let idx = row * 9 + col;
+                    let x = main_x + col as i32 * 42;
+                    let y = main_y + row as i32 * 42;
+                    let is_hovered = hovered_slot == Some(InventorySlotTarget::Main(idx));
+                    draw_slot(buffer, width, height, x, y, 38, 38, player.inventory.main[idx], is_hovered);
+                }
+            }
+
+            // Hotbar & Trash
+            draw_text_colored_shadowed(buffer, width, height, "Pasek podreczny", start_x + 16, start_y + 264, 1, 1, pack_color(0.85, 0.85, 0.4));
+            draw_text_colored_shadowed(buffer, width, height, "KOSZ", start_x + 424, start_y + 264, 1, 1, pack_color(1.0, 0.4, 0.4));
+            let hotbar_x = start_x + 16;
+            let hotbar_y = start_y + 276;
+            for i in 0..10 {
+                let x = hotbar_x + i as i32 * 40;
+                let y = hotbar_y;
+                let is_hovered = hovered_slot == Some(InventorySlotTarget::Hotbar(i));
+                let is_selected = player.selected_hotbar_slot as usize == i;
+                let border_override = if is_selected && !is_hovered {
+                    Some(pack_color(0.4, 0.75, 1.0))
+                } else {
+                    None
+                };
+                draw_slot_custom(buffer, width, height, x, y, 38, 38, player.inventory.hotbar[i], is_hovered, border_override);
+            }
+
+            let trash_x = start_x + 420;
+            let trash_y = start_y + 276;
+            let is_trash_hover = hovered_slot == Some(InventorySlotTarget::Trash);
+            let trash_border = if is_trash_hover { pack_color(1.0, 0.25, 0.25) } else { pack_color(0.45, 0.18, 0.18) };
+            fill_rect(buffer, width, height, trash_x, trash_y, 36, 38, trash_border);
+            fill_rect(buffer, width, height, trash_x + 2, trash_y + 2, 32, 34, pack_color(0.16, 0.08, 0.08));
+            draw_trash_icon(buffer, width, height, trash_x + 6, trash_y + 7);
+
+            // Controls Footer
+            #[cfg(not(target_os = "vita"))]
+            draw_text_colored_shadowed(
+                buffer, width, height,
+                "LPM: CALOSC | PPM: 1 SZT/POLOWA | SHIFT+LPM: PRZENIES | [E]/[ESC]: ZAMKNIJ",
+                start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75)
+            );
+            #[cfg(target_os = "vita")]
+            draw_text_colored_shadowed(
+                buffer, width, height,
+                "[X]: CALOSC | [KWADRAT]: 1 SZT/POLOWA | [O]: ZAMKNIJ",
+                start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75)
+            );
         }
     } else {
         // Survival Mode
@@ -204,15 +557,15 @@ pub fn draw_inventory_screen(
             draw_slot(buffer, width, height, out_x, out_y, 42, 42, result_item, is_out_hovered);
         } else {
             // Player character info area
-            fill_rect_alpha(buffer, width, height, start_x + 30, start_y + 40, 130, 100, pack_color(0.08, 0.08, 0.10), 0.8);
-            draw_text_shadowed(buffer, width, height, "POSTAC", start_x + 70, start_y + 50, 1, 1);
+            fill_rect_alpha(buffer, width, height, start_x + 22, start_y + 38, 130, 95, pack_color(0.08, 0.08, 0.10), 0.8);
+            draw_text_shadowed(buffer, width, height, "POSTAC", start_x + 60, start_y + 48, 1, 1);
             let hp_text = format!("HP: {}/20", player.health as i32);
-            draw_text_colored_shadowed(buffer, width, height, &hp_text, start_x + 45, start_y + 80, 1, 1, pack_color(1.0, 0.3, 0.3));
+            draw_text_colored_shadowed(buffer, width, height, &hp_text, start_x + 35, start_y + 78, 1, 1, pack_color(1.0, 0.3, 0.3));
 
             // 2x2 Crafting
-            draw_text_colored_shadowed(buffer, width, height, "Tworzenie 2x2", start_x + 220, start_y + 35, 1, 1, pack_color(0.85, 0.85, 0.85));
+            draw_text_colored_shadowed(buffer, width, height, "Tworzenie 2x2", start_x + 220, start_y + 32, 1, 1, pack_color(0.85, 0.85, 0.85));
             let craft_x = start_x + 220;
-            let craft_y = start_y + 50;
+            let craft_y = start_y + 48;
             for row in 0..2 {
                 for col in 0..2 {
                     let idx = row * 2 + col;
@@ -224,20 +577,20 @@ pub fn draw_inventory_screen(
             }
 
             // Arrow
-            draw_text_colored_shadowed(buffer, width, height, "==>", start_x + 310, start_y + 80, 2, 1, pack_color(0.9, 0.85, 0.3));
+            draw_text_colored_shadowed(buffer, width, height, "==>", start_x + 310, start_y + 78, 2, 1, pack_color(0.9, 0.85, 0.3));
 
             // Output slot
             let out_x = start_x + 350;
-            let out_y = start_y + 70;
+            let out_y = start_y + 68;
             let result_item = recipes.match_grid(&player.inventory.crafting_2x2, 2, 2);
             let is_out_hovered = hovered_slot == Some(InventorySlotTarget::CraftingOutput);
             draw_slot(buffer, width, height, out_x, out_y, 42, 42, result_item, is_out_hovered);
         }
 
         // Main Inventory
-        draw_text_colored_shadowed(buffer, width, height, "Plecak", start_x + 36, start_y + 150, 1, 1, pack_color(0.75, 0.75, 0.75));
-        let main_x = start_x + 36;
-        let main_y = start_y + 165;
+        draw_text_colored_shadowed(buffer, width, height, "Plecak", start_x + 22, start_y + 146, 1, 1, pack_color(0.75, 0.75, 0.75));
+        let main_x = start_x + 22;
+        let main_y = start_y + 160;
         for row in 0..3 {
             for col in 0..9 {
                 let idx = row * 9 + col;
@@ -249,11 +602,11 @@ pub fn draw_inventory_screen(
         }
 
         // Hotbar
-        draw_text_colored_shadowed(buffer, width, height, "Pasek podreczny", start_x + 15, start_y + 280, 1, 1, pack_color(0.75, 0.75, 0.75));
-        let hotbar_x = start_x + 15;
+        draw_text_colored_shadowed(buffer, width, height, "Pasek podreczny", start_x + 16, start_y + 282, 1, 1, pack_color(0.75, 0.75, 0.75));
+        let hotbar_x = start_x + 16;
         let hotbar_y = start_y + 295;
         for i in 0..10 {
-            let x = hotbar_x + i as i32 * 42;
+            let x = hotbar_x + i as i32 * 40;
             let y = hotbar_y;
             let is_hovered = hovered_slot == Some(InventorySlotTarget::Hotbar(i));
             let is_selected = player.selected_hotbar_slot as usize == i;
@@ -270,21 +623,29 @@ pub fn draw_inventory_screen(
     let mut hovered_item_name = None;
     if let Some(target) = hovered_slot {
         match target {
-            InventorySlotTarget::Hotbar(i) => hovered_item_name = player.inventory.hotbar[i].map(|s| (s.block.name(), s.count)),
-            InventorySlotTarget::Main(i) => hovered_item_name = player.inventory.main[i].map(|s| (s.block.name(), s.count)),
-            InventorySlotTarget::Crafting2x2(i) => hovered_item_name = player.inventory.crafting_2x2[i].map(|s| (s.block.name(), s.count)),
-            InventorySlotTarget::Crafting3x3(i) => hovered_item_name = player.inventory.crafting_3x3[i].map(|s| (s.block.name(), s.count)),
+            InventorySlotTarget::Hotbar(i) => hovered_item_name = player.inventory.hotbar[i].map(|s| (s.block.name().to_string(), s.count)),
+            InventorySlotTarget::Main(i) => hovered_item_name = player.inventory.main[i].map(|s| (s.block.name().to_string(), s.count)),
+            InventorySlotTarget::Crafting2x2(i) => hovered_item_name = player.inventory.crafting_2x2[i].map(|s| (s.block.name().to_string(), s.count)),
+            InventorySlotTarget::Crafting3x3(i) => hovered_item_name = player.inventory.crafting_3x3[i].map(|s| (s.block.name().to_string(), s.count)),
             InventorySlotTarget::CraftingOutput => {
                 let res = if crafting_table_open {
                     recipes.match_grid(&player.inventory.crafting_3x3, 3, 3)
                 } else {
                     recipes.match_grid(&player.inventory.crafting_2x2, 2, 2)
                 };
-                hovered_item_name = res.map(|s| (s.block.name(), s.count));
+                hovered_item_name = res.map(|s| (s.block.name().to_string(), s.count));
             }
             InventorySlotTarget::Creative(id) => {
                 let block = BlockId::from_u8(id);
-                hovered_item_name = Some((block.name(), 64));
+                hovered_item_name = Some((block.name().to_string(), 64));
+            }
+            InventorySlotTarget::CreativeTab(idx) => {
+                if idx < CREATIVE_TABS.len() {
+                    hovered_item_name = Some((format!("Kategoria: {}", CREATIVE_TABS[idx]), 1));
+                }
+            }
+            InventorySlotTarget::Trash => {
+                hovered_item_name = Some(("KOSZ (LPM: Usun trzymany | Shift: Wyczysc pasek)".to_string(), 1));
             }
         }
     }
@@ -292,7 +653,7 @@ pub fn draw_inventory_screen(
     if let Some((name, count)) = hovered_item_name {
         let text = if count > 1 { format!("{} (x{})", name.to_uppercase(), count) } else { name.to_uppercase() };
         if let Some((mx, my)) = mouse_pos {
-            let tx = (mx as i32 + 15).min(width as i32 - 180);
+            let tx = (mx as i32 + 15).min(width as i32 - (text.len() as i32 * 8 + 20));
             let ty = (my as i32 - 20).max(10);
             fill_rect_alpha(buffer, width, height, tx - 4, ty - 4, (text.len() * 8 + 12) as i32, 20, pack_color(0.05, 0.05, 0.08), 0.9);
             draw_text_colored_shadowed(buffer, width, height, &text, tx, ty, 1, 1, pack_color(1.0, 0.95, 0.4));
@@ -312,12 +673,27 @@ pub fn draw_inventory_screen(
         }
     }
 
-    draw_hotbar(buffer, width, height, player);
-
     // Draw Cursor Pointer on screen
     if let Some((mx, my)) = mouse_pos {
         crate::ui::draw::draw_cursor_pointer(buffer, width, height, mx as i32, my as i32);
     }
+}
+
+pub fn draw_trash_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, x: i32, y: i32) {
+    let red_hi = pack_color(1.0, 0.40, 0.40);
+    let red_body = pack_color(0.85, 0.20, 0.20);
+    let red_dark = pack_color(0.50, 0.10, 0.10);
+
+    // Can lid handle
+    fill_rect(buffer, buf_w, buf_h, x + 10, y + 4, 4, 2, red_hi);
+    // Can lid
+    fill_rect(buffer, buf_w, buf_h, x + 6, y + 6, 12, 2, red_hi);
+    // Can body
+    fill_rect(buffer, buf_w, buf_h, x + 7, y + 9, 10, 12, red_body);
+    // Vertical lines on can
+    fill_rect(buffer, buf_w, buf_h, x + 9, y + 10, 1, 10, red_dark);
+    fill_rect(buffer, buf_w, buf_h, x + 11, y + 10, 1, 10, red_dark);
+    fill_rect(buffer, buf_w, buf_h, x + 13, y + 10, 1, 10, red_dark);
 }
 
 fn draw_slot(
@@ -644,3 +1020,77 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_creative_tabs_and_block_lists() {
+        assert_eq!(CREATIVE_TABS.len(), 4);
+        let tab0 = creative_tab_blocks(0);
+        assert!(tab0.contains(&BlockId::Grass));
+        assert!(tab0.contains(&BlockId::Stone));
+        assert!(tab0.contains(&BlockId::Wood));
+
+        let tab1 = creative_tab_blocks(1);
+        assert!(tab1.contains(&BlockId::WoodenPickaxe));
+        assert!(tab1.contains(&BlockId::IronSword));
+        assert!(tab1.contains(&BlockId::Tnt));
+
+        let tab2 = creative_tab_blocks(2);
+        assert_eq!(tab2.len(), 33);
+        assert!(tab2.contains(&BlockId::Grass));
+        assert!(tab2.contains(&BlockId::IronSword));
+    }
+
+    #[test]
+    fn test_creative_layout_slot_detection() {
+        let layout = InventoryLayout::new(960, 544, false);
+        let mut player = Player::new();
+        player.gamemode = GameMode::Creative;
+        player.creative_tab = 0;
+
+        // Top tab click (Tab 0: BUDULEC)
+        let tab0_x = layout.start_x + 20;
+        let tab0_y = layout.start_y - 10;
+        assert_eq!(layout.find_slot_at(tab0_x, tab0_y, &player), Some(InventorySlotTarget::CreativeTab(0)));
+
+        // Top tab click (Tab 1: NARZEDZIA)
+        let tab1_x = layout.start_x + 130;
+        assert_eq!(layout.find_slot_at(tab1_x, tab0_y, &player), Some(InventorySlotTarget::CreativeTab(1)));
+
+        // First creative block in tab 0 (Grass)
+        let block0_x = layout.start_x + 30;
+        let block0_y = layout.start_y + 45;
+        assert_eq!(layout.find_slot_at(block0_x, block0_y, &player), Some(InventorySlotTarget::Creative(BlockId::Grass.to_u8())));
+
+        // Hotbar slot 0 in creative mode
+        let hotbar0_x = layout.start_x + 25;
+        let hotbar0_y = layout.start_y + 250;
+        assert_eq!(layout.find_slot_at(hotbar0_x, hotbar0_y, &player), Some(InventorySlotTarget::Hotbar(0)));
+
+        // Trash slot in creative mode
+        let trash_x = layout.start_x + 430;
+        let trash_y = layout.start_y + 250;
+        assert_eq!(layout.find_slot_at(trash_x, trash_y, &player), Some(InventorySlotTarget::Trash));
+    }
+
+    #[test]
+    fn test_creative_hotbar_assignment_and_trash() {
+        let mut inv = crate::gameplay::inventory::Inventory::new();
+        // Place 64 grass into hotbar slot 0
+        inv.hotbar[0] = Some(ItemStack { block: BlockId::Grass, count: 64 });
+        assert_eq!(inv.hotbar[0], Some(ItemStack { block: BlockId::Grass, count: 64 }));
+
+        // Trash action: delete held item
+        inv.held_item = Some(ItemStack { block: BlockId::StonePickaxe, count: 1 });
+        inv.held_item = None;
+        assert_eq!(inv.held_item, None);
+
+        // Shift-trash action: clear entire hotbar
+        inv.hotbar.fill(None);
+        assert!(inv.hotbar.iter().all(|s| s.is_none()));
+    }
+}
+

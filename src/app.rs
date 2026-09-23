@@ -214,6 +214,7 @@ pub struct RustCraftApp {
     prev_right_arrow_down: bool,
     prev_n_down: bool,
     prev_del_down: bool,
+    prev_key_digits: [bool; 10],
 }
 
 impl RustCraftApp {
@@ -332,6 +333,7 @@ impl RustCraftApp {
             prev_right_arrow_down: false,
             prev_n_down: false,
             prev_del_down: false,
+            prev_key_digits: [false; 10],
         }
     }
 
@@ -1532,6 +1534,9 @@ impl RustCraftApp {
                     || input.gp_start_just_pressed
                 {
                     self.player.inventory.return_crafting_items();
+                    if self.player.gamemode == GameMode::Creative {
+                        self.player.inventory.held_item = None;
+                    }
                     self.crafting_table_open = false;
                     self.state = GameState::Playing;
                     out.request_capture_mouse = true;
@@ -1539,81 +1544,124 @@ impl RustCraftApp {
 
                 let layout = InventoryLayout::new(self.renderer.width, self.renderer.height, self.crafting_table_open);
                 let inv_hovered_target = mouse_pos.and_then(|(mx, my)| {
-                    layout.find_slot_at(mx as i32, my as i32, self.player.gamemode)
+                    layout.find_slot_at(mx as i32, my as i32, &self.player)
                 });
+
+                // Number keys 1-9 (indices 1..9) and 0 (index 0) to assign/swap into hotbar slots
+                for i in 0..10 {
+                    if input.key_digits[i] && !self.prev_key_digits[i] {
+                        if let Some(target) = inv_hovered_target {
+                            match target {
+                                InventorySlotTarget::Creative(id) => {
+                                    self.player.inventory.hotbar[i] = Some(ItemStack {
+                                        block: BlockId::from_u8(id),
+                                        count: 64,
+                                    });
+                                }
+                                InventorySlotTarget::Hotbar(from_idx) => {
+                                    self.player.inventory.hotbar.swap(i, from_idx);
+                                }
+                                InventorySlotTarget::Main(from_idx) => {
+                                    std::mem::swap(&mut self.player.inventory.hotbar[i], &mut self.player.inventory.main[from_idx]);
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
 
                 let click_left = (left_down && !self.prev_left_down) || input.gp_south_just_pressed;
                 let click_right = (right_down && !self.prev_right_down) || input.gp_west_just_pressed;
 
                 if click_left || click_right {
                     if let Some(target) = inv_hovered_target {
-                        if self.player.gamemode == GameMode::Creative {
-                            if let InventorySlotTarget::Creative(id) = target {
-                                self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = Some(ItemStack {
-                                    block: BlockId::from_u8(id),
-                                    count: 64,
-                                });
+                        match target {
+                            InventorySlotTarget::CreativeTab(tab_idx) => {
+                                self.player.creative_tab = tab_idx;
                             }
-                        } else {
-                            match target {
-                                InventorySlotTarget::Hotbar(idx) => {
-                                    let slot = &mut self.player.inventory.hotbar[idx];
-                                    if click_left {
-                                        Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
+                            InventorySlotTarget::Creative(id) => {
+                                let block = BlockId::from_u8(id);
+                                if input.key_shift {
+                                    // Shift-click places 64-stack into first empty hotbar slot
+                                    let placed = if let Some(slot) = self.player.inventory.hotbar.iter_mut().find(|s| s.is_none()) {
+                                        *slot = Some(ItemStack { block, count: 64 });
+                                        true
                                     } else {
-                                        Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
-                                    }
-                                }
-                                InventorySlotTarget::Main(idx) => {
-                                    let slot = &mut self.player.inventory.main[idx];
-                                    if click_left {
-                                        Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
-                                    } else {
-                                        Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
-                                    }
-                                }
-                                InventorySlotTarget::Crafting2x2(idx) => {
-                                    let slot = &mut self.player.inventory.crafting_2x2[idx];
-                                    if click_left {
-                                        Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
-                                    } else {
-                                        Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
-                                    }
-                                }
-                                InventorySlotTarget::Crafting3x3(idx) => {
-                                    let slot = &mut self.player.inventory.crafting_3x3[idx];
-                                    if click_left {
-                                        Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
-                                    } else {
-                                        Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
-                                    }
-                                }
-                                InventorySlotTarget::CraftingOutput => {
-                                    let result = if self.crafting_table_open {
-                                        self.recipe_book.match_grid(&self.player.inventory.crafting_3x3, 3, 3)
-                                    } else {
-                                        self.recipe_book.match_grid(&self.player.inventory.crafting_2x2, 2, 2)
+                                        false
                                     };
-                                    if let Some(res) = result {
-                                        let can_take = match self.player.inventory.held_item {
-                                            None => true,
-                                            Some(h) => h.block == res.block && h.count + res.count <= 64,
-                                        };
-                                        if can_take {
-                                            if let Some(h) = &mut self.player.inventory.held_item {
-                                                h.count += res.count;
-                                            } else {
-                                                self.player.inventory.held_item = Some(res);
-                                            }
-                                            if self.crafting_table_open {
-                                                RecipeBook::consume_grid(&mut self.player.inventory.crafting_3x3);
-                                            } else {
-                                                RecipeBook::consume_grid(&mut self.player.inventory.crafting_2x2);
-                                            }
+                                    if !placed {
+                                        self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = Some(ItemStack { block, count: 64 });
+                                    }
+                                } else {
+                                    // Normal click: pick up full 64-stack into hand
+                                    self.player.inventory.held_item = Some(ItemStack { block, count: 64 });
+                                }
+                            }
+                            InventorySlotTarget::Trash => {
+                                if input.key_shift {
+                                    // Shift-click on trash clears all hotbar slots
+                                    self.player.inventory.hotbar.fill(None);
+                                    self.player.inventory.held_item = None;
+                                } else {
+                                    self.player.inventory.held_item = None;
+                                }
+                            }
+                            InventorySlotTarget::Hotbar(idx) => {
+                                let slot = &mut self.player.inventory.hotbar[idx];
+                                if click_left {
+                                    Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
+                                } else {
+                                    Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                }
+                            }
+                            InventorySlotTarget::Main(idx) => {
+                                let slot = &mut self.player.inventory.main[idx];
+                                if click_left {
+                                    Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
+                                } else {
+                                    Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                }
+                            }
+                            InventorySlotTarget::Crafting2x2(idx) => {
+                                let slot = &mut self.player.inventory.crafting_2x2[idx];
+                                if click_left {
+                                    Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
+                                } else {
+                                    Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                }
+                            }
+                            InventorySlotTarget::Crafting3x3(idx) => {
+                                let slot = &mut self.player.inventory.crafting_3x3[idx];
+                                if click_left {
+                                    Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
+                                } else {
+                                    Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                }
+                            }
+                            InventorySlotTarget::CraftingOutput => {
+                                let result = if self.crafting_table_open {
+                                    self.recipe_book.match_grid(&self.player.inventory.crafting_3x3, 3, 3)
+                                } else {
+                                    self.recipe_book.match_grid(&self.player.inventory.crafting_2x2, 2, 2)
+                                };
+                                if let Some(res) = result {
+                                    let can_take = match self.player.inventory.held_item {
+                                        None => true,
+                                        Some(h) => h.block == res.block && h.count + res.count <= 64,
+                                    };
+                                    if can_take {
+                                        if let Some(h) = &mut self.player.inventory.held_item {
+                                            h.count += res.count;
+                                        } else {
+                                            self.player.inventory.held_item = Some(res);
+                                        }
+                                        if self.crafting_table_open {
+                                            RecipeBook::consume_grid(&mut self.player.inventory.crafting_3x3);
+                                        } else {
+                                            RecipeBook::consume_grid(&mut self.player.inventory.crafting_2x2);
                                         }
                                     }
                                 }
-                                _ => {}
                             }
                         }
                     }
@@ -1731,6 +1779,7 @@ impl RustCraftApp {
         self.prev_right_arrow_down = right_arrow_down;
         self.prev_n_down = n_down;
         self.prev_del_down = del_down;
+        self.prev_key_digits = input.key_digits;
 
         out.title = format!(
             "RustCraft [{} renderer] - {} FPS - blok: {}{}{}",

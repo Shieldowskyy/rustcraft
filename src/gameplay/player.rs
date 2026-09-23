@@ -13,6 +13,7 @@ pub struct Player {
     pub fall_distance: f32,
     pub inventory: Inventory,
     pub selected_hotbar_slot: u8, // 0 to 9
+    pub creative_tab: usize, // 0: Budulec, 1: Narzedzia, 2: Wszystkie, 3: Ekwipunek
     pub invulnerability_timer: f32,
     pub has_landed: bool,
 }
@@ -26,6 +27,7 @@ impl Player {
             fall_distance: 0.0,
             inventory: Inventory::new(),
             selected_hotbar_slot: 0,
+            creative_tab: 0,
             invulnerability_timer: 3.0,
             has_landed: false,
         }
