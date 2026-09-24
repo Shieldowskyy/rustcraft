@@ -1,0 +1,179 @@
+name: Nightly Release
+
+on:
+  schedule:
+    # Run daily at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux-x86_64:
+    name: Build Linux x86_64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libxinerama-dev libxext-dev libxfixes-dev libasound2-dev \
+            libudev-dev pkg-config libxkbcommon-dev upx
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-unknown-linux-gnu
+      - name: Build and Package
+        run: |
+          chmod +x compile_linux.sh
+          ./compile_linux.sh
+          mkdir -p dist
+          tar -czf dist/rustcraft-linux-x86_64.tar.gz -C target/release rustcraft
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64-pkg
+          path: dist/rustcraft-linux-x86_64.tar.gz
+
+  build-linux-arm64:
+    name: Build Linux ARM64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies & toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils-aarch64-linux-gnu pkg-config
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: aarch64-unknown-linux-gnu
+      - name: Install Cross
+        run: |
+          curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
+      - name: Build with Cross
+        run: |
+          cross build --target aarch64-unknown-linux-gnu --release
+          aarch64-linux-gnu-strip target/aarch64-unknown-linux-gnu/release/rustcraft || true
+          mkdir -p dist
+          tar -czf dist/rustcraft-linux-arm64.tar.gz -C target/aarch64-unknown-linux-gnu/release rustcraft
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64-pkg
+          path: dist/rustcraft-linux-arm64.tar.gz
+
+  build-windows:
+    name: Build Windows x86_64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+      - name: Build
+        run: cargo build --release
+      - name: Package Windows ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Compress-Archive -Path target\release\rustcraft.exe -DestinationPath dist\rustcraft-windows-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64-pkg
+          path: dist/rustcraft-windows-x86_64.zip
+
+  build-vita:
+    name: Build PS Vita (.vpk)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust Nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly
+          components: rust-src
+      - name: Install VitaSDK
+        run: |
+          export VITASDK="$HOME/vitasdk"
+          echo "VITASDK=$VITASDK" >> $GITHUB_ENV
+          echo "$VITASDK/bin" >> $GITHUB_PATH
+          curl -fsSL https://github.com/vitasdk/vdpm/releases/latest/download/bootstrap-vitasdk.sh | bash
+      - name: Build VPK
+        run: |
+          chmod +x build_vita.sh
+          ./build_vita.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: psvita-pkg
+          path: RustCraft.vpk
+
+  build-wasm:
+    name: Build WebAssembly (WASM)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Build WASM
+        run: |
+          chmod +x build_web.sh
+          ./build_web.sh
+          mkdir -p dist
+          cd web && zip -r ../dist/rustcraft-web-wasm.zip * && cd ..
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm-pkg
+          path: dist/rustcraft-web-wasm.zip
+
+  publish-nightly:
+    name: Publish Nightly Release
+    needs: [build-linux-x86_64, build-linux-arm64, build-windows, build-vita, build-wasm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Prepare Release Directory
+        run: |
+          mkdir -p release-files
+          cp release-artifacts/* release-files/ || true
+          ls -lh release-files/
+
+      - name: Create or Update Nightly Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: "RustCraft Nightly Build"
+          body: |
+            Automated Nightly build of **RustCraft**.
+            Built from commit `${{ github.sha }}` on branch `${{ github.ref_name }}`.
+
+            ### Dostępne paczki:
+            - **PlayStation Vita:** `RustCraft.vpk`
+            - **Windows (x86_64):** `rustcraft-windows-x86_64.zip`
+            - **Linux (x86_64):** `rustcraft-linux-x86_64.tar.gz`
+            - **Linux (ARM64):** `rustcraft-linux-arm64.tar.gz`
+            - **Web (WASM/HTML5):** `rustcraft-web-wasm.zip`
+          prerelease: true
+          files: release-files/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
