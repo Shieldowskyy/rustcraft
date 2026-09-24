@@ -1,0 +1,42 @@
+name: Build WebAssembly (WASM)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-wasm:
+    name: Build WebAssembly (WASM)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Stable with WASM Target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: |
+          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build WebAssembly Package
+        run: |
+          chmod +x build_web.sh
+          ./build_web.sh
+
+      - name: Upload WebAssembly Distribution Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RustCraft-WASM-Web
+          path: web/
+          if-no-files-found: error

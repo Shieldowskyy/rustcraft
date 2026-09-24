@@ -1,0 +1,48 @@
+name: Build PlayStation Vita
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-vita:
+    name: Build PS Vita (.vpk)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Nightly with build-std support
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly
+          components: rust-src
+          targets: armv7-sony-vita-newlibeabihf
+
+      - name: Install VitaSDK
+        run: |
+          sudo mkdir -p /usr/local/vitasdk
+          sudo chown -R $USER:$USER /usr/local/vitasdk
+          export VITASDK=/usr/local/vitasdk
+          echo "VITASDK=$VITASDK" >> $GITHUB_ENV
+          echo "$VITASDK/bin" >> $GITHUB_PATH
+          curl -fsSL https://github.com/vitasdk/vdpm/releases/latest/download/bootstrap-vitasdk.sh | bash
+
+      - name: Build RustCraft VPK
+        run: |
+          chmod +x build_vita.sh
+          ./build_vita.sh
+
+      - name: Upload PS Vita VPK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RustCraft-PSVita
+          path: RustCraft.vpk
+          if-no-files-found: error

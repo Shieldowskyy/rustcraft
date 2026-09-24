@@ -1,0 +1,58 @@
+name: Build Linux x86_64
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux-x86_64:
+    name: Build Linux x86_64
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxext-dev \
+            libxfixes-dev \
+            libasound2-dev \
+            libudev-dev \
+            pkg-config \
+            libxkbcommon-dev \
+            upx
+
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Run Tests
+        run: cargo test --release --verbose
+
+      - name: Build and Optimize Linux Binary
+        run: |
+          chmod +x compile_linux.sh
+          ./compile_linux.sh
+
+      - name: Upload Linux x86_64 Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: RustCraft-Linux-x86_64
+          path: target/release/rustcraft
+          if-no-files-found: error

@@ -1,0 +1,54 @@
+name: Build Linux ARM64
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux-arm64:
+    name: Build Linux ARM64 (aarch64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies & cross toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu \
+            pkg-config
+
+      - name: Install Rust Stable with ARM64 Target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install Cross
+        run: |
+          curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
+
+      - name: Build with Cross
+        run: |
+          cross build --target aarch64-unknown-linux-gnu --release
+
+      - name: Strip Binary
+        run: |
+          aarch64-linux-gnu-strip target/aarch64-unknown-linux-gnu/release/rustcraft || true
+
+      - name: Upload Linux ARM64 Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: RustCraft-Linux-ARM64
+          path: target/aarch64-unknown-linux-gnu/release/rustcraft
+          if-no-files-found: error
