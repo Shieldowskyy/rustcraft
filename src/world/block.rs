@@ -47,6 +47,16 @@ pub enum BlockId {
     AutumnLeaves,
     /// Torch block / item emitting light
     Torch,
+    /// Raw Porkchop dropped by pigs
+    RawPorkchop,
+    /// Cooked Porkchop (restores 8 hunger)
+    CookedPorkchop,
+    /// Raw Beef dropped by cows
+    RawBeef,
+    /// Cooked Beef / Steak (restores 8 hunger)
+    CookedBeef,
+    /// Apple dropped from leaves (restores 4 hunger)
+    Apple,
 }
 
 impl BlockId {
@@ -89,6 +99,11 @@ impl BlockId {
             35 => BlockId::Mud,
             36 => BlockId::AutumnLeaves,
             37 => BlockId::Torch,
+            38 => BlockId::RawPorkchop,
+            39 => BlockId::CookedPorkchop,
+            40 => BlockId::RawBeef,
+            41 => BlockId::CookedBeef,
+            42 => BlockId::Apple,
             _ => BlockId::Air,
         }
     }
@@ -133,6 +148,11 @@ impl BlockId {
             BlockId::Mud => 35,
             BlockId::AutumnLeaves => 36,
             BlockId::Torch => 37,
+            BlockId::RawPorkchop => 38,
+            BlockId::CookedPorkchop => 39,
+            BlockId::RawBeef => 40,
+            BlockId::CookedBeef => 41,
+            BlockId::Apple => 42,
         }
     }
 
@@ -153,6 +173,11 @@ impl BlockId {
                 | BlockId::WoodenSword
                 | BlockId::StoneSword
                 | BlockId::IronSword
+                | BlockId::RawPorkchop
+                | BlockId::CookedPorkchop
+                | BlockId::RawBeef
+                | BlockId::CookedBeef
+                | BlockId::Apple
         )
     }
 
@@ -176,9 +201,37 @@ impl BlockId {
             | (1u64 << 32) // StoneSword
             | (1u64 << 33) // IronSword
             | (1u64 << 37) // Torch
+            | (1u64 << 38) // RawPorkchop
+            | (1u64 << 39) // CookedPorkchop
+            | (1u64 << 40) // RawBeef
+            | (1u64 << 41) // CookedBeef
+            | (1u64 << 42) // Apple
         );
         let id = self.to_u8() as u32;
         ((SOLID_MASK >> id) & 1) != 0
+    }
+
+    pub fn is_food(self) -> bool {
+        matches!(
+            self,
+            BlockId::RawPorkchop
+                | BlockId::CookedPorkchop
+                | BlockId::RawBeef
+                | BlockId::CookedBeef
+                | BlockId::Apple
+        )
+    }
+
+    /// Returns (hunger_points, saturation_points)
+    pub fn food_nutrition(self) -> Option<(f32, f32)> {
+        match self {
+            BlockId::RawPorkchop => Some((3.0, 1.8)),
+            BlockId::CookedPorkchop => Some((8.0, 12.8)),
+            BlockId::RawBeef => Some((3.0, 1.8)),
+            BlockId::CookedBeef => Some((8.0, 12.8)),
+            BlockId::Apple => Some((4.0, 2.4)),
+            _ => None,
+        }
     }
 
     pub fn is_tool(self) -> bool {
@@ -355,6 +408,11 @@ impl BlockId {
             BlockId::Mud => "bloto",
             BlockId::AutumnLeaves => "jesienne liscie",
             BlockId::Torch => "pochodnia",
+            BlockId::RawPorkchop => "surowa wieprzowina",
+            BlockId::CookedPorkchop => "pieczona wieprzowina",
+            BlockId::RawBeef => "surowa wolowina",
+            BlockId::CookedBeef => "stek",
+            BlockId::Apple => "jablko",
         }
     }
 
@@ -403,6 +461,11 @@ impl BlockId {
             },
             BlockId::Stick => [0.55, 0.38, 0.18],
             BlockId::Torch => [0.98, 0.72, 0.22],
+            BlockId::RawPorkchop => [0.92, 0.55, 0.60],
+            BlockId::CookedPorkchop => [0.72, 0.45, 0.25],
+            BlockId::RawBeef => [0.85, 0.25, 0.25],
+            BlockId::CookedBeef => [0.55, 0.30, 0.18],
+            BlockId::Apple => [0.90, 0.15, 0.15],
             BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword => [0.60, 0.42, 0.22],
             BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword => [0.55, 0.55, 0.55],
             BlockId::IronPickaxe | BlockId::IronAxe | BlockId::IronShovel | BlockId::IronSword => [0.85, 0.85, 0.88],

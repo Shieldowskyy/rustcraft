@@ -54,6 +54,176 @@ pub fn draw_lava_overlay(buffer: &mut [u32], width: usize, height: usize, time: 
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BubbleState {
+    Full,
+    Pop,
+    Empty,
+}
+
+pub fn draw_bubble(buffer: &mut [u32], width: usize, height: usize, x: i32, y: i32, state: BubbleState) {
+    match state {
+        BubbleState::Full => {
+            let outline = pack_color(0.05, 0.22, 0.42);
+            let highlight = pack_color(0.95, 0.98, 1.0);
+            let cyan = pack_color(0.32, 0.78, 0.98);
+            let shadow = pack_color(0.12, 0.48, 0.75);
+
+            // Obrys 8x8 (okrągły kształt)
+            fill_rect(buffer, width, height, x + 2, y + 0, 4, 1, outline);
+            fill_rect(buffer, width, height, x + 1, y + 1, 1, 1, outline);
+            fill_rect(buffer, width, height, x + 6, y + 1, 1, 1, outline);
+            fill_rect(buffer, width, height, x + 0, y + 2, 1, 4, outline);
+            fill_rect(buffer, width, height, x + 7, y + 2, 1, 4, outline);
+            fill_rect(buffer, width, height, x + 1, y + 6, 1, 1, outline);
+            fill_rect(buffer, width, height, x + 6, y + 6, 1, 1, outline);
+            fill_rect(buffer, width, height, x + 2, y + 7, 4, 1, outline);
+
+            // Wnętrze bąbelka
+            fill_rect(buffer, width, height, x + 2, y + 1, 4, 1, cyan);
+            fill_rect(buffer, width, height, x + 1, y + 2, 6, 4, cyan);
+            fill_rect(buffer, width, height, x + 2, y + 6, 4, 1, cyan);
+
+            // Połysk (refleks światła)
+            set_px(buffer, width, height, x + 3, y + 1, highlight);
+            set_px(buffer, width, height, x + 4, y + 1, highlight);
+            set_px(buffer, width, height, x + 2, y + 2, highlight);
+            set_px(buffer, width, height, x + 3, y + 2, highlight);
+            set_px(buffer, width, height, x + 2, y + 3, highlight);
+
+            // Cień sferyczny na dole po prawej
+            set_px(buffer, width, height, x + 6, y + 5, shadow);
+            set_px(buffer, width, height, x + 5, y + 6, shadow);
+        }
+        BubbleState::Pop => {
+            let drop = pack_color(0.40, 0.85, 1.0);
+            let glint = pack_color(0.95, 0.98, 1.0);
+            set_px(buffer, width, height, x + 1, y + 1, glint);
+            set_px(buffer, width, height, x + 6, y + 1, drop);
+            set_px(buffer, width, height, x + 0, y + 4, drop);
+            set_px(buffer, width, height, x + 7, y + 4, glint);
+            set_px(buffer, width, height, x + 2, y + 6, drop);
+            set_px(buffer, width, height, x + 5, y + 6, glint);
+            set_px(buffer, width, height, x + 3, y + 3, glint);
+            set_px(buffer, width, height, x + 4, y + 4, drop);
+        }
+        BubbleState::Empty => {}
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum HungerIconState {
+    Full,
+    Half,
+    Empty,
+}
+
+pub fn draw_hunger_icon(buffer: &mut [u32], width: usize, height: usize, x: i32, y: i32, state: HungerIconState) {
+    let outline = pack_color(0.24, 0.10, 0.04);
+    let bone_white = pack_color(0.95, 0.92, 0.85);
+    let bone_shadow = pack_color(0.68, 0.62, 0.55);
+    let meat_hi = pack_color(0.96, 0.68, 0.32);
+    let meat_base = pack_color(0.78, 0.42, 0.14);
+    let meat_sh = pack_color(0.48, 0.22, 0.06);
+    let empty_bg = pack_color(0.12, 0.10, 0.10);
+    let empty_border = pack_color(0.22, 0.18, 0.18);
+
+    match state {
+        HungerIconState::Full => {
+            // Bone handle at top-right
+            set_px(buffer, width, height, x + 6, y + 0, bone_white);
+            set_px(buffer, width, height, x + 7, y + 0, bone_white);
+            set_px(buffer, width, height, x + 5, y + 1, outline);
+            set_px(buffer, width, height, x + 6, y + 1, bone_white);
+            set_px(buffer, width, height, x + 7, y + 1, bone_shadow);
+
+            // Meat outline
+            fill_rect(buffer, width, height, x + 2, y + 2, 3, 1, outline);
+            set_px(buffer, width, height, x + 5, y + 2, outline);
+            set_px(buffer, width, height, x + 1, y + 3, outline);
+            set_px(buffer, width, height, x + 0, y + 4, outline);
+            set_px(buffer, width, height, x + 0, y + 5, outline);
+            set_px(buffer, width, height, x + 0, y + 6, outline);
+            set_px(buffer, width, height, x + 1, y + 7, outline);
+            fill_rect(buffer, width, height, x + 2, y + 7, 4, 1, outline);
+            set_px(buffer, width, height, x + 6, y + 6, outline);
+            set_px(buffer, width, height, x + 7, y + 5, outline);
+            set_px(buffer, width, height, x + 6, y + 4, outline);
+            set_px(buffer, width, height, x + 6, y + 3, outline);
+
+            // Meat inner base
+            fill_rect(buffer, width, height, x + 2, y + 3, 4, 1, meat_base);
+            fill_rect(buffer, width, height, x + 1, y + 4, 5, 1, meat_base);
+            fill_rect(buffer, width, height, x + 1, y + 5, 6, 1, meat_base);
+            fill_rect(buffer, width, height, x + 1, y + 6, 5, 1, meat_sh);
+
+            // Meat highlights
+            set_px(buffer, width, height, x + 2, y + 3, meat_hi);
+            set_px(buffer, width, height, x + 3, y + 3, meat_hi);
+            set_px(buffer, width, height, x + 2, y + 4, meat_hi);
+            set_px(buffer, width, height, x + 3, y + 4, meat_hi);
+
+            // Meat bottom-right shadow
+            set_px(buffer, width, height, x + 5, y + 5, meat_sh);
+            set_px(buffer, width, height, x + 6, y + 5, meat_sh);
+            set_px(buffer, width, height, x + 4, y + 6, meat_sh);
+            set_px(buffer, width, height, x + 5, y + 6, meat_sh);
+        }
+        HungerIconState::Half => {
+            // Bone handle at top-right
+            set_px(buffer, width, height, x + 6, y + 0, bone_white);
+            set_px(buffer, width, height, x + 7, y + 0, bone_white);
+            set_px(buffer, width, height, x + 5, y + 1, outline);
+            set_px(buffer, width, height, x + 6, y + 1, bone_white);
+            set_px(buffer, width, height, x + 7, y + 1, bone_shadow);
+
+            // Empty left side + filled right side
+            fill_rect(buffer, width, height, x + 1, y + 3, 3, 4, empty_bg);
+            fill_rect(buffer, width, height, x + 0, y + 4, 1, 3, empty_border);
+            fill_rect(buffer, width, height, x + 1, y + 7, 3, 1, empty_border);
+            fill_rect(buffer, width, height, x + 1, y + 2, 3, 1, empty_border);
+
+            // Right half meat
+            set_px(buffer, width, height, x + 4, y + 2, outline);
+            set_px(buffer, width, height, x + 5, y + 2, outline);
+            set_px(buffer, width, height, x + 4, y + 3, meat_hi);
+            set_px(buffer, width, height, x + 5, y + 3, meat_base);
+            set_px(buffer, width, height, x + 6, y + 3, outline);
+            set_px(buffer, width, height, x + 4, y + 4, meat_hi);
+            set_px(buffer, width, height, x + 5, y + 4, meat_base);
+            set_px(buffer, width, height, x + 6, y + 4, outline);
+            set_px(buffer, width, height, x + 4, y + 5, meat_base);
+            set_px(buffer, width, height, x + 5, y + 5, meat_sh);
+            set_px(buffer, width, height, x + 6, y + 5, outline);
+            set_px(buffer, width, height, x + 4, y + 6, meat_sh);
+            set_px(buffer, width, height, x + 5, y + 6, outline);
+            fill_rect(buffer, width, height, x + 4, y + 7, 2, 1, outline);
+        }
+        HungerIconState::Empty => {
+            // Empty dark shank outline
+            set_px(buffer, width, height, x + 6, y + 0, empty_border);
+            set_px(buffer, width, height, x + 7, y + 0, empty_border);
+            set_px(buffer, width, height, x + 6, y + 1, empty_bg);
+            set_px(buffer, width, height, x + 7, y + 1, empty_border);
+
+            fill_rect(buffer, width, height, x + 2, y + 2, 4, 1, empty_border);
+            set_px(buffer, width, height, x + 1, y + 3, empty_border);
+            set_px(buffer, width, height, x + 0, y + 4, empty_border);
+            set_px(buffer, width, height, x + 0, y + 5, empty_border);
+            set_px(buffer, width, height, x + 0, y + 6, empty_border);
+            set_px(buffer, width, height, x + 1, y + 7, empty_border);
+            fill_rect(buffer, width, height, x + 2, y + 7, 4, 1, empty_border);
+            set_px(buffer, width, height, x + 6, y + 6, empty_border);
+            set_px(buffer, width, height, x + 7, y + 5, empty_border);
+            set_px(buffer, width, height, x + 6, y + 4, empty_border);
+            set_px(buffer, width, height, x + 6, y + 3, empty_border);
+
+            fill_rect(buffer, width, height, x + 2, y + 3, 4, 4, empty_bg);
+            fill_rect(buffer, width, height, x + 1, y + 4, 1, 3, empty_bg);
+        }
+    }
+}
+
 pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Player) {
     let slot_size = 28i32;
     let margin = 3i32;
@@ -102,6 +272,50 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
             };
             fill_rect(buffer, width, height, heart_x, health_y, 8, 8, pack_color(0.1, 0.1, 0.1));
             fill_rect(buffer, width, height, heart_x + 1, health_y + 1, 6, 6, color);
+        }
+
+        // Pasek głodu (Hunger bar) - po prawej stronie nad hotbarem
+        let hunger_start_x = start_x + total_w - 98;
+        let hunger_pts = player.hunger.ceil() as i32;
+        let is_starving = player.hunger <= 6.0;
+
+        for i in 0..10 {
+            // W Minecraft udka ubywają od prawej do lewej
+            let icon_idx = i;
+            let threshold = (icon_idx + 1) * 2;
+            let state = if hunger_pts >= threshold {
+                HungerIconState::Full
+            } else if hunger_pts == threshold - 1 {
+                HungerIconState::Half
+            } else {
+                HungerIconState::Empty
+            };
+
+            let wobble = if is_starving && player.hunger > 0.0 {
+                if (i as i32 + (player.starvation_timer * 15.0) as i32) % 3 == 1 { -1 } else { 0 }
+            } else {
+                0
+            };
+
+            let hunger_x = hunger_start_x + i as i32 * 10;
+            draw_hunger_icon(buffer, width, height, hunger_x, health_y + wobble, state);
+        }
+
+        // Bąbelki powietrza nad paskiem głodu (lub sercami) podczas nurkowania
+        if player.head_underwater || player.air < player.max_air {
+            let bubble_y = health_y - 10;
+            let air_pts = player.air.ceil() as i32;
+            for i in 0..10 {
+                let bubble_x = hunger_start_x + i * 10;
+                let state = if air_pts >= (i + 1) * 2 {
+                    BubbleState::Full
+                } else if air_pts == (i + 1) * 2 - 1 {
+                    BubbleState::Pop
+                } else {
+                    BubbleState::Empty
+                };
+                draw_bubble(buffer, width, height, bubble_x, bubble_y, state);
+            }
         }
     }
 }
@@ -359,3 +573,63 @@ pub fn draw_death_screen(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_draw_bubble_renders_pixels() {
+        let width = 32;
+        let height = 32;
+        let mut buffer = vec![0u32; width * height];
+        draw_bubble(&mut buffer, width, height, 4, 4, BubbleState::Full);
+        let filled_count = buffer.iter().filter(|&&p| p != 0).count();
+        assert!(filled_count > 0, "Full bubble should write non-zero pixels");
+
+        let mut buffer_pop = vec![0u32; width * height];
+        draw_bubble(&mut buffer_pop, width, height, 4, 4, BubbleState::Pop);
+        let pop_count = buffer_pop.iter().filter(|&&p| p != 0).count();
+        assert!(pop_count > 0, "Pop bubble should write non-zero pixels");
+    }
+
+    #[test]
+    fn test_draw_hotbar_with_underwater_bubbles() {
+        let width = 320;
+        let height = 240;
+        let mut buffer_surface = vec![0u32; width * height];
+        let mut buffer_underwater = vec![0u32; width * height];
+
+        let mut player = Player::new();
+        player.gamemode = GameMode::Survival;
+        player.head_underwater = false;
+        player.air = 20.0;
+        draw_hotbar(&mut buffer_surface, width, height, &player);
+
+        player.head_underwater = true;
+        player.air = 15.0;
+        draw_hotbar(&mut buffer_underwater, width, height, &player);
+
+        let count_surf = buffer_surface.iter().filter(|&&p| p != 0).count();
+        let count_under = buffer_underwater.iter().filter(|&&p| p != 0).count();
+        assert!(count_under > count_surf, "Underwater HUD should render bubble pixels above hearts");
+    }
+
+    #[test]
+    fn test_draw_hunger_icon_renders_pixels() {
+        let width = 32;
+        let height = 32;
+        let mut buffer_full = vec![0u32; width * height];
+        draw_hunger_icon(&mut buffer_full, width, height, 4, 4, HungerIconState::Full);
+        assert!(buffer_full.iter().filter(|&&p| p != 0).count() > 0);
+
+        let mut buffer_half = vec![0u32; width * height];
+        draw_hunger_icon(&mut buffer_half, width, height, 4, 4, HungerIconState::Half);
+        assert!(buffer_half.iter().filter(|&&p| p != 0).count() > 0);
+
+        let mut buffer_empty = vec![0u32; width * height];
+        draw_hunger_icon(&mut buffer_empty, width, height, 4, 4, HungerIconState::Empty);
+        assert!(buffer_empty.iter().filter(|&&p| p != 0).count() > 0);
+    }
+}
+

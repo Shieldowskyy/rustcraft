@@ -346,12 +346,20 @@ impl Mob {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct MobDrop {
+    pub pos: Vec3,
+    pub block: BlockId,
+    pub count: u8,
+}
+
 pub struct MobManager {
     pub mobs: Vec<Mob>,
     next_mob_id: u32,
     spawn_timer: f32,
     rng_state: u32,
     pub dying_poofs: Vec<Vec3>,
+    pub dying_drops: Vec<MobDrop>,
 }
 
 impl MobManager {
@@ -362,6 +370,7 @@ impl MobManager {
             spawn_timer: 1.0,
             rng_state: 987654321,
             dying_poofs: Vec::new(),
+            dying_drops: Vec::new(),
         }
     }
 
@@ -386,10 +395,21 @@ impl MobManager {
         }
 
         self.dying_poofs.clear();
+        self.dying_drops.clear();
         self.mobs.retain(|m| {
             if m.despawn_pending {
                 if m.is_dead {
                     self.dying_poofs.push(m.center_pos());
+                    let drop_block = match m.kind {
+                        MobKind::Pig => BlockId::RawPorkchop,
+                        MobKind::Cow => BlockId::RawBeef,
+                    };
+                    let count = 1 + (m.id % 3) as u8; // 1-3 meat drops
+                    self.dying_drops.push(MobDrop {
+                        pos: m.center_pos(),
+                        block: drop_block,
+                        count,
+                    });
                 }
                 false
             } else {

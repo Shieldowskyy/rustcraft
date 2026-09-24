@@ -181,6 +181,37 @@ impl ParticleSystem {
         }
     }
 
+    /// Efekt bąbelków wody podczas tonięcia (drowning)
+    pub fn spawn_drown_bubbles(&mut self, pos: Vec3) {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut rng = {
+            let mut h = DefaultHasher::new();
+            (pos.x as i32, (pos.y * 100.0) as i32, pos.z as i32).hash(&mut h);
+            h.finish()
+        };
+        let mut next = || -> f32 {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((rng >> 33) as f32) / (u32::MAX as f32)
+        };
+        for _ in 0..12 {
+            let vx = (next() - 0.5) * 1.6;
+            let vy = next() * 2.2 + 0.8;
+            let vz = (next() - 0.5) * 1.6;
+            self.particles.push(Particle {
+                pos: Vec3::new(
+                    pos.x + (next() - 0.5) * 0.5,
+                    pos.y + (next() - 0.5) * 0.3 - 0.2,
+                    pos.z + (next() - 0.5) * 0.5,
+                ),
+                vel: Vec3::new(vx, vy, vz),
+                color: [0.65 + next() * 0.3, 0.88 + next() * 0.12, 1.0],
+                life: 0.5 + next() * 0.4,
+                size: 0.06 + next() * 0.05,
+            });
+        }
+    }
+
     pub fn update(&mut self, dt: f32) {
         const GRAVITY: f32 = 8.0;
         self.particles.retain_mut(|p| {

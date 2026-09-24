@@ -62,6 +62,50 @@ impl RecipeBook {
             result: ItemStack { block: BlockId::CraftingTable, count: 1 },
         });
 
+        // 1x RawPorkchop over 1x CoalOre (vertical 1x2) -> 1x CookedPorkchop
+        self.recipes.push(Recipe {
+            width: 1,
+            height: 2,
+            pattern: vec![
+                Some(BlockId::RawPorkchop),
+                Some(BlockId::CoalOre),
+            ],
+            result: ItemStack { block: BlockId::CookedPorkchop, count: 1 },
+        });
+
+        // 1x RawBeef over 1x CoalOre (vertical 1x2) -> 1x CookedBeef
+        self.recipes.push(Recipe {
+            width: 1,
+            height: 2,
+            pattern: vec![
+                Some(BlockId::RawBeef),
+                Some(BlockId::CoalOre),
+            ],
+            result: ItemStack { block: BlockId::CookedBeef, count: 1 },
+        });
+
+        // 1x RawPorkchop over 1x Torch (vertical 1x2) -> 1x CookedPorkchop
+        self.recipes.push(Recipe {
+            width: 1,
+            height: 2,
+            pattern: vec![
+                Some(BlockId::RawPorkchop),
+                Some(BlockId::Torch),
+            ],
+            result: ItemStack { block: BlockId::CookedPorkchop, count: 1 },
+        });
+
+        // 1x RawBeef over 1x Torch (vertical 1x2) -> 1x CookedBeef
+        self.recipes.push(Recipe {
+            width: 1,
+            height: 2,
+            pattern: vec![
+                Some(BlockId::RawBeef),
+                Some(BlockId::Torch),
+            ],
+            result: ItemStack { block: BlockId::CookedBeef, count: 1 },
+        });
+
         // Shovels (1x3: Material over 2 Sticks)
         let shovel_materials = [
             (BlockId::Planks, BlockId::WoodenShovel),

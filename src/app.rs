@@ -176,6 +176,7 @@ pub struct RustCraftApp {
     pub damage_tilt_timer: f32,
     pub damage_tilt_dir: f32,
     pub lava_damage_timer: f32,
+    pub drown_damage_timer: f32,
     pub debug_lines: Vec<String>,
     pub debug_timer: f32,
     pub cpu_time_ms: f32,
@@ -289,6 +290,7 @@ impl RustCraftApp {
             damage_tilt_timer: 0.0,
             damage_tilt_dir: 1.0,
             lava_damage_timer: 0.45,
+            drown_damage_timer: 0.0,
             debug_lines: vec![
                 String::with_capacity(64),
                 String::with_capacity(64),
@@ -839,7 +841,9 @@ impl RustCraftApp {
                     self.camera.position.y += self.current_eye_offset - old_eye;
                 }
 
+                let can_sprint = self.player.gamemode == GameMode::Creative || self.player.hunger > 6.0;
                 let is_sprinting = !is_crouching
+                    && can_sprint
                     && ((input.is_mouse_captured && input.key_ctrl) || input.gp_btn_l3 || input.gp_left_stick_y > 0.85)
                     && wish_dir.length_sq() > 0.01;
 
@@ -884,6 +888,9 @@ impl RustCraftApp {
                     self.camera.position = self.camera.position + self.fly_velocity * dt;
                     self.vertical_velocity = 0.0;
                     self.horiz_velocity = Vec3::zero();
+                    self.player.head_underwater = self.world.get_block(self.camera.position.floor_to_ivec()) == BlockId::Water;
+                    self.player.air = self.player.max_air;
+                    self.drown_damage_timer = 0.0;
                 } else {
                     let feet_pos = Vec3::new(
                         self.camera.position.x,
@@ -935,6 +942,9 @@ impl RustCraftApp {
                             self.vertical_velocity = JUMP_SPEED;
                             if is_sprinting && wish_dir.length_sq() > 0.01 {
                                 self.horiz_velocity = self.horiz_velocity + wish_dir * SPRINT_JUMP_BOOST;
+                                self.player.exhaustion += 0.2;
+                            } else {
+                                self.player.exhaustion += 0.05;
                             }
                         }
                     }
@@ -969,6 +979,86 @@ impl RustCraftApp {
                         }
                     } else if !in_lava {
                         self.lava_damage_timer = 0.45;
+                    }
+
+                    // Mechanika tlenu / nurkowania
+                    let is_head_underwater = eye_block == BlockId::Water;
+                    self.player.head_underwater = is_head_underwater;
+
+                    if self.player.gamemode == GameMode::Survival {
+                        if is_head_underwater {
+                            // 15 sekund na zużycie pełnego zapasu 20 pkt tlenu (~1.33 pkt/s)
+                            self.player.air -= (self.player.max_air / 15.0) * dt;
+                            if self.player.air <= 0.0 {
+                                self.player.air = 0.0;
+                                self.drown_damage_timer += dt;
+                                if self.drown_damage_timer >= 1.0 {
+                                    self.drown_damage_timer = 0.0;
+                                    if self.player.take_damage(2.0) {
+                                        self.damage_tilt_timer = 0.4;
+                                        self.damage_tilt_dir = 1.0;
+                                        self.particles.spawn_drown_bubbles(self.camera.position);
+                                    }
+                                }
+                            } else {
+                                self.drown_damage_timer = 0.0;
+                            }
+                        } else {
+                            self.drown_damage_timer = 0.0;
+                            self.player.air = (self.player.air + 20.0 * dt).min(self.player.max_air);
+                        }
+
+                        // Mechanika głodu (Hunger / Saturation / Exhaustion)
+                        if is_sprinting {
+                            self.player.exhaustion += 0.18 * dt;
+                        } else if wish_dir.length_sq() > 0.01 {
+                            self.player.exhaustion += 0.04 * dt;
+                        } else {
+                            self.player.exhaustion += 0.01 * dt;
+                        }
+
+                        while self.player.exhaustion >= 4.0 {
+                            self.player.exhaustion -= 4.0;
+                            if self.player.saturation > 0.0 {
+                                self.player.saturation = (self.player.saturation - 1.0).max(0.0);
+                            } else {
+                                self.player.hunger = (self.player.hunger - 1.0).max(0.0);
+                            }
+                        }
+
+                        // Naturalna regeneracja zdrowia (gdy głód >= 18)
+                        if self.player.hunger >= 18.0 && self.player.health < self.player.max_health {
+                            self.player.heal_timer += dt;
+                            if self.player.heal_timer >= 4.0 {
+                                self.player.heal_timer = 0.0;
+                                self.player.heal(1.0);
+                                self.player.exhaustion += 4.0;
+                            }
+                        } else {
+                            self.player.heal_timer = 0.0;
+                        }
+
+                        // Obrażenia od głodu (gdy głód == 0)
+                        if self.player.hunger <= 0.0 {
+                            self.player.starvation_timer += dt;
+                            if self.player.starvation_timer >= 4.0 {
+                                self.player.starvation_timer = 0.0;
+                                if self.player.take_damage(1.0) {
+                                    self.damage_tilt_timer = 0.4;
+                                    self.damage_tilt_dir = 1.0;
+                                }
+                            }
+                        } else {
+                            self.player.starvation_timer = 0.0;
+                        }
+                    } else {
+                        self.player.air = self.player.max_air;
+                        self.drown_damage_timer = 0.0;
+                        self.player.hunger = self.player.max_hunger;
+                        self.player.saturation = 5.0;
+                        self.player.exhaustion = 0.0;
+                        self.player.starvation_timer = 0.0;
+                        self.player.heal_timer = 0.0;
                     }
 
                     if self.on_ground {
@@ -1100,11 +1190,17 @@ impl RustCraftApp {
                                 self.world.set_block(target, BlockId::Air);
 
                                 if self.player.gamemode == GameMode::Survival {
+                                    self.player.exhaustion += 0.025;
                                     let seed = ((target.x as u32).wrapping_mul(73856093) ^ (target.y as u32).wrapping_mul(19349663) ^ (target.z as u32).wrapping_mul(83492791)) % 1000;
                                     let rx = ((seed % 100) as f32 / 100.0 - 0.5) * 1.8;
                                     let rz = (((seed / 10) % 100) as f32 / 100.0 - 0.5) * 1.8;
                                     let drop_vel = Vec3::new(rx, 3.2, rz);
-                                    self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, broken_block, 1));
+                                    let drop_block = if matches!(broken_block, BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves) && (seed % 25 == 0) {
+                                        BlockId::Apple
+                                    } else {
+                                        broken_block
+                                    };
+                                    self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, drop_block, 1));
                                 }
 
                                 if broken_block == BlockId::Door {
@@ -1136,7 +1232,30 @@ impl RustCraftApp {
 
                 let interact_right = (input.is_mouse_captured && right_down && !self.prev_right_down) || input.gp_left_trigger_just_pressed;
                 if interact_right {
-                    if let Some(hit) = self.world.raycast(self.camera.position, self.camera.forward(), 8.0) {
+                    let held_food = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
+                    let mut ate_food = false;
+                    if let Some(food_id) = held_food {
+                        if self.player.can_eat(food_id) {
+                            if self.player.eat(food_id) {
+                                ate_food = true;
+                                self.hand_animation = 1.0;
+                                let color = food_id.face_color(Face::Top);
+                                let mouth_pos = self.camera.position + self.camera.forward() * 0.4 - Vec3::new(0.0, 0.2, 0.0);
+                                self.particles.spawn_block_break(mouth_pos - Vec3::new(0.5, 0.5, 0.5), color);
+                                if self.player.gamemode == GameMode::Survival {
+                                    if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                                        stack.count -= 1;
+                                        if stack.count == 0 {
+                                            self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = None;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !ate_food {
+                        if let Some(hit) = self.world.raycast(self.camera.position, self.camera.forward(), 8.0) {
                         let targeted_block = self.world.get_block(hit.block_pos);
                         if targeted_block == BlockId::CraftingTable && !is_crouching {
                             self.crafting_table_open = true;
@@ -1180,6 +1299,7 @@ impl RustCraftApp {
                         }
                     }
                 }
+            }
 
                 self.world.advance_time(dt);
                 self.world.update(self.camera.position, self.settings.render_distance);
@@ -1230,6 +1350,16 @@ impl RustCraftApp {
                 }
                 for poof_pos in self.mob_manager.dying_poofs.drain(..) {
                     self.particles.spawn_mob_death_poof(poof_pos);
+                }
+                for drop in self.mob_manager.dying_drops.drain(..) {
+                    let rx = ((self.mob_manager.mobs.len() as f32 * 17.0).sin()) * 1.5;
+                    let rz = ((self.mob_manager.mobs.len() as f32 * 23.0).cos()) * 1.5;
+                    self.items.push(ItemEntity::new(
+                        drop.pos,
+                        Vec3::new(rx, 3.0, rz),
+                        drop.block,
+                        drop.count,
+                    ));
                 }
 
                 if self.player.is_dead() {
@@ -1792,6 +1922,14 @@ impl RustCraftApp {
                     match btn {
                         0 => {
                             self.player.health = self.player.max_health;
+                            self.player.hunger = self.player.max_hunger;
+                            self.player.saturation = 5.0;
+                            self.player.exhaustion = 0.0;
+                            self.player.starvation_timer = 0.0;
+                            self.player.heal_timer = 0.0;
+                            self.player.air = self.player.max_air;
+                            self.player.head_underwater = false;
+                            self.drown_damage_timer = 0.0;
                             self.camera.position = self.world.player_position;
                             self.camera.pitch = 0.0;
                             self.vertical_velocity = 0.0;

@@ -7,9 +7,9 @@ pub mod settings_ui;
 
 pub use draw::{draw_text_colored_shadowed, draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color, set_px, unpack_color};
 pub use hud::{
-    death_screen_button_rects, draw_break_progress, draw_capture_prompt, draw_crosshair,
-    draw_damage_flash, draw_death_screen, draw_debug_panel, draw_hotbar, draw_lava_overlay, draw_low_health_vignette,
-    draw_pause_menu, draw_underwater_overlay, pause_menu_button_rects,
+    death_screen_button_rects, draw_break_progress, draw_bubble, draw_capture_prompt, draw_crosshair,
+    draw_damage_flash, draw_death_screen, draw_debug_panel, draw_hotbar, draw_hunger_icon, draw_lava_overlay, draw_low_health_vignette,
+    draw_pause_menu, draw_underwater_overlay, pause_menu_button_rects, BubbleState, HungerIconState,
 };
 pub use inventory_ui::{draw_inventory_screen, draw_item_icon, InventoryLayout, InventorySlotTarget};
 pub use menu::{draw_main_menu, draw_rustcraft_logo, main_menu_button_rects};

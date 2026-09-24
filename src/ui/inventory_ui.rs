@@ -61,6 +61,11 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::IronSword,
             BlockId::Stick,
             BlockId::Torch,
+            BlockId::RawPorkchop,
+            BlockId::CookedPorkchop,
+            BlockId::RawBeef,
+            BlockId::CookedBeef,
+            BlockId::Apple,
             BlockId::CraftingTable,
             BlockId::Door,
             BlockId::Tnt,
@@ -90,6 +95,11 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::Glass,
             BlockId::Ice,
             BlockId::Torch,
+            BlockId::RawPorkchop,
+            BlockId::CookedPorkchop,
+            BlockId::RawBeef,
+            BlockId::CookedBeef,
+            BlockId::Apple,
             BlockId::Tnt,
             BlockId::CraftingTable,
             BlockId::Stick,
@@ -1011,6 +1021,155 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
             px(buffer, 7, 1, fuse);
             px(buffer, 7, 2, fuse);
         }
+        BlockId::RawPorkchop => {
+            let outline = pack_color(0.48, 0.20, 0.26);
+            let base = pack_color(0.92, 0.58, 0.64);
+            let hi = pack_color(0.98, 0.78, 0.82);
+            let sh = pack_color(0.75, 0.38, 0.45);
+            let bone = pack_color(0.95, 0.95, 0.88);
+
+            // Bone tip top-right
+            px(buffer, 12, 3, bone);
+            px(buffer, 13, 2, bone);
+            px(buffer, 14, 2, bone);
+            px(buffer, 13, 4, outline);
+
+            // Meat body
+            for ly in 4..=12 {
+                for lx in 2..=11 {
+                    let in_shape = (lx + ly >= 7) && (lx + ly <= 21) && (ly - lx <= 8) && (lx - ly <= 6);
+                    if in_shape {
+                        let is_border = lx == 2 || lx == 11 || ly == 4 || ly == 12;
+                        if is_border {
+                            px(buffer, lx, ly, outline);
+                        } else if lx <= 5 && ly <= 7 {
+                            px(buffer, lx, ly, hi);
+                        } else if lx >= 8 || ly >= 10 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+        }
+        BlockId::CookedPorkchop => {
+            let outline = pack_color(0.28, 0.12, 0.05);
+            let base = pack_color(0.72, 0.42, 0.18);
+            let hi = pack_color(0.90, 0.65, 0.32);
+            let sh = pack_color(0.45, 0.22, 0.08);
+            let bone = pack_color(0.92, 0.90, 0.82);
+
+            px(buffer, 12, 3, bone);
+            px(buffer, 13, 2, bone);
+            px(buffer, 14, 2, bone);
+            px(buffer, 13, 4, outline);
+
+            for ly in 4..=12 {
+                for lx in 2..=11 {
+                    let in_shape = (lx + ly >= 7) && (lx + ly <= 21) && (ly - lx <= 8) && (lx - ly <= 6);
+                    if in_shape {
+                        let is_border = lx == 2 || lx == 11 || ly == 4 || ly == 12;
+                        if is_border {
+                            px(buffer, lx, ly, outline);
+                        } else if lx <= 5 && ly <= 7 {
+                            px(buffer, lx, ly, hi);
+                        } else if lx >= 8 || ly >= 10 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+        }
+        BlockId::RawBeef => {
+            let outline = pack_color(0.38, 0.08, 0.08);
+            let base = pack_color(0.82, 0.20, 0.20);
+            let hi = pack_color(0.94, 0.42, 0.42);
+            let sh = pack_color(0.52, 0.10, 0.10);
+            let fat = pack_color(0.96, 0.90, 0.88);
+
+            for ly in 3..=13 {
+                for lx in 2..=13 {
+                    let in_shape = (lx + ly >= 7) && (lx + ly <= 23) && (ly - lx <= 8) && (lx - ly <= 8);
+                    if in_shape {
+                        let is_border = lx == 2 || lx == 13 || ly == 3 || ly == 13;
+                        if is_border {
+                            px(buffer, lx, ly, outline);
+                        } else if (lx == 5 && ly == 7) || (lx == 6 && ly == 8) || (lx == 9 && ly == 6) {
+                            px(buffer, lx, ly, fat);
+                        } else if lx <= 6 && ly <= 6 {
+                            px(buffer, lx, ly, hi);
+                        } else if lx >= 9 || ly >= 10 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+        }
+        BlockId::CookedBeef => {
+            let outline = pack_color(0.18, 0.08, 0.04);
+            let base = pack_color(0.50, 0.26, 0.14);
+            let hi = pack_color(0.70, 0.42, 0.22);
+            let sh = pack_color(0.28, 0.12, 0.06);
+            let grill = pack_color(0.15, 0.06, 0.02);
+
+            for ly in 3..=13 {
+                for lx in 2..=13 {
+                    let in_shape = (lx + ly >= 7) && (lx + ly <= 23) && (ly - lx <= 8) && (lx - ly <= 8);
+                    if in_shape {
+                        let is_border = lx == 2 || lx == 13 || ly == 3 || ly == 13;
+                        if is_border {
+                            px(buffer, lx, ly, outline);
+                        } else if (lx + ly == 12) || (lx + ly == 16) {
+                            px(buffer, lx, ly, grill);
+                        } else if lx <= 6 && ly <= 6 {
+                            px(buffer, lx, ly, hi);
+                        } else if lx >= 9 || ly >= 10 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+        }
+        BlockId::Apple => {
+            let outline = pack_color(0.32, 0.06, 0.06);
+            let base = pack_color(0.88, 0.14, 0.14);
+            let hi = pack_color(0.98, 0.48, 0.48);
+            let sh = pack_color(0.52, 0.08, 0.08);
+            let stem = pack_color(0.42, 0.26, 0.12);
+            let leaf = pack_color(0.35, 0.78, 0.22);
+
+            // Stem & Leaf
+            px(buffer, 8, 2, stem);
+            px(buffer, 8, 3, stem);
+            px(buffer, 9, 2, leaf);
+            px(buffer, 10, 2, leaf);
+
+            // Apple body
+            for ly in 4..=13 {
+                for lx in 4..=12 {
+                    let in_shape = (lx + ly >= 9) && (lx + ly <= 23) && (ly - lx <= 8) && (lx - ly <= 7);
+                    if in_shape {
+                        let is_border = lx == 4 || lx == 12 || ly == 4 || ly == 13;
+                        if is_border {
+                            px(buffer, lx, ly, outline);
+                        } else if lx >= 6 && lx <= 8 && ly >= 6 && ly <= 7 {
+                            px(buffer, lx, ly, hi);
+                        } else if lx >= 10 || ly >= 11 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+        }
         _ => {
             // High-detail 3D beveled block
             let color = block.face_color(Face::Top);
@@ -1048,10 +1207,12 @@ mod tests {
         assert!(tab1.contains(&BlockId::Tnt));
 
         let tab2 = creative_tab_blocks(2);
-        assert_eq!(tab2.len(), 37);
+        assert_eq!(tab2.len(), 42);
         assert!(tab2.contains(&BlockId::Grass));
         assert!(tab2.contains(&BlockId::Torch));
         assert!(tab2.contains(&BlockId::IronSword));
+        assert!(tab2.contains(&BlockId::RawPorkchop));
+        assert!(tab2.contains(&BlockId::CookedBeef));
     }
 
     #[test]
