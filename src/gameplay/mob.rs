@@ -32,6 +32,13 @@ impl MobKind {
     }
 
     #[allow(dead_code)]
+    pub fn is_hostile(&self) -> bool {
+        match self {
+            MobKind::Pig | MobKind::Cow => false,
+        }
+    }
+
+    #[allow(dead_code)]
     pub fn name(&self) -> &'static str {
         match self {
             MobKind::Pig => "Świnia",

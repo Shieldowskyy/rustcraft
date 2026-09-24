@@ -1198,10 +1198,27 @@ impl RustCraftApp {
                 self.world.update_primed_tnts(dt);
 
                 self.mob_manager.update(dt, &self.world, self.camera.position);
-                for mob in &self.mob_manager.mobs {
+                for mob in &mut self.mob_manager.mobs {
                     if !mob.is_dead {
-                        let dist_sq = (mob.pos.x - self.camera.position.x).powi(2) + (mob.pos.z - self.camera.position.z).powi(2);
-                        if dist_sq < 1.4 * 1.4 && (mob.pos.y - self.camera.position.y).abs() < 1.8 {
+                        let dx = self.camera.position.x - mob.pos.x;
+                        let dz = self.camera.position.z - mob.pos.z;
+                        let dist_sq = dx * dx + dz * dz;
+
+                        // Soft push separation between player and mob
+                        let min_dist = mob.kind.half_width() + 0.35;
+                        if dist_sq < min_dist * min_dist && (mob.pos.y - self.camera.position.y).abs() < 1.6 {
+                            let dist = dist_sq.sqrt().max(0.001);
+                            let push = (min_dist - dist) * 0.5;
+                            let push_x = (dx / dist) * push;
+                            let push_z = (dz / dist) * push;
+                            mob.velocity.x -= push_x * 3.0;
+                            mob.velocity.z -= push_z * 3.0;
+                            self.horiz_velocity.x += push_x * 3.0;
+                            self.horiz_velocity.z += push_z * 3.0;
+                        }
+
+                        // Hostile mob attack
+                        if mob.kind.is_hostile() && dist_sq < 1.4 * 1.4 && (mob.pos.y - self.camera.position.y).abs() < 1.8 {
                             if self.player.take_damage(2.0) {
                                 self.damage_tilt_timer = 0.4;
                                 self.damage_tilt_dir = if mob.pos.x > self.camera.position.x { -1.0 } else { 1.0 };
