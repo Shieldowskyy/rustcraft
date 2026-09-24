@@ -297,6 +297,7 @@ impl RustCraftApp {
                 String::with_capacity(64),
                 String::with_capacity(64),
                 String::with_capacity(64),
+                String::with_capacity(64),
             ],
             debug_timer: 0.25,
             cpu_time_ms: 16.6,
@@ -1180,6 +1181,7 @@ impl RustCraftApp {
                     }
                 }
 
+                self.world.advance_time(dt);
                 self.world.update(self.camera.position, self.settings.render_distance);
                 let hand_speed = if self.fly_mode {
                     self.fly_velocity.length()
@@ -1332,6 +1334,22 @@ impl RustCraftApp {
                     }
 
                     for item in &self.items {
+                        // Okrągły cień na podłożu pod bloczkiem (jak w Minecraft)
+                        let ipos_x = item.position.x.floor() as i32;
+                        let ipos_z = item.position.z.floor() as i32;
+                        let item_y = item.position.y;
+                        for dy in 0..=3 {
+                            let test_y = (item_y.floor() as i32) - dy;
+                            let b = self.world.get_block(crate::core::math::IVec3::new(ipos_x, test_y, ipos_z));
+                            if b.is_solid() {
+                                let top_y = test_y as f32 + 1.0 + 0.015;
+                                if item_y >= top_y - 0.2 {
+                                    self.renderer.draw_item_shadow(item.position, top_y, &view_proj);
+                                    break;
+                                }
+                            }
+                        }
+
                         let y_offset = (item.age * 3.0).sin() * 0.08;
                         let mut pos = item.position;
                         pos.y += y_offset;
@@ -1440,6 +1458,33 @@ impl RustCraftApp {
                         let pz = self.camera.position.z as i32;
                         let biome = self.world.biome_name_at(px, pz);
                         let _ = write!(&mut self.debug_lines[6], "BIOM: {}", biome);
+
+                        // Linia 7: Pora Dnia, Godzina z Minutami & Światło
+                        self.debug_lines[7].clear();
+                        let time_hrs = (self.world.day_fraction() * 24.0 + 6.0) % 24.0;
+                        let hours = time_hrs.floor() as u32;
+                        let minutes = (time_hrs.fract() * 60.0) as u32;
+                        let time_period = if time_hrs >= 5.0 && time_hrs < 7.0 {
+                            "ŚWIT"
+                        } else if time_hrs >= 7.0 && time_hrs < 12.0 {
+                            "RANEK"
+                        } else if time_hrs >= 12.0 && time_hrs < 14.0 {
+                            "POŁUDNIE"
+                        } else if time_hrs >= 14.0 && time_hrs < 18.0 {
+                            "POPOŁUDNIE"
+                        } else if time_hrs >= 18.0 && time_hrs < 21.0 {
+                            "ZMIERZCH"
+                        } else {
+                            "NOC"
+                        };
+                        let _ = write!(
+                            &mut self.debug_lines[7],
+                            "PORA: {} ({:02}:{:02}) | ŚWIATŁO: {:.0}%",
+                            time_period,
+                            hours,
+                            minutes,
+                            self.world.sunlight_factor() * 100.0
+                        );
                     }
 
                     self.renderer.draw_debug_panel(&self.debug_lines);

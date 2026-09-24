@@ -665,6 +665,7 @@ pub struct GxmVertex {
 }
 
 impl GxmVertex {
+    #[inline(always)]
     pub fn from_vertex(v: &Vertex, u0: f32, v0: f32, u1: f32, v1: f32) -> Self {
         let u = u0 + (u1 - u0) * v.uv.0;
         let vv = v0 + (v1 - v0) * v.uv.1;
@@ -698,7 +699,7 @@ pub const ALL_TEXTURES: &[TextureId] = &[
     TextureId::DestroyStage3, TextureId::DestroyStage4, TextureId::DestroyStage5, TextureId::DestroyStage6,
     TextureId::DestroyStage7, TextureId::DestroyStage8, TextureId::DestroyStage9, TextureId::DamageFlash,
     TextureId::UnderwaterTint, TextureId::VignetteTint, TextureId::LavaTint, TextureId::CherryLeaves,
-    TextureId::AutumnLeaves, TextureId::Mud,
+    TextureId::AutumnLeaves, TextureId::Mud, TextureId::Torch, TextureId::EntityShadow,
 ];
 
 fn build_gpu_texture(atlas: &TextureAtlas) -> (GpuMem, SceGxmTexture) {
@@ -726,11 +727,14 @@ fn build_gpu_texture(atlas: &TextureAtlas) -> (GpuMem, SceGxmTexture) {
             let is_underwater = tex_id == TextureId::UnderwaterTint;
             let is_vignette = tex_id == TextureId::VignetteTint;
             let is_lava = tex_id == TextureId::LavaTint;
+            let is_shadow = tex_id == TextureId::EntityShadow;
             for py in 0..TEX_SIZE {
                 for px in 0..TEX_SIZE {
                     let [r, g, b] = tex.texels[py * TEX_SIZE + px];
                     let a = if r < 0.0 {
                         0u32
+                    } else if is_shadow {
+                        130u32 // Semi-transparent black entity shadow (~51% opacity)
                     } else if is_water {
                         130u32 // Semi-transparent water (~51% opacity)
                     } else if is_glass {
@@ -776,14 +780,74 @@ fn build_gpu_texture(atlas: &TextureAtlas) -> (GpuMem, SceGxmTexture) {
     (mem, texture)
 }
 
+#[inline(always)]
 pub fn atlas_uv(tex_id: TextureId) -> (f32, f32, f32, f32) {
-    let tile_idx = ALL_TEXTURES.iter().position(|&t| t == tex_id).unwrap_or(0);
+    let tile_idx = match tex_id {
+        TextureId::GrassTop => 0,
+        TextureId::GrassSide => 1,
+        TextureId::Dirt => 2,
+        TextureId::Stone => 3,
+        TextureId::Sand => 4,
+        TextureId::WoodTop => 5,
+        TextureId::WoodSide => 6,
+        TextureId::Leaves => 7,
+        TextureId::Water => 8,
+        TextureId::Snow => 9,
+        TextureId::CactusTop => 10,
+        TextureId::CactusSide => 11,
+        TextureId::CoalOre => 12,
+        TextureId::IronOre => 13,
+        TextureId::Bedrock => 14,
+        TextureId::Lava => 15,
+        TextureId::SnowLeaves => 16,
+        TextureId::Planks => 17,
+        TextureId::Door => 18,
+        TextureId::DoorTop => 19,
+        TextureId::Glass => 20,
+        TextureId::Ice => 21,
+        TextureId::TntTop => 22,
+        TextureId::TntSide => 23,
+        TextureId::PigSkin => 24,
+        TextureId::PigFace => 25,
+        TextureId::PigSnout => 26,
+        TextureId::CowSkin => 27,
+        TextureId::CowFace => 28,
+        TextureId::CowSnout => 29,
+        TextureId::CowHorns => 30,
+        TextureId::CowUdder => 31,
+        TextureId::CraftingTableTop => 32,
+        TextureId::CraftingTableSide => 33,
+        TextureId::CraftingTableFront => 34,
+        TextureId::DestroyStage0 => 35,
+        TextureId::DestroyStage1 => 36,
+        TextureId::DestroyStage2 => 37,
+        TextureId::DestroyStage3 => 38,
+        TextureId::DestroyStage4 => 39,
+        TextureId::DestroyStage5 => 40,
+        TextureId::DestroyStage6 => 41,
+        TextureId::DestroyStage7 => 42,
+        TextureId::DestroyStage8 => 43,
+        TextureId::DestroyStage9 => 44,
+        TextureId::DamageFlash => 45,
+        TextureId::UnderwaterTint => 46,
+        TextureId::VignetteTint => 47,
+        TextureId::LavaTint => 48,
+        TextureId::CherryLeaves => 49,
+        TextureId::AutumnLeaves => 50,
+        TextureId::Mud => 51,
+        TextureId::Torch => 52,
+        TextureId::EntityShadow => 53,
+    };
+    const TILE_NORM: f32 = 1.0 / ATLAS_TILES_PER_ROW as f32;
     let col = tile_idx % ATLAS_TILES_PER_ROW;
     let row = tile_idx / ATLAS_TILES_PER_ROW;
-    let tile_norm = 1.0 / ATLAS_TILES_PER_ROW as f32;
-    let u0 = col as f32 * tile_norm;
-    let v0 = row as f32 * tile_norm;
-    (u0, v0, u0 + tile_norm, v0 + tile_norm)
+    // Sub-texel inset (0.375 texela) zapobiega bleedingowi krawędzi kafelków atlasu
+    let inset = 0.375 / ATLAS_SIZE as f32;
+    let u0 = col as f32 * TILE_NORM + inset;
+    let v0 = row as f32 * TILE_NORM + inset;
+    let u1 = (col + 1) as f32 * TILE_NORM - inset;
+    let v1 = (row + 1) as f32 * TILE_NORM - inset;
+    (u0, v0, u1, v1)
 }
 
 // ============================================================
@@ -1468,14 +1532,23 @@ impl GxmRenderer {
             // 2. Rysowanie chunków z GPU z ograniczeniem liczby wysyłanych meshy na klatkę (likwiduje stutter)
             let mut tri_count: u32 = 0;
             let mut uploads_this_frame = 0;
-            const MAX_UPLOADS_PER_FRAME: usize = 1;
+            const MAX_UPLOADS_PER_FRAME: usize = 2;
             let mut last_had_offset = false;
 
+            // 2. Sortowanie chunków od najbliższego do najdalszego (Front-to-Back)
+            // Pozwala to sprzętowemu HSR / Early Depth Rejection GPU SGX543 odrzucać zasłonięte piksele przed cieniowaniem
+            let mut chunk_coords = Vec::with_capacity(((render_dist * 2 + 1) * (render_dist * 2 + 1)) as usize);
             for dz in -render_dist..=render_dist {
                 for dx in -render_dist..=render_dist {
-                    let cx = cam_chunk_x + dx;
-                    let cz = cam_chunk_z + dz;
-                    let key = (cx, cz);
+                    chunk_coords.push((dx, dz));
+                }
+            }
+            chunk_coords.sort_unstable_by_key(|&(dx, dz)| dx * dx + dz * dz);
+
+            for (dx, dz) in chunk_coords {
+                let cx = cam_chunk_x + dx;
+                let cz = cam_chunk_z + dz;
+                let key = (cx, cz);
 
                     let slot_idx = if let Some(&s) = self.chunk_slots.get(&key) {
                         let is_dirty = world.chunks.get(&key).map(|c| c.dirty).unwrap_or(false);
@@ -1592,7 +1665,6 @@ impl GxmRenderer {
                         }
                     }
                 }
-            }
 
             if last_had_offset {
                 let mut chunk_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
@@ -1702,7 +1774,7 @@ impl GxmRenderer {
             );
 
             for item in items {
-                append_dropped_item(item, ent_vb, ent_ib, &mut ent_v_count, &mut ent_i_count, max_ent_verts, max_ent_idx);
+                append_dropped_item(item, world, ent_vb, ent_ib, &mut ent_v_count, &mut ent_i_count, max_ent_verts, max_ent_idx);
             }
 
             for mob in mobs {
@@ -2016,6 +2088,7 @@ fn append_screen_overlay(
 
 fn append_dropped_item(
     item: &crate::gameplay::item::ItemEntity,
+    world: &crate::world::World,
     vb: *mut GxmVertex,
     ib: *mut u16,
     v_count: &mut usize,
@@ -2024,6 +2097,37 @@ fn append_dropped_item(
     max_idx: usize,
 ) {
     use crate::world::block::Face;
+
+    // 1. Okrągły cień na ziemi pod bloczkiem (jak w Minecraft)
+    let ipos_x = item.position.x.floor() as i32;
+    let ipos_z = item.position.z.floor() as i32;
+    let item_y = item.position.y;
+    for dy in 0..=3 {
+        let test_y = (item_y.floor() as i32) - dy;
+        let b = world.get_block(crate::core::math::IVec3::new(ipos_x, test_y, ipos_z));
+        if b.is_solid() {
+            let top_y = test_y as f32 + 1.0 + 0.015;
+            if item_y >= top_y - 0.2 {
+                let s_rad = 0.22f32;
+                let sx0 = item.position.x - s_rad;
+                let sx1 = item.position.x + s_rad;
+                let sz0 = item.position.z - s_rad;
+                let sz1 = item.position.z + s_rad;
+                let s_c0 = Vec3::new(sx0, top_y, sz1);
+                let s_c1 = Vec3::new(sx1, top_y, sz1);
+                let s_c2 = Vec3::new(sx1, top_y, sz0);
+                let s_c3 = Vec3::new(sx0, top_y, sz0);
+                append_quad(
+                    vb, ib, v_count, i_count, max_verts, max_idx,
+                    s_c0, s_c1, s_c2, s_c3,
+                    TextureId::EntityShadow,
+                    1.0,
+                );
+                break;
+            }
+        }
+    }
+
     let y_offset = (item.age * 3.0).sin() * 0.08;
     let mut pos = item.position;
     pos.y += y_offset;

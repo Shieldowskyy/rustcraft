@@ -680,6 +680,10 @@ pub enum TextureId {
     AutumnLeaves,
     /// Muddy block for swamp biome
     Mud,
+    /// Torch texture
+    Torch,
+    /// Round circular entity / item shadow
+    EntityShadow,
 }
 
 impl TextureId {
@@ -1030,6 +1034,77 @@ pub struct TextureAtlas {
     pub cherry_leaves: Texture,
     pub autumn_leaves: Texture,
     pub mud: Texture,
+    pub torch: Texture,
+    pub entity_shadow: Texture,
+}
+
+fn torch() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let wood_dark = [0.42, 0.28, 0.14];
+    let wood_light = [0.55, 0.38, 0.20];
+    let coal = [0.15, 0.14, 0.14];
+    let flame_outer = [0.98, 0.42, 0.05];
+    let flame_mid = [1.0, 0.78, 0.12];
+    let flame_core = [1.0, 0.98, 0.70];
+
+    // Background default (darker transparent or wood tone)
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            texels[y * TEX_SIZE + x] = [0.0, 0.0, 0.0];
+        }
+    }
+
+    // Wooden stick (x: 6..10, y: 0..10)
+    for y in 0..10 {
+        for x in 6..10 {
+            let n = rand_at(x, y, 77);
+            let col = if n > 0.5 { wood_light } else { wood_dark };
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+
+    // Coal/wick top (x: 6..10, y: 9..11)
+    for y in 9..12 {
+        for x in 6..10 {
+            texels[y * TEX_SIZE + x] = coal;
+        }
+    }
+
+    // Flame (y: 11..16, x: 5..11)
+    for y in 11..16 {
+        for x in 5..11 {
+            let dx = (x as f32 - 7.5).abs();
+            let dy = y as f32 - 12.0;
+            if dx <= 2.2 && dy <= 3.5 {
+                let dist = dx * dx + dy * dy * 0.5;
+                let col = if dist < 1.0 {
+                    flame_core
+                } else if dist < 3.0 {
+                    flame_mid
+                } else {
+                    flame_outer
+                };
+                texels[y * TEX_SIZE + x] = col;
+            }
+        }
+    }
+
+    Texture { texels }
+}
+
+fn entity_shadow() -> Texture {
+    let mut texels = vec![[-1.0, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let dx = (x as f32 + 0.5) - 8.0;
+            let dy = (y as f32 + 0.5) - 8.0;
+            let dist = (dx * dx + dy * dy).sqrt();
+            if dist <= 7.0 {
+                texels[y * TEX_SIZE + x] = [0.0, 0.0, 0.0];
+            }
+        }
+    }
+    Texture { texels }
 }
 
 impl TextureAtlas {
@@ -1078,6 +1153,8 @@ impl TextureAtlas {
             cherry_leaves: cherry_leaves(),
             autumn_leaves: autumn_leaves(),
             mud: mud(),
+            torch: torch(),
+            entity_shadow: entity_shadow(),
         }
     }
 
@@ -1135,6 +1212,8 @@ impl TextureAtlas {
             TextureId::CherryLeaves => &self.cherry_leaves,
             TextureId::AutumnLeaves => &self.autumn_leaves,
             TextureId::Mud => &self.mud,
+            TextureId::Torch => &self.torch,
+            TextureId::EntityShadow => &self.entity_shadow,
         }
     }
     /// Zwraca referencję do tekstury dla danego TextureId

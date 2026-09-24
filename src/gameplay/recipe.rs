@@ -40,6 +40,17 @@ impl RecipeBook {
             result: ItemStack { block: BlockId::Stick, count: 4 },
         });
 
+        // 1x CoalOre over 1x Stick (vertical 1x2) -> 4x Torch
+        self.recipes.push(Recipe {
+            width: 1,
+            height: 2,
+            pattern: vec![
+                Some(BlockId::CoalOre),
+                Some(BlockId::Stick),
+            ],
+            result: ItemStack { block: BlockId::Torch, count: 4 },
+        });
+
         // 4x Planks (2x2) -> 1x CraftingTable
         self.recipes.push(Recipe {
             width: 2,
@@ -308,5 +319,15 @@ mod tests {
             book.match_grid(&shovel_grid, 3, 3),
             Some(ItemStack { block: BlockId::WoodenShovel, count: 1 })
         );
+    }
+
+    #[test]
+    fn test_torch_crafting() {
+        let book = RecipeBook::new();
+        let mut grid = [None; 4];
+        grid[0] = Some(ItemStack { block: BlockId::CoalOre, count: 1 });
+        grid[2] = Some(ItemStack { block: BlockId::Stick, count: 1 });
+        let result = book.match_grid(&grid, 2, 2);
+        assert_eq!(result, Some(ItemStack { block: BlockId::Torch, count: 4 }));
     }
 }

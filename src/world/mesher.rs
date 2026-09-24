@@ -14,6 +14,32 @@ pub struct Vertex {
     pub pos: Vec3,
     pub uv: (f32, f32),
     pub ao: f32,
+    pub sky_light: f32,
+    pub block_light: f32,
+}
+
+impl Vertex {
+    #[inline(always)]
+    pub fn new(pos: Vec3, uv: (f32, f32), ao: f32) -> Self {
+        Self {
+            pos,
+            uv,
+            ao,
+            sky_light: 1.0,
+            block_light: 0.0,
+        }
+    }
+
+    #[inline(always)]
+    pub fn lit(pos: Vec3, uv: (f32, f32), ao: f32, sky_light: f32, block_light: f32) -> Self {
+        Self {
+            pos,
+            uv,
+            ao,
+            sky_light,
+            block_light,
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -24,38 +50,93 @@ pub struct Triangle {
     pub texture: TextureId,
 }
 
+#[derive(Copy, Clone)]
+pub struct LightSource {
+    pub pos: IVec3,
+    pub radius: f32,
+    pub intensity: f32,
+}
+
 pub struct ChunkNeighborCache<'a> {
-    pub center: &'a Chunk,
-    pub east: Option<&'a Chunk>,   // +X
-    pub west: Option<&'a Chunk>,   // -X
-    pub south: Option<&'a Chunk>,  // +Z
-    pub north: Option<&'a Chunk>,  // -Z
-    pub se: Option<&'a Chunk>,     // +X, +Z
-    pub sw: Option<&'a Chunk>,     // -X, +Z
-    pub ne: Option<&'a Chunk>,     // +X, -Z
-    pub nw: Option<&'a Chunk>,     // -X, -Z
+    pub center_blocks: &'a [u8],
+    pub east_blocks: Option<&'a [u8]>,   // +X
+    pub west_blocks: Option<&'a [u8]>,   // -X
+    pub south_blocks: Option<&'a [u8]>,  // +Z
+    pub north_blocks: Option<&'a [u8]>,  // -Z
+    pub se_blocks: Option<&'a [u8]>,     // +X, +Z
+    pub sw_blocks: Option<&'a [u8]>,     // -X, +Z
+    pub ne_blocks: Option<&'a [u8]>,     // +X, -Z
+    pub nw_blocks: Option<&'a [u8]>,     // -X, -Z
     pub world: &'a World,
     pub base_x: i32,
     pub base_z: i32,
+    pub heightmap: [u8; 16 * 16],
+    pub lights: Vec<LightSource>,
 }
 
 impl<'a> ChunkNeighborCache<'a> {
     pub fn new(chunk: &'a Chunk, world: &'a World) -> Self {
         let cx = chunk.cx;
         let cz = chunk.cz;
+
+        let east_blocks = world.chunks.get(&(cx + 1, cz)).map(|c| c.blocks.as_slice());
+        let west_blocks = world.chunks.get(&(cx - 1, cz)).map(|c| c.blocks.as_slice());
+        let south_blocks = world.chunks.get(&(cx, cz + 1)).map(|c| c.blocks.as_slice());
+        let north_blocks = world.chunks.get(&(cx, cz - 1)).map(|c| c.blocks.as_slice());
+        let se_blocks = world.chunks.get(&(cx + 1, cz + 1)).map(|c| c.blocks.as_slice());
+        let sw_blocks = world.chunks.get(&(cx - 1, cz + 1)).map(|c| c.blocks.as_slice());
+        let ne_blocks = world.chunks.get(&(cx + 1, cz - 1)).map(|c| c.blocks.as_slice());
+        let nw_blocks = world.chunks.get(&(cx - 1, cz - 1)).map(|c| c.blocks.as_slice());
+
+        let base_x = cx * CHUNK_SIZE_X;
+        let base_z = cz * CHUNK_SIZE_Z;
+
+        // 1. Błyskawiczna wysokość kolumn (Heightmap O(1) dla światła słonecznego)
+        let mut heightmap = [0u8; 16 * 16];
+        let blocks = chunk.blocks.as_slice();
+        for lx in 0..CHUNK_SIZE_X {
+            for lz in 0..CHUNK_SIZE_Z {
+                let mut h = 0u8;
+                for ly in (0..CHUNK_SIZE_Y).rev() {
+                    let b = BlockId::from_u8(blocks[((lx << 10) | (ly << 4) | lz) as usize]);
+                    if b.is_solid() {
+                        h = (ly + 1) as u8;
+                        break;
+                    }
+                }
+                heightmap[((lx << 4) | lz) as usize] = h;
+            }
+        }
+
+        // 2. Źródła światła tylko z zarejestrowanych pochodni w pobliżu (O(liczba_pochodni) zamiast 160k pętli!)
+        let mut lights = Vec::new();
+        for &t_pos in &world.torches {
+            let dx = (t_pos.x - (base_x + 8)).abs();
+            let dz = (t_pos.z - (base_z + 8)).abs();
+            if dx <= 24 && dz <= 24 {
+                lights.push(LightSource {
+                    pos: t_pos,
+                    radius: 12.0,
+                    intensity: 1.0,
+                });
+            }
+        }
+
         Self {
-            center: chunk,
-            east: world.chunks.get(&(cx + 1, cz)),
-            west: world.chunks.get(&(cx - 1, cz)),
-            south: world.chunks.get(&(cx, cz + 1)),
-            north: world.chunks.get(&(cx, cz - 1)),
-            se: world.chunks.get(&(cx + 1, cz + 1)),
-            sw: world.chunks.get(&(cx - 1, cz + 1)),
-            ne: world.chunks.get(&(cx + 1, cz - 1)),
-            nw: world.chunks.get(&(cx - 1, cz - 1)),
+            center_blocks: blocks,
+            east_blocks,
+            west_blocks,
+            south_blocks,
+            north_blocks,
+            se_blocks,
+            sw_blocks,
+            ne_blocks,
+            nw_blocks,
             world,
-            base_x: chunk.cx * CHUNK_SIZE_X,
-            base_z: chunk.cz * CHUNK_SIZE_Z,
+            base_x,
+            base_z,
+            heightmap,
+            lights,
         }
     }
 
@@ -65,58 +146,105 @@ impl<'a> ChunkNeighborCache<'a> {
             return BlockId::Air;
         }
         if (lx as u32) < CHUNK_SIZE_X as u32 && (lz as u32) < CHUNK_SIZE_Z as u32 {
-            return self.center.get_local(lx, ly, lz);
+            return BlockId::from_u8(self.center_blocks[((lx << 10) | (ly << 4) | lz) as usize]);
         }
-        if lx >= CHUNK_SIZE_X {
+        let id = if lx >= CHUNK_SIZE_X {
             if lz >= CHUNK_SIZE_Z {
-                self.se.map(|c| c.get_local(lx - CHUNK_SIZE_X, ly, lz - CHUNK_SIZE_Z)).unwrap_or(BlockId::Air)
+                self.se_blocks.map(|b| b[(((lx - CHUNK_SIZE_X) << 10) | (ly << 4) | (lz - CHUNK_SIZE_Z)) as usize]).unwrap_or(0)
             } else if lz < 0 {
-                self.ne.map(|c| c.get_local(lx - CHUNK_SIZE_X, ly, lz + CHUNK_SIZE_Z)).unwrap_or(BlockId::Air)
+                self.ne_blocks.map(|b| b[(((lx - CHUNK_SIZE_X) << 10) | (ly << 4) | (lz + CHUNK_SIZE_Z)) as usize]).unwrap_or(0)
             } else {
-                self.east.map(|c| c.get_local(lx - CHUNK_SIZE_X, ly, lz)).unwrap_or(BlockId::Air)
+                self.east_blocks.map(|b| b[(((lx - CHUNK_SIZE_X) << 10) | (ly << 4) | lz) as usize]).unwrap_or(0)
             }
         } else if lx < 0 {
             if lz >= CHUNK_SIZE_Z {
-                self.sw.map(|c| c.get_local(lx + CHUNK_SIZE_X, ly, lz - CHUNK_SIZE_Z)).unwrap_or(BlockId::Air)
+                self.sw_blocks.map(|b| b[(((lx + CHUNK_SIZE_X) << 10) | (ly << 4) | (lz - CHUNK_SIZE_Z)) as usize]).unwrap_or(0)
             } else if lz < 0 {
-                self.nw.map(|c| c.get_local(lx + CHUNK_SIZE_X, ly, lz + CHUNK_SIZE_Z)).unwrap_or(BlockId::Air)
+                self.nw_blocks.map(|b| b[(((lx + CHUNK_SIZE_X) << 10) | (ly << 4) | (lz + CHUNK_SIZE_Z)) as usize]).unwrap_or(0)
             } else {
-                self.west.map(|c| c.get_local(lx + CHUNK_SIZE_X, ly, lz)).unwrap_or(BlockId::Air)
+                self.west_blocks.map(|b| b[(((lx + CHUNK_SIZE_X) << 10) | (ly << 4) | lz) as usize]).unwrap_or(0)
             }
         } else if lz >= CHUNK_SIZE_Z {
-            self.south.map(|c| c.get_local(lx, ly, lz - CHUNK_SIZE_Z)).unwrap_or(BlockId::Air)
+            self.south_blocks.map(|b| b[((lx << 10) | (ly << 4) | (lz - CHUNK_SIZE_Z)) as usize]).unwrap_or(0)
         } else if lz < 0 {
-            self.north.map(|c| c.get_local(lx, ly, lz + CHUNK_SIZE_Z)).unwrap_or(BlockId::Air)
+            self.north_blocks.map(|b| b[((lx << 10) | (ly << 4) | (lz + CHUNK_SIZE_Z)) as usize]).unwrap_or(0)
         } else {
-            BlockId::Air
-        }
+            0
+        };
+        BlockId::from_u8(id)
     }
 
     #[inline(always)]
     pub fn solid_at(&self, lx: i32, ly: i32, lz: i32) -> bool {
         self.sample_block(lx, ly, lz).is_solid()
     }
+
+    #[inline(always)]
+    pub fn sample_sky_light(&self, lx: i32, ly: i32, lz: i32) -> f32 {
+        if (lx as u32) < 16 && (lz as u32) < 16 {
+            let top_h = self.heightmap[((lx << 4) | lz) as usize] as i32;
+            if ly >= top_h {
+                1.0
+            } else {
+                let depth = top_h - ly;
+                (0.25 - (depth as f32 * 0.04)).max(0.04)
+            }
+        } else {
+            1.0
+        }
+    }
+
+    #[inline(always)]
+    pub fn sample_block_light(&self, wx: f32, wy: f32, wz: f32) -> f32 {
+        if self.lights.is_empty() {
+            return 0.0;
+        }
+        let mut max_l = 0.0f32;
+        for light in &self.lights {
+            let dx = wx - (light.pos.x as f32 + 0.5);
+            let dy = wy - (light.pos.y as f32 + 0.5);
+            let dz = wz - (light.pos.z as f32 + 0.5);
+            let d_sq = dx * dx + dy * dy + dz * dz;
+            let r = light.radius;
+            if d_sq < r * r {
+                let dist = d_sq.sqrt();
+                let l = (1.0 - dist / r) * light.intensity;
+                if l > max_l {
+                    max_l = l;
+                }
+            }
+        }
+        max_l
+    }
 }
 
 pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
-    let mut solid_tris = Vec::new();
-    let mut trans_tris = Vec::new();
+    let mut solid_tris = Vec::with_capacity(3072);
+    let mut trans_tris = Vec::with_capacity(512);
     let cache = ChunkNeighborCache::new(chunk, world);
 
     let base_x = cache.base_x;
     let base_z = cache.base_z;
+    let blocks = chunk.blocks.as_slice();
 
     for lx in 0..CHUNK_SIZE_X {
         for ly in 0..CHUNK_SIZE_Y {
             for lz in 0..CHUNK_SIZE_Z {
-                let block = chunk.get_local(lx, ly, lz);
-                if block == BlockId::Air {
+                let block_u8 = blocks[((lx << 10) | (ly << 4) | lz) as usize];
+                if block_u8 == 0 {
                     continue;
                 }
+                let block = BlockId::from_u8(block_u8);
 
                 let wx = base_x + lx;
                 let wy = ly;
                 let wz = base_z + lz;
+
+                if block == BlockId::Torch {
+                    emit_torch(&mut solid_tris, wx, wy, wz, &cache);
+                    continue;
+                }
+
                 let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
                 let is_trans = matches!(block, BlockId::Water | BlockId::Glass);
 
@@ -162,6 +290,51 @@ pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
 
     solid_tris.extend(trans_tris);
     solid_tris
+}
+
+fn emit_torch(
+    tris: &mut Vec<Triangle>,
+    wx: i32, wy: i32, wz: i32,
+    _cache: &ChunkNeighborCache,
+) {
+    let x0 = wx as f32 + 0.4375;
+    let x1 = wx as f32 + 0.5625;
+    let y0 = wy as f32;
+    let y1 = wy as f32 + 0.625;
+    let z0 = wz as f32 + 0.4375;
+    let z1 = wz as f32 + 0.5625;
+
+    let c000 = Vec3::new(x0, y0, z0);
+    let c100 = Vec3::new(x1, y0, z0);
+    let c010 = Vec3::new(x0, y1, z0);
+    let c110 = Vec3::new(x1, y1, z0);
+    let c001 = Vec3::new(x0, y0, z1);
+    let c101 = Vec3::new(x1, y0, z1);
+    let c011 = Vec3::new(x0, y1, z1);
+    let c111 = Vec3::new(x1, y1, z1);
+
+    let quad = |tris: &mut Vec<Triangle>, a: Vec3, b: Vec3, c: Vec3, d: Vec3, tex: TextureId, shade: f32| {
+        let va = Vertex { pos: a, uv: (0.0, 1.0), ao: shade, sky_light: 1.0, block_light: 1.0 };
+        let vb = Vertex { pos: b, uv: (1.0, 1.0), ao: shade, sky_light: 1.0, block_light: 1.0 };
+        let vc = Vertex { pos: c, uv: (1.0, 0.0), ao: shade, sky_light: 1.0, block_light: 1.0 };
+        let vd = Vertex { pos: d, uv: (0.0, 0.0), ao: shade, sky_light: 1.0, block_light: 1.0 };
+        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture: tex });
+        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture: tex });
+    };
+
+    let tex = TextureId::Torch;
+    // Top
+    quad(tris, c010, c011, c111, c110, tex, 1.0);
+    // North
+    quad(tris, c100, c000, c010, c110, tex, 0.95);
+    // South
+    quad(tris, c001, c101, c111, c011, tex, 0.95);
+    // East
+    quad(tris, c101, c100, c110, c111, tex, 0.90);
+    // West
+    quad(tris, c000, c001, c011, c010, tex, 0.90);
+    // Bottom
+    quad(tris, c001, c000, c100, c101, tex, 0.70);
 }
 
 #[inline(always)]
@@ -269,16 +442,26 @@ fn emit_face(
         ),
     };
 
-    let va = Vertex { pos: a, uv: (0.0, 1.0), ao: shade * ao_a };
-    let vb = Vertex { pos: b, uv: (1.0, 1.0), ao: shade * ao_b };
-    let vc = Vertex { pos: c, uv: (1.0, 0.0), ao: shade * ao_c };
-    let vd = Vertex { pos: d, uv: (0.0, 0.0), ao: shade * ao_d };
-
-    if (ao_a + ao_c) > (ao_b + ao_d) {
-        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture });
-        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture });
+    let n = face.normal();
+    let neighbor_lx = lx + n.x;
+    let neighbor_ly = wy + n.y;
+    let neighbor_lz = lz + n.z;
+    let face_sky_light = cache.sample_sky_light(neighbor_lx, neighbor_ly, neighbor_lz);
+    let face_block_light = if block == BlockId::Lava {
+        1.0
     } else {
-        tris.push(Triangle { v0: va, v1: vb, v2: vd, texture });
-        tris.push(Triangle { v0: vb, v1: vc, v2: vd, texture });
-    }
+        cache.sample_block_light(
+            wx as f32 + 0.5 + n.x as f32 * 0.5,
+            wy as f32 + 0.5 + n.y as f32 * 0.5,
+            wz as f32 + 0.5 + n.z as f32 * 0.5,
+        )
+    };
+
+    let va = Vertex { pos: a, uv: (0.0, 1.0), ao: shade * ao_a, sky_light: face_sky_light, block_light: face_block_light };
+    let vb = Vertex { pos: b, uv: (1.0, 1.0), ao: shade * ao_b, sky_light: face_sky_light, block_light: face_block_light };
+    let vc = Vertex { pos: c, uv: (1.0, 0.0), ao: shade * ao_c, sky_light: face_sky_light, block_light: face_block_light };
+    let vd = Vertex { pos: d, uv: (0.0, 0.0), ao: shade * ao_d, sky_light: face_sky_light, block_light: face_block_light };
+
+    tris.push(Triangle { v0: va, v1: vb, v2: vc, texture });
+    tris.push(Triangle { v0: va, v1: vc, v2: vd, texture });
 }

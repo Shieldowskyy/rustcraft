@@ -1,2 +1,8 @@
 [build]
 jobs = 8
+
+[target.armv7-sony-vita-newlibeabihf]
+rustflags = [
+    "-C", "target-cpu=cortex-a9",
+    "-C", "link-arg=-Wl,--defsym=__sce_headroom=0x10000",
+]

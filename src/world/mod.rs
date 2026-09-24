@@ -832,6 +832,8 @@ pub struct World {
     fluid_levels: HashMap<IVec3, u8>,
     pub active_sand: HashSet<IVec3>,
     pub sim_tick: u64,
+    pub time_of_day: f32,
+    pub torches: HashSet<IVec3>,
     pub pending_explosions: Vec<Vec3>,
     pub primed_tnts: Vec<PrimedTnt>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -875,7 +877,7 @@ impl World {
             if !matches!(biome, Biome::DeepOcean | Biome::Ocean | Biome::Swamp) {
                 let height = get_height_at(wx, wz, seed, biome, cont);
                 if height >= 24 {
-                    return Vec3::new(wx as f32 + 0.5, (height + 2) as f32, wz as f32 + 0.5);
+                    return Vec3::new(wx as f32 + 0.5, (height + 3) as f32 + 0.1, wz as f32 + 0.5);
                 }
             }
 
@@ -888,7 +890,7 @@ impl World {
             z += dz * step;
         }
 
-        Vec3::new(8.0, 90.0, 8.0)
+        Vec3::new(8.5, 92.0, 8.5)
     }
 
     pub fn new_with_seed(seed: u32) -> Self {
@@ -898,10 +900,17 @@ impl World {
             let (res_tx, res_rx) = std::sync::mpsc::channel::<Chunk>();
 
             let req_rx = std::sync::Arc::new(std::sync::Mutex::new(req_rx));
-            let num_threads = std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4)
-                .clamp(2, 6);
+            let num_threads = {
+                #[cfg(target_os = "vita")]
+                { 2 }
+                #[cfg(not(target_os = "vita"))]
+                {
+                    std::thread::available_parallelism()
+                        .map(|n| n.get())
+                        .unwrap_or(4)
+                        .clamp(2, 6)
+                }
+            };
 
             for i in 0..num_threads {
                 let req_rx_clone = std::sync::Arc::clone(&req_rx);
@@ -909,6 +918,18 @@ impl World {
                 let _ = std::thread::Builder::new()
                     .name(format!("chunk_gen_{}", i))
                     .spawn(move || {
+                        #[cfg(target_os = "vita")]
+                        unsafe {
+                            extern "C" {
+                                fn sceKernelGetThreadId() -> i32;
+                                fn sceKernelChangeThreadCpuAffinityMask(thid: i32, bitmask: i32) -> i32;
+                            }
+                            let thid = sceKernelGetThreadId();
+                            // Przypnij wątek do Core 1 (0x20000) lub Core 2 (0x40000), uwalniając Core 0 dla renderingu
+                            let mask = if i % 2 == 0 { 0x00020000 } else { 0x00040000 };
+                            sceKernelChangeThreadCpuAffinityMask(thid, mask);
+                        }
+
                         loop {
                             let job = {
                                 if let Ok(rx) = req_rx_clone.lock() {
@@ -934,14 +955,29 @@ impl World {
         };
 
         let spawn_pos = Self::find_spawn_position(seed);
+        let spawn_cx = (spawn_pos.x.floor() as i32) >> 4;
+        let spawn_cz = (spawn_pos.z.floor() as i32) >> 4;
+
+        let mut chunks = HashMap::new();
+        // Lekka pregeneracja początkowego obszaru spawnu (promień 2 chunków -> 5x5 = 25 chunków)
+        for dz in -2..=2 {
+            for dx in -2..=2 {
+                let cx = spawn_cx + dx;
+                let cz = spawn_cz + dz;
+                let chunk = Chunk::generate(cx, cz, seed);
+                chunks.insert((cx, cz), chunk);
+            }
+        }
 
         World {
-            chunks: HashMap::new(),
+            chunks,
             seed,
             player_position: spawn_pos,
             fluid_levels: HashMap::new(),
             active_sand: HashSet::new(),
             sim_tick: 0,
+            time_of_day: 120.0, // Start around 9:00 AM bright daylight
+            torches: HashSet::new(),
             pending_explosions: Vec::new(),
             primed_tnts: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -952,6 +988,81 @@ impl World {
             last_stream_chunk: None,
             last_stream_dist: None,
         }
+    }
+
+    pub const DAY_DURATION: f32 = 480.0;
+
+    #[inline]
+    pub fn advance_time(&mut self, dt: f32) {
+        self.time_of_day = (self.time_of_day + dt).rem_euclid(Self::DAY_DURATION);
+    }
+
+    #[inline]
+    pub fn day_fraction(&self) -> f32 {
+        self.time_of_day / Self::DAY_DURATION
+    }
+
+    #[inline]
+    pub fn sun_angle(&self) -> f32 {
+        self.day_fraction() * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2
+    }
+
+    #[inline]
+    pub fn sun_direction(&self) -> Vec3 {
+        let a = self.sun_angle();
+        Vec3::new(a.cos(), a.sin(), 0.25).normalized()
+    }
+
+    #[inline]
+    pub fn sunlight_factor(&self) -> f32 {
+        let a = self.sun_angle();
+        let elev = a.sin(); // -1.0 to 1.0
+        // Smooth transition around horizon (-0.2 to 0.2)
+        let t = ((elev + 0.2) / 0.4).clamp(0.0, 1.0);
+        let ease = t * t * (3.0 - 2.0 * t); // smoothstep
+        0.08 + 0.92 * ease
+    }
+
+    /// Returns (sky_top, sky_bottom, fog_color) based on current time of day
+    pub fn sky_colors(&self) -> ([f32; 3], [f32; 3], [f32; 3]) {
+        let elev = self.sun_angle().sin();
+
+        // Day palette
+        let day_top = [0.32, 0.54, 0.96];
+        let day_bot = [0.72, 0.84, 0.98];
+        let day_fog = [0.72, 0.84, 0.98];
+
+        // Sunset/sunrise horizon palette
+        let sunset_top = [0.24, 0.28, 0.58];
+        let sunset_bot = [0.98, 0.48, 0.18];
+        let sunset_fog = [0.92, 0.52, 0.25];
+
+        // Night palette (deep indigo night sky)
+        let night_top = [0.015, 0.025, 0.07];
+        let night_bot = [0.05, 0.07, 0.15];
+        let night_fog = [0.04, 0.06, 0.12];
+
+        let day_t = ((elev + 0.25) / 0.50).clamp(0.0, 1.0);
+        let day_smooth = day_t * day_t * (3.0 - 2.0 * day_t);
+
+        let sunset_factor = (1.0 - (elev.abs() / 0.28)).max(0.0);
+        let sunset_smooth = sunset_factor * sunset_factor;
+
+        let lerp3 = |a: [f32; 3], b: [f32; 3], t: f32| [
+            a[0] + (b[0] - a[0]) * t,
+            a[1] + (b[1] - a[1]) * t,
+            a[2] + (b[2] - a[2]) * t,
+        ];
+
+        let base_top = lerp3(night_top, day_top, day_smooth);
+        let base_bot = lerp3(night_bot, day_bot, day_smooth);
+        let base_fog = lerp3(night_fog, day_fog, day_smooth);
+
+        let final_top = lerp3(base_top, sunset_top, sunset_smooth * 0.7);
+        let final_bot = lerp3(base_bot, sunset_bot, sunset_smooth);
+        let final_fog = lerp3(base_fog, sunset_fog, sunset_smooth);
+
+        (final_top, final_bot, final_fog)
     }
 
     pub fn save(&self, path: &str) -> Result<(), String> {
@@ -1025,7 +1136,7 @@ impl World {
     }
 
     #[inline(always)]
-    fn world_to_chunk(wx: i32, wz: i32) -> (i32, i32, i32, i32) {
+    pub fn world_to_chunk(wx: i32, wz: i32) -> (i32, i32, i32, i32) {
         let cx = wx >> 4;
         let cz = wz >> 4;
         let lx = wx & 15;
@@ -1097,6 +1208,12 @@ impl World {
                 self.active_sand.insert(pos);
             } else {
                 self.active_sand.remove(&pos);
+            }
+
+            if block == BlockId::Torch {
+                self.torches.insert(pos);
+            } else {
+                self.torches.remove(&pos);
             }
 
             for offset in [
@@ -1577,18 +1694,36 @@ impl World {
     }
 
     pub fn box_collides(&self, min: Vec3, max: Vec3) -> bool {
+        let eps = 1e-4;
         let x0 = min.x.floor() as i32;
-        let x1 = max.x.floor() as i32;
-        let y0 = min.y.floor() as i32;
-        let y1 = max.y.floor() as i32;
+        let x1 = (max.x - eps).floor() as i32;
+        let y0 = (min.y.floor() as i32).max(0);
+        let y1 = ((max.y - eps).floor() as i32).min(CHUNK_SIZE_Y as i32 - 1);
         let z0 = min.z.floor() as i32;
-        let z1 = max.z.floor() as i32;
+        let z1 = (max.z - eps).floor() as i32;
+
+        if y0 > y1 {
+            return false;
+        }
+
+        let mut last_cx = i32::MIN;
+        let mut last_cz = i32::MIN;
+        let mut cached_chunk: Option<&Chunk> = None;
 
         for x in x0..=x1 {
-            for y in y0..=y1 {
-                for z in z0..=z1 {
-                    if self.get_block(IVec3::new(x, y, z)).is_solid() {
-                        return true;
+            for z in z0..=z1 {
+                let (cx, cz, lx, lz) = World::world_to_chunk(x, z);
+                if cx != last_cx || cz != last_cz {
+                    last_cx = cx;
+                    last_cz = cz;
+                    cached_chunk = self.chunks.get(&(cx, cz));
+                }
+
+                if let Some(chunk) = cached_chunk {
+                    for y in y0..=y1 {
+                        if chunk.get_local(lx, y, lz).is_solid() {
+                            return true;
+                        }
                     }
                 }
             }

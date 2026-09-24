@@ -33,6 +33,9 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::Wood,
             BlockId::Leaves,
             BlockId::SnowLeaves,
+            BlockId::CherryLeaves,
+            BlockId::AutumnLeaves,
+            BlockId::Mud,
             BlockId::Snow,
             BlockId::Cactus,
             BlockId::CoalOre,
@@ -41,6 +44,7 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::Planks,
             BlockId::Glass,
             BlockId::Ice,
+            BlockId::Torch,
         ],
         1 => &[
             BlockId::WoodenPickaxe,
@@ -56,6 +60,7 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::StoneSword,
             BlockId::IronSword,
             BlockId::Stick,
+            BlockId::Torch,
             BlockId::CraftingTable,
             BlockId::Door,
             BlockId::Tnt,
@@ -69,6 +74,10 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::Sand,
             BlockId::Wood,
             BlockId::Leaves,
+            BlockId::SnowLeaves,
+            BlockId::CherryLeaves,
+            BlockId::AutumnLeaves,
+            BlockId::Mud,
             BlockId::Snow,
             BlockId::Cactus,
             BlockId::CoalOre,
@@ -76,11 +85,11 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::Water,
             BlockId::Bedrock,
             BlockId::Lava,
-            BlockId::SnowLeaves,
             BlockId::Planks,
             BlockId::Door,
             BlockId::Glass,
             BlockId::Ice,
+            BlockId::Torch,
             BlockId::Tnt,
             BlockId::CraftingTable,
             BlockId::Stick,
@@ -1039,8 +1048,9 @@ mod tests {
         assert!(tab1.contains(&BlockId::Tnt));
 
         let tab2 = creative_tab_blocks(2);
-        assert_eq!(tab2.len(), 33);
+        assert_eq!(tab2.len(), 37);
         assert!(tab2.contains(&BlockId::Grass));
+        assert!(tab2.contains(&BlockId::Torch));
         assert!(tab2.contains(&BlockId::IronSword));
     }
 

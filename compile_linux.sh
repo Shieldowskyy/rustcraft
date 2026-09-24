@@ -36,18 +36,6 @@ if [ -f "$BINARY_PATH" ]; then
         echo "==> Wskazówka: Narzędzie 'strip' nie jest dostępne, pomijam ten krok."
     fi
 
-    # Sprawdzenie czy UPX jest dostępny w systemie
-    if command -v upx &> /dev/null; then
-        echo "==> Wykryto narzędzie UPX. Trwa kompresja..."
-        upx --best --lzma "$BINARY_PATH"
-        echo "--------------------------------------------------"
-        echo -n " Rozmiar po kompresji UPX: "
-        du -h "$BINARY_PATH" | awk '{print $1}'
-        echo "--------------------------------------------------"
-    else
-        echo "==> Wskazówka: Zainstaluj 'upx', aby jeszcze bardziej zmniejszyć plik (np. sudo dnf install upx)."
-    fi
-
     echo "Gotowe! Twój plik znajduje się w: $BINARY_PATH"
 else
     echo "==> Błąd: Nie znaleziono wygenerowanego pliku binarnego."

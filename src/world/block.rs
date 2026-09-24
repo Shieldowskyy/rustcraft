@@ -45,6 +45,8 @@ pub enum BlockId {
     Mud,
     /// Autumn/fall leaves in orange-red tones
     AutumnLeaves,
+    /// Torch block / item emitting light
+    Torch,
 }
 
 impl BlockId {
@@ -86,6 +88,7 @@ impl BlockId {
             34 => BlockId::CherryLeaves,
             35 => BlockId::Mud,
             36 => BlockId::AutumnLeaves,
+            37 => BlockId::Torch,
             _ => BlockId::Air,
         }
     }
@@ -129,6 +132,7 @@ impl BlockId {
             BlockId::CherryLeaves => 34,
             BlockId::Mud => 35,
             BlockId::AutumnLeaves => 36,
+            BlockId::Torch => 37,
         }
     }
 
@@ -152,26 +156,29 @@ impl BlockId {
         )
     }
 
+    #[inline(always)]
     pub fn is_solid(self) -> bool {
-        !matches!(
-            self,
-            BlockId::Air
-                | BlockId::Water
-                | BlockId::Lava
-                | BlockId::Stick
-                | BlockId::WoodenPickaxe
-                | BlockId::StonePickaxe
-                | BlockId::IronPickaxe
-                | BlockId::WoodenAxe
-                | BlockId::StoneAxe
-                | BlockId::IronAxe
-                | BlockId::WoodenShovel
-                | BlockId::StoneShovel
-                | BlockId::IronShovel
-                | BlockId::WoodenSword
-                | BlockId::StoneSword
-                | BlockId::IronSword
-        )
+        const SOLID_MASK: u64 = !(
+            (1u64 << 0)   // Air
+            | (1u64 << 11) // Water
+            | (1u64 << 13) // Lava
+            | (1u64 << 21) // Stick
+            | (1u64 << 22) // WoodenPickaxe
+            | (1u64 << 23) // StonePickaxe
+            | (1u64 << 24) // IronPickaxe
+            | (1u64 << 25) // WoodenAxe
+            | (1u64 << 26) // StoneAxe
+            | (1u64 << 27) // IronAxe
+            | (1u64 << 28) // WoodenShovel
+            | (1u64 << 29) // StoneShovel
+            | (1u64 << 30) // IronShovel
+            | (1u64 << 31) // WoodenSword
+            | (1u64 << 32) // StoneSword
+            | (1u64 << 33) // IronSword
+            | (1u64 << 37) // Torch
+        );
+        let id = self.to_u8() as u32;
+        ((SOLID_MASK >> id) & 1) != 0
     }
 
     pub fn is_tool(self) -> bool {
@@ -293,8 +300,19 @@ impl BlockId {
         base / mult
     }
 
+    #[inline(always)]
     pub fn is_transparent(self) -> bool {
-        matches!(self, BlockId::Air | BlockId::Water | BlockId::Lava | BlockId::Leaves | BlockId::SnowLeaves | BlockId::CherryLeaves | BlockId::AutumnLeaves | BlockId::Glass)
+        const TRANSPARENT_MASK: u64 = (1u64 << 0)   // Air
+            | (1u64 << 6)  // Leaves
+            | (1u64 << 11) // Water
+            | (1u64 << 13) // Lava
+            | (1u64 << 14) // SnowLeaves
+            | (1u64 << 17) // Glass
+            | (1u64 << 34) // CherryLeaves
+            | (1u64 << 36) // AutumnLeaves
+            | (1u64 << 37); // Torch
+        let id = self.to_u8() as u32;
+        ((TRANSPARENT_MASK >> id) & 1) != 0
     }
 
     pub fn name(self) -> &'static str {
@@ -336,6 +354,7 @@ impl BlockId {
             BlockId::CherryLeaves => "rozowe liscie",
             BlockId::Mud => "bloto",
             BlockId::AutumnLeaves => "jesienne liscie",
+            BlockId::Torch => "pochodnia",
         }
     }
 
@@ -383,6 +402,7 @@ impl BlockId {
                 _ => [0.54, 0.36, 0.18],
             },
             BlockId::Stick => [0.55, 0.38, 0.18],
+            BlockId::Torch => [0.98, 0.72, 0.22],
             BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword => [0.60, 0.42, 0.22],
             BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword => [0.55, 0.55, 0.55],
             BlockId::IronPickaxe | BlockId::IronAxe | BlockId::IronShovel | BlockId::IronSword => [0.85, 0.85, 0.88],
@@ -434,6 +454,7 @@ impl BlockId {
                 Face::North | Face::South => TextureId::CraftingTableFront,
                 Face::East | Face::West => TextureId::CraftingTableSide,
             },
+            BlockId::Torch => TextureId::Torch,
             _ => TextureId::Planks,
         }
     }

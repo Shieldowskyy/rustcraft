@@ -26,6 +26,8 @@ struct ClipVertAO {
     clip: [f32; 4],
     uv: (f32, f32),
     ao: f32,
+    sky_light: f32,
+    block_light: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -35,6 +37,8 @@ struct ScreenVertAO {
     inv_w: f32,
     uv_over_w: (f32, f32),
     ao_over_w: f32,
+    sky_light_over_w: f32,
+    block_light_over_w: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -73,6 +77,8 @@ pub struct Renderer {
     pub particles: Vec<Particle>,
     pub fog_enabled: bool,
     pub render_distance: i32,
+    pub current_daylight: f32,
+    pub current_fog_color: [f32; 3],
 }
 
 impl Renderer {
@@ -112,6 +118,8 @@ impl Renderer {
             particles: Vec::new(),
             fog_enabled: true,
             render_distance: 6,
+            current_daylight: 1.0,
+            current_fog_color: [0.75, 0.85, 1.0],
         }
     }
 
@@ -141,6 +149,10 @@ impl Renderer {
     }
 
     pub fn clear(&mut self, camera_pitch: f32) {
+        self.clear_sky(camera_pitch, [0.35, 0.55, 0.95], [0.75, 0.85, 1.0]);
+    }
+
+    pub fn clear_sky(&mut self, camera_pitch: f32, top: [f32; 3], bottom: [f32; 3]) {
         let width = self.width;
         let height = self.height;
         let max_h = height.max(1) as f32;
@@ -151,11 +163,9 @@ impl Renderer {
                 let y = y_start + row_i;
                 let t = y as f32 / max_h;
                 let t = (t + camera_pitch * 0.05).clamp(0.0, 1.0);
-                let top = (0.35f32, 0.55f32, 0.95f32);
-                let bottom = (0.75f32, 0.85f32, 1.0f32);
-                let r = top.0 + (bottom.0 - top.0) * t;
-                let g = top.1 + (bottom.1 - top.1) * t;
-                let b = top.2 + (bottom.2 - top.2) * t;
+                let r = top[0] + (bottom[0] - top[0]) * t;
+                let g = top[1] + (bottom[1] - top[1]) * t;
+                let b = top[2] + (bottom[2] - top[2]) * t;
                 let color = pack_color(r, g, b);
                 row.fill(color);
             }
@@ -317,14 +327,20 @@ impl Renderer {
     }
 
     pub fn render_frame(&mut self, world: &mut World, camera: &Camera) {
-        if self.vulkan.is_none() {
-            self.clear(camera.pitch);
-        }
+        let (sky_top, sky_bottom, fog_col) = world.sky_colors();
+        let daylight = world.sunlight_factor();
+        self.current_daylight = daylight;
+        self.current_fog_color = fog_col;
 
         let aspect = self.width as f32 / self.height as f32;
         let view = camera.view_matrix();
         let proj = camera.projection_matrix(aspect);
         let view_proj = proj.mul(&view);
+
+        if self.vulkan.is_none() {
+            self.clear_sky(camera.pitch, sky_top, sky_bottom);
+            self.draw_celestials(camera, &view_proj, world.day_fraction());
+        }
 
         self.loaded_keys.clear();
         self.loaded_keys.extend(world.chunks.keys().copied());
@@ -547,6 +563,8 @@ impl Renderer {
         } else {
             0.0
         };
+        let daylight = self.current_daylight;
+        let fog_color = self.current_fog_color;
         let render_tile = |(tile_idx, (c_slice, d_slice)): (usize, (&mut [u32], &mut [f32]))| {
             let tile_y_start = tile_idx * TILE_HEIGHT;
             let tile_y_end = (tile_y_start + TILE_HEIGHT).min(height);
@@ -568,6 +586,8 @@ impl Renderer {
                     d_slice,
                     textures,
                     fog_dist,
+                    daylight,
+                    fog_color,
                 );
             }
 
@@ -588,6 +608,8 @@ impl Renderer {
                     d_slice,
                     textures,
                     fog_dist,
+                    daylight,
+                    fog_color,
                 );
             }
         };
@@ -680,6 +702,8 @@ impl Renderer {
             &mut self.depth_buffer,
             textures,
             fog_dist,
+            self.current_daylight,
+            self.current_fog_color,
         );
     }
 
@@ -822,9 +846,9 @@ impl Renderer {
                                  v0: Vec3, v1: Vec3, v2: Vec3, v3: Vec3,
                                  shade: f32, view_proj: &Mat4| {
                     let mut emit_triangle = |ta: Vec3, tb: Vec3, tc: Vec3| {
-                        let c0 = to_clip_ao(Vertex { pos: ta, uv: (0.0, 0.0), ao: shade }, view_proj);
-                        let c1 = to_clip_ao(Vertex { pos: tb, uv: (0.0, 0.0), ao: shade }, view_proj);
-                        let c2 = to_clip_ao(Vertex { pos: tc, uv: (0.0, 0.0), ao: shade }, view_proj);
+                        let c0 = to_clip_ao(Vertex::new(ta, (0.0, 0.0), shade), view_proj);
+                        let c1 = to_clip_ao(Vertex::new(tb, (0.0, 0.0), shade), view_proj);
+                        let c2 = to_clip_ao(Vertex::new(tc, (0.0, 0.0), shade), view_proj);
 
                         let clipped = clip_near_ao(&[c0, c1, c2]);
                         if clipped.len() < 3 { return; }
@@ -976,15 +1000,15 @@ impl Renderer {
         };
 
         let t1 = Triangle {
-            v0: Vertex { pos: v0, uv: (0.0, 0.0), ao: 1.0 },
-            v1: Vertex { pos: v1, uv: (1.0, 0.0), ao: 1.0 },
-            v2: Vertex { pos: v2, uv: (1.0, 1.0), ao: 1.0 },
+            v0: Vertex::new(v0, (0.0, 0.0), 1.0),
+            v1: Vertex::new(v1, (1.0, 0.0), 1.0),
+            v2: Vertex::new(v2, (1.0, 1.0), 1.0),
             texture: tex_id,
         };
         let t2 = Triangle {
-            v0: Vertex { pos: v0, uv: (0.0, 0.0), ao: 1.0 },
-            v1: Vertex { pos: v2, uv: (1.0, 1.0), ao: 1.0 },
-            v2: Vertex { pos: v3, uv: (0.0, 1.0), ao: 1.0 },
+            v0: Vertex::new(v0, (0.0, 0.0), 1.0),
+            v1: Vertex::new(v2, (1.0, 1.0), 1.0),
+            v2: Vertex::new(v3, (0.0, 1.0), 1.0),
             texture: tex_id,
         };
 
@@ -1262,15 +1286,15 @@ impl Renderer {
 
         let mut draw_quad = |i0: usize, i1: usize, i2: usize, i3: usize, tex: TextureId, shade: f32| {
             let t1 = Triangle {
-                v0: Vertex { pos: world_pts[i0], uv: (0.0, 1.0), ao: shade },
-                v1: Vertex { pos: world_pts[i1], uv: (1.0, 1.0), ao: shade },
-                v2: Vertex { pos: world_pts[i2], uv: (1.0, 0.0), ao: shade },
+                v0: Vertex::new(world_pts[i0], (0.0, 1.0), shade),
+                v1: Vertex::new(world_pts[i1], (1.0, 1.0), shade),
+                v2: Vertex::new(world_pts[i2], (1.0, 0.0), shade),
                 texture: tex,
             };
             let t2 = Triangle {
-                v0: Vertex { pos: world_pts[i0], uv: (0.0, 1.0), ao: shade },
-                v1: Vertex { pos: world_pts[i2], uv: (1.0, 0.0), ao: shade },
-                v2: Vertex { pos: world_pts[i3], uv: (0.0, 0.0), ao: shade },
+                v0: Vertex::new(world_pts[i0], (0.0, 1.0), shade),
+                v1: Vertex::new(world_pts[i2], (1.0, 0.0), shade),
+                v2: Vertex::new(world_pts[i3], (0.0, 0.0), shade),
                 texture: tex,
             };
             self.raster_triangle_tinted(&t1, hurt_tint, view_proj);
@@ -1532,10 +1556,17 @@ impl Renderer {
         let arm_pos = hand_pos - right * 0.10 - up * 0.13;
         // Always draw arm
         self.draw_cube_3d(arm_pos, right, up, forward, [0.085, 0.085, 0.12], TextureId::Dirt, view_proj);
-        // Draw held tool or block
+        // Draw held tool, torch or block
         if let Some(id) = block_id {
             let block = crate::world::block::BlockId::from_u8(id);
-            if block.is_tool() {
+            if block == crate::world::block::BlockId::Torch {
+                let swing_pitch = attack * 0.45;
+                let torch_up = (up * (1.0 - swing_pitch * 0.3) + forward * (0.3 + swing_pitch)).normalized();
+                let torch_right = right;
+                let torch_forward = torch_up.cross(torch_right).normalized();
+                let torch_origin = hand_pos + forward * 0.12 + up * 0.10;
+                self.draw_torch_3d(torch_origin, torch_right, torch_up, torch_forward, 1.0, view_proj);
+            } else if block.is_tool() {
                 // Dynamic tool swing arc
                 let swing_pitch = attack * 0.85;
                 let tool_up = (up * (1.0 - swing_pitch * 0.5) + forward * (0.85 + swing_pitch) - right * 0.20).normalized();
@@ -1553,6 +1584,160 @@ impl Renderer {
         }
     }
 
+    pub fn draw_torch_3d(
+        &mut self,
+        pos: Vec3,
+        right: Vec3,
+        up: Vec3,
+        forward: Vec3,
+        scale: f32,
+        view_proj: &Mat4,
+    ) {
+        // Torch stick body
+        self.draw_cube_3d(
+            pos,
+            right,
+            up,
+            forward,
+            [0.025 * scale, 0.20 * scale, 0.025 * scale],
+            TextureId::Torch,
+            view_proj,
+        );
+        // Torch flame head
+        self.draw_cube_3d(
+            pos + up * (0.16 * scale),
+            right,
+            up,
+            forward,
+            [0.038 * scale, 0.05 * scale, 0.038 * scale],
+            TextureId::Torch,
+            view_proj,
+        );
+    }
+
+    pub fn draw_celestials(&mut self, camera: &Camera, view_proj: &Mat4, day_fraction: f32) {
+        let angle = day_fraction * std::f32::consts::TAU;
+        let sun_dir = Vec3::new(angle.sin(), angle.cos(), -0.2).normalized();
+        let moon_dir = -sun_dir;
+
+        // Draw Sun if above or near horizon
+        if sun_dir.y > -0.25 {
+            let sun_pos = camera.position + sun_dir * 120.0;
+            self.draw_celestial_billboard(sun_pos, 22.0, [1.0, 0.95, 0.65], camera, view_proj);
+        }
+
+        // Draw Moon if above or near horizon
+        if moon_dir.y > -0.25 {
+            let moon_pos = camera.position + moon_dir * 120.0;
+            self.draw_celestial_billboard(moon_pos, 16.0, [0.92, 0.95, 1.0], camera, view_proj);
+        }
+
+        // Draw Stars at night / twilight
+        let daylight = self.current_daylight;
+        if daylight < 0.65 {
+            let star_alpha = ((0.65 - daylight) / 0.50).clamp(0.0, 1.0);
+            self.draw_stars(camera, view_proj, star_alpha);
+        }
+    }
+
+    fn draw_celestial_billboard(
+        &mut self,
+        pos: Vec3,
+        size: f32,
+        color: [f32; 3],
+        camera: &Camera,
+        view_proj: &Mat4,
+    ) {
+        let right = camera.right_flat();
+        let up = Vec3::new(0.0, 1.0, 0.0);
+        let h = size * 0.5;
+
+        let corners = [
+            pos - right * h - up * h,
+            pos + right * h - up * h,
+            pos + right * h + up * h,
+            pos - right * h + up * h,
+        ];
+
+        let project = |p: Vec3| -> Option<(f32, f32, f32)> {
+            let c = view_proj.transform_point(p);
+            if c[3] <= 1e-4 { return None; }
+            let inv_w = 1.0 / c[3];
+            let sx = (c[0] * inv_w * 0.5 + 0.5) * self.width as f32;
+            let sy = (1.0 - (c[1] * inv_w * 0.5 + 0.5)) * self.height as f32;
+            Some((sx, sy, c[3]))
+        };
+
+        let pts: Vec<_> = corners.iter().filter_map(|&p| project(p)).collect();
+        if pts.len() < 4 { return; }
+
+        let depth_val = 5000.0f32;
+        let packed = pack_color(color[0], color[1], color[2]);
+
+        for &tri_idx in &[(0usize, 1usize, 2usize), (0usize, 2usize, 3usize)] {
+            let (ai, bi, ci) = tri_idx;
+            let (ax, ay, _) = pts[ai];
+            let (bx, by, _) = pts[bi];
+            let (cx, cy, _) = pts[ci];
+            let area = edge(ax, ay, bx, by, cx, cy);
+            if area <= 0.0 { continue; }
+            let min_x = ax.min(bx).min(cx).floor().max(0.0) as i32;
+            let max_x = ax.max(bx).max(cx).ceil().min(self.width as f32 - 1.0) as i32;
+            let min_y = ay.min(by).min(cy).floor().max(0.0) as i32;
+            let max_y = ay.max(by).max(cy).ceil().min(self.height as f32 - 1.0) as i32;
+            for py in min_y..=max_y {
+                for px in min_x..=max_x {
+                    let fx = px as f32 + 0.5;
+                    let fy = py as f32 + 0.5;
+                    let w0 = edge(bx, by, cx, cy, fx, fy);
+                    let w1 = edge(cx, cy, ax, ay, fx, fy);
+                    let w2 = edge(ax, ay, bx, by, fx, fy);
+                    if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
+                        let idx = py as usize * self.width + px as usize;
+                        if depth_val < self.depth_buffer[idx] {
+                            self.color_buffer[idx] = packed;
+                            self.depth_buffer[idx] = depth_val;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn draw_stars(&mut self, camera: &Camera, view_proj: &Mat4, star_alpha: f32) {
+        if star_alpha <= 0.01 { return; }
+        const STAR_COUNT: usize = 64;
+        let width = self.width;
+        let height = self.height;
+
+        for i in 0..STAR_COUNT {
+            let fi = i as f32;
+            let phi = fi * 2.3999632;
+            let y = 0.15 + (fi / STAR_COUNT as f32) * 0.85;
+            let r = (1.0 - y * y).max(0.0).sqrt();
+            let x = phi.cos() * r;
+            let z = phi.sin() * r;
+
+            let star_dir = Vec3::new(x, y, z).normalized();
+            let star_world = camera.position + star_dir * 100.0;
+            let c = view_proj.transform_point(star_world);
+            if c[3] <= 0.1 { continue; }
+            let inv_w = 1.0 / c[3];
+            let sx = ((c[0] * inv_w * 0.5 + 0.5) * width as f32) as i32;
+            let sy = ((1.0 - (c[1] * inv_w * 0.5 + 0.5)) * height as f32) as i32;
+
+            if sx >= 0 && sx < width as i32 && sy >= 0 && sy < height as i32 {
+                let idx = sy as usize * width + sx as usize;
+                if 5000.0 < self.depth_buffer[idx] {
+                    let twinkle = 0.7 + 0.3 * ((fi * 1.7 + self.total_time * 2.5).sin() * 0.5 + 0.5);
+                    let intensity = star_alpha * twinkle;
+                    let star_col = pack_color(intensity * 0.95, intensity * 0.95, intensity);
+                    self.color_buffer[idx] = star_col;
+                }
+            }
+        }
+    }
+
     pub fn draw_item_3d(
         &mut self,
         block: crate::world::block::BlockId,
@@ -1560,7 +1745,12 @@ impl Renderer {
         yaw: f32,
         view_proj: &Mat4,
     ) {
-        if block.is_tool() {
+        if block == crate::world::block::BlockId::Torch {
+            let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+            let up = Vec3::new(0.0, 1.0, 0.0);
+            let forward = Vec3::new(yaw.sin(), 0.0, yaw.cos());
+            self.draw_torch_3d(pos, right, up, forward, 0.85, view_proj);
+        } else if block.is_tool() {
             // Spinning tilted 3D tool
             let tilt_angle = 0.38f32; // ~22 degrees
             let base_up = Vec3::new(0.0, 1.0, 0.0);
@@ -1595,21 +1785,48 @@ impl Renderer {
 
             for (corners, tex, ao) in face_data {
                 let t1 = Triangle {
-                    v0: Vertex { pos: corners[0], uv: (0.0, 1.0), ao },
-                    v1: Vertex { pos: corners[1], uv: (1.0, 1.0), ao },
-                    v2: Vertex { pos: corners[2], uv: (1.0, 0.0), ao },
+                    v0: Vertex::new(corners[0], (0.0, 1.0), ao),
+                    v1: Vertex::new(corners[1], (1.0, 1.0), ao),
+                    v2: Vertex::new(corners[2], (1.0, 0.0), ao),
                     texture: tex,
                 };
                 let t2 = Triangle {
-                    v0: Vertex { pos: corners[0], uv: (0.0, 1.0), ao },
-                    v1: Vertex { pos: corners[2], uv: (1.0, 0.0), ao },
-                    v2: Vertex { pos: corners[3], uv: (0.0, 0.0), ao },
+                    v0: Vertex::new(corners[0], (0.0, 1.0), ao),
+                    v1: Vertex::new(corners[2], (1.0, 0.0), ao),
+                    v2: Vertex::new(corners[3], (0.0, 0.0), ao),
                     texture: tex,
                 };
                 self.raster_triangle(&t1, view_proj);
                 self.raster_triangle(&t2, view_proj);
             }
         }
+    }
+
+    pub fn draw_item_shadow(&mut self, pos: Vec3, ground_y: f32, view_proj: &Mat4) {
+        let s_rad = 0.22f32;
+        let sx0 = pos.x - s_rad;
+        let sx1 = pos.x + s_rad;
+        let sz0 = pos.z - s_rad;
+        let sz1 = pos.z + s_rad;
+        let s_c0 = Vec3::new(sx0, ground_y, sz1);
+        let s_c1 = Vec3::new(sx1, ground_y, sz1);
+        let s_c2 = Vec3::new(sx1, ground_y, sz0);
+        let s_c3 = Vec3::new(sx0, ground_y, sz0);
+
+        let t1 = Triangle {
+            v0: Vertex::new(s_c0, (0.0, 1.0), 1.0),
+            v1: Vertex::new(s_c1, (1.0, 1.0), 1.0),
+            v2: Vertex::new(s_c2, (1.0, 0.0), 1.0),
+            texture: TextureId::EntityShadow,
+        };
+        let t2 = Triangle {
+            v0: Vertex::new(s_c0, (0.0, 1.0), 1.0),
+            v1: Vertex::new(s_c2, (1.0, 0.0), 1.0),
+            v2: Vertex::new(s_c3, (0.0, 0.0), 1.0),
+            texture: TextureId::EntityShadow,
+        };
+        self.raster_triangle(&t1, view_proj);
+        self.raster_triangle(&t2, view_proj);
     }
 
     pub fn draw_block_break_cracks(
@@ -1649,15 +1866,15 @@ impl Renderer {
 
         for corners in faces {
             let t1 = Triangle {
-                v0: Vertex { pos: corners[0], uv: (0.0, 1.0), ao: 1.0 },
-                v1: Vertex { pos: corners[1], uv: (1.0, 1.0), ao: 1.0 },
-                v2: Vertex { pos: corners[2], uv: (1.0, 0.0), ao: 1.0 },
+                v0: Vertex::new(corners[0], (0.0, 1.0), 1.0),
+                v1: Vertex::new(corners[1], (1.0, 1.0), 1.0),
+                v2: Vertex::new(corners[2], (1.0, 0.0), 1.0),
                 texture: crack_tex,
             };
             let t2 = Triangle {
-                v0: Vertex { pos: corners[0], uv: (0.0, 1.0), ao: 1.0 },
-                v1: Vertex { pos: corners[2], uv: (1.0, 0.0), ao: 1.0 },
-                v2: Vertex { pos: corners[3], uv: (0.0, 0.0), ao: 1.0 },
+                v0: Vertex::new(corners[0], (0.0, 1.0), 1.0),
+                v1: Vertex::new(corners[2], (1.0, 0.0), 1.0),
+                v2: Vertex::new(corners[3], (0.0, 0.0), 1.0),
                 texture: crack_tex,
             };
             self.raster_triangle(&t1, view_proj);
@@ -1688,10 +1905,10 @@ impl Renderer {
         ];
         for corners in faces {
             let vertices = [
-                Vertex { pos: corners[0], uv: (0.0, 1.0), ao: 1.0 },
-                Vertex { pos: corners[1], uv: (1.0, 1.0), ao: 1.0 },
-                Vertex { pos: corners[2], uv: (1.0, 0.0), ao: 1.0 },
-                Vertex { pos: corners[3], uv: (0.0, 0.0), ao: 1.0 },
+                Vertex::new(corners[0], (0.0, 1.0), 1.0),
+                Vertex::new(corners[1], (1.0, 1.0), 1.0),
+                Vertex::new(corners[2], (1.0, 0.0), 1.0),
+                Vertex::new(corners[3], (0.0, 0.0), 1.0),
             ];
             let first = Triangle { v0: vertices[0], v1: vertices[1], v2: vertices[2], texture };
             let second = Triangle { v0: vertices[0], v1: vertices[2], v2: vertices[3], texture };
@@ -1727,17 +1944,17 @@ impl Renderer {
         ];
         for (corners, texture, ao) in faces {
             let vertices = [
-                Vertex { pos: corners[0], uv: (0.0, 1.0), ao },
-                Vertex { pos: corners[1], uv: (1.0, 1.0), ao },
-                Vertex { pos: corners[2], uv: (1.0, 0.0), ao },
-                Vertex { pos: corners[3], uv: (0.0, 0.0), ao },
+                Vertex::new(corners[0], (0.0, 1.0), ao),
+                Vertex::new(corners[1], (1.0, 1.0), ao),
+                Vertex::new(corners[2], (1.0, 0.0), ao),
+                Vertex::new(corners[3], (0.0, 0.0), ao),
             ];
             let first = Triangle { v0: vertices[0], v1: vertices[1], v2: vertices[2], texture };
             let second = Triangle { v0: vertices[0], v1: vertices[2], v2: vertices[3], texture };
             self.raster_triangle(&first, view_proj);
             self.raster_triangle(&second, view_proj);
             self.raster_triangle(&Triangle { v0: first.v2, v1: first.v1, v2: first.v0, texture }, view_proj);
-            self.raster_triangle(&Triangle { v0: second.v2, v1: second.v1, v2: second.v0, texture }, view_proj);
+            self.raster_triangle(&Triangle { v0: second.v2, v1: second.v2, v2: second.v0, texture }, view_proj);
         }
     }
 }
@@ -1828,6 +2045,8 @@ fn project_to_screen_ao(v: &ClipVertAO, width: usize, height: usize) -> ScreenVe
         inv_w,
         uv_over_w: (v.uv.0 * inv_w, v.uv.1 * inv_w),
         ao_over_w: v.ao * inv_w,
+        sky_light_over_w: v.sky_light * inv_w,
+        block_light_over_w: v.block_light * inv_w,
     }
 }
 
@@ -1843,6 +2062,8 @@ fn raster_triangle_tile(
     depth_buffer: &mut [f32],
     textures: &TextureAtlas,
     fog_dist: f32,
+    daylight: f32,
+    fog_color: [f32; 3],
 ) {
     let c0 = to_clip_ao(tri.v0, view_proj);
     let c1 = to_clip_ao(tri.v1, view_proj);
@@ -1859,7 +2080,7 @@ fn raster_triangle_tile(
         let sc = project_to_screen_ao(&clipped[i + 1], width, height);
 
         raster_screen_triangle_ao_tile(
-            sa, sb, sc, tri.texture, hurt_tint, width, tile_y_start, tile_y_end, color_buffer, depth_buffer, textures, fog_dist,
+            sa, sb, sc, tri.texture, hurt_tint, width, tile_y_start, tile_y_end, color_buffer, depth_buffer, textures, fog_dist, daylight, fog_color,
         );
     }
 }
@@ -1877,6 +2098,8 @@ fn raster_screen_triangle_ao_tile(
     depth_buffer: &mut [f32],
     textures: &TextureAtlas,
     fog_dist: f32,
+    daylight: f32,
+    fog_color: [f32; 3],
 ) {
     let area = edge(a.x, a.y, b.x, b.y, c.x, c.y);
     if area <= 0.0 {
@@ -1895,7 +2118,7 @@ fn raster_screen_triangle_ao_tile(
     let inv_area = 1.0 / area;
     let tex = textures.get(texture);
     let is_crack = texture.is_destroy_stage();
-    let transparent = matches!(texture, TextureId::Water | TextureId::Glass) || is_crack;
+    let transparent = matches!(texture, TextureId::Water | TextureId::Glass | TextureId::EntityShadow) || is_crack;
 
     let dx0 = c.x - b.x;
     let dy0 = c.y - b.y;
@@ -1939,6 +2162,8 @@ fn raster_screen_triangle_ao_tile(
                 color_buffer,
                 depth_buffer,
                 fog_dist,
+                daylight,
+                fog_color,
             );
 
             px += 4;
@@ -1965,6 +2190,8 @@ fn raster_screen_triangle_ao_tile(
                 color_buffer,
                 depth_buffer,
                 fog_dist,
+                daylight,
+                fog_color,
             );
 
             px += 1;
@@ -2000,6 +2227,8 @@ fn raster_scanline_simd_4x(
     color_buffer: &mut [u32],
     depth_buffer: &mut [f32],
     fog_dist: f32,
+    daylight: f32,
+    fog_color: [f32; 3],
 ) {
     let w0 = [
         w0_start,
@@ -2056,10 +2285,17 @@ fn raster_scanline_simd_4x(
                     }
 
                     let ao = (l0 * a.ao_over_w + l1 * b.ao_over_w + l2 * c.ao_over_w) * depth;
+                    let sky = (l0 * a.sky_light_over_w + l1 * b.sky_light_over_w + l2 * c.sky_light_over_w) * depth;
+                    let block = (l0 * a.block_light_over_w + l1 * b.block_light_over_w + l2 * c.block_light_over_w) * depth;
 
-                    let mut r = texel[0] * ao;
-                    let mut g = texel[1] * ao;
-                    let mut bl = texel[2] * ao;
+                    let sky_lit = sky * daylight;
+                    let lr = (sky_lit + block * 1.35).clamp(0.06, 1.1) * ao;
+                    let lg = (sky_lit + block * 1.15).clamp(0.06, 1.0) * ao;
+                    let lb = (sky_lit * 0.95 + block * 0.80).clamp(0.06, 1.0) * ao;
+
+                    let mut r = texel[0] * lr;
+                    let mut g = texel[1] * lg;
+                    let mut bl = texel[2] * lb;
 
                     if hurt_tint > 0.0 {
                         r = r * (1.0 - hurt_tint) + 0.95 * hurt_tint;
@@ -2072,10 +2308,9 @@ fn raster_scanline_simd_4x(
                     } else {
                         0.0
                     };
-                    let fog = (0.75f32, 0.85f32, 1.0f32);
-                    let fr = r * (1.0 - fog_t) + fog.0 * fog_t;
-                    let fg = g * (1.0 - fog_t) + fog.1 * fog_t;
-                    let fb = bl * (1.0 - fog_t) + fog.2 * fog_t;
+                    let fr = r * (1.0 - fog_t) + fog_color[0] * fog_t;
+                    let fg = g * (1.0 - fog_t) + fog_color[1] * fog_t;
+                    let fb = bl * (1.0 - fog_t) + fog_color[2] * fog_t;
 
                     if is_crack {
                         let (br, bg, bb) = unpack_color(color_buffer[idx]);
@@ -2120,6 +2355,8 @@ fn raster_scanline_pixel(
     color_buffer: &mut [u32],
     depth_buffer: &mut [f32],
     fog_dist: f32,
+    daylight: f32,
+    fog_color: [f32; 3],
 ) {
     if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
         let l0 = w0 * inv_area;
@@ -2145,10 +2382,17 @@ fn raster_scanline_pixel(
                 }
 
                 let ao = (l0 * a.ao_over_w + l1 * b.ao_over_w + l2 * c.ao_over_w) * depth;
+                let sky = (l0 * a.sky_light_over_w + l1 * b.sky_light_over_w + l2 * c.sky_light_over_w) * depth;
+                let block = (l0 * a.block_light_over_w + l1 * b.block_light_over_w + l2 * c.block_light_over_w) * depth;
 
-                let mut r = texel[0] * ao;
-                let mut g = texel[1] * ao;
-                let mut bl = texel[2] * ao;
+                let sky_lit = sky * daylight;
+                let lr = (sky_lit + block * 1.35).clamp(0.06, 1.1) * ao;
+                let lg = (sky_lit + block * 1.15).clamp(0.06, 1.0) * ao;
+                let lb = (sky_lit * 0.95 + block * 0.80).clamp(0.06, 1.0) * ao;
+
+                let mut r = texel[0] * lr;
+                let mut g = texel[1] * lg;
+                let mut bl = texel[2] * lb;
 
                 if hurt_tint > 0.0 {
                     r = r * (1.0 - hurt_tint) + 0.95 * hurt_tint;
@@ -2161,10 +2405,9 @@ fn raster_scanline_pixel(
                 } else {
                     0.0
                 };
-                let fog = (0.75f32, 0.85f32, 1.0f32);
-                let fr = r * (1.0 - fog_t) + fog.0 * fog_t;
-                let fg = g * (1.0 - fog_t) + fog.1 * fog_t;
-                let fb = bl * (1.0 - fog_t) + fog.2 * fog_t;
+                let fr = r * (1.0 - fog_t) + fog_color[0] * fog_t;
+                let fg = g * (1.0 - fog_t) + fog_color[1] * fog_t;
+                let fb = bl * (1.0 - fog_t) + fog_color[2] * fog_t;
 
                 if is_crack {
                     let (br, bg, bb) = unpack_color(color_buffer[idx]);
@@ -2192,7 +2435,13 @@ fn raster_scanline_pixel(
 
 fn to_clip_ao(v: Vertex, view_proj: &Mat4) -> ClipVertAO {
     let c = view_proj.transform_point(v.pos);
-    ClipVertAO { clip: c, uv: v.uv, ao: v.ao }
+    ClipVertAO {
+        clip: c,
+        uv: v.uv,
+        ao: v.ao,
+        sky_light: v.sky_light,
+        block_light: v.block_light,
+    }
 }
 
 fn clip_near_ao(verts: &[ClipVertAO; 3]) -> Vec<ClipVertAO> {
@@ -2222,7 +2471,9 @@ fn clip_near_ao(verts: &[ClipVertAO; 3]) -> Vec<ClipVertAO> {
                 lerp(cur.uv.1, next.uv.1, t),
             );
             let ao = lerp(cur.ao, next.ao, t);
-            output.push(ClipVertAO { clip, uv, ao });
+            let sky_light = lerp(cur.sky_light, next.sky_light, t);
+            let block_light = lerp(cur.block_light, next.block_light, t);
+            output.push(ClipVertAO { clip, uv, ao, sky_light, block_light });
         }
     }
     output
