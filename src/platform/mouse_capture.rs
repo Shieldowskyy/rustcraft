@@ -10,7 +10,7 @@ use minifb::Window;
 #[cfg(target_os = "linux")]
 mod x11_capture {
     use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
-    use std::os::raw::{c_int, c_ulong};
+    use std::os::raw::{c_char, c_int, c_ulong};
     use x11_dl::xlib;
 
     pub struct X11Capture {
@@ -169,7 +169,7 @@ mod x11_capture {
         window: c_ulong,
     ) -> c_ulong {
         let data: [u8; 1] = [0];
-        let pixmap = (lib.XCreateBitmapFromData)(display, window, data.as_ptr() as *const i8, 1, 1);
+        let pixmap = (lib.XCreateBitmapFromData)(display, window, data.as_ptr() as *const c_char, 1, 1);
         let mut color: xlib::XColor = std::mem::zeroed();
         let cursor = (lib.XCreatePixmapCursor)(display, pixmap, pixmap, &mut color, &mut color, 0, 0);
         (lib.XFreePixmap)(display, pixmap);
@@ -246,10 +246,11 @@ mod x11_capture {
 #[cfg(windows)]
 mod win32_capture {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    use windows_sys::Win32::Foundation::{HWND, RECT};
+    use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
+    use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        ClipCursor, GetClientRect, GetCursorPos, ClientToScreen, SetCursorPos, ShowWindow,
-        SW_MAXIMIZE, POINT,
+        ClipCursor, GetClientRect, GetCursorPos, SetCursorPos, ShowWindow,
+        SW_MAXIMIZE,
     };
 
     pub struct Win32Capture {
@@ -303,6 +304,7 @@ mod win32_capture {
             self.grabbed = captured;
         }
 
+        #[allow(dead_code)]
         pub fn is_captured(&self) -> bool {
             self.grabbed
         }
