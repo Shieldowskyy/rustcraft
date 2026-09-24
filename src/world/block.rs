@@ -211,6 +211,19 @@ impl BlockId {
         ((SOLID_MASK >> id) & 1) != 0
     }
 
+    #[inline(always)]
+    pub fn is_opaque(self) -> bool {
+        self.is_solid() && !self.is_transparent()
+    }
+
+    #[inline(always)]
+    pub fn is_leaf(self) -> bool {
+        matches!(
+            self,
+            BlockId::Leaves | BlockId::SnowLeaves | BlockId::CherryLeaves | BlockId::AutumnLeaves
+        )
+    }
+
     pub fn is_food(self) -> bool {
         matches!(
             self,

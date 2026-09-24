@@ -12,7 +12,10 @@ float4 main(
 {
     float4 color = tex2D(uTexture, oUV);
     if (color.a < 0.05f) {
-        discard;
+        if (oFog < 0.18f) {
+            discard;
+        }
+        color = float4(0.08f, 0.18f, 0.06f, 1.0f);
     }
     // Ambient Occlusion + color + distance fog blend
     float3 lit = color.rgb * oAO;

@@ -296,6 +296,7 @@ pub struct VitaInputTracker {
     prev_touch_count: u32,
     pub cursor_x: f32,
     pub cursor_y: f32,
+    pub cursor_active: bool,
 }
 
 impl VitaInputTracker {
@@ -310,6 +311,7 @@ impl VitaInputTracker {
             prev_touch_count: 0,
             cursor_x: 480.0,
             cursor_y: 272.0,
+            cursor_active: false,
         }
     }
 
@@ -352,6 +354,7 @@ impl VitaInputTracker {
         let dpad_down = buttons & SCE_CTRL_DOWN != 0;
         let dpad_left = buttons & SCE_CTRL_LEFT != 0;
         let dpad_right = buttons & SCE_CTRL_RIGHT != 0;
+        let dpad_any_just = just_pressed(SCE_CTRL_UP | SCE_CTRL_DOWN | SCE_CTRL_LEFT | SCE_CTRL_RIGHT);
 
         // Odczyt ekranu dotykowego
         let mut touch = SceTouchData {
@@ -373,28 +376,25 @@ impl VitaInputTracker {
             let ty = (touch.report[0].y as f32 / 1087.0) * 544.0;
             self.cursor_x = tx.clamp(5.0, 955.0);
             self.cursor_y = ty.clamp(5.0, 539.0);
+            self.cursor_active = true;
         } else if !is_mouse_captured {
             // Płynny ruch kursora lewą lub prawą gałką analogową w menu i ekwipunku
             let cursor_speed = 650.0;
             let move_x = left_x + right_x;
             let move_y = left_y + right_y;
-            if move_x.abs() > 0.05 || move_y.abs() > 0.05 {
-                self.cursor_x += move_x * cursor_speed * dt;
-                self.cursor_y += move_y * cursor_speed * dt;
+            if move_x.abs() > 0.08 || move_y.abs() > 0.08 {
+                self.cursor_x = (self.cursor_x + move_x * cursor_speed * dt).clamp(5.0, 955.0);
+                self.cursor_y = (self.cursor_y + move_y * cursor_speed * dt).clamp(5.0, 539.0);
+                self.cursor_active = true;
             }
 
-            // Skokowe przeskakiwanie po slotach D-Padem
-            let slot_step = 42.0;
-            if just_pressed(SCE_CTRL_UP) { self.cursor_y -= slot_step; }
-            if just_pressed(SCE_CTRL_DOWN) { self.cursor_y += slot_step; }
-            if just_pressed(SCE_CTRL_LEFT) { self.cursor_x -= slot_step; }
-            if just_pressed(SCE_CTRL_RIGHT) { self.cursor_x += slot_step; }
-
-            self.cursor_x = self.cursor_x.clamp(5.0, 955.0);
-            self.cursor_y = self.cursor_y.clamp(5.0, 539.0);
+            // Kliknięcie D-Padem wyłącza wirtualny kursor myszy, aby nie dublować zaznaczenia w menu
+            if dpad_any_just {
+                self.cursor_active = false;
+            }
         }
 
-        let mouse_pos = if is_mouse_captured {
+        let mouse_pos = if is_mouse_captured || !self.cursor_active {
             None
         } else {
             Some((self.cursor_x, self.cursor_y))
@@ -403,13 +403,13 @@ impl VitaInputTracker {
         let mouse_left = if is_mouse_captured {
             btn_r || touch_active
         } else {
-            btn_r || touch_just_pressed || just_pressed(SCE_CTRL_CROSS)
+            touch_just_pressed || (self.cursor_active && btn_r)
         };
 
         let mouse_right = if is_mouse_captured {
             btn_l
         } else {
-            btn_l || just_pressed(SCE_CTRL_SQUARE)
+            self.cursor_active && btn_l
         };
 
         let mouse_dx = 0.0;
@@ -437,7 +437,7 @@ impl VitaInputTracker {
             key_c: false,
             key_escape: btn_start,
             key_p: btn_start,
-            key_f: btn_select,
+            key_f: false,
             key_e: btn_triangle,
             key_q: btn_square,
             key_g: false,

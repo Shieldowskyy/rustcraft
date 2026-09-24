@@ -19,7 +19,7 @@ use crate::core::math::Vec3;
 use crate::graphics::atlas::{TextureAtlas, TEX_SIZE, TextureId};
 use crate::graphics::camera::Camera;
 use crate::world::mesher::{build_chunk_mesh, Vertex};
-use crate::world::{BlockId, World, CHUNK_SIZE_X, CHUNK_SIZE_Z};
+use crate::world::{BlockId, World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
 use std::collections::HashMap;
 
 // ============================================================
@@ -96,6 +96,7 @@ const SCE_GXM_DEPTH_FUNC_ALWAYS_PASS: u32 = 0x01C00000;
 
 const SCE_GXM_DEPTH_WRITE_ENABLED: u32 = 0x00000000;
 const SCE_GXM_DEPTH_WRITE_DISABLED: u32 = 0x00100000;
+const SCE_GXM_TWO_SIDED_DISABLED: u32 = 0x00000000;
 const SCE_GXM_TWO_SIDED_ENABLED: u32 = 0x00000800;
 const SCE_GXM_POLYGON_MODE_TRIANGLE_FILL: u32 = 0x00000000;
 const SCE_GXM_VIEWPORT_ENABLED: u32 = 0x00000000;
@@ -669,13 +670,14 @@ impl GxmVertex {
     pub fn from_vertex(v: &Vertex, u0: f32, v0: f32, u1: f32, v1: f32) -> Self {
         let u = u0 + (u1 - u0) * v.uv.0;
         let vv = v0 + (v1 - v0) * v.uv.1;
+        let light = (v.sky_light + v.block_light * 1.35).clamp(0.08, 1.0) * v.ao;
         Self {
             x: v.pos.x,
             y: v.pos.y,
             z: v.pos.z,
             u,
             v: vv,
-            ao: v.ao.clamp(0.2, 1.0),
+            ao: light.clamp(0.10, 1.0),
         }
     }
 }
@@ -700,6 +702,11 @@ pub const ALL_TEXTURES: &[TextureId] = &[
     TextureId::DestroyStage7, TextureId::DestroyStage8, TextureId::DestroyStage9, TextureId::DamageFlash,
     TextureId::UnderwaterTint, TextureId::VignetteTint, TextureId::LavaTint, TextureId::CherryLeaves,
     TextureId::AutumnLeaves, TextureId::Mud, TextureId::Torch, TextureId::EntityShadow,
+    TextureId::GrassTopSwamp, TextureId::GrassSideSwamp, TextureId::LeavesSwamp,
+    TextureId::GrassTopSavanna, TextureId::GrassSideSavanna, TextureId::LeavesSavanna,
+    TextureId::GrassTopCherry, TextureId::GrassSideCherry,
+    TextureId::GrassTopAutumn, TextureId::GrassSideAutumn,
+    TextureId::GrassTopTaiga, TextureId::GrassSideTaiga,
 ];
 
 fn build_gpu_texture(atlas: &TextureAtlas) -> (GpuMem, SceGxmTexture) {
@@ -837,6 +844,18 @@ pub fn atlas_uv(tex_id: TextureId) -> (f32, f32, f32, f32) {
         TextureId::Mud => 51,
         TextureId::Torch => 52,
         TextureId::EntityShadow => 53,
+        TextureId::GrassTopSwamp => 54,
+        TextureId::GrassSideSwamp => 55,
+        TextureId::LeavesSwamp => 56,
+        TextureId::GrassTopSavanna => 57,
+        TextureId::GrassSideSavanna => 58,
+        TextureId::LeavesSavanna => 59,
+        TextureId::GrassTopCherry => 60,
+        TextureId::GrassSideCherry => 61,
+        TextureId::GrassTopAutumn => 62,
+        TextureId::GrassSideAutumn => 63,
+        TextureId::GrassTopTaiga => 64,
+        TextureId::GrassSideTaiga => 65,
     };
     const TILE_NORM: f32 = 1.0 / ATLAS_TILES_PER_ROW as f32;
     let col = tile_idx % ATLAS_TILES_PER_ROW;
@@ -1453,8 +1472,8 @@ impl GxmRenderer {
             let mut clear_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
             sceGxmReserveFragmentDefaultUniformBuffer(self.context, &mut clear_uniform_buf);
             if !self.param_clear_color.is_null() && !clear_uniform_buf.is_null() {
-                // Kolor nieba (jasny błękit: R=0.44, G=0.70, B=0.95, A=1.0)
-                let sky_rgba: [f32; 4] = [0.443f32, 0.702f32, 0.949f32, 1.0f32];
+                let (sky_top, _sky_bottom, _fog_col) = world.sky_colors();
+                let sky_rgba: [f32; 4] = [sky_top[0], sky_top[1], sky_top[2], 1.0f32];
                 sceGxmSetUniformDataF(clear_uniform_buf, self.param_clear_color, 0, 4, sky_rgba.as_ptr());
             }
 
@@ -1467,7 +1486,9 @@ impl GxmRenderer {
                 3,
             );
 
-            // 2. Rysowanie terenu 3D wokół gracza
+            // 2. Rysowanie terenu 3D wokół gracza z włączonym sprzętowym Backface Cullingiem
+            sceGxmSetTwoSidedEnable(self.context, SCE_GXM_TWO_SIDED_DISABLED);
+            sceGxmSetCullMode(self.context, SCE_GXM_CULL_CW);
             sceGxmSetFrontDepthFunc(self.context, SCE_GXM_DEPTH_FUNC_LESS_EQUAL);
             sceGxmSetBackDepthFunc(self.context, SCE_GXM_DEPTH_FUNC_LESS_EQUAL);
             sceGxmSetFrontDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
@@ -1545,10 +1566,18 @@ impl GxmRenderer {
             }
             chunk_coords.sort_unstable_by_key(|&(dx, dz)| dx * dx + dz * dz);
 
+            let is_occluded = world.is_view_fully_occluded(camera.position, camera.yaw, camera.pitch);
+
             for (dx, dz) in chunk_coords {
                 let cx = cam_chunk_x + dx;
                 let cz = cam_chunk_z + dz;
                 let key = (cx, cz);
+
+                // Jeśli gracz stoi twarzą bezpośrednio w litej ścianie (100% okluzji pola widzenia),
+                // rysujemy tylko bieżący lokalny chunk (zawierający ścianę), a wszystkie pozostałe pomijamy!
+                if is_occluded && (dx != 0 || dz != 0) {
+                    continue;
+                }
 
                     let slot_idx = if let Some(&s) = self.chunk_slots.get(&key) {
                         let is_dirty = world.chunks.get(&key).map(|c| c.dirty).unwrap_or(false);
@@ -1589,7 +1618,7 @@ impl GxmRenderer {
 
                     if let Some(s) = slot_idx {
                         let idx_count = self.slot_index_counts[s];
-                        if idx_count > 0 {
+                        if idx_count > 0 && Self::is_chunk_in_frustum(cx, cz, &mvp) {
                             let spawn_time = self.chunk_spawn_times.get(&key).copied().unwrap_or(0.0);
                             let elapsed = total_time - spawn_time;
                             let y_offset = if chunk_anim && elapsed >= 0.0 && elapsed < 0.35 {
@@ -1741,7 +1770,10 @@ impl GxmRenderer {
                 }
             }
 
-            // 2c. Rysowanie obiektów dynamicznych (wypadnięte itemy na ziemi, moby, TNT)
+            // 2c. Rysowanie obiektów dynamicznych (wypadnięte itemy na ziemi, moby, TNT) - wyłączamy culling dla dwustronnych billboardów/modeli
+            sceGxmSetTwoSidedEnable(self.context, SCE_GXM_TWO_SIDED_ENABLED);
+            sceGxmSetCullMode(self.context, SCE_GXM_CULL_NONE);
+
             let mut ent_v_count = 0usize;
             let mut ent_i_count = 0usize;
             let ent_vb = self.entity_vb_mem.ptr as *mut GxmVertex;
@@ -1749,7 +1781,7 @@ impl GxmRenderer {
             let max_ent_verts = Self::MAX_ENTITY_VERTS;
             let max_ent_idx = Self::MAX_ENTITY_INDICES;
 
-            if clouds_enabled {
+            if clouds_enabled && !is_occluded {
                 append_clouds(
                     camera.position,
                     total_time,
@@ -2844,6 +2876,114 @@ impl GxmRenderer {
             self.free_slots.push(slot);
             self.chunk_spawn_times.remove(&(cx, cz));
         }
+    }
+
+    #[inline]
+    fn is_chunk_in_frustum(chunk_x: i32, chunk_z: i32, mvp: &crate::core::math::Mat4) -> bool {
+        let min_x = (chunk_x * CHUNK_SIZE_X as i32) as f32;
+        let max_x = min_x + CHUNK_SIZE_X as f32;
+        let min_y = 0.0f32;
+        let max_y = CHUNK_SIZE_Y as f32;
+        let min_z = (chunk_z * CHUNK_SIZE_Z as i32) as f32;
+        let max_z = min_z + CHUNK_SIZE_Z as f32;
+
+        let corners = [
+            [min_x, min_y, min_z],
+            [max_x, min_y, min_z],
+            [min_x, max_y, min_z],
+            [max_x, max_y, min_z],
+            [min_x, min_y, max_z],
+            [max_x, min_y, max_z],
+            [min_x, max_y, max_z],
+            [max_x, max_y, max_z],
+        ];
+
+        let m = &mvp.m;
+
+        let mut out_left = true;
+        let mut out_right = true;
+        let mut out_bottom = true;
+        let mut out_top = true;
+        let mut out_near = true;
+        let mut out_far = true;
+
+        for corner in &corners {
+            let x = corner[0];
+            let y = corner[1];
+            let z = corner[2];
+
+            let clip_x = m[0] * x + m[4] * y + m[8] * z + m[12];
+            let clip_y = m[1] * x + m[5] * y + m[9] * z + m[13];
+            let clip_z = m[2] * x + m[6] * y + m[10] * z + m[14];
+            let clip_w = m[3] * x + m[7] * y + m[11] * z + m[15];
+
+            if clip_x >= -clip_w { out_left = false; }
+            if clip_x <= clip_w { out_right = false; }
+            if clip_y >= -clip_w { out_bottom = false; }
+            if clip_y <= clip_w { out_top = false; }
+            if clip_z >= 0.0 { out_near = false; }
+            if clip_z <= clip_w { out_far = false; }
+        }
+
+        !(out_left || out_right || out_bottom || out_top || out_near || out_far)
+    }
+
+    /// Aktualizuje tekstury w pamięci CDRAM GPU po zmianie ustawień graficznych (np. przełącznik Fancy Leaves)
+    pub fn update_textures(&mut self, atlas: &TextureAtlas) {
+        let pixels = self._atlas_mem.ptr as *mut u32;
+        unsafe {
+            for (tile_idx, &tex_id) in ALL_TEXTURES.iter().enumerate() {
+                let tex = atlas.texture_for(tex_id);
+                let tile_col = tile_idx % ATLAS_TILES_PER_ROW;
+                let tile_row = tile_idx / ATLAS_TILES_PER_ROW;
+                let base_x = tile_col * TEX_SIZE;
+                let base_y = tile_row * TEX_SIZE;
+                let is_water = tex_id == TextureId::Water;
+                let is_glass = tex_id == TextureId::Glass;
+                let is_damage = tex_id == TextureId::DamageFlash;
+                let is_underwater = tex_id == TextureId::UnderwaterTint;
+                let is_vignette = tex_id == TextureId::VignetteTint;
+                let is_lava = tex_id == TextureId::LavaTint;
+                let is_shadow = tex_id == TextureId::EntityShadow;
+                for py in 0..TEX_SIZE {
+                    for px in 0..TEX_SIZE {
+                        let [r, g, b] = tex.texels[py * TEX_SIZE + px];
+                        let a = if r < 0.0 {
+                            0u32
+                        } else if is_shadow {
+                            130u32
+                        } else if is_water {
+                            130u32
+                        } else if is_glass {
+                            120u32
+                        } else if is_damage {
+                            85u32
+                        } else if is_underwater {
+                            95u32
+                        } else if is_vignette {
+                            70u32
+                        } else if is_lava {
+                            215u32
+                        } else {
+                            255u32
+                        };
+                        let ri = (r.clamp(0.0, 1.0) * 255.0) as u32;
+                        let gi = (g.clamp(0.0, 1.0) * 255.0) as u32;
+                        let bi = (b.clamp(0.0, 1.0) * 255.0) as u32;
+                        let abgr = (a << 24) | (bi << 16) | (gi << 8) | ri;
+                        *pixels.add((base_y + py) * ATLAS_SIZE + (base_x + px)) = abgr;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Czyści wszystkie zarezerwowane sloty chunków na GPU, wymuszając ich ponowną przebudowę
+    pub fn clear_mesh_cache(&mut self) {
+        self.chunk_slots.clear();
+        self.free_slots = (0..Self::MAX_CHUNK_SLOTS).rev().collect();
+        self.slot_index_counts = [0; Self::MAX_CHUNK_SLOTS];
+        self.chunk_spawn_times.clear();
     }
 
     /// Zwraca statystyki wydajności i pamięci (użyte sloty chunków, max slotów, bajty CDRAM, bajty RAM)

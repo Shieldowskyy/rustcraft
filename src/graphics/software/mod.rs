@@ -140,6 +140,24 @@ impl Renderer {
         &self.color_buffer
     }
 
+    pub fn update_textures(&mut self, fancy_leaves: bool) {
+        self.textures = TextureAtlas::generate_with_fancy(fancy_leaves);
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        if let Some(vk) = self.vulkan.as_mut() {
+            vk.update_textures(&self.textures);
+        }
+    }
+
+    pub fn clear_mesh_cache(&mut self) {
+        self.mesh_cache.clear();
+        self.dirty_keys.clear();
+        self.chunk_spawn_times.clear();
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        if let Some(vk) = self.vulkan.as_mut() {
+            vk.clear_chunk_buffers();
+        }
+    }
+
     pub fn selected_block(&self) -> u8 {
         self.selected_block
     }
@@ -210,7 +228,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 9] {
+    pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 10] {
         crate::ui::settings_option_rects(self.width, self.height)
     }
 
@@ -414,6 +432,10 @@ impl Renderer {
                 self.chunk_anim,
                 self.total_time,
                 &self.chunk_spawn_times,
+                daylight,
+                world.day_fraction(),
+                world.sun_direction(),
+                (sky_top, sky_bottom, fog_col),
                 &mut self.color_buffer,
                 &mut self.depth_buffer,
             );
@@ -438,6 +460,12 @@ impl Renderer {
 
         let cam_x = camera.position.x - CHUNK_SIZE_X as f32 * 0.5;
         let cam_z = camera.position.z - CHUNK_SIZE_Z as f32 * 0.5;
+
+        let is_occluded = world.is_view_fully_occluded(camera.position, camera.yaw, camera.pitch);
+        if is_occluded {
+            let (cam_cx, cam_cz, _, _) = World::world_to_chunk(camera.position.x.floor() as i32, camera.position.z.floor() as i32);
+            visible.retain(|&k| k == (cam_cx, cam_cz));
+        }
 
         visible.sort_unstable_by_key(|a| {
             let dx_a = a.0 as f32 * CHUNK_SIZE_X as f32 - cam_x;

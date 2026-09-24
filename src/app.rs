@@ -190,7 +190,7 @@ pub struct RustCraftApp {
     pub main_menu_rects: [(i32, i32, i32, i32); 3],
     pub save_card_rects: [(i32, i32, i32, i32); VISIBLE_SAVE_ROWS],
     pub save_btn_rects: [(i32, i32, i32, i32); 4],
-    pub settings_rects: [(i32, i32, i32, i32); 9],
+    pub settings_rects: [(i32, i32, i32, i32); 10],
     pub pause_menu_rects: [(i32, i32, i32, i32); 5],
     pub death_screen_rects: [(i32, i32, i32, i32); 2],
     pub seed: u32,
@@ -230,6 +230,10 @@ impl RustCraftApp {
             _ => Renderer::new(width, height),
         };
         renderer.fog_enabled = settings.fog;
+        renderer.render_distance = settings.render_distance;
+        if !settings.fancy_leaves {
+            renderer.update_textures(false);
+        }
 
         let world = World::new_with_seed(seed);
         let camera = Camera::new(world.player_position);
@@ -638,7 +642,7 @@ impl RustCraftApp {
 
                 if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
                     let next = match self.settings_hovered_opt {
-                        Some(0) | None => 8,
+                        Some(0) | None => 9,
                         Some(i) => i - 1,
                     };
                     self.settings_hovered_opt = Some(next);
@@ -646,7 +650,7 @@ impl RustCraftApp {
                 }
                 if input.gp_dpad_down_just_pressed || (down_arrow_down && !self.prev_down_arrow_down) {
                     let next = match self.settings_hovered_opt {
-                        Some(8) | None => 0,
+                        Some(9) | None => 0,
                         Some(i) => i + 1,
                     };
                     self.settings_hovered_opt = Some(next);
@@ -664,15 +668,26 @@ impl RustCraftApp {
 
                 if let Some(opt_idx) = click_opt {
                     match opt_idx {
-                        0 => self.settings.cycle_render_distance(true),
-                        1 => self.settings.fog = !self.settings.fog,
-                        2 => self.settings.clouds = !self.settings.clouds,
-                        3 => self.settings.particles = !self.settings.particles,
-                        4 => self.settings.chunk_anim = !self.settings.chunk_anim,
-                        5 => self.settings.cycle_fov(true),
-                        6 => self.settings.underwater_fx = !self.settings.underwater_fx,
-                        7 => self.settings.debug_overlay = !self.settings.debug_overlay,
-                        8 => {
+                        0 => {
+                            self.settings.cycle_render_distance(true);
+                            self.renderer.render_distance = self.settings.render_distance;
+                            self.world.purge_distant_chunks(self.camera.position, self.settings.render_distance);
+                            self.renderer.clear_mesh_cache();
+                        }
+                        1 => {
+                            self.settings.fancy_leaves = !self.settings.fancy_leaves;
+                            self.renderer.update_textures(self.settings.fancy_leaves);
+                            self.world.mark_all_chunks_dirty();
+                            self.renderer.clear_mesh_cache();
+                        }
+                        2 => self.settings.fog = !self.settings.fog,
+                        3 => self.settings.clouds = !self.settings.clouds,
+                        4 => self.settings.particles = !self.settings.particles,
+                        5 => self.settings.chunk_anim = !self.settings.chunk_anim,
+                        6 => self.settings.cycle_fov(true),
+                        7 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                        8 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                        9 => {
                             let _ = self.settings.save();
                             self.state = match prev {
                                 PreviousMenu::MainMenu => GameState::MainMenu,
@@ -684,28 +699,50 @@ impl RustCraftApp {
                 } else if input.gp_dpad_left_just_pressed || left_key_just {
                     if let Some(opt_idx) = hovered_opt {
                         match opt_idx {
-                            0 => self.settings.cycle_render_distance(false),
-                            1 => self.settings.fog = !self.settings.fog,
-                            2 => self.settings.clouds = !self.settings.clouds,
-                            3 => self.settings.particles = !self.settings.particles,
-                            4 => self.settings.chunk_anim = !self.settings.chunk_anim,
-                            5 => self.settings.cycle_fov(false),
-                            6 => self.settings.underwater_fx = !self.settings.underwater_fx,
-                            7 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                            0 => {
+                                self.settings.cycle_render_distance(false);
+                                self.renderer.render_distance = self.settings.render_distance;
+                                self.world.purge_distant_chunks(self.camera.position, self.settings.render_distance);
+                                self.renderer.clear_mesh_cache();
+                            }
+                            1 => {
+                                self.settings.fancy_leaves = !self.settings.fancy_leaves;
+                                self.renderer.update_textures(self.settings.fancy_leaves);
+                                self.world.mark_all_chunks_dirty();
+                                self.renderer.clear_mesh_cache();
+                            }
+                            2 => self.settings.fog = !self.settings.fog,
+                            3 => self.settings.clouds = !self.settings.clouds,
+                            4 => self.settings.particles = !self.settings.particles,
+                            5 => self.settings.chunk_anim = !self.settings.chunk_anim,
+                            6 => self.settings.cycle_fov(false),
+                            7 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                            8 => self.settings.debug_overlay = !self.settings.debug_overlay,
                             _ => {}
                         }
                     }
                 } else if input.gp_dpad_right_just_pressed || right_key_just {
                     if let Some(opt_idx) = hovered_opt {
                         match opt_idx {
-                            0 => self.settings.cycle_render_distance(true),
-                            1 => self.settings.fog = !self.settings.fog,
-                            2 => self.settings.clouds = !self.settings.clouds,
-                            3 => self.settings.particles = !self.settings.particles,
-                            4 => self.settings.chunk_anim = !self.settings.chunk_anim,
-                            5 => self.settings.cycle_fov(true),
-                            6 => self.settings.underwater_fx = !self.settings.underwater_fx,
-                            7 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                            0 => {
+                                self.settings.cycle_render_distance(true);
+                                self.renderer.render_distance = self.settings.render_distance;
+                                self.world.purge_distant_chunks(self.camera.position, self.settings.render_distance);
+                                self.renderer.clear_mesh_cache();
+                            }
+                            1 => {
+                                self.settings.fancy_leaves = !self.settings.fancy_leaves;
+                                self.renderer.update_textures(self.settings.fancy_leaves);
+                                self.world.mark_all_chunks_dirty();
+                                self.renderer.clear_mesh_cache();
+                            }
+                            2 => self.settings.fog = !self.settings.fog,
+                            3 => self.settings.clouds = !self.settings.clouds,
+                            4 => self.settings.particles = !self.settings.particles,
+                            5 => self.settings.chunk_anim = !self.settings.chunk_anim,
+                            6 => self.settings.cycle_fov(true),
+                            7 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                            8 => self.settings.debug_overlay = !self.settings.debug_overlay,
                             _ => {}
                         }
                     }
@@ -1459,7 +1496,8 @@ impl RustCraftApp {
                         self.renderer.draw_tnt_cube(tnt.pos, tnt.fuse, &self.camera, &view_proj);
                     }
 
-                    if self.settings.clouds {
+                    let is_occluded = self.world.is_view_fully_occluded(self.camera.position, self.camera.yaw, self.camera.pitch);
+                    if self.settings.clouds && !is_occluded {
                         self.renderer.draw_clouds(self.camera.position, &view_proj, self.total_time);
                     }
 

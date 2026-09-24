@@ -7,7 +7,7 @@
 use crate::core::math::{IVec3, Vec3};
 use crate::graphics::atlas::TextureId;
 use crate::world::block::{BlockId, Face};
-use crate::world::{Chunk, World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
+use crate::world::{get_biome_at, Biome, Chunk, World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
 
 #[derive(Copy, Clone)]
 pub struct Vertex {
@@ -71,6 +71,7 @@ pub struct ChunkNeighborCache<'a> {
     pub base_x: i32,
     pub base_z: i32,
     pub heightmap: [u8; 16 * 16],
+    pub leaf_heightmap: [u8; 16 * 16],
     pub lights: Vec<LightSource>,
 }
 
@@ -91,20 +92,27 @@ impl<'a> ChunkNeighborCache<'a> {
         let base_x = cx * CHUNK_SIZE_X;
         let base_z = cz * CHUNK_SIZE_Z;
 
-        // 1. Błyskawiczna wysokość kolumn (Heightmap O(1) dla światła słonecznego)
+        // 1. Wysokość kolumn nieprzezroczystych (Opaque Heightmap) i liści (Leaf Heightmap)
         let mut heightmap = [0u8; 16 * 16];
+        let mut leaf_heightmap = [0u8; 16 * 16];
         let blocks = chunk.blocks.as_slice();
         for lx in 0..CHUNK_SIZE_X {
             for lz in 0..CHUNK_SIZE_Z {
                 let mut h = 0u8;
+                let mut leaf_h = 0u8;
                 for ly in (0..CHUNK_SIZE_Y).rev() {
                     let b = BlockId::from_u8(blocks[((lx << 10) | (ly << 4) | lz) as usize]);
-                    if b.is_solid() {
+                    if b.is_leaf() && leaf_h == 0 {
+                        leaf_h = (ly + 1) as u8;
+                    }
+                    if b.is_opaque() {
                         h = (ly + 1) as u8;
                         break;
                     }
                 }
-                heightmap[((lx << 4) | lz) as usize] = h;
+                let idx = ((lx << 4) | lz) as usize;
+                heightmap[idx] = h;
+                leaf_heightmap[idx] = leaf_h;
             }
         }
 
@@ -136,6 +144,7 @@ impl<'a> ChunkNeighborCache<'a> {
             base_x,
             base_z,
             heightmap,
+            leaf_heightmap,
             lights,
         }
     }
@@ -176,18 +185,25 @@ impl<'a> ChunkNeighborCache<'a> {
 
     #[inline(always)]
     pub fn solid_at(&self, lx: i32, ly: i32, lz: i32) -> bool {
-        self.sample_block(lx, ly, lz).is_solid()
+        self.sample_block(lx, ly, lz).is_opaque()
     }
 
     #[inline(always)]
     pub fn sample_sky_light(&self, lx: i32, ly: i32, lz: i32) -> f32 {
         if (lx as u32) < 16 && (lz as u32) < 16 {
-            let top_h = self.heightmap[((lx << 4) | lz) as usize] as i32;
-            if ly >= top_h {
-                1.0
+            let idx = ((lx << 4) | lz) as usize;
+            let opaque_h = self.heightmap[idx] as i32;
+            let leaf_h = self.leaf_heightmap[idx] as i32;
+
+            if ly >= opaque_h {
+                if leaf_h > 0 && ly < leaf_h {
+                    0.88 // Delikatny, naturalny cień pod koroną drzewa
+                } else {
+                    1.0  // Pełne, bezpośrednie światło słoneczne
+                }
             } else {
-                let depth = top_h - ly;
-                (0.25 - (depth as f32 * 0.04)).max(0.04)
+                let depth = (opaque_h - ly).max(1);
+                (0.55 * (0.82f32).powi(depth)).clamp(0.08, 0.55)
             }
         } else {
             1.0
@@ -366,6 +382,37 @@ fn emit_face(
             TextureId::DoorTop
         } else {
             TextureId::Door
+        }
+    } else if block == BlockId::Grass {
+        let (biome, _) = get_biome_at(wx, wz, cache.world.seed);
+        match face {
+            Face::Top => match biome {
+                Biome::Swamp => TextureId::GrassTopSwamp,
+                Biome::Savanna | Biome::Desert => TextureId::GrassTopSavanna,
+                Biome::CherryGrove => TextureId::GrassTopCherry,
+                Biome::AutumnForest => TextureId::GrassTopAutumn,
+                Biome::SnowyTaiga | Biome::Mountain => TextureId::GrassTopTaiga,
+                _ => TextureId::GrassTop,
+            },
+            Face::Bottom => TextureId::Dirt,
+            _ => match biome {
+                Biome::Swamp => TextureId::GrassSideSwamp,
+                Biome::Savanna | Biome::Desert => TextureId::GrassSideSavanna,
+                Biome::CherryGrove => TextureId::GrassSideCherry,
+                Biome::AutumnForest => TextureId::GrassSideAutumn,
+                Biome::SnowyTaiga | Biome::Mountain => TextureId::GrassSideTaiga,
+                _ => TextureId::GrassSide,
+            },
+        }
+    } else if block == BlockId::Leaves {
+        let (biome, _) = get_biome_at(wx, wz, cache.world.seed);
+        match biome {
+            Biome::Swamp => TextureId::LeavesSwamp,
+            Biome::Savanna | Biome::Desert => TextureId::LeavesSavanna,
+            Biome::CherryGrove => TextureId::CherryLeaves,
+            Biome::AutumnForest => TextureId::AutumnLeaves,
+            Biome::SnowyTaiga => TextureId::SnowLeaves,
+            _ => TextureId::Leaves,
         }
     } else {
         block.texture_id(face)

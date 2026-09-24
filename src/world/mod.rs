@@ -1182,6 +1182,37 @@ impl World {
         else             { "ROWNINA" }
     }
 
+    /// Sprawdza czy pole widzenia kamery jest w 100% przesłonięte przez litą ścianę/blok bezpośrednio przed oczami
+    #[inline]
+    pub fn is_view_fully_occluded(&self, camera_pos: crate::core::math::Vec3, yaw: f32, pitch: f32) -> bool {
+        let eye_block = self.get_block(camera_pos.floor_to_ivec());
+        if eye_block.is_opaque() {
+            return true;
+        }
+
+        let (sin_y, cos_y) = yaw.sin_cos();
+        let (sin_p, cos_p) = pitch.sin_cos();
+        let forward = crate::core::math::Vec3::new(sin_y * cos_p, -sin_p, cos_y * cos_p);
+        let right = crate::core::math::Vec3::new(cos_y, 0.0, -sin_y);
+        let up = crate::core::math::Vec3::new(sin_y * sin_p, cos_p, cos_y * sin_p);
+
+        let test_dist = 0.38f32;
+        let spread_x = 0.26f32;
+        let spread_y = 0.20f32;
+
+        let center = camera_pos + forward * test_dist;
+        let tl = center - right * spread_x + up * spread_y;
+        let tr = center + right * spread_x + up * spread_y;
+        let bl = center - right * spread_x - up * spread_y;
+        let br = center + right * spread_x - up * spread_y;
+
+        self.get_block(center.floor_to_ivec()).is_opaque()
+            && self.get_block(tl.floor_to_ivec()).is_opaque()
+            && self.get_block(tr.floor_to_ivec()).is_opaque()
+            && self.get_block(bl.floor_to_ivec()).is_opaque()
+            && self.get_block(br.floor_to_ivec()).is_opaque()
+    }
+
     #[inline(always)]
     pub fn fluid_level(&self, pos: IVec3) -> u8 {
         self.fluid_levels.get(&pos).copied().unwrap_or(8)
@@ -1434,6 +1465,38 @@ impl World {
             let ddz = cz - pcz;
             ddx * ddx + ddz * ddz <= unload_dist_sq
         });
+    }
+
+    pub fn mark_all_chunks_dirty(&mut self) {
+        for chunk in self.chunks.values_mut() {
+            chunk.dirty = true;
+        }
+    }
+
+    pub fn purge_distant_chunks(&mut self, player_pos: Vec3, view_distance: i32) {
+        let view_distance = view_distance.clamp(2, 16);
+        let pcx = (player_pos.x.floor() as i32) >> 4;
+        let pcz = (player_pos.z.floor() as i32) >> 4;
+        let unload_dist = view_distance + 2;
+        let unload_dist_sq = unload_dist * unload_dist;
+
+        self.chunks.retain(|&(cx, cz), _| {
+            let ddx = cx - pcx;
+            let ddz = cz - pcz;
+            ddx * ddx + ddz * ddz <= unload_dist_sq
+        });
+        self.pending_chunks.retain(|&(cx, cz)| {
+            let ddx = cx - pcx;
+            let ddz = cz - pcz;
+            ddx * ddx + ddz * ddz <= unload_dist_sq
+        });
+
+        for chunk in self.chunks.values_mut() {
+            chunk.dirty = true;
+        }
+
+        self.last_stream_chunk = None;
+        self.last_stream_dist = None;
     }
 
     #[inline]

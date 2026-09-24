@@ -365,11 +365,11 @@ pub fn draw_capture_prompt(buffer: &mut [u32], width: usize, height: usize, nati
 }
 
 pub fn pause_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 5] {
-    let btn_w = 340;
-    let btn_h = 36;
-    let spacing = 10;
+    let btn_w = 280;
+    let btn_h = 34;
+    let spacing = 8;
     let cx = width as i32 / 2;
-    let start_y = height as i32 / 2 - 110;
+    let start_y = height as i32 / 2 - 95;
 
     [
         (cx - btn_w / 2, start_y, btn_w, btn_h),
@@ -381,22 +381,23 @@ pub fn pause_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, 
 }
 
 pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode: bool, hovered_idx: Option<usize>) {
-    fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.0, 0.0, 0.0), 0.65);
+    fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.0, 0.0, 0.0), 0.72);
 
     let cx = width as i32 / 2;
     let cy = height as i32 / 2;
 
+    // Tytuł
     let title = "MENU GRY";
-    let t_scale = 4;
+    let t_scale = 3;
     let t_w = font::measure_text(title, t_scale, 2);
-    draw_text_shadowed(buffer, width, height, title, cx - t_w / 2, cy - 150, t_scale, 2);
+    draw_text_colored_shadowed(buffer, width, height, title, cx - t_w / 2, cy - 145, t_scale, 2, pack_color(0.95, 0.85, 0.35));
 
     #[cfg(target_os = "vita")]
     let buttons = [
         "WZNOW GRE (START)",
         "USTAWIENIA GRAFIKI",
-        if fly_mode { "TRYB LOTU: WLACZONY (SELECT)" } else { "TRYB LOTU: WYLACZONY (SELECT)" },
-        "MENU GLOWNE",
+        if fly_mode { "TRYB LOTU: WLACZONY (R3)" } else { "TRYB LOTU: WYLACZONY (R3)" },
+        "MENU GLOWNE (SELECT)",
         "WYJDZ Z GRY",
     ];
     #[cfg(not(target_os = "vita"))]
@@ -414,16 +415,16 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
         let is_hover = hovered_idx == Some(i);
 
         let body_color = if is_hover {
-            pack_color(0.35, 0.45, 0.65)
+            pack_color(0.32, 0.44, 0.68)
         } else {
-            pack_color(0.22, 0.22, 0.26)
+            pack_color(0.20, 0.20, 0.24)
         };
         fill_rect(buffer, width, height, bx, by, bw, bh, body_color);
 
         let top_left = if is_hover {
             pack_color(0.75, 0.85, 1.0)
         } else {
-            pack_color(0.55, 0.55, 0.60)
+            pack_color(0.50, 0.50, 0.56)
         };
         let bottom_right = if is_hover {
             pack_color(0.15, 0.20, 0.35)
@@ -448,21 +449,134 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
         }
     }
 
-    #[cfg(target_os = "vita")]
-    let (footer1, footer2) = (
-        "STEROWANIE: L-GALKA: RUCH | R-GALKA: KAMERA | [X]: SKOK | [O]: KUCANIE",
-        "[R]: NISZCZ/ATAK | [L]: STAWIAJ/UZYJ | [D-PAD / HUD]: WYBOR BLOKU",
-    );
-    #[cfg(not(target_os = "vita"))]
-    let (footer1, footer2) = (
-        "STEROWANIE: WASD - RUCH | SHIFT - KUCANIE | CTRL - BIEG | SPACJA - SKOK",
-        "LPM - NISZCZ | PPM - STAWIAJ | SCROLL / 1-9 - WYBOR BLOKU",
-    );
-    let f_scale = 1;
-    let f1_w = font::measure_text(footer1, f_scale, 1);
-    let f2_w = font::measure_text(footer2, f_scale, 1);
-    draw_text_colored_shadowed(buffer, width, height, footer1, cx - f1_w / 2, cy + 135, f_scale, 1, pack_color(0.7, 0.7, 0.7));
-    draw_text_colored_shadowed(buffer, width, height, footer2, cx - f2_w / 2, cy + 150, f_scale, 1, pack_color(0.7, 0.7, 0.7));
+    // Dynamiczny Tooltip dla zaznaczonego przycisku
+    let tooltip = match hovered_idx {
+        Some(0) => "Wznowienie rozgrywki i powrot do swiata (ESC / START / P)",
+        Some(1) => "Zasieg widzenia, mgla, chmury 3D, animacje i pole widzenia FOV",
+        Some(2) => {
+            if fly_mode {
+                "Wylaczenie trybu lotu i przywrocenie standardowej grawitacji (F / R3)"
+            } else {
+                "Wlaczenie swobodnego latania w powietrzu bez grawitacji (F / R3)"
+            }
+        }
+        Some(3) => "Zapisanie biezacego stanu gry i powrot do wyboru swiata (M)",
+        Some(4) => "Zapisanie postepow i bezpieczne wyjscie do pulpitu (Q)",
+        _ => "Nawiguj myszka, strzalkami lub galka kontrolera",
+    };
+
+    let tip_w = 460.min(width as i32 - 40);
+    let tip_h = 24;
+    let tip_x = cx - tip_w / 2;
+    let tip_y = cy + 122;
+
+    fill_rect_alpha(buffer, width, height, tip_x, tip_y, tip_w, tip_h, pack_color(0.08, 0.10, 0.16), 0.85);
+    fill_rect(buffer, width, height, tip_x, tip_y, tip_w, 1, pack_color(0.35, 0.45, 0.65));
+    fill_rect(buffer, width, height, tip_x, tip_y + tip_h - 1, tip_w, 1, pack_color(0.35, 0.45, 0.65));
+    fill_rect(buffer, width, height, tip_x, tip_y, 1, tip_h, pack_color(0.35, 0.45, 0.65));
+    fill_rect(buffer, width, height, tip_x + tip_w - 1, tip_y, 1, tip_h, pack_color(0.35, 0.45, 0.65));
+
+    let tip_text_w = font::measure_text(tooltip, 1, 1);
+    let tip_text_x = tip_x + (tip_w - tip_text_w) / 2;
+    let tip_text_y = tip_y + (tip_h - font::GLYPH_H as i32) / 2;
+    let tip_color = if hovered_idx.is_some() {
+        pack_color(0.95, 0.90, 0.40)
+    } else {
+        pack_color(0.65, 0.70, 0.80)
+    };
+    draw_text_colored_shadowed(buffer, width, height, tooltip, tip_text_x, tip_text_y, 1, 1, tip_color);
+
+    // Panele ze wszystkimi przypisanymi klawiszami sterowania (Controls)
+    let card_w = 260;
+    let card_h = 320;
+    let card_y = cy - 150;
+
+    if width >= 860 {
+        // --- LEWA KARTA: KLAWIATURA I MYSZ ---
+        let left_x = (cx - 140 - card_w - 20).max(12);
+        fill_rect_alpha(buffer, width, height, left_x, card_y, card_w, card_h, pack_color(0.08, 0.09, 0.13), 0.82);
+        fill_rect(buffer, width, height, left_x, card_y, card_w, 2, pack_color(0.40, 0.50, 0.70));
+        fill_rect(buffer, width, height, left_x, card_y + card_h - 2, card_w, 2, pack_color(0.20, 0.25, 0.35));
+        fill_rect(buffer, width, height, left_x, card_y, 2, card_h, pack_color(0.40, 0.50, 0.70));
+        fill_rect(buffer, width, height, left_x + card_w - 2, card_y, 2, card_h, pack_color(0.20, 0.25, 0.35));
+
+        let l_title = "[ KLAWIATURA I MYSZ ]";
+        let l_tw = font::measure_text(l_title, 1, 1);
+        draw_text_colored_shadowed(buffer, width, height, l_title, left_x + (card_w - l_tw) / 2, card_y + 10, 1, 1, pack_color(0.95, 0.85, 0.35));
+
+        let kb_bindings = [
+            ("W, A, S, D", "Ruch postaci"),
+            ("SPACJA", "Skok / Wznoszenie"),
+            ("SHIFT / C", "Kucanie / Opadanie"),
+            ("CTRL", "Sprint (Bieg)"),
+            ("LPM", "Niszczenie / Atak"),
+            ("PPM", "Stawianie / Jedzenie"),
+            ("E", "Ekwipunek / Crafting"),
+            ("Q", "Wyrzucenie przedmiotu"),
+            ("1-9 / SCROLL", "Pasek podreczny"),
+            ("F", "Tryb Lotu (Wl/Wyl)"),
+            ("G", "Creative / Survival"),
+            ("F3", "Diagnostyka (XYZ, FPS)"),
+            ("ESC / P", "Pauza / Menu"),
+        ];
+
+        let mut row_y = card_y + 32;
+        for (key, desc) in &kb_bindings {
+            draw_text_colored_shadowed(buffer, width, height, key, left_x + 12, row_y, 1, 1, pack_color(0.45, 0.85, 1.0));
+            let dw = font::measure_text(desc, 1, 1);
+            draw_text_colored_shadowed(buffer, width, height, desc, left_x + card_w - 12 - dw, row_y, 1, 1, pack_color(0.85, 0.88, 0.92));
+            row_y += 21;
+        }
+
+        // --- PRAWA KARTA: KONTROLER / GAMEPAD ---
+        let right_x = (cx + 140 + 20).min(width as i32 - card_w - 12);
+        fill_rect_alpha(buffer, width, height, right_x, card_y, card_w, card_h, pack_color(0.08, 0.09, 0.13), 0.82);
+        fill_rect(buffer, width, height, right_x, card_y, card_w, 2, pack_color(0.40, 0.50, 0.70));
+        fill_rect(buffer, width, height, right_x, card_y + card_h - 2, card_w, 2, pack_color(0.20, 0.25, 0.35));
+        fill_rect(buffer, width, height, right_x, card_y, 2, card_h, pack_color(0.40, 0.50, 0.70));
+        fill_rect(buffer, width, height, right_x + card_w - 2, card_y, 2, card_h, pack_color(0.20, 0.25, 0.35));
+
+        let r_title = "[ PAD / PS VITA ]";
+        let r_tw = font::measure_text(r_title, 1, 1);
+        draw_text_colored_shadowed(buffer, width, height, r_title, right_x + (card_w - r_tw) / 2, card_y + 10, 1, 1, pack_color(0.95, 0.85, 0.35));
+
+        let gp_bindings = [
+            ("L-Stick", "Ruch postaci"),
+            ("R-Stick", "Rozgladanie / Cel"),
+            ("[X] / A", "Skok / Wznoszenie"),
+            ("[O] / B", "Kucanie / Opadanie"),
+            ("L3 (Wcisk)", "Sprint (Bieg)"),
+            ("R2 / RT", "Niszczenie / Atak"),
+            ("L2 / LT", "Stawianie / Jedzenie"),
+            ("[^] / Y", "Ekwipunek / Crafting"),
+            ("L1 / R1", "Pasek podreczny"),
+            ("R3 (Wcisk)", "Tryb Lotu (Wl/Wyl)"),
+            ("SELECT", "Creative / Survival"),
+            ("D-PAD GORA", "Diagnostyka (F3)"),
+            ("D-PAD LEWO", "Wyrzucenie przedmiotu"),
+        ];
+
+        let mut row_y = card_y + 32;
+        for (key, desc) in &gp_bindings {
+            draw_text_colored_shadowed(buffer, width, height, key, right_x + 12, row_y, 1, 1, pack_color(0.45, 0.85, 1.0));
+            let dw = font::measure_text(desc, 1, 1);
+            draw_text_colored_shadowed(buffer, width, height, desc, right_x + card_w - 12 - dw, row_y, 1, 1, pack_color(0.85, 0.88, 0.92));
+            row_y += 21;
+        }
+    } else {
+        // Kompaktowy pasek sterowania dla mniejszych ekranów
+        let footers = [
+            "KLAWIATURA: WASD-Ruch | SPACJA-Skok | SHIFT-Kucanie | CTRL-Sprint | LPM-Atak | PPM-Stawiaj",
+            "E-Ekwipunek | Q-Wyrzuc | 1-9-Pasek | F-Lot | G-Creative/Survival | F3-Debug | ESC-Pauza",
+            "GAMEPAD: L/R-Galka | [X]-Skok | [O]-Kucanie | L3-Sprint | R2-Kopanie | L2-Budowa | [^]-Ekwipunek",
+        ];
+        let mut fy = cy + 155;
+        for &line in &footers {
+            let lw = font::measure_text(line, 1, 1);
+            draw_text_colored_shadowed(buffer, width, height, line, cx - lw / 2, fy, 1, 1, pack_color(0.75, 0.78, 0.85));
+            fy += 15;
+        }
+    }
 }
 
 pub fn draw_damage_flash(buffer: &mut [u32], width: usize, height: usize, intensity: f32) {

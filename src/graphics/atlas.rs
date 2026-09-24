@@ -90,6 +90,225 @@ fn grass_side() -> Texture {
     tex
 }
 
+fn grass_top_swamp() -> Texture {
+    let base = [0.34, 0.44, 0.18];
+    let dark = [0.26, 0.35, 0.14];
+    let mut tex = speckled(base, 0.16, 17);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if rand_at(x, y, 55) > 0.75 {
+                tex.texels[y * TEX_SIZE + x] = dark;
+            }
+        }
+    }
+    tex
+}
+
+fn grass_side_swamp() -> Texture {
+    let dirt = [0.38, 0.28, 0.16];
+    let grass = [0.34, 0.44, 0.18];
+    let mut tex = speckled(dirt, 0.15, 19);
+    for x in 0..TEX_SIZE {
+        let edge = 3 + (rand_at(x, 0, 99) * 3.0) as usize;
+        for y in 0..edge.min(TEX_SIZE) {
+            let n = rand_at(x, y, 13) - 0.5;
+            let shade = 1.0 + n * 0.18;
+            tex.texels[y * TEX_SIZE + x] = [
+                (grass[0] * shade).clamp(0.0, 1.0),
+                (grass[1] * shade).clamp(0.0, 1.0),
+                (grass[2] * shade).clamp(0.0, 1.0),
+            ];
+        }
+    }
+    tex
+}
+
+fn leaves_swamp(fancy: bool) -> Texture {
+    let dark_green = [0.20, 0.34, 0.12];
+    let light_green = [0.32, 0.46, 0.18];
+    let mut texels = vec![[0.0, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let rib = ((x % 3 == 0) || (y % 3 == 0)) as i32 as f32;
+            let noise = rand_at(x, y, 37);
+            if fancy {
+                let hole = ((x + y) % 3 == 0 && noise > 0.45)
+                    || ((x ^ y) % 5 == 0 && noise > 0.62)
+                    || ((x * 3 + y * 2) % 7 == 0 && noise > 0.54);
+                if hole {
+                    texels[y * TEX_SIZE + x] = [-1.0, 0.0, 0.0];
+                    continue;
+                }
+            }
+            let mut col = mix(dark_green, light_green, rib);
+            col[0] = (col[0] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[1] = (col[1] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[2] = (col[2] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
+fn grass_top_savanna() -> Texture {
+    let base = [0.65, 0.62, 0.24];
+    let light = [0.74, 0.70, 0.30];
+    let mut tex = speckled(base, 0.16, 23);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if rand_at(x, y, 62) > 0.82 {
+                tex.texels[y * TEX_SIZE + x] = light;
+            }
+        }
+    }
+    tex
+}
+
+fn grass_side_savanna() -> Texture {
+    let dirt = [0.45, 0.33, 0.20];
+    let grass = [0.65, 0.62, 0.24];
+    let mut tex = speckled(dirt, 0.15, 29);
+    for x in 0..TEX_SIZE {
+        let edge = 3 + (rand_at(x, 0, 99) * 3.0) as usize;
+        for y in 0..edge.min(TEX_SIZE) {
+            let n = rand_at(x, y, 13) - 0.5;
+            let shade = 1.0 + n * 0.18;
+            tex.texels[y * TEX_SIZE + x] = [
+                (grass[0] * shade).clamp(0.0, 1.0),
+                (grass[1] * shade).clamp(0.0, 1.0),
+                (grass[2] * shade).clamp(0.0, 1.0),
+            ];
+        }
+    }
+    tex
+}
+
+fn leaves_savanna(fancy: bool) -> Texture {
+    let dark = [0.38, 0.46, 0.16];
+    let light = [0.52, 0.60, 0.24];
+    let mut texels = vec![[0.0, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let rib = ((x % 3 == 0) || (y % 3 == 0)) as i32 as f32;
+            let noise = rand_at(x, y, 47);
+            if fancy {
+                let hole = ((x + y) % 3 == 0 && noise > 0.42)
+                    || ((x ^ y) % 5 == 0 && noise > 0.58)
+                    || ((x * 2 + y * 3) % 7 == 0 && noise > 0.50);
+                if hole {
+                    texels[y * TEX_SIZE + x] = [-1.0, 0.0, 0.0];
+                    continue;
+                }
+            }
+            let mut col = mix(dark, light, rib);
+            col[0] = (col[0] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[1] = (col[1] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[2] = (col[2] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
+fn grass_top_cherry() -> Texture {
+    let base = [0.44, 0.76, 0.32];
+    let petal = [0.95, 0.72, 0.82];
+    let mut tex = speckled(base, 0.15, 31);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if rand_at(x, y, 88) > 0.90 {
+                tex.texels[y * TEX_SIZE + x] = petal;
+            }
+        }
+    }
+    tex
+}
+
+fn grass_side_cherry() -> Texture {
+    let dirt = [0.45, 0.33, 0.20];
+    let grass = [0.44, 0.76, 0.32];
+    let mut tex = speckled(dirt, 0.15, 33);
+    for x in 0..TEX_SIZE {
+        let edge = 3 + (rand_at(x, 0, 99) * 3.0) as usize;
+        for y in 0..edge.min(TEX_SIZE) {
+            let n = rand_at(x, y, 13) - 0.5;
+            let shade = 1.0 + n * 0.18;
+            tex.texels[y * TEX_SIZE + x] = [
+                (grass[0] * shade).clamp(0.0, 1.0),
+                (grass[1] * shade).clamp(0.0, 1.0),
+                (grass[2] * shade).clamp(0.0, 1.0),
+            ];
+        }
+    }
+    tex
+}
+
+fn grass_top_autumn() -> Texture {
+    let base = [0.55, 0.52, 0.20];
+    let leaf = [0.85, 0.40, 0.12];
+    let mut tex = speckled(base, 0.16, 43);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if rand_at(x, y, 77) > 0.88 {
+                tex.texels[y * TEX_SIZE + x] = leaf;
+            }
+        }
+    }
+    tex
+}
+
+fn grass_side_autumn() -> Texture {
+    let dirt = [0.45, 0.33, 0.20];
+    let grass = [0.55, 0.52, 0.20];
+    let mut tex = speckled(dirt, 0.15, 45);
+    for x in 0..TEX_SIZE {
+        let edge = 3 + (rand_at(x, 0, 99) * 3.0) as usize;
+        for y in 0..edge.min(TEX_SIZE) {
+            let n = rand_at(x, y, 13) - 0.5;
+            let shade = 1.0 + n * 0.18;
+            tex.texels[y * TEX_SIZE + x] = [
+                (grass[0] * shade).clamp(0.0, 1.0),
+                (grass[1] * shade).clamp(0.0, 1.0),
+                (grass[2] * shade).clamp(0.0, 1.0),
+            ];
+        }
+    }
+    tex
+}
+
+fn grass_top_taiga() -> Texture {
+    let base = [0.26, 0.52, 0.34];
+    let pine = [0.18, 0.42, 0.26];
+    let mut tex = speckled(base, 0.16, 53);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if rand_at(x, y, 66) > 0.85 {
+                tex.texels[y * TEX_SIZE + x] = pine;
+            }
+        }
+    }
+    tex
+}
+
+fn grass_side_taiga() -> Texture {
+    let dirt = [0.42, 0.30, 0.18];
+    let grass = [0.26, 0.52, 0.34];
+    let mut tex = speckled(dirt, 0.15, 55);
+    for x in 0..TEX_SIZE {
+        let edge = 3 + (rand_at(x, 0, 99) * 3.0) as usize;
+        for y in 0..edge.min(TEX_SIZE) {
+            let n = rand_at(x, y, 13) - 0.5;
+            let shade = 1.0 + n * 0.18;
+            tex.texels[y * TEX_SIZE + x] = [
+                (grass[0] * shade).clamp(0.0, 1.0),
+                (grass[1] * shade).clamp(0.0, 1.0),
+                (grass[2] * shade).clamp(0.0, 1.0),
+            ];
+        }
+    }
+    tex
+}
+
 fn dirt() -> Texture {
     speckled([0.45, 0.33, 0.20], 0.20, 3)
 }
@@ -142,17 +361,31 @@ fn wood_side() -> Texture {
     Texture { texels }
 }
 
-fn leaves() -> Texture {
-    let base = [0.20, 0.50, 0.16];
-    let mut tex = speckled(base, 0.35, 33);
+fn leaves(fancy: bool) -> Texture {
+    let dark_green = [0.18, 0.44, 0.12];
+    let light_green = [0.30, 0.58, 0.20];
+    let mut texels = vec![[0.0, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
     for y in 0..TEX_SIZE {
         for x in 0..TEX_SIZE {
-            if rand_at(x, y, 200) > 0.90 {
-                tex.texels[y * TEX_SIZE + x] = [0.10, 0.30, 0.08];
+            let rib = ((x % 3 == 0) || (y % 3 == 0)) as i32 as f32;
+            let noise = rand_at(x, y, 33);
+            if fancy {
+                let hole = ((x + y) % 3 == 0 && noise > 0.42)
+                    || ((x ^ y) % 5 == 0 && noise > 0.60)
+                    || ((x * 2 + y * 3) % 7 == 0 && noise > 0.52);
+                if hole {
+                    texels[y * TEX_SIZE + x] = [-1.0, 0.0, 0.0];
+                    continue;
+                }
             }
+            let mut col = mix(dark_green, light_green, rib);
+            col[0] = (col[0] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[1] = (col[1] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[2] = (col[2] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            texels[y * TEX_SIZE + x] = col;
         }
     }
-    tex
+    Texture { texels }
 }
 
 fn water() -> Texture {
@@ -294,22 +527,37 @@ fn lava() -> Texture {
     Texture { texels }
 }
 
-fn snow_leaves() -> Texture {
-    let base = [0.50, 0.68, 0.72];
-    let light = [0.70, 0.85, 0.90];
-    let dark = [0.35, 0.52, 0.60];
-    let mut tex = speckled(base, 0.22, 444);
+fn snow_leaves(fancy: bool) -> Texture {
+    let base = [0.45, 0.62, 0.68];
+    let snow = [0.85, 0.92, 0.95];
+    let dark_pine = [0.16, 0.32, 0.22];
+    let mut texels = vec![[0.0, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
     for y in 0..TEX_SIZE {
         for x in 0..TEX_SIZE {
-            let r = rand_at(x, y, 555);
-            if r > 0.88 {
-                tex.texels[y * TEX_SIZE + x] = light;
-            } else if r < 0.10 {
-                tex.texels[y * TEX_SIZE + x] = dark;
+            let noise = rand_at(x, y, 444);
+            if fancy {
+                let hole = ((x * 3 + y * 5) % 6 == 0 && noise > 0.44)
+                    || ((x ^ y) % 5 == 0 && noise > 0.60)
+                    || ((x + y * 2) % 7 == 0 && noise > 0.52);
+                if hole {
+                    texels[y * TEX_SIZE + x] = [-1.0, 0.0, 0.0];
+                    continue;
+                }
             }
+            let mut col = if noise > 0.65 {
+                snow
+            } else if noise < 0.25 {
+                dark_pine
+            } else {
+                base
+            };
+            col[0] = (col[0] + (noise - 0.5) * 0.05).clamp(0.0, 1.0);
+            col[1] = (col[1] + (noise - 0.5) * 0.05).clamp(0.0, 1.0);
+            col[2] = (col[2] + (noise - 0.5) * 0.05).clamp(0.0, 1.0);
+            texels[y * TEX_SIZE + x] = col;
         }
     }
-    tex
+    Texture { texels }
 }
 
 fn tnt_side() -> Texture {
@@ -551,50 +799,76 @@ fn door_bottom() -> Texture {
     Texture { texels }
 }
 
-fn cherry_leaves() -> Texture {
-    // Soft pink base with lighter petal highlights and occasional white spots
+fn cherry_leaves(fancy: bool) -> Texture {
     let base = [0.92, 0.55, 0.72];
     let light = [0.98, 0.75, 0.88];
     let white = [1.0, 0.94, 0.97];
-    let mut tex = speckled(base, 0.22, 77);
+    let dark_twig = [0.55, 0.28, 0.40];
+    let mut texels = vec![[0.0, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
     for y in 0..TEX_SIZE {
         for x in 0..TEX_SIZE {
-            if rand_at(x, y, 131) > 0.82 {
-                tex.texels[y * TEX_SIZE + x] = light;
+            let noise = rand_at(x, y, 77);
+            if fancy {
+                let hole = ((x + y * 2) % 4 == 0 && noise > 0.46)
+                    || ((x ^ y) % 5 == 0 && noise > 0.62)
+                    || ((x * 3 + y) % 7 == 0 && noise > 0.52);
+                if hole {
+                    texels[y * TEX_SIZE + x] = [-1.0, 0.0, 0.0];
+                    continue;
+                }
             }
-            if rand_at(x, y, 199) > 0.94 {
-                tex.texels[y * TEX_SIZE + x] = white;
-            }
+            let mut col = if noise > 0.82 {
+                light
+            } else if noise > 0.94 {
+                white
+            } else if noise < 0.15 {
+                dark_twig
+            } else {
+                base
+            };
+            col[0] = (col[0] + (noise - 0.5) * 0.06).clamp(0.0, 1.0);
+            col[1] = (col[1] + (noise - 0.5) * 0.06).clamp(0.0, 1.0);
+            col[2] = (col[2] + (noise - 0.5) * 0.06).clamp(0.0, 1.0);
+            texels[y * TEX_SIZE + x] = col;
         }
     }
-    tex
+    Texture { texels }
 }
 
-fn autumn_leaves() -> Texture {
-    // Warm orange-red-yellow tones of autumn foliage
+fn autumn_leaves(fancy: bool) -> Texture {
     let base = [0.75, 0.32, 0.08];
     let orange = [0.88, 0.48, 0.10];
     let yellow = [0.92, 0.72, 0.12];
-    let red    = [0.72, 0.15, 0.08];
-    let mut tex = speckled(base, 0.25, 441);
+    let red = [0.72, 0.15, 0.08];
+    let mut texels = vec![[0.0, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
     for y in 0..TEX_SIZE {
         for x in 0..TEX_SIZE {
-            let r = rand_at(x, y, 223);
-            if r > 0.80 {
-                tex.texels[y * TEX_SIZE + x] = orange;
-            } else if r > 0.60 {
-                tex.texels[y * TEX_SIZE + x] = yellow;
-            } else if r > 0.45 {
-                tex.texels[y * TEX_SIZE + x] = red;
+            let noise = rand_at(x, y, 223);
+            if fancy {
+                let hole = ((x + y) % 3 == 0 && noise > 0.42)
+                    || ((x ^ y) % 5 == 0 && noise > 0.58)
+                    || ((x * 2 + y * 3) % 7 == 0 && noise > 0.50);
+                if hole {
+                    texels[y * TEX_SIZE + x] = [-1.0, 0.0, 0.0];
+                    continue;
+                }
             }
-            // occasional dark gaps for depth
-            if rand_at(x, y, 317) > 0.92 {
-                let c = tex.texels[y * TEX_SIZE + x];
-                tex.texels[y * TEX_SIZE + x] = [c[0] * 0.6, c[1] * 0.6, c[2] * 0.6];
-            }
+            let mut col = if noise > 0.75 {
+                orange
+            } else if noise > 0.50 {
+                yellow
+            } else if noise > 0.30 {
+                red
+            } else {
+                base
+            };
+            col[0] = (col[0] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[1] = (col[1] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[2] = (col[2] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            texels[y * TEX_SIZE + x] = col;
         }
     }
-    tex
+    Texture { texels }
 }
 
 fn mud() -> Texture {
@@ -684,6 +958,19 @@ pub enum TextureId {
     Torch,
     /// Round circular entity / item shadow
     EntityShadow,
+    // Biome Foliage Tinting Variants
+    GrassTopSwamp,
+    GrassSideSwamp,
+    LeavesSwamp,
+    GrassTopSavanna,
+    GrassSideSavanna,
+    LeavesSavanna,
+    GrassTopCherry,
+    GrassSideCherry,
+    GrassTopAutumn,
+    GrassSideAutumn,
+    GrassTopTaiga,
+    GrassSideTaiga,
 }
 
 impl TextureId {
@@ -1036,6 +1323,18 @@ pub struct TextureAtlas {
     pub mud: Texture,
     pub torch: Texture,
     pub entity_shadow: Texture,
+    pub grass_top_swamp: Texture,
+    pub grass_side_swamp: Texture,
+    pub leaves_swamp: Texture,
+    pub grass_top_savanna: Texture,
+    pub grass_side_savanna: Texture,
+    pub leaves_savanna: Texture,
+    pub grass_top_cherry: Texture,
+    pub grass_side_cherry: Texture,
+    pub grass_top_autumn: Texture,
+    pub grass_side_autumn: Texture,
+    pub grass_top_taiga: Texture,
+    pub grass_side_taiga: Texture,
 }
 
 fn torch() -> Texture {
@@ -1109,6 +1408,10 @@ fn entity_shadow() -> Texture {
 
 impl TextureAtlas {
     pub fn generate() -> TextureAtlas {
+        Self::generate_with_fancy(true)
+    }
+
+    pub fn generate_with_fancy(fancy_leaves: bool) -> TextureAtlas {
         TextureAtlas {
             grass_top: grass_top(),
             grass_side: grass_side(),
@@ -1117,7 +1420,7 @@ impl TextureAtlas {
             sand: sand(),
             wood_top: wood_top(),
             wood_side: wood_side(),
-            leaves: leaves(),
+            leaves: leaves(fancy_leaves),
             water: water(),
             snow: snow(),
             cactus_top: cactus_top(),
@@ -1126,7 +1429,7 @@ impl TextureAtlas {
             iron_ore: iron_ore(),
             bedrock: bedrock(),
             lava: lava(),
-            snow_leaves: snow_leaves(),
+            snow_leaves: snow_leaves(fancy_leaves),
             planks: planks(),
             door: door_bottom(),
             door_top: door_top(),
@@ -1150,11 +1453,23 @@ impl TextureAtlas {
             underwater_tint: speckled([0.05, 0.25, 0.75], 0.0, 0),
             vignette_tint: speckled([0.85, 0.02, 0.02], 0.0, 0),
             lava_tint: speckled([0.95, 0.25, 0.02], 0.0, 0),
-            cherry_leaves: cherry_leaves(),
-            autumn_leaves: autumn_leaves(),
+            cherry_leaves: cherry_leaves(fancy_leaves),
+            autumn_leaves: autumn_leaves(fancy_leaves),
             mud: mud(),
             torch: torch(),
             entity_shadow: entity_shadow(),
+            grass_top_swamp: grass_top_swamp(),
+            grass_side_swamp: grass_side_swamp(),
+            leaves_swamp: leaves_swamp(fancy_leaves),
+            grass_top_savanna: grass_top_savanna(),
+            grass_side_savanna: grass_side_savanna(),
+            leaves_savanna: leaves_savanna(fancy_leaves),
+            grass_top_cherry: grass_top_cherry(),
+            grass_side_cherry: grass_side_cherry(),
+            grass_top_autumn: grass_top_autumn(),
+            grass_side_autumn: grass_side_autumn(),
+            grass_top_taiga: grass_top_taiga(),
+            grass_side_taiga: grass_side_taiga(),
         }
     }
 
@@ -1214,6 +1529,18 @@ impl TextureAtlas {
             TextureId::Mud => &self.mud,
             TextureId::Torch => &self.torch,
             TextureId::EntityShadow => &self.entity_shadow,
+            TextureId::GrassTopSwamp => &self.grass_top_swamp,
+            TextureId::GrassSideSwamp => &self.grass_side_swamp,
+            TextureId::LeavesSwamp => &self.leaves_swamp,
+            TextureId::GrassTopSavanna => &self.grass_top_savanna,
+            TextureId::GrassSideSavanna => &self.grass_side_savanna,
+            TextureId::LeavesSavanna => &self.leaves_savanna,
+            TextureId::GrassTopCherry => &self.grass_top_cherry,
+            TextureId::GrassSideCherry => &self.grass_side_cherry,
+            TextureId::GrassTopAutumn => &self.grass_top_autumn,
+            TextureId::GrassSideAutumn => &self.grass_side_autumn,
+            TextureId::GrassTopTaiga => &self.grass_top_taiga,
+            TextureId::GrassSideTaiga => &self.grass_side_taiga,
         }
     }
     /// Zwraca referencję do tekstury dla danego TextureId
