@@ -41,6 +41,10 @@ pub enum BlockId {
     IronSword,
     /// Pink cherry-blossom leaves (Cherry Blossom biome)
     CherryLeaves,
+    /// Mud block for swamp biome
+    Mud,
+    /// Autumn/fall leaves in orange-red tones
+    AutumnLeaves,
 }
 
 impl BlockId {
@@ -80,6 +84,8 @@ impl BlockId {
             32 => BlockId::StoneSword,
             33 => BlockId::IronSword,
             34 => BlockId::CherryLeaves,
+            35 => BlockId::Mud,
+            36 => BlockId::AutumnLeaves,
             _ => BlockId::Air,
         }
     }
@@ -121,6 +127,8 @@ impl BlockId {
             BlockId::StoneSword => 32,
             BlockId::IronSword => 33,
             BlockId::CherryLeaves => 34,
+            BlockId::Mud => 35,
+            BlockId::AutumnLeaves => 36,
         }
     }
 
@@ -239,7 +247,7 @@ impl BlockId {
                 if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow) { 7.0 } else { 1.0 }
             }
             BlockId::WoodenSword | BlockId::StoneSword | BlockId::IronSword => {
-                if matches!(target, BlockId::Leaves | BlockId::SnowLeaves | BlockId::CherryLeaves) { 3.0 } else { 1.0 }
+                if matches!(target, BlockId::Leaves | BlockId::SnowLeaves | BlockId::CherryLeaves | BlockId::AutumnLeaves) { 3.0 } else { 1.0 }
             }
             _ => 1.0,
         }
@@ -256,6 +264,7 @@ impl BlockId {
             BlockId::Wood => 2.0,
             BlockId::Leaves => 0.2,
             BlockId::CherryLeaves => 0.2,
+            BlockId::AutumnLeaves => 0.2,
             BlockId::Snow => 0.2,
             BlockId::Cactus => 0.4,
             BlockId::CoalOre => 1.5,
@@ -270,6 +279,7 @@ impl BlockId {
             BlockId::Ice => 0.5,
             BlockId::Tnt => 0.0,
             BlockId::Water => 0.0,
+            BlockId::Mud => 0.6,
             _ => 0.0,
         }
     }
@@ -284,7 +294,7 @@ impl BlockId {
     }
 
     pub fn is_transparent(self) -> bool {
-        matches!(self, BlockId::Air | BlockId::Water | BlockId::Lava | BlockId::Leaves | BlockId::SnowLeaves | BlockId::CherryLeaves | BlockId::Glass)
+        matches!(self, BlockId::Air | BlockId::Water | BlockId::Lava | BlockId::Leaves | BlockId::SnowLeaves | BlockId::CherryLeaves | BlockId::AutumnLeaves | BlockId::Glass)
     }
 
     pub fn name(self) -> &'static str {
@@ -324,6 +334,8 @@ impl BlockId {
             BlockId::StoneSword => "kamienny miecz",
             BlockId::IronSword => "zelazny miecz",
             BlockId::CherryLeaves => "rozowe liscie",
+            BlockId::Mud => "bloto",
+            BlockId::AutumnLeaves => "jesienne liscie",
         }
     }
 
@@ -344,6 +356,8 @@ impl BlockId {
             },
             BlockId::Leaves => [0.20, 0.50, 0.16],
             BlockId::CherryLeaves => [0.92, 0.55, 0.72],
+            BlockId::AutumnLeaves => [0.78, 0.35, 0.10],
+            BlockId::Mud => [0.35, 0.25, 0.15],
             BlockId::Water => [0.15, 0.35, 0.75],
             BlockId::Snow => [0.93, 0.95, 0.98],
             BlockId::Cactus => match face {
@@ -393,6 +407,8 @@ impl BlockId {
             },
             BlockId::Leaves => TextureId::Leaves,
             BlockId::CherryLeaves => TextureId::CherryLeaves,
+            BlockId::AutumnLeaves => TextureId::AutumnLeaves,
+            BlockId::Mud => TextureId::Mud,
             BlockId::Water => TextureId::Water,
             BlockId::Snow => TextureId::Snow,
             BlockId::Cactus => match face {

@@ -570,6 +570,59 @@ fn cherry_leaves() -> Texture {
     tex
 }
 
+fn autumn_leaves() -> Texture {
+    // Warm orange-red-yellow tones of autumn foliage
+    let base = [0.75, 0.32, 0.08];
+    let orange = [0.88, 0.48, 0.10];
+    let yellow = [0.92, 0.72, 0.12];
+    let red    = [0.72, 0.15, 0.08];
+    let mut tex = speckled(base, 0.25, 441);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let r = rand_at(x, y, 223);
+            if r > 0.80 {
+                tex.texels[y * TEX_SIZE + x] = orange;
+            } else if r > 0.60 {
+                tex.texels[y * TEX_SIZE + x] = yellow;
+            } else if r > 0.45 {
+                tex.texels[y * TEX_SIZE + x] = red;
+            }
+            // occasional dark gaps for depth
+            if rand_at(x, y, 317) > 0.92 {
+                let c = tex.texels[y * TEX_SIZE + x];
+                tex.texels[y * TEX_SIZE + x] = [c[0] * 0.6, c[1] * 0.6, c[2] * 0.6];
+            }
+        }
+    }
+    tex
+}
+
+fn mud() -> Texture {
+    // Dark muddy brown with subtle wet sheen variation
+    let base = [0.30, 0.20, 0.12];
+    let dark = [0.20, 0.13, 0.07];
+    let wet  = [0.38, 0.27, 0.17];
+    let mut tex = speckled(base, 0.20, 557);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let r = rand_at(x, y, 613);
+            if r > 0.85 {
+                tex.texels[y * TEX_SIZE + x] = dark;
+            } else if r > 0.70 {
+                tex.texels[y * TEX_SIZE + x] = wet;
+            }
+            // cracked lines
+            if (x == 4 || x == 11) && y % 5 == 2 {
+                tex.texels[y * TEX_SIZE + x] = dark;
+            }
+            if (y == 7 || y == 13) && x % 6 == 3 {
+                tex.texels[y * TEX_SIZE + x] = dark;
+            }
+        }
+    }
+    tex
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum TextureId {
     GrassTop,
@@ -623,6 +676,10 @@ pub enum TextureId {
     LavaTint,
     /// Pink cherry-blossom leaves texture
     CherryLeaves,
+    /// Autumn/fall leaves in orange-red tones
+    AutumnLeaves,
+    /// Muddy block for swamp biome
+    Mud,
 }
 
 impl TextureId {
@@ -971,6 +1028,8 @@ pub struct TextureAtlas {
     pub vignette_tint: Texture,
     pub lava_tint: Texture,
     pub cherry_leaves: Texture,
+    pub autumn_leaves: Texture,
+    pub mud: Texture,
 }
 
 impl TextureAtlas {
@@ -1017,6 +1076,8 @@ impl TextureAtlas {
             vignette_tint: speckled([0.85, 0.02, 0.02], 0.0, 0),
             lava_tint: speckled([0.95, 0.25, 0.02], 0.0, 0),
             cherry_leaves: cherry_leaves(),
+            autumn_leaves: autumn_leaves(),
+            mud: mud(),
         }
     }
 
@@ -1072,6 +1133,8 @@ impl TextureAtlas {
             TextureId::VignetteTint => &self.vignette_tint,
             TextureId::LavaTint => &self.lava_tint,
             TextureId::CherryLeaves => &self.cherry_leaves,
+            TextureId::AutumnLeaves => &self.autumn_leaves,
+            TextureId::Mud => &self.mud,
         }
     }
     /// Zwraca referencję do tekstury dla danego TextureId

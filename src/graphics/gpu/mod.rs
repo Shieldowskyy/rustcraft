@@ -737,6 +737,8 @@ impl VulkanContext {
             TextureId::VignetteTint => 47,
             TextureId::LavaTint => 48,
             TextureId::CherryLeaves => 49,
+            TextureId::AutumnLeaves => 50,
+            TextureId::Mud => 51,
         }
     }
 
@@ -792,6 +794,8 @@ impl VulkanContext {
             47 => TextureId::VignetteTint,
             48 => TextureId::LavaTint,
             49 => TextureId::CherryLeaves,
+            50 => TextureId::AutumnLeaves,
+            51 => TextureId::Mud,
             _ => TextureId::CraftingTableFront,
         }
     }

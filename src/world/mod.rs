@@ -58,6 +58,8 @@ impl Chunk {
             Tree(i32, i32, i32),
             CherryTree(i32, i32, i32),
             AcaciaTree(i32, i32, i32),
+            SwampTree(i32, i32, i32),
+            AutumnTree(i32, i32, i32),
         }
         let mut decorations = Vec::new();
 
@@ -65,6 +67,7 @@ impl Chunk {
             DesertWell(i32, i32, i32),
             StoneRuins(i32, i32, i32),
             ForestCabin(i32, i32, i32),
+            CoralRuin(i32, i32, i32),
         }
 
         let center_wx = cx * CHUNK_SIZE_X + 8;
@@ -77,17 +80,25 @@ impl Chunk {
         let c_is_snowy = !c_is_mountain && c_temp < -0.18;
         let c_is_desert = !c_is_mountain && !c_is_snowy && c_temp > 0.28 && c_humidity < -0.05;
         let c_is_forest = !c_is_mountain && !c_is_snowy && !c_is_desert && c_humidity > 0.15;
-        let c_is_ocean  = !c_is_mountain && !c_is_snowy && !c_is_desert && c_humidity > -0.25 && c_temp > -0.05 && c_temp < 0.12 && c_mountain_factor < -0.15;
-        let c_is_cherry = !c_is_mountain && !c_is_snowy && !c_is_desert && !c_is_ocean && c_temp > 0.10 && c_temp < 0.28 && c_humidity > 0.22;
-        let c_is_savanna = !c_is_mountain && !c_is_snowy && !c_is_desert && !c_is_ocean && !c_is_cherry && c_temp > 0.18 && c_humidity < 0.05;
+        let c_is_ocean      = !c_is_mountain && !c_is_snowy && !c_is_desert && c_humidity > -0.25 && c_temp > -0.05 && c_temp < 0.12 && c_mountain_factor < -0.15;
+        let c_is_deep_ocean = !c_is_mountain && !c_is_snowy && !c_is_desert && c_mountain_factor < -0.35 && c_temp > -0.08 && c_temp < 0.15;
+        let c_is_cherry  = !c_is_mountain && !c_is_snowy && !c_is_desert && !c_is_ocean && !c_is_deep_ocean && c_temp > 0.10 && c_temp < 0.28 && c_humidity > 0.22;
+        let c_is_savanna = !c_is_mountain && !c_is_snowy && !c_is_desert && !c_is_ocean && !c_is_deep_ocean && !c_is_cherry && c_temp > 0.18 && c_humidity < 0.05;
+        let c_is_swamp   = !c_is_mountain && !c_is_snowy && !c_is_desert && !c_is_ocean && !c_is_deep_ocean && !c_is_cherry && !c_is_savanna && c_humidity > 0.30 && c_temp > -0.05 && c_temp < 0.20;
+        let c_is_autumn  = !c_is_mountain && !c_is_snowy && !c_is_desert && !c_is_ocean && !c_is_deep_ocean && !c_is_cherry && !c_is_savanna && !c_is_swamp && c_humidity > 0.05 && c_humidity < 0.30 && c_temp < -0.02;
+        let _ = c_is_autumn; // used implicitly via per-tile biome checks below
 
         let c_n = fractal_noise2(center_wx as f32 * 0.015, center_wz as f32 * 0.015, seed, 4, 0.5);
         let center_height = if c_is_mountain {
             let m_extra = ((c_mountain_factor - 0.32) / 0.68).clamp(0.0, 1.0);
             let m_height = 36.0 + c_n * 12.0 + m_extra * 16.0;
             (m_height as i32).clamp(1, CHUNK_SIZE_Y - 4)
+        } else if c_is_deep_ocean {
+            // Very deep ocean: seabed far below water
+            let o_height = 5.0 + c_n * 3.0;
+            (o_height as i32).clamp(1, 10)
         } else if c_is_ocean {
-            // Ocean: mostly underwater, flat seabed
+            // Shallow ocean: mostly underwater, flat seabed
             let o_height = 12.0 + c_n * 3.0;
             (o_height as i32).clamp(1, 19)
         } else if c_is_desert {
@@ -97,6 +108,10 @@ impl Chunk {
             // Savanna: flat, slightly elevated plains
             let s_height = 27.0 + c_n * 6.0;
             (s_height as i32).clamp(1, CHUNK_SIZE_Y - 10)
+        } else if c_is_swamp {
+            // Swamp: very flat, slightly below water level
+            let sw_height = 19.0 + c_n * 3.0;
+            (sw_height as i32).clamp(1, 23)
         } else {
             let p_height = 28.0 + c_n * 12.0;
             (p_height as i32).clamp(1, CHUNK_SIZE_Y - 10)
@@ -118,6 +133,11 @@ impl Chunk {
                 struct_exclusion = (3, 13, 3, 13);
             }
         }
+        // Deep ocean: coral ruins near the seabed
+        if c_is_deep_ocean && center_height >= 4 && center_height < 12 && (chunk_hash % 53 == 0) {
+            structure = Some(Structure::CoralRuin(8, center_height, 8));
+            struct_exclusion = (4, 12, 4, 12);
+        }
 
         for lx in 0..CHUNK_SIZE_X {
             for lz in 0..CHUNK_SIZE_Z {
@@ -132,15 +152,21 @@ impl Chunk {
                 let is_snowy = !is_mountain && temp < -0.18;
                 let is_desert = !is_mountain && !is_snowy && temp > 0.28 && humidity < -0.05;
                 let is_forest = !is_mountain && !is_snowy && !is_desert && humidity > 0.15;
-                let is_ocean   = !is_mountain && !is_snowy && !is_desert && humidity > -0.25 && temp > -0.05 && temp < 0.12 && mountain_factor < -0.15;
-                let is_cherry  = !is_mountain && !is_snowy && !is_desert && !is_ocean && temp > 0.10 && temp < 0.28 && humidity > 0.22;
-                let is_savanna = !is_mountain && !is_snowy && !is_desert && !is_ocean && !is_cherry && temp > 0.18 && humidity < 0.05;
+                let is_ocean      = !is_mountain && !is_snowy && !is_desert && humidity > -0.25 && temp > -0.05 && temp < 0.12 && mountain_factor < -0.15;
+                let is_deep_ocean = !is_mountain && !is_snowy && !is_desert && mountain_factor < -0.35 && temp > -0.08 && temp < 0.15;
+                let is_cherry  = !is_mountain && !is_snowy && !is_desert && !is_ocean && !is_deep_ocean && temp > 0.10 && temp < 0.28 && humidity > 0.22;
+                let is_savanna = !is_mountain && !is_snowy && !is_desert && !is_ocean && !is_deep_ocean && !is_cherry && temp > 0.18 && humidity < 0.05;
+                let is_swamp   = !is_mountain && !is_snowy && !is_desert && !is_ocean && !is_deep_ocean && !is_cherry && !is_savanna && humidity > 0.30 && temp > -0.05 && temp < 0.20;
+                let is_autumn  = !is_mountain && !is_snowy && !is_desert && !is_ocean && !is_deep_ocean && !is_cherry && !is_savanna && !is_swamp && humidity > 0.05 && humidity < 0.30 && temp < -0.02;
 
                 let n = fractal_noise2(wx as f32 * 0.015, wz as f32 * 0.015, seed, 4, 0.5);
                 let height = if is_mountain {
                     let m_extra = ((mountain_factor - 0.32) / 0.68).clamp(0.0, 1.0);
                     let m_height = 36.0 + n * 12.0 + m_extra * 16.0;
                     (m_height as i32).clamp(1, CHUNK_SIZE_Y - 4)
+                } else if is_deep_ocean {
+                    let o_height = 5.0 + n * 3.0;
+                    (o_height as i32).clamp(1, 10)
                 } else if is_ocean {
                     let o_height = 12.0 + n * 3.0;
                     (o_height as i32).clamp(1, 19)
@@ -150,6 +176,9 @@ impl Chunk {
                 } else if is_savanna {
                     let s_height = 27.0 + n * 6.0;
                     (s_height as i32).clamp(1, CHUNK_SIZE_Y - 10)
+                } else if is_swamp {
+                    let sw_height = 19.0 + n * 3.0;
+                    (sw_height as i32).clamp(1, 23)
                 } else {
                     let p_height = 28.0 + n * 12.0;
                     (p_height as i32).clamp(1, CHUNK_SIZE_Y - 10)
@@ -181,8 +210,8 @@ impl Chunk {
                             BlockId::Air
                         }
                     } else if y == height {
-                        if is_ocean {
-                            // Ocean seabed: sand below water
+                        if is_ocean || is_deep_ocean {
+                            // Ocean/deep ocean seabed: sand below water
                             BlockId::Sand
                         } else if height <= 21 {
                             BlockId::Sand
@@ -190,6 +219,9 @@ impl Chunk {
                             BlockId::Snow
                         } else if is_desert {
                             BlockId::Sand
+                        } else if is_swamp {
+                            // Swamp surface: mud or grass depending on whether it's waterlogged
+                            if height <= 20 { BlockId::Mud } else { BlockId::Grass }
                         } else if is_savanna {
                             // Savanna surface: dry grass
                             BlockId::Grass
@@ -205,8 +237,10 @@ impl Chunk {
                             BlockId::Grass
                         }
                     } else if y > height - 4 {
-                        if is_ocean || height <= 21 || is_desert {
+                        if is_ocean || is_deep_ocean || height <= 21 || is_desert {
                             BlockId::Sand
+                        } else if is_swamp {
+                            BlockId::Mud
                         } else if is_mountain && height >= 38 {
                             BlockId::Stone
                         } else {
@@ -246,8 +280,8 @@ impl Chunk {
 
                     if lx >= 3 && lx < CHUNK_SIZE_X - 3 && lz >= 3 && lz < CHUNK_SIZE_Z - 3 {
                         let h = hash_coords(wx, wz, seed);
-                        if is_ocean {
-                            // No decorations in ocean
+                        if is_ocean || is_deep_ocean {
+                            // No surface decorations in ocean/deep ocean
                         } else if is_desert {
                             if h % 167 == 0 {
                                 let c_height = 2 + (h % 2) as i32;
@@ -264,6 +298,14 @@ impl Chunk {
                         } else if is_savanna {
                             if h % 193 == 0 {
                                 decorations.push(Decoration::AcaciaTree(lx, height + 1, lz));
+                            }
+                        } else if is_swamp {
+                            if h % 83 == 0 {
+                                decorations.push(Decoration::SwampTree(lx, height + 1, lz));
+                            }
+                        } else if is_autumn {
+                            if h % 55 == 0 {
+                                decorations.push(Decoration::AutumnTree(lx, height + 1, lz));
                             }
                         } else if is_forest {
                             if h % 47 == 0 {
@@ -284,6 +326,7 @@ impl Chunk {
                 Structure::DesertWell(cx, base_y, cz) => place_desert_well(&mut blocks, cx, base_y, cz),
                 Structure::StoneRuins(cx, base_y, cz) => place_stone_ruin(&mut blocks, cx, base_y, cz, seed),
                 Structure::ForestCabin(cx, base_y, cz) => place_forest_cabin(&mut blocks, cx, base_y, cz),
+                Structure::CoralRuin(cx, base_y, cz) => place_coral_ruin(&mut blocks, cx, base_y, cz, seed),
             }
         }
 
@@ -294,6 +337,8 @@ impl Chunk {
                 Decoration::Tree(lx, base_y, lz) => place_tree(&mut blocks, lx, base_y, lz),
                 Decoration::CherryTree(lx, base_y, lz) => place_cherry_tree(&mut blocks, lx, base_y, lz),
                 Decoration::AcaciaTree(lx, base_y, lz) => place_acacia_tree(&mut blocks, lx, base_y, lz),
+                Decoration::SwampTree(lx, base_y, lz) => place_swamp_tree(&mut blocks, lx, base_y, lz),
+                Decoration::AutumnTree(lx, base_y, lz) => place_autumn_tree(&mut blocks, lx, base_y, lz),
             }
         }
 
@@ -467,6 +512,107 @@ fn place_acacia_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
             }
         }
     }
+}
+
+/// Swamp tree: tall thin trunk with drooping wide leaf canopy
+fn place_swamp_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
+    let trunk_height = 6;
+    for i in 0..trunk_height {
+        let y = base_y + i;
+        if y >= 0 && y < CHUNK_SIZE_Y {
+            blocks[Chunk::index(lx, y, lz)] = BlockId::Wood.to_u8();
+        }
+    }
+    // Wide drooping canopy: 3 layers, shrinking upward
+    for dy in 0..=3i32 {
+        let radius = match dy {
+            0 => 3i32,
+            1 => 3,
+            2 => 2,
+            _ => 1,
+        };
+        for dx in -radius..=radius {
+            for dz in -radius..=radius {
+                let x = lx + dx;
+                let y = base_y + trunk_height - 1 + dy;
+                let z = lz + dz;
+                if x < 0 || x >= CHUNK_SIZE_X || z < 0 || z >= CHUNK_SIZE_Z || y < 0 || y >= CHUNK_SIZE_Y {
+                    continue;
+                }
+                let dist_sq = dx * dx + dz * dz;
+                if dist_sq <= radius * radius {
+                    let idx = Chunk::index(x, y, z);
+                    if blocks[idx] == BlockId::Air.to_u8() {
+                        blocks[idx] = BlockId::Leaves.to_u8();
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Autumn tree: medium trunk with rounded AutumnLeaves canopy
+fn place_autumn_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
+    let trunk_height = 4;
+    for i in 0..trunk_height {
+        let y = base_y + i;
+        if y >= 0 && y < CHUNK_SIZE_Y {
+            blocks[Chunk::index(lx, y, lz)] = BlockId::Wood.to_u8();
+        }
+    }
+    for dx in -2..=2 {
+        for dz in -2..=2 {
+            for dy in 0..=3 {
+                let x = lx + dx;
+                let y = base_y + trunk_height - 1 + dy;
+                let z = lz + dz;
+                if x < 0 || x >= CHUNK_SIZE_X || z < 0 || z >= CHUNK_SIZE_Z {
+                    continue;
+                }
+                if y < 0 || y >= CHUNK_SIZE_Y {
+                    continue;
+                }
+                let dist = dx * dx + dz * dz + (dy - 1) * (dy - 1) * 2;
+                if dist <= 7 {
+                    let idx = Chunk::index(x, y, z);
+                    if blocks[idx] == BlockId::Air.to_u8() {
+                        blocks[idx] = BlockId::AutumnLeaves.to_u8();
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Coral ruin (Deep Ocean): underwater columns and arches of stone and sand
+fn place_coral_ruin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32, seed: u32) {
+    let set = |blocks: &mut [u8], x: i32, y: i32, z: i32, b: BlockId| {
+        if x >= 0 && x < CHUNK_SIZE_X && y >= 0 && y < CHUNK_SIZE_Y && z >= 0 && z < CHUNK_SIZE_Z {
+            blocks[Chunk::index(x, y, z)] = b.to_u8();
+        }
+    };
+
+    // Scattered stone columns rising from seabed
+    let offsets: &[(i32, i32)] = &[(-2, -2), (-2, 2), (2, -2), (2, 2), (0, -3), (3, 0), (-3, 0), (0, 3)];
+    for &(dx, dz) in offsets {
+        let cx2 = center_x + dx;
+        let cz2 = center_z + dz;
+        let col_h = 2 + (hash_coords_3d(cx2, 77, cz2, seed) % 5) as i32;
+        let block = if (dx + dz) % 2 == 0 { BlockId::Stone } else { BlockId::Sand };
+        for dy in 0..=col_h {
+            set(blocks, cx2, base_y + dy, cz2, block);
+        }
+    }
+
+    // Central stone pedestal
+    for dx in -1..=1i32 {
+        for dz in -1..=1i32 {
+            set(blocks, center_x + dx, base_y, center_z + dz, BlockId::Stone);
+            set(blocks, center_x + dx, base_y + 1, center_z + dz, BlockId::Stone);
+        }
+    }
+    // Lava core at center for a dramatic glowing ruin effect
+    set(blocks, center_x, base_y + 2, center_z, BlockId::Lava);
 }
 
 fn place_desert_well(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32) {
