@@ -9,7 +9,7 @@ use crate::graphics::camera::Camera;
 use crate::graphics::gpu::VulkanContext;
 use crate::graphics::traits::RenderBackend;
 use crate::world::mesher::{build_chunk_mesh, Triangle, Vertex};
-use crate::world::{World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
+use crate::world::{World, CHUNK_SIZE_X, CHUNK_SIZE_Z};
 
 #[derive(Clone, Copy)]
 pub struct Particle {
@@ -72,6 +72,7 @@ pub struct Renderer {
     transparent_tris_buf: Vec<ScreenTriangle>,
     pub particles: Vec<Particle>,
     pub fog_enabled: bool,
+    pub render_distance: i32,
 }
 
 impl Renderer {
@@ -110,6 +111,7 @@ impl Renderer {
             transparent_tris_buf: Vec::with_capacity(4096),
             particles: Vec::new(),
             fog_enabled: true,
+            render_distance: 6,
         }
     }
 
@@ -391,7 +393,11 @@ impl Renderer {
                 &view_proj,
                 camera.position,
                 camera.pitch,
+                self.render_distance,
                 self.fog_enabled,
+                self.chunk_anim,
+                self.total_time,
+                &self.chunk_spawn_times,
                 &mut self.color_buffer,
                 &mut self.depth_buffer,
             );
@@ -536,7 +542,11 @@ impl Renderer {
         let color_chunks = self.color_buffer.chunks_mut(width * TILE_HEIGHT);
         let depth_chunks = self.depth_buffer.chunks_mut(width * TILE_HEIGHT);
 
-        let fog_enabled = self.fog_enabled;
+        let fog_dist = if self.fog_enabled {
+            (self.render_distance as f32 * 16.0).max(32.0)
+        } else {
+            0.0
+        };
         let render_tile = |(tile_idx, (c_slice, d_slice)): (usize, (&mut [u32], &mut [f32]))| {
             let tile_y_start = tile_idx * TILE_HEIGHT;
             let tile_y_end = (tile_y_start + TILE_HEIGHT).min(height);
@@ -557,7 +567,7 @@ impl Renderer {
                     c_slice,
                     d_slice,
                     textures,
-                    fog_enabled,
+                    fog_dist,
                 );
             }
 
@@ -577,7 +587,7 @@ impl Renderer {
                     c_slice,
                     d_slice,
                     textures,
-                    fog_enabled,
+                    fog_dist,
                 );
             }
         };
@@ -599,10 +609,10 @@ impl Renderer {
 
     fn chunk_visible(key: (i32, i32), view_proj: &Mat4) -> bool {
         let min_x = key.0 as f32 * CHUNK_SIZE_X as f32;
-        let min_y = -16.0;
+        let min_y = -32.0;
         let min_z = key.1 as f32 * CHUNK_SIZE_Z as f32;
         let max_x = min_x + CHUNK_SIZE_X as f32;
-        let max_y = CHUNK_SIZE_Y as f32;
+        let max_y = 128.0;
         let max_z = min_z + CHUNK_SIZE_Z as f32;
 
         let corners = [
@@ -653,7 +663,11 @@ impl Renderer {
         let height = self.height;
         let textures = &self.textures;
 
-        let fog_enabled = self.fog_enabled;
+        let fog_dist = if self.fog_enabled {
+            (self.render_distance as f32 * 16.0).max(32.0)
+        } else {
+            0.0
+        };
         raster_triangle_tile(
             tri,
             hurt_tint,
@@ -665,7 +679,7 @@ impl Renderer {
             &mut self.color_buffer,
             &mut self.depth_buffer,
             textures,
-            fog_enabled,
+            fog_dist,
         );
     }
 
@@ -863,8 +877,13 @@ impl Renderer {
                                             if depth < renderer.depth_buffer[idx] {
                                                 let ao = (l0 * sa.ao_over_w + l1 * sb.ao_over_w + l2 * sc.ao_over_w) * depth;
                                                 let base_val = (0.95 * ao).clamp(0.0, 1.0);
-                                                let fog_t = if renderer.fog_enabled {
-                                                    (depth / 220.0).clamp(0.0, 1.0)
+                                                let fog_dist = if renderer.fog_enabled {
+                                                    (renderer.render_distance as f32 * 16.0).max(32.0)
+                                                } else {
+                                                    0.0
+                                                };
+                                                let fog_t = if fog_dist > 0.0 {
+                                                    ((depth - fog_dist * 0.45) / (fog_dist * 0.55)).clamp(0.0, 1.0)
                                                 } else {
                                                     0.0
                                                 };
@@ -1823,7 +1842,7 @@ fn raster_triangle_tile(
     color_buffer: &mut [u32],
     depth_buffer: &mut [f32],
     textures: &TextureAtlas,
-    fog_enabled: bool,
+    fog_dist: f32,
 ) {
     let c0 = to_clip_ao(tri.v0, view_proj);
     let c1 = to_clip_ao(tri.v1, view_proj);
@@ -1840,7 +1859,7 @@ fn raster_triangle_tile(
         let sc = project_to_screen_ao(&clipped[i + 1], width, height);
 
         raster_screen_triangle_ao_tile(
-            sa, sb, sc, tri.texture, hurt_tint, width, tile_y_start, tile_y_end, color_buffer, depth_buffer, textures, fog_enabled,
+            sa, sb, sc, tri.texture, hurt_tint, width, tile_y_start, tile_y_end, color_buffer, depth_buffer, textures, fog_dist,
         );
     }
 }
@@ -1857,7 +1876,7 @@ fn raster_screen_triangle_ao_tile(
     color_buffer: &mut [u32],
     depth_buffer: &mut [f32],
     textures: &TextureAtlas,
-    fog_enabled: bool,
+    fog_dist: f32,
 ) {
     let area = edge(a.x, a.y, b.x, b.y, c.x, c.y);
     if area <= 0.0 {
@@ -1919,7 +1938,7 @@ fn raster_screen_triangle_ao_tile(
                 tex,
                 color_buffer,
                 depth_buffer,
-                fog_enabled,
+                fog_dist,
             );
 
             px += 4;
@@ -1945,7 +1964,7 @@ fn raster_screen_triangle_ao_tile(
                 tex,
                 color_buffer,
                 depth_buffer,
-                fog_enabled,
+                fog_dist,
             );
 
             px += 1;
@@ -1980,7 +1999,7 @@ fn raster_scanline_simd_4x(
     tex: &crate::graphics::atlas::Texture,
     color_buffer: &mut [u32],
     depth_buffer: &mut [f32],
-    fog_enabled: bool,
+    fog_dist: f32,
 ) {
     let w0 = [
         w0_start,
@@ -2048,7 +2067,11 @@ fn raster_scanline_simd_4x(
                         bl = bl * (1.0 - hurt_tint) + 0.12 * hurt_tint;
                     }
 
-                    let fog_t = if fog_enabled { (depth / 180.0).clamp(0.0, 1.0) } else { 0.0 };
+                    let fog_t = if fog_dist > 0.0 {
+                        ((depth - fog_dist * 0.45) / (fog_dist * 0.55)).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
                     let fog = (0.75f32, 0.85f32, 1.0f32);
                     let fr = r * (1.0 - fog_t) + fog.0 * fog_t;
                     let fg = g * (1.0 - fog_t) + fog.1 * fog_t;
@@ -2096,7 +2119,7 @@ fn raster_scanline_pixel(
     tex: &crate::graphics::atlas::Texture,
     color_buffer: &mut [u32],
     depth_buffer: &mut [f32],
-    fog_enabled: bool,
+    fog_dist: f32,
 ) {
     if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
         let l0 = w0 * inv_area;
@@ -2133,7 +2156,11 @@ fn raster_scanline_pixel(
                     bl = bl * (1.0 - hurt_tint) + 0.12 * hurt_tint;
                 }
 
-                let fog_t = if fog_enabled { (depth / 180.0).clamp(0.0, 1.0) } else { 0.0 };
+                let fog_t = if fog_dist > 0.0 {
+                    ((depth - fog_dist * 0.45) / (fog_dist * 0.55)).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
                 let fog = (0.75f32, 0.85f32, 1.0f32);
                 let fr = r * (1.0 - fog_t) + fog.0 * fog_t;
                 let fg = g * (1.0 - fog_t) + fog.1 * fog_t;

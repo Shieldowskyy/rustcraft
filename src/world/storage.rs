@@ -136,7 +136,7 @@ pub fn get_save_metadata(slot: u8) -> SaveMetadata {
                 if fmt == b"RUSTCRAFT1" || fmt == b"RUSTCRAFT2" || fmt == b"RUSTCRAFT3" {
                     if let Ok(seed_bytes) = crate::world::read_bytes(&bytes, &mut cursor, 4) {
                         let seed = u32::from_le_bytes(seed_bytes.try_into().unwrap_or_default());
-                        let mut player_pos = crate::core::math::Vec3::new(8.0, 90.0, 8.0);
+                        let mut player_pos = crate::world::World::find_spawn_position(seed);
                         if (fmt == b"RUSTCRAFT2" || fmt == b"RUSTCRAFT3") && bytes.len() >= 26 {
                             if let (Ok(x), Ok(y), Ok(z)) = (
                                 crate::world::read_bytes(&bytes, &mut cursor, 4),

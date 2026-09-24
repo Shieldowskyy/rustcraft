@@ -3,8 +3,9 @@
  * Kompilacja: psp2cgc -profile sce_fp_psp2 voxel.frag.cg -o voxel.frag.gxp
  */
 float4 main(
-    float2  oUV : TEXCOORD0,
-    float   oAO : TEXCOORD1,
+    float2  oUV  : TEXCOORD0,
+    float   oAO  : TEXCOORD1,
+    float   oFog : TEXCOORD2,
 
     uniform sampler2D uTexture
 ) : COLOR
@@ -13,6 +14,8 @@ float4 main(
     if (color.a < 0.05f) {
         discard;
     }
-    // Ambient Occlusion + color
-    return float4(color.rgb * oAO, color.a);
+    // Ambient Occlusion + color + distance fog blend
+    float3 lit = color.rgb * oAO;
+    float3 sky_color = float3(0.443f, 0.702f, 0.949f);
+    return float4(lerp(lit, sky_color, oFog), color.a);
 }

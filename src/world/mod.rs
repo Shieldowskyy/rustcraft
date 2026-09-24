@@ -48,7 +48,92 @@ impl Chunk {
         self.blocks[Chunk::index(x, y, z)] = b.to_u8();
         self.dirty = true;
     }
+}
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Biome {
+    DeepOcean,
+    Ocean,
+    SnowyTaiga,
+    SnowyTundra,
+    AutumnForest,
+    Forest,
+    CherryGrove,
+    Plains,
+    Swamp,
+    Savanna,
+    Desert,
+    Mountain,
+}
+
+#[inline(always)]
+pub fn get_biome_at(wx: i32, wz: i32, seed: u32) -> (Biome, f32) {
+    // Biome scale: ~800-1000 blocks per cycle for vast, cohesive regions
+    let continentalness = fractal_noise2(wx as f32 * 0.0012, wz as f32 * 0.0012, seed.wrapping_add(2500), 4, 0.5);
+    let temp = fractal_noise2(wx as f32 * 0.0010, wz as f32 * 0.0010, seed.wrapping_add(500), 4, 0.5);
+    let humidity = fractal_noise2(wx as f32 * 0.0010, wz as f32 * 0.0010, seed.wrapping_add(1500), 4, 0.5);
+
+    let biome = if continentalness < -0.38 {
+        Biome::DeepOcean
+    } else if continentalness < -0.16 {
+        Biome::Ocean
+    } else if continentalness > 0.36 {
+        Biome::Mountain
+    } else if temp < -0.18 {
+        if humidity > 0.05 {
+            Biome::SnowyTaiga
+        } else {
+            Biome::SnowyTundra
+        }
+    } else if temp < -0.01 {
+        if humidity > 0.04 {
+            Biome::AutumnForest
+        } else {
+            Biome::Plains
+        }
+    } else if temp < 0.22 {
+        if humidity > 0.28 {
+            Biome::Swamp
+        } else if humidity > 0.10 {
+            Biome::Forest
+        } else if humidity > -0.04 && temp > 0.09 {
+            Biome::CherryGrove
+        } else {
+            Biome::Plains
+        }
+    } else {
+        if humidity < -0.08 {
+            Biome::Desert
+        } else if humidity < 0.16 {
+            Biome::Savanna
+        } else {
+            Biome::Forest
+        }
+    };
+
+    (biome, continentalness)
+}
+
+#[inline(always)]
+pub fn get_height_at(wx: i32, wz: i32, seed: u32, biome: Biome, continentalness: f32) -> i32 {
+    let n = fractal_noise2(wx as f32 * 0.012, wz as f32 * 0.012, seed, 4, 0.5);
+    let h = match biome {
+        Biome::DeepOcean => 6.0 + n * 3.0,
+        Biome::Ocean => 13.0 + n * 4.0,
+        Biome::Swamp => 20.0 + n * 2.5,
+        Biome::Mountain => {
+            let m_extra = ((continentalness - 0.36) / 0.64).clamp(0.0, 1.0);
+            36.0 + n * 10.0 + m_extra * 18.0
+        }
+        Biome::Desert => 25.0 + n * 8.0,
+        Biome::Savanna => 26.0 + n * 5.0,
+        Biome::AutumnForest | Biome::Forest | Biome::CherryGrove => 28.0 + n * 10.0,
+        Biome::SnowyTaiga | Biome::SnowyTundra | Biome::Plains => 27.0 + n * 10.0,
+    };
+    (h as i32).clamp(1, CHUNK_SIZE_Y - 4)
+}
+
+impl Chunk {
     pub fn generate(cx: i32, cz: i32, seed: u32) -> Chunk {
         let mut blocks = vec![0u8; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize];
 
@@ -72,69 +157,27 @@ impl Chunk {
 
         let center_wx = cx * CHUNK_SIZE_X + 8;
         let center_wz = cz * CHUNK_SIZE_Z + 8;
-        let c_temp = fractal_noise2(center_wx as f32 * 0.006, center_wz as f32 * 0.006, seed.wrapping_add(500), 3, 0.5);
-        let c_humidity = fractal_noise2(center_wx as f32 * 0.006, center_wz as f32 * 0.006, seed.wrapping_add(1500), 3, 0.5);
-        let c_mountain_factor = fractal_noise2(center_wx as f32 * 0.008, center_wz as f32 * 0.008, seed.wrapping_add(2500), 3, 0.5);
-
-        let c_is_mountain = c_mountain_factor > 0.32;
-        let c_is_snowy = !c_is_mountain && c_temp < -0.18;
-        let c_is_desert = !c_is_mountain && !c_is_snowy && c_temp > 0.28 && c_humidity < -0.05;
-        let c_is_forest = !c_is_mountain && !c_is_snowy && !c_is_desert && c_humidity > 0.15;
-        let c_is_ocean      = !c_is_mountain && !c_is_snowy && !c_is_desert && c_humidity > -0.25 && c_temp > -0.05 && c_temp < 0.12 && c_mountain_factor < -0.15;
-        let c_is_deep_ocean = !c_is_mountain && !c_is_snowy && !c_is_desert && c_mountain_factor < -0.35 && c_temp > -0.08 && c_temp < 0.15;
-        let c_is_cherry  = !c_is_mountain && !c_is_snowy && !c_is_desert && !c_is_ocean && !c_is_deep_ocean && c_temp > 0.10 && c_temp < 0.28 && c_humidity > 0.22;
-        let c_is_savanna = !c_is_mountain && !c_is_snowy && !c_is_desert && !c_is_ocean && !c_is_deep_ocean && !c_is_cherry && c_temp > 0.18 && c_humidity < 0.05;
-        let c_is_swamp   = !c_is_mountain && !c_is_snowy && !c_is_desert && !c_is_ocean && !c_is_deep_ocean && !c_is_cherry && !c_is_savanna && c_humidity > 0.30 && c_temp > -0.05 && c_temp < 0.20;
-        let c_is_autumn  = !c_is_mountain && !c_is_snowy && !c_is_desert && !c_is_ocean && !c_is_deep_ocean && !c_is_cherry && !c_is_savanna && !c_is_swamp && c_humidity > 0.05 && c_humidity < 0.30 && c_temp < -0.02;
-        let _ = c_is_autumn; // used implicitly via per-tile biome checks below
-
-        let c_n = fractal_noise2(center_wx as f32 * 0.015, center_wz as f32 * 0.015, seed, 4, 0.5);
-        let center_height = if c_is_mountain {
-            let m_extra = ((c_mountain_factor - 0.32) / 0.68).clamp(0.0, 1.0);
-            let m_height = 36.0 + c_n * 12.0 + m_extra * 16.0;
-            (m_height as i32).clamp(1, CHUNK_SIZE_Y - 4)
-        } else if c_is_deep_ocean {
-            // Very deep ocean: seabed far below water
-            let o_height = 5.0 + c_n * 3.0;
-            (o_height as i32).clamp(1, 10)
-        } else if c_is_ocean {
-            // Shallow ocean: mostly underwater, flat seabed
-            let o_height = 12.0 + c_n * 3.0;
-            (o_height as i32).clamp(1, 19)
-        } else if c_is_desert {
-            let d_height = 26.0 + c_n * 10.0;
-            (d_height as i32).clamp(1, CHUNK_SIZE_Y - 10)
-        } else if c_is_savanna {
-            // Savanna: flat, slightly elevated plains
-            let s_height = 27.0 + c_n * 6.0;
-            (s_height as i32).clamp(1, CHUNK_SIZE_Y - 10)
-        } else if c_is_swamp {
-            // Swamp: very flat, slightly below water level
-            let sw_height = 19.0 + c_n * 3.0;
-            (sw_height as i32).clamp(1, 23)
-        } else {
-            let p_height = 28.0 + c_n * 12.0;
-            (p_height as i32).clamp(1, CHUNK_SIZE_Y - 10)
-        };
+        let (c_biome, c_continentalness) = get_biome_at(center_wx, center_wz, seed);
+        let center_height = get_height_at(center_wx, center_wz, seed, c_biome, c_continentalness);
 
         let chunk_hash = hash_coords(cx, cz, seed.wrapping_add(77777));
         let mut structure: Option<Structure> = None;
         let mut struct_exclusion = (100, -100, 100, -100);
 
         if center_height > 22 && center_height < CHUNK_SIZE_Y - 14 {
-            if c_is_desert && (chunk_hash % 71 == 0) {
+            if c_biome == Biome::Desert && (chunk_hash % 71 == 0) {
                 structure = Some(Structure::DesertWell(8, center_height, 8));
                 struct_exclusion = (4, 12, 4, 12);
-            } else if c_is_mountain && (chunk_hash % 67 == 0) {
+            } else if (c_biome == Biome::Mountain || c_biome == Biome::SnowyTundra) && (chunk_hash % 67 == 0) {
                 structure = Some(Structure::StoneRuins(8, center_height, 8));
                 struct_exclusion = (3, 13, 3, 13);
-            } else if c_is_forest && (chunk_hash % 79 == 0) {
+            } else if (c_biome == Biome::Forest || c_biome == Biome::AutumnForest) && (chunk_hash % 79 == 0) {
                 structure = Some(Structure::ForestCabin(8, center_height, 8));
                 struct_exclusion = (3, 13, 3, 13);
             }
         }
         // Deep ocean: coral ruins near the seabed
-        if c_is_deep_ocean && center_height >= 4 && center_height < 12 && (chunk_hash % 53 == 0) {
+        if c_biome == Biome::DeepOcean && center_height >= 4 && center_height < 12 && (chunk_hash % 53 == 0) {
             structure = Some(Structure::CoralRuin(8, center_height, 8));
             struct_exclusion = (4, 12, 4, 12);
         }
@@ -144,45 +187,8 @@ impl Chunk {
                 let wx = cx * CHUNK_SIZE_X + lx;
                 let wz = cz * CHUNK_SIZE_Z + lz;
 
-                let temp = fractal_noise2(wx as f32 * 0.006, wz as f32 * 0.006, seed.wrapping_add(500), 3, 0.5);
-                let humidity = fractal_noise2(wx as f32 * 0.006, wz as f32 * 0.006, seed.wrapping_add(1500), 3, 0.5);
-                let mountain_factor = fractal_noise2(wx as f32 * 0.008, wz as f32 * 0.008, seed.wrapping_add(2500), 3, 0.5);
-
-                let is_mountain = mountain_factor > 0.32;
-                let is_snowy = !is_mountain && temp < -0.18;
-                let is_desert = !is_mountain && !is_snowy && temp > 0.28 && humidity < -0.05;
-                let is_forest = !is_mountain && !is_snowy && !is_desert && humidity > 0.15;
-                let is_ocean      = !is_mountain && !is_snowy && !is_desert && humidity > -0.25 && temp > -0.05 && temp < 0.12 && mountain_factor < -0.15;
-                let is_deep_ocean = !is_mountain && !is_snowy && !is_desert && mountain_factor < -0.35 && temp > -0.08 && temp < 0.15;
-                let is_cherry  = !is_mountain && !is_snowy && !is_desert && !is_ocean && !is_deep_ocean && temp > 0.10 && temp < 0.28 && humidity > 0.22;
-                let is_savanna = !is_mountain && !is_snowy && !is_desert && !is_ocean && !is_deep_ocean && !is_cherry && temp > 0.18 && humidity < 0.05;
-                let is_swamp   = !is_mountain && !is_snowy && !is_desert && !is_ocean && !is_deep_ocean && !is_cherry && !is_savanna && humidity > 0.30 && temp > -0.05 && temp < 0.20;
-                let is_autumn  = !is_mountain && !is_snowy && !is_desert && !is_ocean && !is_deep_ocean && !is_cherry && !is_savanna && !is_swamp && humidity > 0.05 && humidity < 0.30 && temp < -0.02;
-
-                let n = fractal_noise2(wx as f32 * 0.015, wz as f32 * 0.015, seed, 4, 0.5);
-                let height = if is_mountain {
-                    let m_extra = ((mountain_factor - 0.32) / 0.68).clamp(0.0, 1.0);
-                    let m_height = 36.0 + n * 12.0 + m_extra * 16.0;
-                    (m_height as i32).clamp(1, CHUNK_SIZE_Y - 4)
-                } else if is_deep_ocean {
-                    let o_height = 5.0 + n * 3.0;
-                    (o_height as i32).clamp(1, 10)
-                } else if is_ocean {
-                    let o_height = 12.0 + n * 3.0;
-                    (o_height as i32).clamp(1, 19)
-                } else if is_desert {
-                    let d_height = 26.0 + n * 10.0;
-                    (d_height as i32).clamp(1, CHUNK_SIZE_Y - 10)
-                } else if is_savanna {
-                    let s_height = 27.0 + n * 6.0;
-                    (s_height as i32).clamp(1, CHUNK_SIZE_Y - 10)
-                } else if is_swamp {
-                    let sw_height = 19.0 + n * 3.0;
-                    (sw_height as i32).clamp(1, 23)
-                } else {
-                    let p_height = 28.0 + n * 12.0;
-                    (p_height as i32).clamp(1, CHUNK_SIZE_Y - 10)
-                };
+                let (biome, continentalness) = get_biome_at(wx, wz, seed);
+                let height = get_height_at(wx, wz, seed, biome, continentalness);
 
                 for y in 0..CHUNK_SIZE_Y {
                     if y == 0 {
@@ -201,7 +207,7 @@ impl Chunk {
 
                     let block = if y > height {
                         if y <= 20 {
-                            if is_snowy && y == 20 {
+                            if (biome == Biome::SnowyTaiga || biome == Biome::SnowyTundra) && y == 20 {
                                 BlockId::Snow
                             } else {
                                 BlockId::Water
@@ -210,41 +216,36 @@ impl Chunk {
                             BlockId::Air
                         }
                     } else if y == height {
-                        if is_ocean || is_deep_ocean {
-                            // Ocean/deep ocean seabed: sand below water
-                            BlockId::Sand
-                        } else if height <= 21 {
-                            BlockId::Sand
-                        } else if is_snowy {
-                            BlockId::Snow
-                        } else if is_desert {
-                            BlockId::Sand
-                        } else if is_swamp {
-                            // Swamp surface: mud or grass depending on whether it's waterlogged
-                            if height <= 20 { BlockId::Mud } else { BlockId::Grass }
-                        } else if is_savanna {
-                            // Savanna surface: dry grass
-                            BlockId::Grass
-                        } else if is_mountain {
-                            if height >= 48 {
-                                BlockId::Snow
-                            } else if height >= 38 {
-                                BlockId::Stone
-                            } else {
-                                BlockId::Grass
+                        match biome {
+                            Biome::DeepOcean | Biome::Ocean => BlockId::Sand,
+                            Biome::Swamp => {
+                                if height <= 20 { BlockId::Mud } else { BlockId::Grass }
                             }
-                        } else {
-                            BlockId::Grass
+                            Biome::Desert => BlockId::Sand,
+                            Biome::SnowyTaiga | Biome::SnowyTundra => BlockId::Snow,
+                            Biome::Mountain => {
+                                if height >= 48 {
+                                    BlockId::Snow
+                                } else if height >= 38 {
+                                    BlockId::Stone
+                                } else {
+                                    BlockId::Grass
+                                }
+                            }
+                            _ => {
+                                if height <= 21 {
+                                    BlockId::Sand
+                                } else {
+                                    BlockId::Grass
+                                }
+                            }
                         }
                     } else if y > height - 4 {
-                        if is_ocean || is_deep_ocean || height <= 21 || is_desert {
-                            BlockId::Sand
-                        } else if is_swamp {
-                            BlockId::Mud
-                        } else if is_mountain && height >= 38 {
-                            BlockId::Stone
-                        } else {
-                            BlockId::Dirt
+                        match biome {
+                            Biome::DeepOcean | Biome::Ocean | Biome::Desert => BlockId::Sand,
+                            Biome::Swamp => BlockId::Mud,
+                            Biome::Mountain if height >= 38 => BlockId::Stone,
+                            _ => if height <= 21 { BlockId::Sand } else { BlockId::Dirt },
                         }
                     } else {
                         let ore_h = hash_coords_3d(wx, y, wz, seed);
@@ -280,41 +281,54 @@ impl Chunk {
 
                     if lx >= 3 && lx < CHUNK_SIZE_X - 3 && lz >= 3 && lz < CHUNK_SIZE_Z - 3 {
                         let h = hash_coords(wx, wz, seed);
-                        if is_ocean || is_deep_ocean {
-                            // No surface decorations in ocean/deep ocean
-                        } else if is_desert {
-                            if h % 167 == 0 {
-                                let c_height = 2 + (h % 2) as i32;
-                                decorations.push(Decoration::Cactus(lx, height + 1, lz, c_height));
+                        match biome {
+                            Biome::Desert => {
+                                if h % 167 == 0 {
+                                    let c_height = 2 + (h % 2) as i32;
+                                    decorations.push(Decoration::Cactus(lx, height + 1, lz, c_height));
+                                }
                             }
-                        } else if is_snowy {
-                            if h % 113 == 0 {
-                                decorations.push(Decoration::PineTree(lx, height + 1, lz));
+                            Biome::SnowyTaiga => {
+                                if h % 97 == 0 {
+                                    decorations.push(Decoration::PineTree(lx, height + 1, lz));
+                                }
                             }
-                        } else if is_cherry {
-                            if h % 61 == 0 {
-                                decorations.push(Decoration::CherryTree(lx, height + 1, lz));
+                            Biome::SnowyTundra => {
+                                if h % 233 == 0 {
+                                    decorations.push(Decoration::PineTree(lx, height + 1, lz));
+                                }
                             }
-                        } else if is_savanna {
-                            if h % 193 == 0 {
-                                decorations.push(Decoration::AcaciaTree(lx, height + 1, lz));
+                            Biome::AutumnForest => {
+                                if h % 47 == 0 {
+                                    decorations.push(Decoration::AutumnTree(lx, height + 1, lz));
+                                }
                             }
-                        } else if is_swamp {
-                            if h % 83 == 0 {
-                                decorations.push(Decoration::SwampTree(lx, height + 1, lz));
+                            Biome::Forest => {
+                                if h % 43 == 0 {
+                                    decorations.push(Decoration::Tree(lx, height + 1, lz));
+                                }
                             }
-                        } else if is_autumn {
-                            if h % 55 == 0 {
-                                decorations.push(Decoration::AutumnTree(lx, height + 1, lz));
+                            Biome::CherryGrove => {
+                                if h % 53 == 0 {
+                                    decorations.push(Decoration::CherryTree(lx, height + 1, lz));
+                                }
                             }
-                        } else if is_forest {
-                            if h % 47 == 0 {
-                                decorations.push(Decoration::Tree(lx, height + 1, lz));
+                            Biome::Swamp => {
+                                if h % 67 == 0 {
+                                    decorations.push(Decoration::SwampTree(lx, height + 1, lz));
+                                }
                             }
-                        } else if !is_mountain {
-                            if h % 137 == 0 {
-                                decorations.push(Decoration::Tree(lx, height + 1, lz));
+                            Biome::Savanna => {
+                                if h % 163 == 0 {
+                                    decorations.push(Decoration::AcaciaTree(lx, height + 1, lz));
+                                }
                             }
+                            Biome::Plains => {
+                                if h % 149 == 0 {
+                                    decorations.push(Decoration::Tree(lx, height + 1, lz));
+                                }
+                            }
+                            Biome::Mountain | Biome::Ocean | Biome::DeepOcean => {}
                         }
                     }
                 }
@@ -845,30 +859,86 @@ impl World {
         Self::new_with_seed(DEFAULT_WORLD_SEED)
     }
 
+    /// Szuka bezpiecznej pozycji spawnu dla gracza, omijając głęboki ocean, ocean i bagno
+    pub fn find_spawn_position(seed: u32) -> Vec3 {
+        let mut x = 0i32;
+        let mut z = 0i32;
+        let mut dx = 0i32;
+        let mut dz = -1i32;
+        let step = 16i32;
+        let max_steps = 1500;
+
+        for _ in 0..max_steps {
+            let wx = x + 8;
+            let wz = z + 8;
+            let (biome, cont) = get_biome_at(wx, wz, seed);
+            if !matches!(biome, Biome::DeepOcean | Biome::Ocean | Biome::Swamp) {
+                let height = get_height_at(wx, wz, seed, biome, cont);
+                if height >= 24 {
+                    return Vec3::new(wx as f32 + 0.5, (height + 2) as f32, wz as f32 + 0.5);
+                }
+            }
+
+            if x == z || (x < 0 && x == -z) || (x > 0 && x == 1 - z) {
+                let temp = dx;
+                dx = -dz;
+                dz = temp;
+            }
+            x += dx * step;
+            z += dz * step;
+        }
+
+        Vec3::new(8.0, 90.0, 8.0)
+    }
+
     pub fn new_with_seed(seed: u32) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         let (chunk_req_tx, chunk_res_rx) = {
             let (req_tx, req_rx) = std::sync::mpsc::channel::<(i32, i32, u32)>();
             let (res_tx, res_rx) = std::sync::mpsc::channel::<Chunk>();
 
-            let _ = std::thread::Builder::new()
-                .name("chunk_gen".to_string())
-                .spawn(move || {
-                    while let Ok((cx, cz, chunk_seed)) = req_rx.recv() {
-                        let chunk = Chunk::generate(cx, cz, chunk_seed);
-                        if res_tx.send(chunk).is_err() {
-                            break;
+            let req_rx = std::sync::Arc::new(std::sync::Mutex::new(req_rx));
+            let num_threads = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+                .clamp(2, 6);
+
+            for i in 0..num_threads {
+                let req_rx_clone = std::sync::Arc::clone(&req_rx);
+                let res_tx_clone = res_tx.clone();
+                let _ = std::thread::Builder::new()
+                    .name(format!("chunk_gen_{}", i))
+                    .spawn(move || {
+                        loop {
+                            let job = {
+                                if let Ok(rx) = req_rx_clone.lock() {
+                                    rx.recv().ok()
+                                } else {
+                                    None
+                                }
+                            };
+                            match job {
+                                Some((cx, cz, chunk_seed)) => {
+                                    let chunk = Chunk::generate(cx, cz, chunk_seed);
+                                    if res_tx_clone.send(chunk).is_err() {
+                                        break;
+                                    }
+                                }
+                                None => break,
+                            }
                         }
-                    }
-                });
+                    });
+            }
 
             (Some(req_tx), Some(std::sync::Mutex::new(res_rx)))
         };
 
+        let spawn_pos = Self::find_spawn_position(seed);
+
         World {
             chunks: HashMap::new(),
             seed,
-            player_position: Vec3::new(8.0, 90.0, 8.0),
+            player_position: spawn_pos,
             fluid_levels: HashMap::new(),
             active_sand: HashSet::new(),
             sim_tick: 0,
@@ -923,7 +993,7 @@ impl World {
                 f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
             )
         } else {
-            Vec3::new(8.0, 90.0, 8.0)
+            Self::find_spawn_position(seed)
         };
         let chunk_count = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()) as usize;
         let expected_len = (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize;
@@ -1152,7 +1222,10 @@ impl World {
         let pcx = (player_pos.x.floor() as i32) >> 4;
         let pcz = (player_pos.z.floor() as i32) >> 4;
 
-        // Drain chunks generated asynchronously in the background thread
+        let unload_dist = view_distance + 3;
+        let unload_dist_sq = unload_dist * unload_dist;
+
+        // Drain chunks generated asynchronously in the background threads
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(rx_mutex) = &self.chunk_res_rx {
             if let Ok(rx) = rx_mutex.lock() {
@@ -1160,11 +1233,15 @@ impl World {
                     let cx = chunk.cx;
                     let cz = chunk.cz;
                     self.pending_chunks.remove(&(cx, cz));
-                    self.chunks.insert((cx, cz), chunk);
-                    if let Some(n) = self.chunks.get_mut(&(cx + 1, cz)) { n.dirty = true; }
-                    if let Some(n) = self.chunks.get_mut(&(cx - 1, cz)) { n.dirty = true; }
-                    if let Some(n) = self.chunks.get_mut(&(cx, cz + 1)) { n.dirty = true; }
-                    if let Some(n) = self.chunks.get_mut(&(cx, cz - 1)) { n.dirty = true; }
+                    let ddx = cx - pcx;
+                    let ddz = cz - pcz;
+                    if ddx * ddx + ddz * ddz <= unload_dist_sq {
+                        self.chunks.insert((cx, cz), chunk);
+                        if let Some(n) = self.chunks.get_mut(&(cx + 1, cz)) { n.dirty = true; }
+                        if let Some(n) = self.chunks.get_mut(&(cx - 1, cz)) { n.dirty = true; }
+                        if let Some(n) = self.chunks.get_mut(&(cx, cz + 1)) { n.dirty = true; }
+                        if let Some(n) = self.chunks.get_mut(&(cx, cz - 1)) { n.dirty = true; }
+                    }
                 }
             }
         }
@@ -1177,13 +1254,16 @@ impl World {
         }
 
         let mut missing_chunks = Vec::new();
+        let view_dist_sq = view_distance * view_distance;
 
         for dz in -view_distance..=view_distance {
             for dx in -view_distance..=view_distance {
-                let cx = pcx + dx;
-                let cz = pcz + dz;
-                if !self.chunks.contains_key(&(cx, cz)) && !self.pending_chunks.contains(&(cx, cz)) {
-                    missing_chunks.push((cx, cz));
+                if dx * dx + dz * dz <= view_dist_sq {
+                    let cx = pcx + dx;
+                    let cz = pcz + dz;
+                    if !self.chunks.contains_key(&(cx, cz)) && !self.pending_chunks.contains(&(cx, cz)) {
+                        missing_chunks.push((cx, cz));
+                    }
                 }
             }
         }
@@ -1227,16 +1307,15 @@ impl World {
             self.last_stream_chunk = None;
         }
 
-        let unload_dist = view_distance + 2;
         self.chunks.retain(|&(cx, cz), _| {
             let ddx = cx - pcx;
             let ddz = cz - pcz;
-            ddx * ddx + ddz * ddz <= unload_dist * unload_dist
+            ddx * ddx + ddz * ddz <= unload_dist_sq
         });
         self.pending_chunks.retain(|&(cx, cz)| {
             let ddx = cx - pcx;
             let ddz = cz - pcz;
-            ddx * ddx + ddz * ddz <= unload_dist * unload_dist
+            ddx * ddx + ddz * ddz <= unload_dist_sq
         });
     }
 
@@ -1550,5 +1629,17 @@ mod tests {
         // Out of bounds returns Air
         assert_eq!(chunk.get_local(-1, 0, 0), BlockId::Air);
         assert_eq!(chunk.get_local(16, 0, 0), BlockId::Air);
+    }
+
+    #[test]
+    fn test_find_spawn_position_disallowed_biomes() {
+        for seed in [1337, 42, 999999, 1234567, 777] {
+            let spawn = World::find_spawn_position(seed);
+            let (biome, _) = get_biome_at(spawn.x.floor() as i32, spawn.z.floor() as i32, seed);
+            assert_ne!(biome, Biome::DeepOcean, "Spawn cannot be in DeepOcean for seed {}", seed);
+            assert_ne!(biome, Biome::Ocean, "Spawn cannot be in Ocean for seed {}", seed);
+            assert_ne!(biome, Biome::Swamp, "Spawn cannot be in Swamp for seed {}", seed);
+            assert!(spawn.y >= 24.0, "Spawn Y ({}) should be above water level", spawn.y);
+        }
     }
 }

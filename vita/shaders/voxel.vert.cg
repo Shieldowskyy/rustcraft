@@ -14,13 +14,24 @@ void main(
     float   aAO       : TEXCOORD1,
 
     uniform float4x4 uViewProj,
+    uniform float4   uCameraPosAndFog,
 
     float4  out oPosition : POSITION,
     float2  out oUV       : TEXCOORD0,
-    float   out oAO       : TEXCOORD1
+    float   out oAO       : TEXCOORD1,
+    float   out oFog      : TEXCOORD2
 )
 {
     oPosition = mul(float4(aPosition, 1.0f), uViewProj);
     oUV       = aUV;
     oAO       = aAO;
+
+    float max_fog = uCameraPosAndFog.w;
+    if (max_fog > 0.0f) {
+        float dist = distance(aPosition, uCameraPosAndFog.xyz);
+        float fog_start = max_fog * 0.45f;
+        oFog = saturate((dist - fog_start) / max(max_fog - fog_start, 1.0f));
+    } else {
+        oFog = 0.0f;
+    }
 }

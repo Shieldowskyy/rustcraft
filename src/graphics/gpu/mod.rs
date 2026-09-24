@@ -7,7 +7,7 @@ use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId, TEX_SIZE};
 use crate::world::mesher::Triangle;
 
-pub const TEXTURE_LAYER_COUNT: u32 = 50;
+pub const TEXTURE_LAYER_COUNT: u32 = 52;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -34,6 +34,7 @@ pub struct VulkanContext {
     sky_pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
     globals_buffer: wgpu::Buffer,
+    instance_buffer: wgpu::Buffer,
     chunk_buffers: HashMap<(i32, i32), GpuChunk>,
     target_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,
@@ -70,6 +71,7 @@ struct VertexInput {
     @location(1) uv: vec2<f32>,
     @location(2) ao: f32,
     @location(3) texture_layer: u32,
+    @location(4) y_offset: f32,
 };
 
 struct VertexOutput {
@@ -83,12 +85,13 @@ struct VertexOutput {
 @vertex
 fn world_vertex(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    let clip = globals.view_proj * vec4<f32>(input.position, 1.0);
+    let pos = vec3<f32>(input.position.x, input.position.y + input.y_offset, input.position.z);
+    let clip = globals.view_proj * vec4<f32>(pos, 1.0);
     output.position = vec4<f32>(clip.x, clip.y, clip.z * 0.5 + clip.w * 0.5, clip.w);
     output.uv = input.uv;
     output.texture_layer = input.texture_layer;
     output.ao = input.ao;
-    output.world_position = input.position;
+    output.world_position = pos;
     return output;
 }
 
@@ -97,7 +100,8 @@ fn world_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
     let texel = textureSample(textures, texture_sampler, input.uv, i32(input.texture_layer));
     let lit = texel.rgb * input.ao;
     let distance_to_camera = distance(input.world_position, globals.camera_position.xyz);
-    let fog_t = clamp(distance_to_camera / 180.0, 0.0, 1.0) * globals.camera_pitch.y;
+    let max_fog_dist = select(globals.camera_pitch.z, 180.0, globals.camera_pitch.z <= 0.0);
+    let fog_t = clamp((distance_to_camera - max_fog_dist * 0.45) / (max_fog_dist * 0.55), 0.0, 1.0) * globals.camera_pitch.y;
     let alpha = select(1.0, 0.48, input.texture_layer == 8u || input.texture_layer == 19u);
     return vec4<f32>(mix(lit, vec3<f32>(0.75, 0.85, 1.0), fog_t), alpha);
 }
@@ -243,10 +247,20 @@ impl VulkanContext {
             attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32, 3 => Uint32],
         };
 
+        let instance_layout = wgpu::VertexBufferLayout {
+            array_stride: 4,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32,
+                offset: 0,
+                shader_location: 4,
+            }],
+        };
+
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("RustCraft Vulkan world pipeline"),
             layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState { module: &shader, entry_point: "world_vertex", buffers: &[vertex_layout.clone()] },
+            vertex: wgpu::VertexState { module: &shader, entry_point: "world_vertex", buffers: &[vertex_layout.clone(), instance_layout.clone()] },
             fragment: Some(wgpu::FragmentState { module: &shader, entry_point: "world_fragment", targets: &[Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: None, write_mask: wgpu::ColorWrites::ALL })] }),
             primitive: wgpu::PrimitiveState { cull_mode: Some(wgpu::Face::Back), ..Default::default() },
             depth_stencil: Some(wgpu::DepthStencilState { format: wgpu::TextureFormat::Depth32Float, depth_write_enabled: true, depth_compare: wgpu::CompareFunction::Less, stencil: Default::default(), bias: Default::default() }),
@@ -257,7 +271,7 @@ impl VulkanContext {
         let transparent_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("RustCraft transparent pipeline"),
             layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState { module: &shader, entry_point: "world_vertex", buffers: &[vertex_layout] },
+            vertex: wgpu::VertexState { module: &shader, entry_point: "world_vertex", buffers: &[vertex_layout, instance_layout] },
             fragment: Some(wgpu::FragmentState { module: &shader, entry_point: "world_fragment", targets: &[Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })] }),
             primitive: wgpu::PrimitiveState { cull_mode: Some(wgpu::Face::Back), ..Default::default() },
             depth_stencil: Some(wgpu::DepthStencilState { format: wgpu::TextureFormat::Depth32Float, depth_write_enabled: false, depth_compare: wgpu::CompareFunction::LessEqual, stencil: Default::default(), bias: Default::default() }),
@@ -324,6 +338,13 @@ impl VulkanContext {
             ],
         });
 
+        let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("RustCraft chunk instance buffer"),
+            size: 8192 * 4,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         Ok(Self {
             device,
             queue,
@@ -332,6 +353,7 @@ impl VulkanContext {
             sky_pipeline,
             bind_group,
             globals_buffer,
+            instance_buffer,
             chunk_buffers: HashMap::new(),
             target_view,
             depth_view,
@@ -356,7 +378,11 @@ impl VulkanContext {
         view_proj: &Mat4,
         camera: Vec3,
         pitch: f32,
+        render_distance: i32,
         fog_enabled: bool,
+        chunk_anim: bool,
+        total_time: f32,
+        chunk_spawn_times: &HashMap<(i32, i32), f32>,
         out_pixels: &mut [u32],
         out_depths: &mut [f32],
     ) {
@@ -436,6 +462,12 @@ impl VulkanContext {
             }
         }
 
+        let max_fog_dist = if fog_enabled {
+            (render_distance as f32 * 16.0).max(32.0)
+        } else {
+            0.0
+        };
+
         let globals = Globals {
             view_proj: [
                 [view_proj.m[0], view_proj.m[1], view_proj.m[2], view_proj.m[3]],
@@ -444,7 +476,7 @@ impl VulkanContext {
                 [view_proj.m[12], view_proj.m[13], view_proj.m[14], view_proj.m[15]],
             ],
             camera_position: [camera.x, camera.y, camera.z, 1.0],
-            camera_pitch: [pitch, if fog_enabled { 1.0 } else { 0.0 }, 0.0, 0.0],
+            camera_pitch: [pitch, if fog_enabled { 1.0 } else { 0.0 }, max_fog_dist, 0.0],
         };
         self.queue.write_buffer(&self.globals_buffer, 0, bytemuck::bytes_of(&globals));
 
@@ -453,6 +485,71 @@ impl VulkanContext {
             .copied()
             .filter(|&(cx, cz)| Self::is_chunk_in_frustum(cx, cz, view_proj))
             .collect();
+
+        // Sort front-to-back for opaque chunks
+        culled_visible_keys.sort_by(|&(a_x, a_z), &(b_x, b_z)| {
+            let dist_a = Self::chunk_dist_sq(a_x, a_z, camera.x, camera.z);
+            let dist_b = Self::chunk_dist_sq(b_x, b_z, camera.x, camera.z);
+            dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut opaque_draws = Vec::with_capacity(culled_visible_keys.len());
+        for key in &culled_visible_keys {
+            if let Some(chunk) = self.chunk_buffers.get(key) {
+                if chunk.opaque_count > 0 {
+                    let spawn_time = chunk_spawn_times.get(key).copied().unwrap_or(total_time);
+                    let elapsed = total_time - spawn_time;
+                    let y_offset = if chunk_anim && elapsed >= 0.0 && elapsed < 0.35 {
+                        let t = (elapsed / 0.35).clamp(0.0, 1.0);
+                        let ease = 1.0 - (1.0 - t).powi(3);
+                        (1.0 - ease) * -14.0
+                    } else {
+                        0.0
+                    };
+                    opaque_draws.push((chunk, y_offset));
+                }
+            }
+        }
+
+        // Sort back-to-front for transparent chunks
+        let mut trans_visible_keys = culled_visible_keys.clone();
+        trans_visible_keys.sort_by(|&(a_x, a_z), &(b_x, b_z)| {
+            let dist_a = Self::chunk_dist_sq(a_x, a_z, camera.x, camera.z);
+            let dist_b = Self::chunk_dist_sq(b_x, b_z, camera.x, camera.z);
+            dist_b.partial_cmp(&dist_a).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut trans_draws = Vec::with_capacity(trans_visible_keys.len());
+        for key in &trans_visible_keys {
+            if let Some(chunk) = self.chunk_buffers.get(key) {
+                if chunk.transparent_count > 0 {
+                    let spawn_time = chunk_spawn_times.get(key).copied().unwrap_or(total_time);
+                    let elapsed = total_time - spawn_time;
+                    let y_offset = if chunk_anim && elapsed >= 0.0 && elapsed < 0.35 {
+                        let t = (elapsed / 0.35).clamp(0.0, 1.0);
+                        let ease = 1.0 - (1.0 - t).powi(3);
+                        (1.0 - ease) * -14.0
+                    } else {
+                        0.0
+                    };
+                    trans_draws.push((chunk, y_offset));
+                }
+            }
+        }
+
+        let mut all_offsets = Vec::with_capacity(opaque_draws.len() + trans_draws.len() + 1);
+        for (_, off) in &opaque_draws {
+            all_offsets.push(*off);
+        }
+        let trans_start_idx = all_offsets.len();
+        for (_, off) in &trans_draws {
+            all_offsets.push(*off);
+        }
+
+        if !all_offsets.is_empty() {
+            let max_count = 8192.min(all_offsets.len());
+            self.queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&all_offsets[..max_count]));
+        }
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("RustCraft Vulkan frame") });
         {
@@ -468,36 +565,23 @@ impl VulkanContext {
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.draw(0..3, 0..1);
 
-            culled_visible_keys.sort_by(|&(a_x, a_z), &(b_x, b_z)| {
-                let dist_a = Self::chunk_dist_sq(a_x, a_z, camera.x, camera.z);
-                let dist_b = Self::chunk_dist_sq(b_x, b_z, camera.x, camera.z);
-                dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
-            });
-
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
-            for key in &culled_visible_keys {
-                if let Some(chunk) = self.chunk_buffers.get(key) {
-                    if chunk.opaque_count > 0 {
-                        pass.set_vertex_buffer(0, chunk.opaque.slice(..));
-                        pass.draw(0..chunk.opaque_count, 0..1);
-                    }
+            for (i, (chunk, _)) in opaque_draws.iter().enumerate() {
+                if (i * 4 + 4) <= 8192 * 4 {
+                    pass.set_vertex_buffer(0, chunk.opaque.slice(..));
+                    pass.set_vertex_buffer(1, self.instance_buffer.slice((i * 4) as u64..(i * 4 + 4) as u64));
+                    pass.draw(0..chunk.opaque_count, 0..1);
                 }
             }
 
-            culled_visible_keys.sort_by(|&(a_x, a_z), &(b_x, b_z)| {
-                let dist_a = Self::chunk_dist_sq(a_x, a_z, camera.x, camera.z);
-                let dist_b = Self::chunk_dist_sq(b_x, b_z, camera.x, camera.z);
-                dist_b.partial_cmp(&dist_a).unwrap_or(std::cmp::Ordering::Equal)
-            });
-
             pass.set_pipeline(&self.transparent_pipeline);
-            for key in &culled_visible_keys {
-                if let Some(chunk) = self.chunk_buffers.get(key) {
-                    if chunk.transparent_count > 0 {
-                        pass.set_vertex_buffer(0, chunk.transparent.slice(..));
-                        pass.draw(0..chunk.transparent_count, 0..1);
-                    }
+            for (i, (chunk, _)) in trans_draws.iter().enumerate() {
+                let buf_idx = trans_start_idx + i;
+                if (buf_idx * 4 + 4) <= 8192 * 4 {
+                    pass.set_vertex_buffer(0, chunk.transparent.slice(..));
+                    pass.set_vertex_buffer(1, self.instance_buffer.slice((buf_idx * 4) as u64..(buf_idx * 4 + 4) as u64));
+                    pass.draw(0..chunk.transparent_count, 0..1);
                 }
             }
         }
@@ -540,7 +624,7 @@ impl VulkanContext {
     fn is_chunk_in_frustum(chunk_x: i32, chunk_z: i32, view_proj: &Mat4) -> bool {
         let min_x = (chunk_x * 16) as f32;
         let max_x = min_x + 16.0;
-        let min_y = 0.0f32;
+        let min_y = -32.0f32;
         let max_y = 256.0f32;
         let min_z = (chunk_z * 16) as f32;
         let max_z = min_z + 16.0;

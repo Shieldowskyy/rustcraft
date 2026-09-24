@@ -231,7 +231,7 @@ impl RustCraftApp {
         renderer.fog_enabled = settings.fog;
 
         let world = World::new_with_seed(seed);
-        let camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
+        let camera = Camera::new(world.player_position);
 
         let mut player = Player::new();
         player.gamemode = GameMode::Survival;
@@ -558,7 +558,7 @@ impl RustCraftApp {
                                 }
                                 Err(_) => {
                                     self.world = World::new_with_seed(self.seed);
-                                    self.camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
+                                    self.camera = Camera::new(self.world.player_position);
                                     self.mob_manager = MobManager::new();
                                     self.state = GameState::Playing;
                                 }
@@ -579,7 +579,7 @@ impl RustCraftApp {
                         #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
                         {
                             self.world = World::new_with_seed(self.seed);
-                            self.camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
+                            self.camera = Camera::new(self.world.player_position);
                             self.mob_manager = MobManager::new();
                             self.state = GameState::Playing;
                         }
@@ -600,7 +600,7 @@ impl RustCraftApp {
                     #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
                     {
                         self.world = World::new_with_seed(self.seed);
-                        self.camera = Camera::new(Vec3::new(8.0, 90.0, 8.0));
+                        self.camera = Camera::new(self.world.player_position);
                         self.mob_manager = MobManager::new();
                         self.state = GameState::Playing;
                     }
@@ -735,7 +735,7 @@ impl RustCraftApp {
                     match result {
                         WorldLoadResult::Success(loaded_world, loaded_pos) => {
                             self.world = loaded_world;
-                            let start_pos = loaded_pos.unwrap_or_else(|| Vec3::new(8.0, 90.0, 8.0));
+                            let start_pos = loaded_pos.unwrap_or(self.world.player_position);
                             self.camera = Camera::new(start_pos);
                             self.mob_manager = MobManager::new();
                             self.state = GameState::Playing;
@@ -1730,7 +1730,7 @@ impl RustCraftApp {
                     match btn {
                         0 => {
                             self.player.health = self.player.max_health;
-                            self.camera.position = Vec3::new(8.0, 90.0, 8.0);
+                            self.camera.position = self.world.player_position;
                             self.camera.pitch = 0.0;
                             self.vertical_velocity = 0.0;
                             self.horiz_velocity = Vec3::zero();

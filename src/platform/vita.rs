@@ -593,6 +593,7 @@ pub fn run_vita_app() {
                 hand_speed,
                 app.hand_animation,
                 app.settings.render_distance,
+                app.settings.fog,
                 app.settings.clouds,
                 app.settings.chunk_anim,
                 app.total_time,

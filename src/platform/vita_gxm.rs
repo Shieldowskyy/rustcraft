@@ -686,6 +686,21 @@ impl GxmVertex {
 const ATLAS_TILES_PER_ROW: usize = 16;
 const ATLAS_SIZE: usize = ATLAS_TILES_PER_ROW * TEX_SIZE; // 256x256 px
 
+pub const ALL_TEXTURES: &[TextureId] = &[
+    TextureId::GrassTop, TextureId::GrassSide, TextureId::Dirt, TextureId::Stone, TextureId::Sand,
+    TextureId::WoodTop, TextureId::WoodSide, TextureId::Leaves, TextureId::Water, TextureId::Snow,
+    TextureId::CactusTop, TextureId::CactusSide, TextureId::CoalOre, TextureId::IronOre, TextureId::Bedrock,
+    TextureId::Lava, TextureId::SnowLeaves, TextureId::Planks, TextureId::Door, TextureId::DoorTop,
+    TextureId::Glass, TextureId::Ice, TextureId::TntTop, TextureId::TntSide, TextureId::PigSkin,
+    TextureId::PigFace, TextureId::PigSnout, TextureId::CowSkin, TextureId::CowFace, TextureId::CowSnout,
+    TextureId::CowHorns, TextureId::CowUdder, TextureId::CraftingTableTop, TextureId::CraftingTableSide,
+    TextureId::CraftingTableFront, TextureId::DestroyStage0, TextureId::DestroyStage1, TextureId::DestroyStage2,
+    TextureId::DestroyStage3, TextureId::DestroyStage4, TextureId::DestroyStage5, TextureId::DestroyStage6,
+    TextureId::DestroyStage7, TextureId::DestroyStage8, TextureId::DestroyStage9, TextureId::DamageFlash,
+    TextureId::UnderwaterTint, TextureId::VignetteTint, TextureId::LavaTint, TextureId::CherryLeaves,
+    TextureId::AutumnLeaves, TextureId::Mud,
+];
+
 fn build_gpu_texture(atlas: &TextureAtlas) -> (GpuMem, SceGxmTexture) {
     let tex_bytes = ATLAS_SIZE * ATLAS_SIZE * 4;
     let mem = GpuMem::alloc_gpu(
@@ -696,17 +711,6 @@ fn build_gpu_texture(atlas: &TextureAtlas) -> (GpuMem, SceGxmTexture) {
     ).expect("Nie udało się zaalokować tekstury atlasu w CDRAM");
 
     let pixels = mem.ptr as *mut u32;
-
-    use crate::graphics::atlas::TextureId::*;
-    const ALL_TEXTURES: &[TextureId] = &[
-        GrassTop, GrassSide, Dirt, Stone, Sand, WoodTop, WoodSide, Leaves,
-        Water, Snow, CactusTop, CactusSide, CoalOre, IronOre, Bedrock, Lava,
-        SnowLeaves, Planks, Door, DoorTop, Glass, Ice, TntTop, TntSide,
-        PigSkin, PigFace, PigSnout, CowSkin, CowFace, CowSnout, CowHorns, CowUdder,
-        CraftingTableTop, CraftingTableSide, CraftingTableFront,
-        DestroyStage0, DestroyStage1, DestroyStage2, DestroyStage3, DestroyStage4,
-        DestroyStage5, DestroyStage6, DestroyStage7, DestroyStage8, DestroyStage9,
-    ];
 
     unsafe {
         core::ptr::write_bytes(pixels as *mut u8, 0, tex_bytes);
@@ -773,18 +777,7 @@ fn build_gpu_texture(atlas: &TextureAtlas) -> (GpuMem, SceGxmTexture) {
 }
 
 pub fn atlas_uv(tex_id: TextureId) -> (f32, f32, f32, f32) {
-    use crate::graphics::atlas::TextureId::*;
-    const ALL_TEXTURES: &[TextureId] = &[
-        GrassTop, GrassSide, Dirt, Stone, Sand, WoodTop, WoodSide, Leaves,
-        Water, Snow, CactusTop, CactusSide, CoalOre, IronOre, Bedrock, Lava,
-        SnowLeaves, Planks, Door, DoorTop, Glass, Ice, TntTop, TntSide,
-        PigSkin, PigFace, PigSnout, CowSkin, CowFace, CowSnout, CowHorns, CowUdder,
-        CraftingTableTop, CraftingTableSide, CraftingTableFront,
-        DestroyStage0, DestroyStage1, DestroyStage2, DestroyStage3, DestroyStage4,
-        DestroyStage5, DestroyStage6, DestroyStage7, DestroyStage8, DestroyStage9,
-        DamageFlash, UnderwaterTint, VignetteTint, LavaTint,
-    ];
-    let tile_idx = ALL_TEXTURES.iter().position(|&t| t as usize == tex_id as usize).unwrap_or(0);
+    let tile_idx = ALL_TEXTURES.iter().position(|&t| t == tex_id).unwrap_or(0);
     let col = tile_idx % ATLAS_TILES_PER_ROW;
     let row = tile_idx / ATLAS_TILES_PER_ROW;
     let tile_norm = 1.0 / ATLAS_TILES_PER_ROW as f32;
@@ -833,6 +826,7 @@ pub struct GxmRenderer {
     vert_prog: *mut SceGxmVertexProgram,
     frag_prog: *mut SceGxmFragmentProgram,
     param_mvp: *const SceGxmProgramParameter,
+    param_fog: *const SceGxmProgramParameter,
 
     clear_vert_prog: *mut SceGxmVertexProgram,
     clear_frag_prog: *mut SceGxmFragmentProgram,
@@ -1139,6 +1133,7 @@ impl GxmRenderer {
         assert_eq!(rc, SCE_OK, "sceGxmShaderPatcherCreateFragmentProgram failed: 0x{:08X}", rc);
 
         let param_mvp = sceGxmProgramFindParameterByName(vert_gxp, b"uViewProj\0".as_ptr());
+        let param_fog = sceGxmProgramFindParameterByName(vert_gxp, b"uCameraPosAndFog\0".as_ptr());
 
         // --- 8b. Rejestracja i Linkowanie Shaderów Hardware Clear ---
         let clear_vert_gxp = CLEAR_VERT_GXP.as_ptr() as *const SceGxmProgram;
@@ -1301,6 +1296,7 @@ impl GxmRenderer {
             vert_prog,
             frag_prog,
             param_mvp,
+            param_fog,
             clear_vert_prog,
             clear_frag_prog,
             param_clear_color,
@@ -1348,6 +1344,7 @@ impl GxmRenderer {
         speed: f32,
         attack_animation: f32,
         render_distance: i32,
+        fog_enabled: bool,
         clouds_enabled: bool,
         chunk_anim: bool,
         total_time: f32,
@@ -1429,6 +1426,17 @@ impl GxmRenderer {
                     0,
                     16,
                     mvp.m.as_ptr(),
+                );
+            }
+            if !self.param_fog.is_null() && !uniform_buf.is_null() {
+                let max_fog = if fog_enabled { (render_distance as f32 * 16.0).max(32.0) } else { -1.0 };
+                let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
+                sceGxmSetUniformDataF(
+                    uniform_buf,
+                    self.param_fog,
+                    0,
+                    4,
+                    fog_data.as_ptr(),
                 );
             }
 
@@ -1532,6 +1540,17 @@ impl GxmRenderer {
                                         chunk_mvp.m.as_ptr(),
                                     );
                                 }
+                                if !self.param_fog.is_null() && !chunk_uniform_buf.is_null() {
+                                    let max_fog = if fog_enabled { (render_distance as f32 * 16.0).max(32.0) } else { -1.0 };
+                                    let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
+                                    sceGxmSetUniformDataF(
+                                        chunk_uniform_buf,
+                                        self.param_fog,
+                                        0,
+                                        4,
+                                        fog_data.as_ptr(),
+                                    );
+                                }
                                 last_had_offset = true;
                             } else if last_had_offset {
                                 let mut chunk_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
@@ -1543,6 +1562,17 @@ impl GxmRenderer {
                                         0,
                                         16,
                                         mvp.m.as_ptr(),
+                                    );
+                                }
+                                if !self.param_fog.is_null() && !chunk_uniform_buf.is_null() {
+                                    let max_fog = if fog_enabled { (render_distance as f32 * 16.0).max(32.0) } else { -1.0 };
+                                    let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
+                                    sceGxmSetUniformDataF(
+                                        chunk_uniform_buf,
+                                        self.param_fog,
+                                        0,
+                                        4,
+                                        fog_data.as_ptr(),
                                     );
                                 }
                                 last_had_offset = false;
@@ -1574,6 +1604,17 @@ impl GxmRenderer {
                         0,
                         16,
                         mvp.m.as_ptr(),
+                    );
+                }
+                if !self.param_fog.is_null() && !chunk_uniform_buf.is_null() {
+                    let max_fog = if fog_enabled { (render_distance as f32 * 16.0).max(32.0) } else { -1.0 };
+                    let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
+                    sceGxmSetUniformDataF(
+                        chunk_uniform_buf,
+                        self.param_fog,
+                        0,
+                        4,
+                        fog_data.as_ptr(),
                     );
                 }
             }
