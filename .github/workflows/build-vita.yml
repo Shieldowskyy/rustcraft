@@ -24,7 +24,6 @@ jobs:
         with:
           toolchain: nightly
           components: rust-src
-          targets: armv7-sony-vita-newlibeabihf
 
       - name: Install VitaSDK
         run: |
