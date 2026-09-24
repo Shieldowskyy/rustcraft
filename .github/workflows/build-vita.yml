@@ -27,9 +27,7 @@ jobs:
 
       - name: Install VitaSDK
         run: |
-          sudo mkdir -p /usr/local/vitasdk
-          sudo chown -R $USER:$USER /usr/local/vitasdk
-          export VITASDK=/usr/local/vitasdk
+          export VITASDK="$HOME/vitasdk"
           echo "VITASDK=$VITASDK" >> $GITHUB_ENV
           echo "$VITASDK/bin" >> $GITHUB_PATH
           curl -fsSL https://github.com/vitasdk/vdpm/releases/latest/download/bootstrap-vitasdk.sh | bash
