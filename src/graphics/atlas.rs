@@ -1549,7 +1549,7 @@ impl TextureAtlas {
             TextureId::GrassSideTaiga => &self.grass_side_taiga,
         }
     }
-    /// Zwraca referencję do tekstury dla danego TextureId
+    /// Returns a reference to the texture corresponding to the specified `TextureId`.
     pub fn texture_for(&self, id: TextureId) -> &Texture {
         self.get(id)
     }

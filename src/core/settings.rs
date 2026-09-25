@@ -1,18 +1,32 @@
+//! User configuration, graphics options, persistent preferences, and serialization.
+
 use std::path::PathBuf;
 
+/// Persistent game options and performance preferences.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GameSettings {
-    pub render_distance: i32, // 2, 4, 6, 8, 10, 12, 16 (domyślnie: 6)
-    pub fancy_leaves: bool,   // domyślnie: true (prześwitujące vs zwarte)
-    pub fog: bool,            // domyślnie: true
-    pub clouds: bool,         // domyślnie: true
-    pub particles: bool,      // domyślnie: true
-    pub chunk_anim: bool,     // domyślnie: true
-    pub fov_deg: f32,         // domyślnie: 70.0
-    pub underwater_fx: bool,  // domyślnie: true
-    pub debug_overlay: bool,  // domyślnie: true
-    pub msaa: u32,            // 1 (wył), 2 (2x), 4 (4x) - domyślnie 4x na Vita, 1x na PC
-    pub fps_limit: u32,       // 25, 30, 40, 60, 75, 90, 120, 144, 165, 0 (0 = no limit) - domyślnie 30 na Vita, 0 na PC
+    /// Chunk render distance radius (e.g. 2, 4, 6, 8, 10, 12, 16; default: 6).
+    pub render_distance: i32,
+    /// Transparent/fancy leaf rendering vs solid/fast leaves (default: true).
+    pub fancy_leaves: bool,
+    /// Distance fog blending enabled (default: true).
+    pub fog: bool,
+    /// Volumetric clouds enabled (default: true).
+    pub clouds: bool,
+    /// Cosmetic particle emitter system enabled (default: true).
+    pub particles: bool,
+    /// Animated chunk emergence effect enabled (default: true).
+    pub chunk_anim: bool,
+    /// Camera field of view in degrees (default: 70.0).
+    pub fov_deg: f32,
+    /// Underwater tint and caustic effects enabled (default: true).
+    pub underwater_fx: bool,
+    /// In-game F3 debug text overlay enabled (default: true).
+    pub debug_overlay: bool,
+    /// Multi-sample anti-aliasing sample count: 1 (off), 2 (2x), 4 (4x) (default: 4x on Vita, 1x on PC).
+    pub msaa: u32,
+    /// Frame rate cap: 25, 30, 40, 60, 75, 90, 120, 144, 165, 0 (0 = uncapped; default: 30 on Vita, 0 on PC).
+    pub fps_limit: u32,
 }
 
 impl Default for GameSettings {

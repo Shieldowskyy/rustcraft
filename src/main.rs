@@ -37,7 +37,7 @@ fn main() {
             ..WindowOptions::default()
         },
     )
-    .expect("Nie udało się utworzyć okna");
+    .expect("Failed to create native desktop window");
 
     let mut app = RustCraftApp::new(WIDTH, HEIGHT, renderer_choice, seed);
     let mut gamepad_mgr = GamepadManager::new();
@@ -58,34 +58,34 @@ fn main() {
     let mut last_title = String::new();
     let mut last_mouse: Option<(f32, f32)> = None;
 
-    println!("Sterowanie (Klawiatura / Mysz):");
-    println!("  Kliknij w okno - zablokuj/przechwyc mysz");
-    println!("  Esc            - Menu pauzy / zwolnij mysz");
-    println!("  WASD           - ruch");
-    println!("  Spacja         - skok (lot: w gore)");
-    println!("  Shift (lewy)   - kucanie (lot: w dol)");
-    println!("  Ctrl (lewy)    - bieg");
-    println!("  F              - przelacz tryb lotu");
-    println!("  Mysz           - rozgladanie sie");
-    println!("  LPM            - niszcz blok / bij moby / kliknij UI");
-    println!("  PPM            - stawiaj blok");
-    println!("  Scroll / 1-9   - wybor typu bloku");
-    println!("  Q              - wyjscie w menu / wyrzuc przedmiot");
-    println!("Sterowanie (Kontroler / Gamepad):");
-    println!("  Lewy analog   - ruch");
-    println!("  Prawy analog  - rozgladanie sie");
-    println!("  RT (R2)       - niszcz blok / atak");
-    println!("  LT (L2)       - stawiaj blok");
-    println!("  A (Krzyzyk)   - skok / potwierdz w UI");
-    println!("  B (Kolko)     - kucanie / wstecz w UI");
-    println!("  Y (Trojkat)   - ekwipunek");
-    println!("  X (Kwadrat)   - wyrzuc przedmiot");
-    println!("  LB / RB       - poprzedni / nastepny slot");
-    println!("  L3 (Wcisnij L)- bieg");
-    println!("  R3 (Wcisnij R)- tryb lotu");
-    println!("  Start         - pauza");
-    println!("  Select / Back - zmiana trybu gry (Survival/Creative)");
-    println!("  D-Pad         - nawigacja w menu i ekwipunku");
+    println!("Controls (Keyboard / Mouse):");
+    println!("  Click in window - Capture mouse");
+    println!("  Esc             - Pause menu / Release mouse");
+    println!("  WASD            - Movement");
+    println!("  Space           - Jump (Fly: ascend)");
+    println!("  Left Shift      - Sneak (Fly: descend)");
+    println!("  Left Ctrl       - Sprint");
+    println!("  F               - Toggle flight mode");
+    println!("  Mouse           - Look around");
+    println!("  LMB             - Mine block / Attack / UI Click");
+    println!("  RMB             - Place block / Interact");
+    println!("  Scroll / 1-9    - Hotbar slot selection");
+    println!("  Q               - Drop item / Back in menu");
+    println!("Controls (Controller / Gamepad):");
+    println!("  Left Stick      - Movement");
+    println!("  Right Stick     - Camera look");
+    println!("  RT (R2)         - Mine block / Attack");
+    println!("  LT (L2)         - Place block");
+    println!("  A (Cross)       - Jump / Confirm in UI");
+    println!("  B (Circle)      - Sneak / Back in UI");
+    println!("  Y (Triangle)    - Inventory");
+    println!("  X (Square)      - Drop item");
+    println!("  LB / RB         - Previous / Next hotbar slot");
+    println!("  L3 (Left Stick) - Sprint");
+    println!("  R3 (Right Stick)- Flight mode");
+    println!("  Start           - Pause");
+    println!("  Select / Back   - Toggle GameMode (Survival/Creative)");
+    println!("  D-Pad           - Menu & inventory navigation");
 
     while window.is_open() {
         let now = Instant::now();
@@ -288,7 +288,7 @@ fn main() {
 
         window
             .update_with_buffer(app.pixel_buffer(), WIDTH, HEIGHT)
-            .expect("Blad podczas aktualizacji bufora okna");
+            .expect("Failed to update window pixel buffer");
 
         frame_count += 1;
         if fps_timer.elapsed().as_secs_f32() >= 0.5 {

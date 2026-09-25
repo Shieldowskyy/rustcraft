@@ -15,7 +15,7 @@ const fullscreenBtn = document.getElementById('fullscreen-btn');
 const gamepadDot = document.getElementById('gamepad-dot');
 const gamepadName = document.getElementById('gamepad-name');
 
-// Klawisze stanu
+// Keyboard input state
 const keys = {
   w: false, s: false, a: false, d: false,
   space: false, shift: false, ctrl: false, c: false,
@@ -26,7 +26,7 @@ const keys = {
   digit6: false, digit7: false, digit8: false, digit9: false, digit0: false,
 };
 
-// Mysz i kursor
+// Mouse & cursor state
 let mousePos = { x: 0, y: 0, valid: false };
 let mouseDelta = { x: 0, y: 0 };
 let mouseButtons = { left: false, right: false };
@@ -35,7 +35,7 @@ let isPointerLocked = false;
 let justLocked = false;
 let isGameCurrentlyPlaying = false;
 
-// Stan pada dla detekcji krawędzi (just pressed)
+// Gamepad button edge detection (just pressed)
 let prevGpButtons = new Array(20).fill(false);
 
 function updateCanvasMousePos(evt) {
@@ -49,7 +49,7 @@ function updateCanvasMousePos(evt) {
   }
 }
 
-// Obsługa klawiatury
+// Keyboard event listeners
 window.addEventListener('keydown', (e) => {
   const code = e.code;
   if (code === 'KeyW') keys.w = true;
@@ -124,7 +124,7 @@ window.addEventListener('keyup', (e) => {
   else if (code === 'Digit0') keys.digit0 = false;
 });
 
-// Obsługa myszy
+// Mouse event listeners
 window.addEventListener('mousemove', (e) => {
   updateCanvasMousePos(e);
   if (isPointerLocked) {
@@ -132,7 +132,7 @@ window.addEventListener('mousemove', (e) => {
       justLocked = false;
       return;
     }
-    // Ograniczenie anomalnych skoków delty przy przełączaniu okien
+    // Clamp anomalous delta spikes on focus transition
     const dx = Math.max(-80, Math.min(80, e.movementX || 0));
     const dy = Math.max(-80, Math.min(80, e.movementY || 0));
     mouseDelta.x += dx;
@@ -145,7 +145,7 @@ canvas.addEventListener('mousedown', (e) => {
   if (e.button === 0) mouseButtons.left = true;
   if (e.button === 2) mouseButtons.right = true;
 
-  // Przechwyć kursor TYLKO wtedy, gdy jesteśmy w trybie gry (Playing), a nie w Menu czy Inventory
+  // Capture cursor ONLY when in active gameplay (Playing), not in Menu or Inventory
   if (isGameCurrentlyPlaying && !isPointerLocked && document.pointerLockElement !== canvas) {
     canvas.requestPointerLock().catch(() => {});
   }
@@ -184,7 +184,7 @@ fullscreenBtn.addEventListener('click', () => {
   }
 });
 
-// Odczyt Gamepada z API HTML5
+// Poll Gamepad via HTML5 Gamepad API
 function pollGamepad() {
   const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
   let gp = null;
@@ -265,7 +265,7 @@ function pollGamepad() {
     };
   } else {
     gamepadDot.classList.remove('connected');
-    gamepadName.textContent = 'Brak podłączonego kontrolera';
+    gamepadName.textContent = 'No controller connected';
     return {
       lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0,
       btnSouth: false, btnEast: false, btnWest: false, btnNorth: false,
@@ -280,7 +280,7 @@ function pollGamepad() {
   }
 }
 
-// Główna pętla renderowania
+// Main rendering & animation loop
 let lastTime = performance.now();
 let fpsFrames = 0;
 let fpsTimer = performance.now();
@@ -325,7 +325,7 @@ function frameLoop(now) {
 
       isGameCurrentlyPlaying = statusStr.includes('playing');
 
-      // Bezpośredni, zerokosztowy blit bufora pikseli z pamięci WASM
+      // Direct zero-copy pixel buffer blitting from WASM memory
       if (wasmMemory && sharedImageData && canvasCtx) {
         const ptr = game.get_rgba_ptr();
         const wasmView = new Uint8Array(wasmMemory.buffer, ptr, 960 * 540 * 4);
@@ -333,7 +333,7 @@ function frameLoop(now) {
         canvasCtx.putImageData(sharedImageData, 0, 0);
       }
 
-      // Aktualizacja prompta o blokowaniu myszy w trakcie gry
+      // Update pointer lock prompt visibility
       if (isGameCurrentlyPlaying && !isPointerLocked) {
         pointerlockPrompt.classList.remove('hidden');
       } else {
@@ -344,11 +344,11 @@ function frameLoop(now) {
         document.exitPointerLock();
       }
     } catch (err) {
-      console.error("Błąd w pętli gry RustCraft WASM:", err);
+      console.error("Error in RustCraft WASM game loop:", err);
     }
   }
 
-  // Zerowanie delt myszy i kółka po przetworzeniu w klatce
+  // Reset per-frame deltas
   mouseDelta.x = 0;
   mouseDelta.y = 0;
   scrollDelta = 0;
@@ -365,7 +365,7 @@ function frameLoop(now) {
   requestAnimationFrame(frameLoop);
 }
 
-// Inicjalizacja modułu WASM
+// Initialize WebAssembly module
 async function start() {
   try {
     const wasmExports = await init();
@@ -379,10 +379,10 @@ async function start() {
     requestAnimationFrame(frameLoop);
   } catch (err) {
     loadingOverlay.innerHTML = `
-      <h2 style="color: #ef4444;">Błąd uruchamiania WebAssembly</h2>
+      <h2 style="color: #ef4444;">WebAssembly Initialization Error</h2>
       <p style="color: #fca5a5; max-width: 500px; text-align: center;">${err}</p>
     `;
-    console.error("Błąd inicjalizacji WASM:", err);
+    console.error("WASM initialization failed:", err);
   }
 }
 

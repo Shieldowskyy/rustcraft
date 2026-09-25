@@ -189,27 +189,27 @@ impl VitaDisplay {
 
         for i in 0..2 {
             let name = if i == 0 { b"RustCraft_FB0\0".as_ptr() } else { b"RustCraft_FB1\0".as_ptr() };
-            // Spróbuj najpierw w pamięci CDRAM (najszybsza pamięć wideo na Vita)
+            // Try allocating in CDRAM first (fastest video memory on PS Vita)
             let mut uid = unsafe {
                 sceKernelAllocMemBlock(name, SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, fb_size as u32, core::ptr::null())
             };
-            // Fallback do standardowej pamięci RAM jeśli CDRAM byłby zajęty
+            // Fallback to standard user RAM if CDRAM is unavailable
             if uid < 0 {
                 uid = unsafe {
                     sceKernelAllocMemBlock(name, SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, fb_size as u32, core::ptr::null())
                 };
             }
             if uid < 0 {
-                return Err("Nie udało się zaalokować bufora ramki dla PS Vita");
+                return Err("Failed to allocate framebuffer memory block for PS Vita");
             }
 
             let mut base: *mut core::ffi::c_void = core::ptr::null_mut();
             unsafe {
                 let res = sceKernelGetMemBlockBase(uid, &mut base);
                 if res != SCE_OK || base.is_null() {
-                    return Err("Błąd pobierania adresu bazowego bufora ramki");
+                    return Err("Failed to query base pointer for framebuffer memory block");
                 }
-                // Wyzeruj bufor
+                // Zero out framebuffer memory
                 core::ptr::write_bytes(base as *mut u8, 0, (VITA_SCREEN_STRIDE * VITA_SCREEN_HEIGHT * 4) as usize);
             }
 
@@ -224,14 +224,14 @@ impl VitaDisplay {
         })
     }
 
-    /// Kopiuje wyrenderowany bufor gry (960x540) do bufora ramki Vita (960x544) i przełącza bufor
+    /// Blits rendered game buffer (960x540) to Vita framebuffer (960x544) and flips the display buffer.
     pub fn present(&mut self, src_pixel_buffer: &[u32], game_width: usize, game_height: usize) {
         let draw_buf = self.framebuffers[self.current_buffer];
         if draw_buf.is_null() {
             return;
         }
 
-        // Kopiowanie linii z uwzględnieniem wyśrodkowania (2 linie marginesu na górze i dole)
+        // Copy scanlines with vertical centering (2 pixels top/bottom margin)
         let y_offset = if VITA_SCREEN_HEIGHT > game_height {
             (VITA_SCREEN_HEIGHT - game_height) / 2
         } else {
@@ -247,7 +247,7 @@ impl VitaDisplay {
                 let dst_offset = (y + y_offset) * VITA_SCREEN_STRIDE;
                 let src_ptr = src_pixel_buffer.as_ptr().add(src_offset);
                 let dst_ptr = draw_buf.add(dst_offset);
-                // Konwersja: gra renderuje 0x00RRGGBB, Vita oczekuje ABGR8888 (0xFFBBGGRR)
+                // Pixel format conversion: Game produces 0x00RRGGBB, Vita expects ABGR8888 (0xFFBBGGRR)
                 for px in 0..copy_width {
                     let xrgb = *src_ptr.add(px);
                     let r = (xrgb >> 16) & 0xFF;
@@ -258,7 +258,7 @@ impl VitaDisplay {
                 }
             }
 
-            // Ustawienie wyświetlania i VSync
+            // Set framebuffer display registers and wait for VBlank
             let fb_struct = SceDisplayFrameBuf {
                 size: core::mem::size_of::<SceDisplayFrameBuf>() as SceSize,
                 base: draw_buf as *mut core::ffi::c_void,
@@ -272,7 +272,7 @@ impl VitaDisplay {
             sceDisplayWaitVblankStart();
         }
 
-        // Przełącz na drugi bufor (Double Buffering)
+        // Double buffering buffer flip
         self.current_buffer = 1 - self.current_buffer;
     }
 }
@@ -301,7 +301,7 @@ pub struct VitaInputTracker {
 
 impl VitaInputTracker {
     pub fn new() -> Self {
-        // Włącz obsługę gałek analogowych i panelu dotykowego
+        // Enable analog stick sampling and touchscreen reporting
         unsafe {
             sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
             sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, 1);
@@ -325,7 +325,7 @@ impl VitaInputTracker {
         let prev_buttons = self.prev_buttons;
         let just_pressed = move |mask: u32| -> bool { (buttons & mask != 0) && (prev_buttons & mask == 0) };
 
-        // Gałki analogowe (zakres 0..255, 128 to środek)
+        // Analog sticks (0..255 range, 128 is center)
         let apply_deadzone = |val: u8| -> f32 {
             let f = (val as f32 - 128.0) / 128.0;
             if f.abs() < 0.18 {
@@ -340,7 +340,7 @@ impl VitaInputTracker {
         let right_x = apply_deadzone(pad.rx);
         let right_y = apply_deadzone(pad.ry);
 
-        // Mapowanie przycisków Vita na akcje
+        // Map PS Vita buttons to action flags
         let btn_cross = buttons & SCE_CTRL_CROSS != 0;
         let btn_circle = buttons & SCE_CTRL_CIRCLE != 0;
         let btn_square = buttons & SCE_CTRL_SQUARE != 0;
@@ -356,7 +356,7 @@ impl VitaInputTracker {
         let dpad_right = buttons & SCE_CTRL_RIGHT != 0;
         let dpad_any_just = just_pressed(SCE_CTRL_UP | SCE_CTRL_DOWN | SCE_CTRL_LEFT | SCE_CTRL_RIGHT);
 
-        // Odczyt ekranu dotykowego
+        // Poll front capacitive touchscreen
         let mut touch = SceTouchData {
             time_stamp: 0,
             status: 0,
@@ -371,14 +371,14 @@ impl VitaInputTracker {
         let touch_just_pressed = touch.report_num > 0 && self.prev_touch_count == 0;
 
         if touch_active {
-            // Bezpośrednie dotknięcie ekranu natychmiast przesuwa kursor pod palec
+            // Direct touch snaps virtual cursor directly to finger position
             let tx = (touch.report[0].x as f32 / 1919.0) * 960.0;
             let ty = (touch.report[0].y as f32 / 1087.0) * 544.0;
             self.cursor_x = tx.clamp(5.0, 955.0);
             self.cursor_y = ty.clamp(5.0, 539.0);
             self.cursor_active = true;
         } else if !is_mouse_captured {
-            // Płynny ruch kursora lewą lub prawą gałką analogową w menu i ekwipunku
+            // Smooth cursor movement with analog sticks in menus / inventory
             let cursor_speed = 650.0;
             let move_x = left_x + right_x;
             let move_y = left_y + right_y;
@@ -388,7 +388,7 @@ impl VitaInputTracker {
                 self.cursor_active = true;
             }
 
-            // Kliknięcie D-Padem wyłącza wirtualny kursor myszy, aby nie dublować zaznaczenia w menu
+            // D-Pad navigation deactivates free mouse cursor to avoid duplicate selection highlight
             if dpad_any_just {
                 self.cursor_active = false;
             }
@@ -505,7 +505,7 @@ impl VitaInputTracker {
 // 4. PS Vita Main Loop Entry Point
 // ============================================================================
 
-/// Ładuje moduł systemowy PS Vita jeśli jeszcze nie jest załadowany
+/// Loads a PS Vita system PRX module if not already loaded.
 fn load_module(path: &[u8]) {
     unsafe {
         let mut status: i32 = 0;
@@ -520,17 +520,17 @@ fn load_module(path: &[u8]) {
     }
 }
 
-/// Główna funkcja uruchomieniowa dla PlayStation Vita – używa GXM hardware renderer
+/// Main application entry point for PlayStation Vita – launches GXM hardware renderer.
 pub fn run_vita_app() {
-    // 1. Załadowanie wymaganych modułów systemowych Vita
-    //    GXM wymaga libSceGxm; libc.suprx potrzebne dla malloc/free w shader patcher
+    // 1. Load required Vita system modules
+    //    GXM requires libSceGxm; libc.suprx is required for malloc/free in shader patcher.
     load_module(b"vs0:sys/external/libSceGxm.suprx\0");
     load_module(b"app0:sce_module/libc.suprx\0");
     load_module(b"app0:sce_module/libfios2.suprx\0");
 
-    crate::vita_log!("Moduly zaladowane. Zegary...");
+    crate::vita_log!("Modules loaded. Setting clock frequencies...");
 
-    // 2. Podkręcenie zegarów PS Vita do maksimum
+    // 2. Overclock PS Vita clocks to maximum performance
     //    444MHz ARM, 222MHz BUS, 222MHz GPU, 166MHz XBAR
     unsafe {
         scePowerSetArmClockFrequency(444);
@@ -539,36 +539,36 @@ pub fn run_vita_app() {
         scePowerSetGpuXbarClockFrequency(166);
     }
 
-    crate::vita_log!("Inicjalizacja RustCraftApp...");
+    crate::vita_log!("Initializing RustCraftApp...");
 
-    // 3. Inicjalizacja silnika gry (logika + świat)
+    // 3. Initialize game engine (logic + voxel world)
     let seed = unsafe { sceKernelGetProcessTimeWide() } as u32;
     let mut app = RustCraftApp::new(960, 544, "software", seed);
 
-    crate::vita_log!("Inicjalizacja GxmRenderer...");
+    crate::vita_log!("Initializing GxmRenderer...");
 
-    // 4. Inicjalizacja GXM Hardware Renderer
-    //    Alokuje CDRAM triple-buffering, ShaderPatcher, atlas GPU, render target.
+    // 4. Initialize GXM Hardware Renderer
+    //    Allocates CDRAM triple-buffering, ShaderPatcher, GPU texture atlas, render targets.
     let mut gxm = crate::platform::vita_gxm::GxmRenderer::new(&app.renderer.textures);
 
-    crate::vita_log!("Inicjalizacja kontrolera...");
+    crate::vita_log!("Initializing controller...");
 
-    // 5. Inicjalizacja kontrolera pada
+    // 5. Initialize gamepad controller and touchscreen tracker
     let mut input_tracker = VitaInputTracker::new();
     let mut last_time = unsafe { sceKernelGetProcessTimeWide() };
 
-    // Główna pętla gry
+    // Main game loop
     loop {
         let current_time = unsafe { sceKernelGetProcessTimeWide() };
         let dt_us = current_time.saturating_sub(last_time);
         last_time = current_time;
         let dt = (dt_us as f32 / 1_000_000.0).clamp(0.001, 0.1);
 
-        // Odczyt wejścia z kontrolera Vita (w menu kursor/dotyk jest wolny, w grze kamera zablokowana)
+        // Poll Vita controller (in menus free cursor is active, in-game camera is locked to analog stick)
         let is_captured = matches!(app.state, crate::app::GameState::Playing);
         let input = input_tracker.poll(is_captured, dt);
 
-        // Aktualizacja logiki gry (fizyka, kamera, świat, AI, UI)
+        // Update game logic (physics, camera, world streaming, AI, UI)
         let output = app.update_and_render(dt, &input);
 
         if output.quit_requested {

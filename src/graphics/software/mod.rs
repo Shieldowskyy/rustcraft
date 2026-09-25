@@ -1350,7 +1350,7 @@ impl Renderer {
             let p2 = world_pts[i2];
             let p3 = world_pts[i3];
 
-            // Backface culling w przestrzeni świata (eliminuje ściany tyłem oraz wszystkie ściany gdy kamera jest wewnątrz obiektu)
+            // World-space backface culling (eliminates back-facing quads and internal faces when camera is inside)
             let edge1 = p1 - p0;
             let edge2 = p3 - p0;
             let normal = edge1.cross(edge2);

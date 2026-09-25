@@ -1,23 +1,26 @@
 use crate::graphics::camera::Camera;
 use crate::world::World;
 
-/// Standardowy trait abstrakcji backendu graficznego (Software CPU, WGPU / Vulkan / DX12 / Metal itp.).
+/// Abstraction trait for rendering backends (Software CPU rasterizer, WGPU / Vulkan / DX12 / Metal / GXM).
+///
+/// This trait decouples the world simulation and camera pipeline from specific graphics APIs,
+/// allowing any backend to render voxel meshes, entities, and UI overlays.
 pub trait RenderBackend {
-    /// Nazwa aktywnego backendu (np. "software", "vulkan", "webgpu")
+    /// Returns the human-readable identifier of the active backend (e.g. `"software"`, `"vulkan"`, `"vita_gxm"`).
     fn backend_name(&self) -> &'static str;
 
-    /// Zwraca referencję do bufora pikseli koloru ramki (xRGB / ARGB)
+    /// Returns an immutable reference to the front color pixel buffer formatted as packed `0x00RRGGBB` / `xRGB`.
     fn pixel_buffer(&self) -> &[u32];
 
-    /// Zwraca bufor głębokości (z-buffer)
+    /// Returns an immutable slice of the floating-point depth buffer (Z-buffer).
     fn depth_buffer(&self) -> &[f32];
 
-    /// Wymiary ramki renderera (szerokość, wysokość)
+    /// Returns the framebuffer viewport dimensions `(width, height)` in pixels.
     fn dimensions(&self) -> (usize, usize);
 
-    /// Wyczyszczenie bufora (np. gradientem nieba)
+    /// Clears the color and depth buffers (e.g., drawing the procedural dynamic sky gradient based on camera pitch).
     fn clear(&mut self, camera_pitch: f32);
 
-    /// Renderowanie klatki świata 3D
+    /// Renders a single 3D scene frame of voxel terrain, particles, and entities from the camera's perspective.
     fn render_frame(&mut self, world: &mut World, camera: &Camera);
 }

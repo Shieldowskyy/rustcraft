@@ -247,7 +247,7 @@ impl VulkanContext {
             compatible_surface: None,
             force_fallback_adapter: false,
         }))
-        .ok_or_else(|| "brak urządzenia Vulkan obsługującego renderowanie".to_owned())?;
+        .ok_or_else(|| "no Vulkan adapter found supporting rendering".to_owned())?;
 
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
@@ -257,7 +257,7 @@ impl VulkanContext {
             },
             None,
         ))
-        .map_err(|error| format!("nie udało się utworzyć urządzenia Vulkan: {error}"))?;
+        .map_err(|error| format!("failed to create Vulkan device: {error}"))?;
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("RustCraft world shader"),

@@ -2,15 +2,15 @@
 // RustCraft – PS Vita GXM Hardware Renderer
 // src/platform/vita_gxm.rs
 //
-// Implementuje pełny sprzętowy rendering 3D przez libgxm (SGX543MP4 GPU PS Vita).
-// Pipeline:
+// Full native hardware-accelerated 3D rendering pipeline via libgxm (SGX543MP4 GPU).
+// Pipeline overview:
 //   1. sceGxmInitialize
-//   2. Alokacja ring bufferów GPU (VDM, Vertex, Fragment, Fragment USSE)
-//   3. sceGxmCreateContext z hostMem (malloc)
-//   4. Alokacja potrójnego bufora ramki CDRAM + Color/Depth Surfaces + RenderTarget
-//   5. ShaderPatcher + rejestracja skompilowanych GXP shaderów (voxel & clear)
-//   6. Generowanie tekstury atlasu GPU w formacie ABGR8888
-//   7. Renderowanie klatki: BeginScene -> Hardware Clear -> Draw Chunks -> EndScene -> Display Queue
+//   2. Allocate GPU ring buffers (VDM, Vertex, Fragment, Fragment USSE)
+//   3. sceGxmCreateContext with hostMem (malloc)
+//   4. Allocate triple display buffers in CDRAM + Color/Depth Surfaces + RenderTarget
+//   5. ShaderPatcher + register compiled GXP shaders (voxel & clear)
+//   6. Generate GPU texture atlas in linear ABGR8888 format
+//   7. Per-frame rendering: BeginScene -> Hardware Clear -> Draw Chunks -> EndScene -> Display Queue
 // =============================================================================
 
 #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, dead_code)]
@@ -23,7 +23,7 @@ use crate::world::{BlockId, World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
 use std::collections::HashMap;
 
 // ============================================================
-// 1. FFI TYPY I STAŁE VITA GXM
+// 1. FFI TYPES AND CONSTANTS FOR VITA GXM
 // ============================================================
 
 type SceUID = i32;
@@ -51,7 +51,7 @@ pub struct SceGxmProgramParameter(u8);
 pub type SceGxmShaderPatcherId = *mut core::ffi::c_void;
 pub type SceGxmDisplayQueueCallback = unsafe extern "C" fn(callbackData: *const core::ffi::c_void);
 
-// Rozmiary ring bufferów GXM
+// GXM ring buffer size constants
 const SCE_GXM_MINIMUM_CONTEXT_HOST_MEM_SIZE: usize = 2 * 1024;
 const SCE_GXM_DEFAULT_PARAMETER_BUFFER_SIZE: usize = 32 * 1024 * 1024;
 const SCE_GXM_DEFAULT_VDM_RING_BUFFER_SIZE: usize = 512 * 1024;
@@ -433,7 +433,7 @@ extern "C" {
 }
 
 // ============================================================
-// 2. BEZPIECZNA ALOKACJA PAMIĘCI GPU VITA
+// 2. SAFE GPU MEMORY ALLOCATION FOR PS VITA
 // ============================================================
 
 #[derive(Debug, PartialEq)]
@@ -603,7 +603,7 @@ unsafe extern "C" fn display_callback(data: *const core::ffi::c_void) {
 static VOXEL_VERT_GXP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/voxel.vert.gxp"));
 static VOXEL_FRAG_GXP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/voxel.frag.gxp"));
 
-// Prekompilowane shadery sprzętowego czyszczenia (ze standardowego renderera SDL2 GXM)
+// Precompiled hardware clear shaders (standard SDL2 GXM clear pipeline)
 static CLEAR_VERT_GXP: &[u8] = &[
     0x47, 0x58, 0x50, 0x00, 0x01, 0x05, 0x50, 0x03, 
     0xfa, 0x00, 0x00, 0x00, 0xdc, 0x25, 0x34, 0x74, 
@@ -700,7 +700,7 @@ impl GxmVertex {
 }
 
 // ============================================================
-// 5. TEKSTURA ATLASU (GPU Linear Format)
+// 5. GPU TEXTURE ATLAS (Linear ABGR8888 Format)
 // ============================================================
 
 const ATLAS_TILES_PER_ROW: usize = 16;
@@ -760,7 +760,7 @@ unsafe fn populate_atlas(pixels: *mut u32, atlas: &TextureAtlas) {
                 } else if is_vignette {
                     70u32  // Semi-transparent heartbeat vignette
                 } else if is_lava {
-                    215u32 // Gęsta, gorąca mgła lawowa (~84% opacity)
+                    215u32 // Dense, glowing lava overlay (~84% opacity)
                 } else {
                     255u32
                 };
@@ -782,7 +782,7 @@ fn build_gpu_texture(atlas: &TextureAtlas) -> (GpuMem, SceGxmTexture) {
         tex_bytes,
         SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
         SCE_GXM_MEMORY_ATTRIB_READ,
-    ).expect("Nie udało się zaalokować tekstury atlasu w CDRAM");
+    ).expect("Failed to allocate atlas texture in CDRAM");
 
     let pixels = mem.ptr as *mut u32;
 
@@ -883,7 +883,7 @@ pub fn atlas_uv(tex_id: TextureId) -> (f32, f32, f32, f32) {
     const TILE_NORM: f32 = 1.0 / ATLAS_TILES_PER_ROW as f32;
     let col = tile_idx % ATLAS_TILES_PER_ROW;
     let row = tile_idx / ATLAS_TILES_PER_ROW;
-    // Sub-texel inset (0.375 texela) zapobiega bleedingowi krawędzi kafelków atlasu
+    // Sub-texel inset (0.375 texels) prevents edge bleeding between adjacent atlas tiles
     let inset = 0.375 / ATLAS_SIZE as f32;
     let u0 = col as f32 * TILE_NORM + inset;
     let v0 = row as f32 * TILE_NORM + inset;
@@ -893,7 +893,7 @@ pub fn atlas_uv(tex_id: TextureId) -> (f32, f32, f32, f32) {
 }
 
 // ============================================================
-// 6. GŁÓWNY RENDERER GXM
+// 6. MAIN GXM RENDERER ENGINE
 // ============================================================
 
 unsafe extern "C" fn patcher_host_alloc(_: *mut core::ffi::c_void, size: u32) -> *mut core::ffi::c_void {
@@ -988,7 +988,7 @@ impl GxmRenderer {
         let rc = sceGxmInitialize(&init_params);
         assert_eq!(rc, SCE_OK, "sceGxmInitialize failed: 0x{:08X}", rc);
 
-        // --- 2. Alokacja Ring Bufferów GPU ---
+        // --- 2. Allocate GPU Ring Buffers ---
         let vdm_mem = GpuMem::alloc_gpu(
             b"RC_GXM_VDM\0",
             SCE_GXM_DEFAULT_VDM_RING_BUFFER_SIZE,
@@ -1017,7 +1017,7 @@ impl GxmRenderer {
             &mut frag_usse_offset,
         ).expect("FUSSE alloc failed");
 
-        // --- 3. Tworzenie kontekstu GXM z hostMem (malloc) ---
+        // --- 3. Create GXM Context with hostMem (malloc) ---
         let host_mem = malloc(SCE_GXM_MINIMUM_CONTEXT_HOST_MEM_SIZE);
         assert!(!host_mem.is_null(), "malloc hostMem failed");
 
@@ -1053,7 +1053,7 @@ impl GxmRenderer {
         let rc = sceGxmCreateRenderTarget(&rt_params, &mut render_target);
         assert_eq!(rc, SCE_OK, "sceGxmCreateRenderTarget failed: 0x{:08X}", rc);
 
-        // --- 5. Triple Display Buffers w pamięci CDRAM (ze sprzętowym ditheringiem) ---
+        // --- 5. Triple Display Buffers in CDRAM (with Hardware Dithering) ---
         let color_surface_size = (VITA_WIDTH * VITA_HEIGHT * 4) as usize;
         let names: [&[u8]; 3] = [b"RC_GXM_CB0\0", b"RC_GXM_CB1\0", b"RC_GXM_CB2\0"];
 
@@ -1090,7 +1090,7 @@ impl GxmRenderer {
                 VITA_STRIDE,
                 ptr,
             );
-            // Sprzętowy Dithering eliminuje banding kolorów przy winietach, mgle i gradientach
+            // Hardware Dithering eliminates color banding in vignettes, fog, and sky gradients
             sceGxmColorSurfaceSetDitherMode(&mut color_surfaces[i], SCE_GXM_COLOR_SURFACE_DITHER_ENABLED);
             display_data[i].address = ptr;
 
@@ -1164,7 +1164,7 @@ impl GxmRenderer {
         let rc = sceGxmShaderPatcherCreate(&patcher_params, &mut patcher);
         assert_eq!(rc, SCE_OK, "sceGxmShaderPatcherCreate failed: 0x{:08X}", rc);
 
-        // --- 8. Rejestracja Shaderów GXP i Linkowanie ---
+        // --- 8. Register and Link GXP Shaders ---
         let vert_gxp = VOXEL_VERT_GXP.as_ptr() as *const SceGxmProgram;
         let frag_gxp = VOXEL_FRAG_GXP.as_ptr() as *const SceGxmProgram;
 
@@ -1243,7 +1243,7 @@ impl GxmRenderer {
         let param_mvp = sceGxmProgramFindParameterByName(vert_gxp, b"uViewProj\0".as_ptr());
         let param_fog = sceGxmProgramFindParameterByName(vert_gxp, b"uCameraPosAndFog\0".as_ptr());
 
-        // --- 8b. Rejestracja i Linkowanie Shaderów Hardware Clear ---
+        // --- 8b. Register and Link Hardware Clear Shaders ---
         let clear_vert_gxp = CLEAR_VERT_GXP.as_ptr() as *const SceGxmProgram;
         let clear_frag_gxp = CLEAR_FRAG_GXP.as_ptr() as *const SceGxmProgram;
 
@@ -1294,7 +1294,7 @@ impl GxmRenderer {
 
         let param_clear_color = sceGxmProgramFindParameterByName(clear_frag_gxp, b"uClearColor\0".as_ptr());
 
-        // Bufor wierzchołków dla trójkąta czyszczącego (NDC [-1, 3])
+        // Vertex buffer for full-screen clear triangle (NDC [-1, 3])
         let clear_vb_mem = GpuMem::alloc_gpu(
             b"RC_GXM_ClearVB\0",
             3 * 2 * core::mem::size_of::<f32>(),
@@ -1319,10 +1319,10 @@ impl GxmRenderer {
         *clear_indices.add(1) = 1;
         *clear_indices.add(2) = 2;
 
-        // --- 9. Atlas Tekstury GPU ---
+        // --- 9. GPU Texture Atlas ---
         let (atlas_mem, atlas_tex) = build_gpu_texture(atlas);
 
-        // --- 10. Bufor GPU dla slotów chunków (Uncached RAM dla natychmiastowego zapisu CPU) ---
+        // --- 10. GPU Buffer for Chunk Slots (Uncached RAM for immediate CPU writes) ---
         let vb_mem = GpuMem::alloc_gpu(
             b"RC_GXM_VB\0",
             Self::VB_SIZE,
@@ -1337,7 +1337,7 @@ impl GxmRenderer {
             SCE_GXM_MEMORY_ATTRIB_READ,
         ).unwrap();
 
-        // --- 10b. Dynamiczne bufory dla pęknięć niszczonego bloku ---
+        // --- 10b. Dynamic buffers for block destruction cracks ---
         let crack_vb_mem = GpuMem::alloc_gpu(
             b"RC_GXM_CrackVB\0",
             24 * core::mem::size_of::<GxmVertex>(),
@@ -1364,7 +1364,7 @@ impl GxmRenderer {
             *crack_ib.add(idx + 5) = base + 3;
         }
 
-        // --- 10c. Dynamiczne bufory dla bytów (wypadnięte itemy, moby, TNT) ---
+        // --- 10c. Dynamic buffers for entities (dropped items, mobs, TNT) ---
         let entity_vb_mem = GpuMem::alloc_gpu(
             b"RC_GXM_EntVB\0",
             Self::MAX_ENTITY_VERTS * core::mem::size_of::<GxmVertex>(),
@@ -1425,7 +1425,7 @@ impl GxmRenderer {
         }
     }
 
-    /// Oblicza macierz projekcji perspektywicznej dopasowaną do zakresu Z [0, 1] w GXM
+    /// Computes perspective projection matrix mapped to the GXM depth range [0, 1].
     pub fn gxm_perspective_matrix(fov_y_rad: f32, aspect: f32, near: f32, far: f32) -> crate::core::math::Mat4 {
         let f = 1.0 / (fov_y_rad / 2.0).tan();
         let mut m = [0.0f32; 16];
@@ -1437,7 +1437,7 @@ impl GxmRenderer {
         crate::core::math::Mat4 { m }
     }
 
-    /// Rysuje 3D scenę wokół gracza na GPU Vita oraz nakłada 2D HUD (60 FPS)
+    /// Renders a 3D scene around the player on the PS Vita GPU and composites the 2D HUD (60 FPS).
     pub fn render_frame(
         &mut self,
         camera: &Camera,
@@ -1477,13 +1477,13 @@ impl GxmRenderer {
                 &self.depth_surface,
             );
 
-            // Pełnoekranowy viewport i obcinanie krawędzi (960x544)
+            // Fullscreen viewport and edge clipping (960x544)
             sceGxmSetDefaultRegionClipAndViewport(self.context, VITA_WIDTH - 1, VITA_HEIGHT - 1);
             sceGxmSetViewportEnable(self.context, SCE_GXM_VIEWPORT_ENABLED);
             sceGxmSetTwoSidedEnable(self.context, SCE_GXM_TWO_SIDED_ENABLED);
             sceGxmSetCullMode(self.context, SCE_GXM_CULL_NONE);
 
-            // 1. Sprzętowe czyszczenie koloru nieba i głębokości (GPU Hardware Clear Triangle)
+            // 1. Hardware sky clear and depth clearing (GPU Hardware Clear Triangle)
             sceGxmSetFrontDepthFunc(self.context, SCE_GXM_DEPTH_FUNC_ALWAYS_PASS);
             sceGxmSetBackDepthFunc(self.context, SCE_GXM_DEPTH_FUNC_ALWAYS_PASS);
             sceGxmSetFrontDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
@@ -1511,7 +1511,7 @@ impl GxmRenderer {
                 3,
             );
 
-            // 2. Rysowanie terenu 3D wokół gracza z włączonym sprzętowym Backface Cullingiem
+            // 2. Render 3D terrain around player with hardware Backface Culling enabled
             sceGxmSetTwoSidedEnable(self.context, SCE_GXM_TWO_SIDED_DISABLED);
             sceGxmSetCullMode(self.context, SCE_GXM_CULL_CW);
             sceGxmSetFrontDepthFunc(self.context, SCE_GXM_DEPTH_FUNC_LESS_EQUAL);
@@ -1559,7 +1559,7 @@ impl GxmRenderer {
             let cam_chunk_z = (camera.position.z / CHUNK_SIZE_Z as f32).floor() as i32;
             let render_dist = render_distance.clamp(2, 5);
 
-            // 1. Usunięcie slotów dla chunków poza zasięgiem widzenia
+            // 1. Remove chunk slots that are outside the render distance
             let max_dist = render_dist + 2;
             let mut freed = Vec::new();
             self.chunk_slots.retain(|&(cx, cz), &mut slot_idx| {
@@ -1575,14 +1575,14 @@ impl GxmRenderer {
             self.free_slots.extend(freed);
             self.chunk_spawn_times.retain(|k, _| self.chunk_slots.contains_key(k));
 
-            // 2. Rysowanie chunków z GPU z ograniczeniem liczby wysyłanych meshy na klatkę (likwiduje stutter)
+            // 2. Render GPU chunks with mesh upload rate limit per frame (eliminates micro-stutter)
             let mut tri_count: u32 = 0;
             let mut uploads_this_frame = 0;
             const MAX_UPLOADS_PER_FRAME: usize = 2;
             let mut last_had_offset = false;
 
-            // 2. Sortowanie chunków od najbliższego do najdalszego (Front-to-Back)
-            // Pozwala to sprzętowemu HSR / Early Depth Rejection GPU SGX543 odrzucać zasłonięte piksele przed cieniowaniem
+            // 2. Sort chunks from nearest to farthest (Front-to-Back)
+            // Allows hardware HSR / Early Depth Rejection on SGX543 to discard occluded fragments
             let mut chunk_coords = Vec::with_capacity(((render_dist * 2 + 1) * (render_dist * 2 + 1)) as usize);
             for dz in -render_dist..=render_dist {
                 for dx in -render_dist..=render_dist {
@@ -1598,8 +1598,7 @@ impl GxmRenderer {
                 let cz = cam_chunk_z + dz;
                 let key = (cx, cz);
 
-                // Jeśli gracz stoi twarzą bezpośrednio w litej ścianie (100% okluzji pola widzenia),
-                // rysujemy tylko bieżący lokalny chunk (zawierający ścianę), a wszystkie pozostałe pomijamy!
+                // If player is directly facing a solid wall (100% occlusion), render only the local chunk
                 if is_occluded && (dx != 0 || dz != 0) {
                     continue;
                 }
@@ -1745,7 +1744,7 @@ impl GxmRenderer {
                 }
             }
 
-            // 2b. Rysowanie animacji pęknięć niszczonego bloku (3D block break cracks)
+            // 2b. Draw block destruction cracks animation (3D block break cracks)
             if let Some(target) = break_target {
                 if break_progress > 0.0 {
                     let stage = ((break_progress * 10.0).floor() as usize).min(9);
@@ -1795,7 +1794,7 @@ impl GxmRenderer {
                 }
             }
 
-            // 2c. Rysowanie obiektów dynamicznych (wypadnięte itemy na ziemi, moby, TNT) - wyłączamy culling dla dwustronnych billboardów/modeli
+            // 2c. Draw dynamic objects (dropped items, mobs, TNT, 3D hand, full-screen overlays) - disable culling for two-sided models
             sceGxmSetTwoSidedEnable(self.context, SCE_GXM_TWO_SIDED_ENABLED);
             sceGxmSetCullMode(self.context, SCE_GXM_CULL_NONE);
 
@@ -1925,15 +1924,15 @@ impl GxmRenderer {
 
             sceGxmEndScene(self.context, core::ptr::null(), core::ptr::null());
 
-            // Synchronizacja GPU przed dostępem CPU do bufora klatki (eliminuje wszelkie glitche paska HUD)
+            // Synchronize GPU before CPU writes to the framebuffer to prevent HUD glitches
             sceGxmFinish(self.context);
 
-            // 3. Nałożenie 2D HUD (celownik, hotbar, wskaźnik niszczenia, panel debug)
+            // 3. Composite 2D HUD overlay (crosshair, hotbar, break gauge, debug text)
             if let Some(hud) = hud_pixels {
                 Self::blit_hud_overlay(color_buf_ptr, hud);
             }
 
-            // 4. Asynchroniczne przekazanie do kolejki wyświetlania (Triple Buffering)
+            // 4. Asynchronously enqueue display buffer into presentation queue (Triple Buffering)
             sceGxmDisplayQueueAddEntry(
                 self.display_sync[self.front_buf],
                 self.display_sync[buf_idx],
@@ -1947,7 +1946,7 @@ impl GxmRenderer {
         }
     }
 
-    /// Kopiuje ostatnią wyświetloną klatkę 3D do bufora CPU i przyciemnia ją o 50% dla tła menu
+    /// Captures the last rendered 3D frame into a CPU pixel buffer and dims it by 50% for pause/menu backgrounds.
     pub fn capture_frame_snapshot(&self, dst: &mut Option<Vec<u32>>) {
         let game_width = VITA_WIDTH as usize;
         let game_height = VITA_HEIGHT as usize;
@@ -1968,7 +1967,7 @@ impl GxmRenderer {
                     let r = abgr & 0xFF;
                     let g = (abgr >> 8) & 0xFF;
                     let b = (abgr >> 16) & 0xFF;
-                    // Format XRGB dla SoftwareRenderer z przyciemnieniem o 50%
+                    // XRGB format with 50% dimming for menu backgrounds
                     let dimmed_r = r >> 1;
                     let dimmed_g = g >> 1;
                     let dimmed_b = b >> 1;
@@ -2155,7 +2154,7 @@ fn append_dropped_item(
 ) {
     use crate::world::block::Face;
 
-    // 1. Okrągły cień na ziemi pod bloczkiem (jak w Minecraft)
+    // 1. Circular ground drop shadow under the item entity (Minecraft style)
     let ipos_x = item.position.x.floor() as i32;
     let ipos_z = item.position.z.floor() as i32;
     let item_y = item.position.y;
@@ -2830,7 +2829,7 @@ impl GxmRenderer {
         i_count as u32
     }
 
-    /// Prezentuje 2D bufor pikseli (np. Główne Menu, Pauza, Ekwipunek, Ustawienia)
+    /// Presents a 2D pixel buffer to the display (e.g., Main Menu, Pause, Inventory, Settings).
     pub fn present_2d_buffer(&mut self, src_pixels: &[u32], game_width: usize, game_height: usize) {
         let buf_idx = self.back_buf;
         let dst_buf = self.display_bufs[buf_idx].ptr as *mut u32;
@@ -2877,7 +2876,7 @@ impl GxmRenderer {
         }
     }
 
-    /// Kopiuje elementy HUD na wyrenderowaną scenę 3D (zoptymalizowany zapis bez odczytu VRAM)
+    /// Blits 2D HUD pixels onto the rendered 3D scene (optimized write without reading VRAM).
     fn blit_hud_overlay(dst_buf: *mut u32, src_pixels: &[u32]) {
         let game_width = 960usize;
         let game_height = 540usize.min(src_pixels.len() / game_width);
@@ -2917,7 +2916,7 @@ impl GxmRenderer {
                         let r = (pixel >> 16) & 0xFF;
                         let g = (pixel >> 8) & 0xFF;
                         let b = pixel & 0xFF;
-                        *dst_ptr.add(x) = (0xFF << 24) | (b << 16) | (g << 8) | r;
+                        *dst_ptr.add(px) = (0xFF << 24) | (b << 16) | (g << 8) | r;
                     }
                     x += 1;
                 }
@@ -2982,7 +2981,7 @@ impl GxmRenderer {
         !(out_left || out_right || out_bottom || out_top || out_near || out_far)
     }
 
-    /// Aktualizuje tekstury w pamięci CDRAM GPU po zmianie ustawień graficznych (np. przełącznik Fancy Leaves) oraz animacje
+    /// Updates textures in CDRAM after graphics settings changed (e.g. Fancy Leaves toggle) or animated textures.
     pub fn update_textures(&mut self, atlas: &TextureAtlas) {
         let pixels = self._atlas_mem.ptr as *mut u32;
         unsafe {
@@ -2990,7 +2989,7 @@ impl GxmRenderer {
         }
     }
 
-    /// Czyści wszystkie zarezerwowane sloty chunków na GPU, wymuszając ich ponowną przebudowę
+    /// Clears all allocated GPU chunk slots, forcing all chunks to be remeshed and reuploaded.
     pub fn clear_mesh_cache(&mut self) {
         self.chunk_slots.clear();
         self.free_slots = (0..Self::MAX_CHUNK_SLOTS).rev().collect();
@@ -2998,7 +2997,7 @@ impl GxmRenderer {
         self.chunk_spawn_times.clear();
     }
 
-    /// Zwraca statystyki wydajności i pamięci (użyte sloty chunków, max slotów, bajty CDRAM, bajty RAM)
+    /// Returns GPU memory and performance statistics: `(used_chunk_slots, max_chunk_slots, cdram_bytes, ram_bytes)`.
     pub fn get_perf_stats(&self) -> (usize, usize, usize, usize) {
         let used_slots = self.chunk_slots.len();
         let cdram = 3 * (VITA_WIDTH * VITA_HEIGHT * 4) as usize + (VITA_WIDTH * VITA_HEIGHT * 4) as usize; // Framebuffers + Depth

@@ -69,7 +69,7 @@ pub fn draw_bubble(buffer: &mut [u32], width: usize, height: usize, x: i32, y: i
             let cyan = pack_color(0.32, 0.78, 0.98);
             let shadow = pack_color(0.12, 0.48, 0.75);
 
-            // Obrys 8x8 (okrągły kształt)
+            // 8x8 circular bubble outline
             fill_rect(buffer, width, height, x + 2, y + 0, 4, 1, outline);
             fill_rect(buffer, width, height, x + 1, y + 1, 1, 1, outline);
             fill_rect(buffer, width, height, x + 6, y + 1, 1, 1, outline);
@@ -79,19 +79,19 @@ pub fn draw_bubble(buffer: &mut [u32], width: usize, height: usize, x: i32, y: i
             fill_rect(buffer, width, height, x + 6, y + 6, 1, 1, outline);
             fill_rect(buffer, width, height, x + 2, y + 7, 4, 1, outline);
 
-            // Wnętrze bąbelka
+            // Bubble interior
             fill_rect(buffer, width, height, x + 2, y + 1, 4, 1, cyan);
             fill_rect(buffer, width, height, x + 1, y + 2, 6, 4, cyan);
             fill_rect(buffer, width, height, x + 2, y + 6, 4, 1, cyan);
 
-            // Połysk (refleks światła)
+            // Specular highlight
             set_px(buffer, width, height, x + 3, y + 1, highlight);
             set_px(buffer, width, height, x + 4, y + 1, highlight);
             set_px(buffer, width, height, x + 2, y + 2, highlight);
             set_px(buffer, width, height, x + 3, y + 2, highlight);
             set_px(buffer, width, height, x + 2, y + 3, highlight);
 
-            // Cień sferyczny na dole po prawej
+            // Spherical bottom-right shadow
             set_px(buffer, width, height, x + 6, y + 5, shadow);
             set_px(buffer, width, height, x + 5, y + 6, shadow);
         }
@@ -274,13 +274,13 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
             fill_rect(buffer, width, height, heart_x + 1, health_y + 1, 6, 6, color);
         }
 
-        // Pasek głodu (Hunger bar) - po prawej stronie nad hotbarem
+        // Hunger bar - on right side above hotbar
         let hunger_start_x = start_x + total_w - 98;
         let hunger_pts = player.hunger.ceil() as i32;
         let is_starving = player.hunger <= 6.0;
 
         for i in 0..10 {
-            // W Minecraft udka ubywają od prawej do lewej
+            // Hunger points deplete from right to left (Minecraft style)
             let icon_idx = i;
             let threshold = (icon_idx + 1) * 2;
             let state = if hunger_pts >= threshold {
@@ -301,7 +301,7 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
             draw_hunger_icon(buffer, width, height, hunger_x, health_y + wobble, state);
         }
 
-        // Bąbelki powietrza nad paskiem głodu (lub sercami) podczas nurkowania
+        // Air bubbles displayed above hunger meter while submerged underwater
         if player.head_underwater || player.air < player.max_air {
             let bubble_y = health_y - 10;
             let air_pts = player.air.ceil() as i32;
@@ -386,27 +386,27 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
     let cx = width as i32 / 2;
     let cy = height as i32 / 2;
 
-    // Tytuł
-    let title = "MENU GRY";
+    // Title
+    let title = "GAME MENU";
     let t_scale = 3;
     let t_w = font::measure_text(title, t_scale, 2);
     draw_text_colored_shadowed(buffer, width, height, title, cx - t_w / 2, cy - 145, t_scale, 2, pack_color(0.95, 0.85, 0.35));
 
     #[cfg(target_os = "vita")]
     let buttons = [
-        "WZNOW GRE (START)",
-        "USTAWIENIA GRAFIKI",
-        if fly_mode { "TRYB LOTU: WLACZONY (R3)" } else { "TRYB LOTU: WYLACZONY (R3)" },
-        "MENU GLOWNE (SELECT)",
-        "WYJDZ Z GRY",
+        "RESUME GAME (START)",
+        "GRAPHICS SETTINGS",
+        if fly_mode { "FLY MODE: ON (R3)" } else { "FLY MODE: OFF (R3)" },
+        "MAIN MENU (SELECT)",
+        "QUIT GAME",
     ];
     #[cfg(not(target_os = "vita"))]
     let buttons = [
-        "WZNOW GRE (ESC)",
-        "USTAWIENIA GRAFIKI",
-        if fly_mode { "TRYB LOTU: WLACZONY (F)" } else { "TRYB LOTU: WYLACZONY (F)" },
-        "MENU GLOWNE (M)",
-        "WYJDZ Z GRY (Q)",
+        "RESUME GAME (ESC)",
+        "GRAPHICS SETTINGS",
+        if fly_mode { "FLY MODE: ON (F)" } else { "FLY MODE: OFF (F)" },
+        "MAIN MENU (M)",
+        "QUIT GAME (Q)",
     ];
 
     let rects = pause_menu_button_rects(width, height);
@@ -449,20 +449,20 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
         }
     }
 
-    // Dynamiczny Tooltip dla zaznaczonego przycisku
+    // Dynamic contextual tooltip for selected pause menu button
     let tooltip = match hovered_idx {
-        Some(0) => "Wznowienie rozgrywki i powrot do swiata (ESC / START / P)",
-        Some(1) => "Zasieg widzenia, mgla, chmury 3D, animacje i pole widzenia FOV",
+        Some(0) => "Resume gameplay and return to world (ESC / START / P)",
+        Some(1) => "Adjust render distance, fog, 3D clouds, animations, and FOV",
         Some(2) => {
             if fly_mode {
-                "Wylaczenie trybu lotu i przywrocenie standardowej grawitacji (F / R3)"
+                "Disable flight mode and restore standard gravity (F / R3)"
             } else {
-                "Wlaczenie swobodnego latania w powietrzu bez grawitacji (F / R3)"
+                "Enable free flight mode without gravity (F / R3)"
             }
         }
-        Some(3) => "Zapisanie biezacego stanu gry i powrot do wyboru swiata (M)",
-        Some(4) => "Zapisanie postepow i bezpieczne wyjscie do pulpitu (Q)",
-        _ => "Nawiguj myszka, strzalkami lub galka kontrolera",
+        Some(3) => "Save current game world and return to save select menu (M)",
+        Some(4) => "Save world progress and quit application (Q)",
+        _ => "Navigate with mouse, arrow keys, or gamepad stick",
     };
 
     let tip_w = 460.min(width as i32 - 40);
@@ -486,13 +486,13 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
     };
     draw_text_colored_shadowed(buffer, width, height, tooltip, tip_text_x, tip_text_y, 1, 1, tip_color);
 
-    // Panele ze wszystkimi przypisanymi klawiszami sterowania (Controls)
+    // Controls reference cards
     let card_w = 260;
     let card_h = 320;
     let card_y = cy - 150;
 
     if width >= 860 {
-        // --- LEWA KARTA: KLAWIATURA I MYSZ ---
+        // --- LEFT CARD: KEYBOARD & MOUSE ---
         let left_x = (cx - 140 - card_w - 20).max(12);
         fill_rect_alpha(buffer, width, height, left_x, card_y, card_w, card_h, pack_color(0.08, 0.09, 0.13), 0.82);
         fill_rect(buffer, width, height, left_x, card_y, card_w, 2, pack_color(0.40, 0.50, 0.70));
@@ -500,24 +500,24 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
         fill_rect(buffer, width, height, left_x, card_y, 2, card_h, pack_color(0.40, 0.50, 0.70));
         fill_rect(buffer, width, height, left_x + card_w - 2, card_y, 2, card_h, pack_color(0.20, 0.25, 0.35));
 
-        let l_title = "[ KLAWIATURA I MYSZ ]";
+        let l_title = "[ KEYBOARD & MOUSE ]";
         let l_tw = font::measure_text(l_title, 1, 1);
         draw_text_colored_shadowed(buffer, width, height, l_title, left_x + (card_w - l_tw) / 2, card_y + 10, 1, 1, pack_color(0.95, 0.85, 0.35));
 
         let kb_bindings = [
-            ("W, A, S, D", "Ruch postaci"),
-            ("SPACJA", "Skok / Wznoszenie"),
-            ("SHIFT / C", "Kucanie / Opadanie"),
-            ("CTRL", "Sprint (Bieg)"),
-            ("LPM", "Niszczenie / Atak"),
-            ("PPM", "Stawianie / Jedzenie"),
-            ("E", "Ekwipunek / Crafting"),
-            ("Q", "Wyrzucenie przedmiotu"),
-            ("1-9 / SCROLL", "Pasek podreczny"),
-            ("F", "Tryb Lotu (Wl/Wyl)"),
+            ("W, A, S, D", "Movement"),
+            ("SPACE", "Jump / Ascend"),
+            ("SHIFT / C", "Sneak / Descend"),
+            ("CTRL", "Sprint"),
+            ("LMB", "Mine / Attack"),
+            ("RMB", "Place / Consume"),
+            ("E", "Inventory / Crafting"),
+            ("Q", "Drop Item"),
+            ("1-9 / SCROLL", "Hotbar Slot"),
+            ("F", "Toggle Fly Mode"),
             ("G", "Creative / Survival"),
-            ("F3", "Diagnostyka (XYZ, FPS)"),
-            ("ESC / P", "Pauza / Menu"),
+            ("F3", "Debug Diagnostics"),
+            ("ESC / P", "Pause / Game Menu"),
         ];
 
         let mut row_y = card_y + 32;
@@ -528,7 +528,7 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
             row_y += 21;
         }
 
-        // --- PRAWA KARTA: KONTROLER / GAMEPAD ---
+        // --- RIGHT CARD: CONTROLLER / GAMEPAD ---
         let right_x = (cx + 140 + 20).min(width as i32 - card_w - 12);
         fill_rect_alpha(buffer, width, height, right_x, card_y, card_w, card_h, pack_color(0.08, 0.09, 0.13), 0.82);
         fill_rect(buffer, width, height, right_x, card_y, card_w, 2, pack_color(0.40, 0.50, 0.70));
@@ -536,24 +536,24 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
         fill_rect(buffer, width, height, right_x, card_y, 2, card_h, pack_color(0.40, 0.50, 0.70));
         fill_rect(buffer, width, height, right_x + card_w - 2, card_y, 2, card_h, pack_color(0.20, 0.25, 0.35));
 
-        let r_title = "[ PAD / PS VITA ]";
+        let r_title = "[ GAMEPAD / PS VITA ]";
         let r_tw = font::measure_text(r_title, 1, 1);
         draw_text_colored_shadowed(buffer, width, height, r_title, right_x + (card_w - r_tw) / 2, card_y + 10, 1, 1, pack_color(0.95, 0.85, 0.35));
 
         let gp_bindings = [
-            ("L-Stick", "Ruch postaci"),
-            ("R-Stick", "Rozgladanie / Cel"),
-            ("[X] / A", "Skok / Wznoszenie"),
-            ("[O] / B", "Kucanie / Opadanie"),
-            ("L3 (Wcisk)", "Sprint (Bieg)"),
-            ("R2 / RT", "Niszczenie / Atak"),
-            ("L2 / LT", "Stawianie / Jedzenie"),
-            ("[^] / Y", "Ekwipunek / Crafting"),
-            ("L1 / R1", "Pasek podreczny"),
-            ("R3 (Wcisk)", "Tryb Lotu (Wl/Wyl)"),
+            ("L-Stick", "Movement"),
+            ("R-Stick", "Look / Aim"),
+            ("[X] / A", "Jump / Ascend"),
+            ("[O] / B", "Sneak / Descend"),
+            ("L3 (Click)", "Sprint"),
+            ("R2 / RT", "Mine / Attack"),
+            ("L2 / LT", "Place / Consume"),
+            ("[^] / Y", "Inventory / Crafting"),
+            ("L1 / R1", "Hotbar Slot"),
+            ("R3 (Click)", "Toggle Fly Mode"),
             ("SELECT", "Creative / Survival"),
-            ("D-PAD GORA", "Diagnostyka (F3)"),
-            ("D-PAD LEWO", "Wyrzucenie przedmiotu"),
+            ("D-PAD UP", "Debug Overlay"),
+            ("D-PAD LEFT", "Drop Item"),
         ];
 
         let mut row_y = card_y + 32;
@@ -564,11 +564,11 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
             row_y += 21;
         }
     } else {
-        // Kompaktowy pasek sterowania dla mniejszych ekranów
+        // Compact control hints bar for narrow screens
         let footers = [
-            "KLAWIATURA: WASD-Ruch | SPACJA-Skok | SHIFT-Kucanie | CTRL-Sprint | LPM-Atak | PPM-Stawiaj",
-            "E-Ekwipunek | Q-Wyrzuc | 1-9-Pasek | F-Lot | G-Creative/Survival | F3-Debug | ESC-Pauza",
-            "GAMEPAD: L/R-Galka | [X]-Skok | [O]-Kucanie | L3-Sprint | R2-Kopanie | L2-Budowa | [^]-Ekwipunek",
+            "KEYBOARD: WASD-Move | SPACE-Jump | SHIFT-Sneak | CTRL-Sprint | LMB-Mine | RMB-Place",
+            "E-Inventory | Q-Drop | 1-9-Hotbar | F-Flight | G-Creative | F3-Debug | ESC-Pause",
+            "GAMEPAD: L/R-Stick | [X]-Jump | [O]-Sneak | L3-Sprint | R2-Mine | L2-Place | [^]-Inventory",
         ];
         let mut fy = cy + 155;
         for &line in &footers {

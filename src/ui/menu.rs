@@ -1,6 +1,9 @@
+//! Main menu screen, voxel logo rendering, and button hitboxes.
+
 use crate::graphics::font;
 use crate::ui::draw::{draw_text_colored_shadowed, draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color};
 
+/// Calculates layout rectangles for the 3 main menu buttons `[(x, y, width, height); 3]`.
 pub fn main_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 3] {
     let btn_w = 380;
     let btn_h = 44;
@@ -14,6 +17,7 @@ pub fn main_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, i
     ]
 }
 
+/// Draws the procedural pixel-art voxel logo on the main menu.
 pub fn draw_rustcraft_logo(buffer: &mut [u32], width: usize, height: usize, cx: i32, y: i32) {
     let gold = pack_color(0.95, 0.72, 0.20);
     let light = pack_color(1.0, 0.90, 0.48);
@@ -31,6 +35,7 @@ pub fn draw_rustcraft_logo(buffer: &mut [u32], width: usize, height: usize, cx: 
     }
 }
 
+/// Renders the title screen, animated logo, menu choices, and platform controls guide.
 pub fn draw_main_menu(
     buffer: &mut [u32],
     width: usize,
@@ -38,7 +43,7 @@ pub fn draw_main_menu(
     hovered_idx: Option<usize>,
 ) {
     let cx = width as i32 / 2;
-    // Wyczyść cały ekran pod menu (zapobiega nakładaniu się klatek menu save / innych ekranów)
+    // Clear screen to prevent ghost frames from other menus
     fill_rect(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.06, 0.07, 0.09));
     fill_rect_alpha(buffer, width, height, cx - 240, 30, 480, 465, pack_color(0.02, 0.03, 0.05), 0.75);
     draw_rustcraft_logo(buffer, width, height, cx, 65);
@@ -47,14 +52,14 @@ pub fn draw_main_menu(
     let title_w = font::measure_text(title, 4, 3);
     draw_text_colored_shadowed(buffer, width, height, title, cx - title_w / 2, 135, 4, 3, pack_color(0.95, 0.85, 0.42));
 
-    let subtitle = "WOKSELOWY SWIAT";
+    let subtitle = "VOXEL ENGINE";
     let subtitle_w = font::measure_text(subtitle, 2, 2);
     draw_text_colored_shadowed(buffer, width, height, subtitle, cx - subtitle_w / 2, 185, 2, 2, pack_color(0.7, 0.75, 0.85));
 
     let buttons = [
-        "GRAJ / WYBIERZ SWIAT",
-        "USTAWIENIA GRAFIKI",
-        "WYJDZ Z GRY",
+        "PLAY / SELECT WORLD",
+        "GRAPHICS SETTINGS",
+        "QUIT GAME",
     ];
     let rects = main_menu_button_rects(width, height);
     for (i, (&label, &(bx, by, bw, bh))) in buttons.iter().zip(rects.iter()).enumerate() {
@@ -81,9 +86,9 @@ pub fn draw_main_menu(
     }
 
     #[cfg(target_os = "vita")]
-    let footer = "STEROWANIE: [D-PAD / DOTYK] NAWIGACJA | [X] WYBIERZ | [O] WYJSCIE";
+    let footer = "CONTROLS: [D-PAD / TOUCH] NAVIGATE | [X] SELECT | [O] QUIT";
     #[cfg(not(target_os = "vita"))]
-    let footer = "STEROWANIE: [D-PAD / STRZALKI] NAWIGACJA | [A / ENTER] WYBIERZ | [B / ESC] WYJSCIE";
+    let footer = "CONTROLS: [D-PAD / ARROWS] NAVIGATE | [A / ENTER] SELECT | [B / ESC] QUIT";
     let fw = font::measure_text(footer, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, footer, cx - fw / 2, 460, 1, 1, pack_color(0.6, 0.65, 0.75));
 }

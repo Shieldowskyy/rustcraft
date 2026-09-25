@@ -1,3 +1,8 @@
+//! Main RustCraft application state machine, game loop coordinator, and UI controller.
+//!
+//! Orchestrates player movement, voxel interaction, mob AI, particle simulation,
+//! audio cues, inventory management, rendering backend dispatches, and menus.
+
 use std::fmt::Write;
 #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 use std::sync::mpsc;
@@ -25,36 +30,59 @@ use crate::world::block::{BlockId, Face};
 use crate::world::storage::{delete_save, get_save_metadata, save_current_world, save_path, SaveMetadata};
 use crate::world::World;
 
+/// Default framebuffer render width.
 pub const WIDTH: usize = 960;
+
+/// Default framebuffer render height.
 pub const HEIGHT: usize = 540;
+
+/// Maximum number of selectable world save slots.
 pub const MAX_SAVE_SLOTS: u8 = 32;
 
+/// Originating menu state for submenus (e.g. Settings).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PreviousMenu {
+    /// Settings opened from the main menu.
     MainMenu,
+    /// Settings opened from the in-game pause menu.
     Paused,
 }
 
+/// Result of asynchronous background world loading.
 pub enum WorldLoadResult {
+    /// Successfully loaded world instance and optional player position.
     Success(World, Option<Vec3>),
+    /// Error description if world loading failed.
     Error(String),
 }
 
+/// Active top-level game state.
 pub enum GameState {
+    /// Main splash / start screen.
     MainMenu,
+    /// World save slot carousel / selector.
     SaveSelect,
+    /// New world creation dialogue.
     CreateWorld,
+    /// Video / graphics settings menu.
     Settings(PreviousMenu),
+    /// Asynchronous world generation / loading screen.
     #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
     Loading(mpsc::Receiver<WorldLoadResult>),
+    /// Synchronous world loading state for embedded platforms.
     #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
     Loading,
+    /// Active 3D gameplay.
     Playing,
+    /// In-game pause menu overlay.
     Paused,
+    /// Player inventory & crafting screen.
     Inventory,
+    /// Player death screen with respawn and quit options.
     DeathScreen,
 }
 
+/// Unified input snapshot passed into `RustCraftApp::update_and_render`.
 #[derive(Clone, Debug, Default)]
 pub struct InputState {
     pub mouse_dx: f32,
@@ -246,7 +274,7 @@ impl RustCraftApp {
         let mut renderer = match renderer_choice {
             #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
             "vulkan" => Renderer::new_vulkan(width, height).unwrap_or_else(|error| {
-                eprintln!("Nie można uruchomić renderera Vulkan: {error}, przełączam na software");
+                eprintln!("Failed to initialize Vulkan renderer: {error}, falling back to software renderer");
                 Renderer::new(width, height)
             }),
             _ => Renderer::new(width, height),
@@ -388,9 +416,8 @@ impl RustCraftApp {
         self.renderer.pixel_buffer()
     }
 
-    /// Alias dla PS Vita – pełna aktualizacja logiki i software renderingu.
-    /// Na Vita software renderer jest zbędny, ale wywoływany aby zachować logikę gry.
-    /// GXM renderer rysuje niezależnie na GPU.
+    /// Alias for PS Vita – full update of game logic and software state.
+    /// On Vita the software framebuffer draw is bypassed in favor of native GXM GPU rendering.
     #[cfg(target_os = "vita")]
     pub fn update(&mut self, dt: f32, input: &crate::app::InputState) -> AppOutput {
         self.update_and_render(dt, input)
@@ -526,14 +553,14 @@ impl RustCraftApp {
                     let px = mx as i32;
                     let py = my as i32;
 
-                    // Dotyk w karty zapisów
+                    // Save cards touch interaction
                     for (row, &(bx, by, bw, bh)) in self.save_card_rects.iter().enumerate() {
                         if px >= bx && px < bx + bw && py >= by && py < by + bh {
                             save_select_hovered_card = Some(row);
                             if left_down && !self.prev_left_down {
                                 let target_slot = (self.save_select_scroll + row + 1) as u8;
                                 if self.save_select_slot == target_slot {
-                                    // Ponowne dotknięcie już zaznaczonego slotu -> uruchomienie gry
+                                    // Touching an already selected slot launches the world
                                     card_launch_action = true;
                                 } else {
                                     self.save_select_slot = target_slot;
@@ -543,10 +570,10 @@ impl RustCraftApp {
                         }
                     }
 
-                    // Dotyk i przeciąganie paska przewijania (Scrollbar)
+                    // Scrollbar touch and drag
                     let cx = self.width as i32 / 2;
                     let sb_x = cx + 340;
-                    let sb_w = 40; // powiększona strefa dotyku dla scrollbara
+                    let sb_w = 40; // enlarged touch target for scrollbar
                     let sb_y = 70;
                     let sb_h = (VISIBLE_SAVE_ROWS as i32) * 76;
                     if px >= sb_x && px <= sb_x + sb_w && py >= sb_y && py <= sb_y + sb_h && left_down {
@@ -555,7 +582,7 @@ impl RustCraftApp {
                         self.save_select_scroll = (rel_y * max_scroll as f32).round() as usize;
                     }
 
-                    // Dolne przyciski
+                    // Bottom buttons
                     for (i, &(bx, by, bw, bh)) in self.save_btn_rects.iter().enumerate() {
                         if px >= bx && px < bx + bw && py >= by && py < by + bh {
                             save_select_hovered_btn = Some(i);
@@ -619,9 +646,9 @@ impl RustCraftApp {
                             }
                         }
                     } else {
-                        // Otwórz menu tworzenia świata dla pustego slotu
+                        // Open world creation menu for empty slot
                         self.create_world_slot = self.save_select_slot;
-                        self.create_world_name = format!("Nowy Swiat {:02}", self.save_select_slot);
+                        self.create_world_name = format!("New World {:02}", self.save_select_slot);
                         self.create_world_seed = String::new();
                         self.create_world_gamemode = GameMode::Survival;
                         self.create_world_focus = 0;
@@ -629,9 +656,9 @@ impl RustCraftApp {
                         self.state = GameState::CreateWorld;
                     }
                 } else if new_action {
-                    // Otwórz menu tworzenia nowego świata dla wybranego slotu
+                    // Open world creation menu for selected slot
                     self.create_world_slot = self.save_select_slot;
-                    self.create_world_name = format!("Nowy Swiat {:02}", self.save_select_slot);
+                    self.create_world_name = format!("New World {:02}", self.save_select_slot);
                     self.create_world_seed = String::new();
                     self.create_world_gamemode = GameMode::Survival;
                     self.create_world_focus = 0;
@@ -693,7 +720,7 @@ impl RustCraftApp {
                     self.create_world_selected = false;
                 }
 
-                // Skróty klawiszowe Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X
+                // Keyboard shortcuts: Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X
                 let a_just = a_down && !self.prev_a_down;
                 let c_just = c_down && !self.prev_c_down;
                 let v_just = v_down && !self.prev_v_down;
@@ -749,7 +776,7 @@ impl RustCraftApp {
                     }
                 }
 
-                // Wpisywanie znaków z klawiatury do pola tekstowego
+                // Append typed characters to active text input field
                 if !ctrl_down {
                     for &ch in &input.typed_chars {
                         if !ch.is_control() {
@@ -844,7 +871,7 @@ impl RustCraftApp {
                     };
 
                     let name = if self.create_world_name.trim().is_empty() {
-                        format!("Nowy Swiat {:02}", self.create_world_slot)
+                        format!("New World {:02}", self.create_world_slot)
                     } else {
                         self.create_world_name.trim().to_string()
                     };
@@ -1053,7 +1080,7 @@ impl RustCraftApp {
                             self.state = GameState::Playing;
                         }
                         WorldLoadResult::Error(e) => {
-                            eprintln!("Błąd ładowania świata: {e}");
+                            eprintln!("Failed to load world: {e}");
                             self.state = GameState::MainMenu;
                         }
                     }
@@ -1068,7 +1095,7 @@ impl RustCraftApp {
                 if f5_down && !self.prev_f5_down {
                     let path = save_path(self.save_slot);
                     match save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref()) {
-                        Ok(()) => println!("Zapisano świat do {path}"),
+                        Ok(()) => println!("Saved world to {path}"),
                         Err(error) => eprintln!("{error}"),
                     }
                     self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
@@ -1277,7 +1304,7 @@ impl RustCraftApp {
                         self.player.fall_distance = 0.0;
                     }
 
-                    // Obrażenia od lawy (4.0 pkt = 2 serca co 0.5s)
+                    // Lava damage (4.0 dmg = 2 hearts every 0.5s)
                     if in_lava && self.player.gamemode == GameMode::Survival {
                         self.lava_damage_timer += dt;
                         if self.lava_damage_timer >= 0.5 {
@@ -1292,13 +1319,13 @@ impl RustCraftApp {
                         self.lava_damage_timer = 0.45;
                     }
 
-                    // Mechanika tlenu / nurkowania
+                    // Oxygen and underwater breathing mechanics
                     let is_head_underwater = eye_block == BlockId::Water;
                     self.player.head_underwater = is_head_underwater;
 
                     if self.player.gamemode == GameMode::Survival {
                         if is_head_underwater {
-                            // 15 sekund na zużycie pełnego zapasu 20 pkt tlenu (~1.33 pkt/s)
+                            // 15 seconds to fully exhaust 20 oxygen points (~1.33 pt/s)
                             self.player.air -= (self.player.max_air / 15.0) * dt;
                             if self.player.air <= 0.0 {
                                 self.player.air = 0.0;
@@ -1319,7 +1346,7 @@ impl RustCraftApp {
                             self.player.air = (self.player.air + 20.0 * dt).min(self.player.max_air);
                         }
 
-                        // Mechanika głodu (Hunger / Saturation / Exhaustion)
+                        // Hunger / Saturation / Exhaustion mechanics
                         if is_sprinting {
                             self.player.exhaustion += 0.18 * dt;
                         } else if wish_dir.length_sq() > 0.01 {
@@ -1337,7 +1364,7 @@ impl RustCraftApp {
                             }
                         }
 
-                        // Naturalna regeneracja zdrowia (gdy głód >= 18)
+                        // Natural health regeneration (when hunger >= 18)
                         if self.player.hunger >= 18.0 && self.player.health < self.player.max_health {
                             self.player.heal_timer += dt;
                             if self.player.heal_timer >= 4.0 {
@@ -1349,7 +1376,7 @@ impl RustCraftApp {
                             self.player.heal_timer = 0.0;
                         }
 
-                        // Obrażenia od głodu (gdy głód == 0)
+                        // Starvation damage (when hunger == 0)
                         if self.player.hunger <= 0.0 {
                             self.player.starvation_timer += dt;
                             if self.player.starvation_timer >= 4.0 {
@@ -1712,7 +1739,7 @@ impl RustCraftApp {
                 while i < self.items.len() {
                     self.items[i].update(dt, &self.world, Some(player_center));
 
-                    // Spalanie przedmiotów w lawie
+                    // Lava burns dropped items
                     let item_pos = self.items[i].position;
                     let item_block = self.world.get_block(item_pos.floor_to_ivec());
                     if item_block == BlockId::Lava {
@@ -1787,7 +1814,7 @@ impl RustCraftApp {
                     }
 
                     for item in &self.items {
-                        // Okrągły cień na podłożu pod bloczkiem (jak w Minecraft)
+                        // Ground drop shadow below floating block (Minecraft style)
                         let ipos_x = item.position.x.floor() as i32;
                         let ipos_z = item.position.z.floor() as i32;
                         let item_y = item.position.y;
@@ -1860,79 +1887,79 @@ impl RustCraftApp {
                         self.fps_display = (1.0 / dt.max(0.001)).round() as u32;
 
                         let mode_str = if self.fly_mode {
-                            "LOT"
+                            "FLY"
                         } else if is_crouching {
-                            "KUCANIE"
+                            "SNEAK"
                         } else if is_sprinting {
-                            "BIEG"
+                            "SPRINT"
                         } else {
-                            "NORMALNY"
+                            "WALK"
                         };
 
-                        // Linia 0: FPS & CPU Time
+                        // Line 0: FPS & CPU Time
                         self.debug_lines[0].clear();
                         let _ = write!(&mut self.debug_lines[0], "FPS: {} ({:.1}MS) | CPU: {:.1}MS", self.fps_display, dt * 1000.0, self.cpu_time_ms);
 
-                        // Linia 1: GPU Triangles & Chunks
+                        // Line 1: GPU Triangles & Chunks
                         self.debug_lines[1].clear();
                         #[cfg(target_os = "vita")]
-                        let _ = write!(&mut self.debug_lines[1], "GPU: {:.1}K TRI | CHUNKI: {}/{}", self.gpu_triangles as f32 / 1000.0, self.chunk_slots_info.0, self.chunk_slots_info.1);
+                        let _ = write!(&mut self.debug_lines[1], "GPU: {:.1}K TRI | CHUNKS: {}/{}", self.gpu_triangles as f32 / 1000.0, self.chunk_slots_info.0, self.chunk_slots_info.1);
                         #[cfg(not(target_os = "vita"))]
-                        let _ = write!(&mut self.debug_lines[1], "CHUNKI: {}", self.world.chunks.len());
+                        let _ = write!(&mut self.debug_lines[1], "CHUNKS: {}", self.world.chunks.len());
 
-                        // Linia 2: RAM / VRAM Allocations
+                        // Line 2: RAM / VRAM Allocations
                         self.debug_lines[2].clear();
                         #[cfg(target_os = "vita")]
                         let _ = write!(&mut self.debug_lines[2], "RAM: {:.1}MB | CDRAM: {:.1}MB", self.ram_mb, self.cdram_mb);
                         #[cfg(not(target_os = "vita"))]
-                        let _ = write!(&mut self.debug_lines[2], "RAM (SZAC): ~{:.1}MB", (self.world.chunks.len() * 32 * 32 * 128) as f32 / (1024.0 * 1024.0));
+                        let _ = write!(&mut self.debug_lines[2], "RAM (EST): ~{:.1}MB", (self.world.chunks.len() * 32 * 32 * 128) as f32 / (1024.0 * 1024.0));
 
-                        // Linia 3: Position
+                        // Line 3: Position
                         self.debug_lines[3].clear();
-                        let _ = write!(&mut self.debug_lines[3], "POZYCJA: X:{:.1} Y:{:.1} Z:{:.1}", self.camera.position.x, self.camera.position.y, self.camera.position.z);
+                        let _ = write!(&mut self.debug_lines[3], "POS: X:{:.1} Y:{:.1} Z:{:.1}", self.camera.position.x, self.camera.position.y, self.camera.position.z);
 
-                        // Linia 4: Selected or Targeted Block
+                        // Line 4: Selected or Targeted Block
                         self.debug_lines[4].clear();
                         let sel_name = BlockId::from_u8(self.renderer.selected_block()).name().to_uppercase();
                         if let Some(target) = self.break_target {
                             let target_block = self.world.get_block(target);
-                            let _ = write!(&mut self.debug_lines[4], "CEL: {} X:{} Y:{} Z:{}", target_block.name().to_uppercase(), target.x, target.y, target.z);
+                            let _ = write!(&mut self.debug_lines[4], "TARGET: {} X:{} Y:{} Z:{}", target_block.name().to_uppercase(), target.x, target.y, target.z);
                         } else {
-                            let _ = write!(&mut self.debug_lines[4], "BLOK: {}", sel_name);
+                            let _ = write!(&mut self.debug_lines[4], "BLOCK: {}", sel_name);
                         }
 
-                        // Linia 5: Entities & Gamemode
+                        // Line 5: Entities & Gamemode
                         self.debug_lines[5].clear();
-                        let _ = write!(&mut self.debug_lines[5], "MOBY: {} | ENTCJE: {} | TRYB: {}", self.mob_manager.mobs.len(), self.particles.particles.len(), mode_str);
+                        let _ = write!(&mut self.debug_lines[5], "MOBS: {} | ENTITIES: {} | MODE: {}", self.mob_manager.mobs.len(), self.particles.particles.len(), mode_str);
 
-                        // Linia 6: Biom
+                        // Line 6: Biome
                         self.debug_lines[6].clear();
                         let px = self.camera.position.x as i32;
                         let pz = self.camera.position.z as i32;
                         let biome = self.world.biome_name_at(px, pz);
-                        let _ = write!(&mut self.debug_lines[6], "BIOM: {}", biome);
+                        let _ = write!(&mut self.debug_lines[6], "BIOME: {}", biome);
 
-                        // Linia 7: Pora Dnia, Godzina z Minutami & Światło
+                        // Line 7: Time of Day & Light Level
                         self.debug_lines[7].clear();
                         let time_hrs = (self.world.day_fraction() * 24.0 + 6.0) % 24.0;
                         let hours = time_hrs.floor() as u32;
                         let minutes = (time_hrs.fract() * 60.0) as u32;
                         let time_period = if time_hrs >= 5.0 && time_hrs < 7.0 {
-                            "ŚWIT"
+                            "DAWN"
                         } else if time_hrs >= 7.0 && time_hrs < 12.0 {
-                            "RANEK"
+                            "MORNING"
                         } else if time_hrs >= 12.0 && time_hrs < 14.0 {
-                            "POŁUDNIE"
+                            "NOON"
                         } else if time_hrs >= 14.0 && time_hrs < 18.0 {
-                            "POPOŁUDNIE"
+                            "AFTERNOON"
                         } else if time_hrs >= 18.0 && time_hrs < 21.0 {
-                            "ZMIERZCH"
+                            "DUSK"
                         } else {
-                            "NOC"
+                            "NIGHT"
                         };
                         let _ = write!(
                             &mut self.debug_lines[7],
-                            "PORA: {} ({:02}:{:02}) | ŚWIATŁO: {:.0}%",
+                            "TIME: {} ({:02}:{:02}) | LIGHT: {:.0}%",
                             time_period,
                             hours,
                             minutes,

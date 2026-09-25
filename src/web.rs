@@ -1,3 +1,5 @@
+//! WebAssembly and HTML5 Canvas frontend bindings for RustCraft.
+
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
@@ -8,7 +10,7 @@ use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
 #[cfg(target_arch = "wasm32")]
 use crate::app::{InputState, RustCraftApp, HEIGHT, WIDTH};
 
-
+/// WebAssembly entry point wrapping `RustCraftApp` for browser execution.
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub struct WebGame {
@@ -21,15 +23,20 @@ pub struct WebGame {
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 impl WebGame {
+    /// Creates a new WebAssembly game instance attached to the given `<canvas>` ID.
+    ///
+    /// # Arguments
+    /// * `canvas_id` - DOM element ID of the HTML5 canvas.
+    /// * `seed` - Optional world generator seed (defaults to 1337).
     #[wasm_bindgen(constructor)]
     pub fn new(canvas_id: &str, seed: Option<u32>) -> Result<WebGame, JsValue> {
         console_error_panic_hook::set_once();
 
-        let window = web_sys::window().ok_or_else(|| JsValue::from_str("Brak okna window"))?;
-        let document = window.document().ok_or_else(|| JsValue::from_str("Brak document"))?;
+        let window = web_sys::window().ok_or_else(|| JsValue::from_str("Missing global window object"))?;
+        let document = window.document().ok_or_else(|| JsValue::from_str("Missing document object"))?;
         let canvas = document
             .get_element_by_id(canvas_id)
-            .ok_or_else(|| JsValue::from_str(&format!("Nie znaleziono canvasa o id '{canvas_id}'")))?;
+            .ok_or_else(|| JsValue::from_str(&format!("Canvas element not found with ID '{canvas_id}'")))?;
         let canvas: HtmlCanvasElement = canvas.dyn_into::<HtmlCanvasElement>()?;
 
         canvas.set_width(WIDTH as u32);
@@ -37,7 +44,7 @@ impl WebGame {
 
         let ctx = canvas
             .get_context("2d")?
-            .ok_or_else(|| JsValue::from_str("Nie udało się pobrać kontekstu 2d z canvas"))?
+            .ok_or_else(|| JsValue::from_str("Failed to get 2D rendering context from canvas"))?
             .dyn_into::<CanvasRenderingContext2d>()?;
 
         let initial_seed = seed.unwrap_or(1337);
@@ -249,7 +256,7 @@ impl WebGame {
 
         let output = self.app.update_and_render(dt, &input);
 
-        // Konwersja bufora koloru (0x00RRGGBB) do formatu Canvas ImageData (RGBA)
+        // Convert color buffer (0x00RRGGBB) to Canvas ImageData format (RGBA)
         let pixel_buf = self.app.pixel_buffer();
         for (i, &p) in pixel_buf.iter().enumerate() {
             let r = ((p >> 16) & 0xFF) as u8;

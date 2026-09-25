@@ -1,8 +1,12 @@
-// Parsowanie argumentów wiersza poleceń: wybór backendu renderera oraz
-// seeda świata (albo wylosowanie go, gdy nie podano).
+//! Command-line argument parsing and random seed generation for RustCraft.
 
-const USAGE: &str = "Użycie: rustcraft [--renderer software|vulkan] [--seed LICZBA]";
+const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan] [--seed NUMBER]";
 
+/// Parses command-line arguments to determine the desired rendering backend.
+///
+/// # Returns
+/// * `"vulkan"` - Hardware-accelerated GPU pipeline via WGPU (default).
+/// * `"software"` - Multi-threaded CPU software rasterizer.
 pub fn parse_renderer_choice() -> &'static str {
     let args: Vec<String> = std::env::args().collect();
     let mut choice = "vulkan";
@@ -29,7 +33,7 @@ pub fn parse_renderer_choice() -> &'static str {
                 std::process::exit(0);
             }
             unknown => {
-                eprintln!("Nieznany argument: {unknown}\n{USAGE}");
+                eprintln!("Unknown argument: {unknown}\n{USAGE}");
                 std::process::exit(2);
             }
         }
@@ -38,6 +42,11 @@ pub fn parse_renderer_choice() -> &'static str {
     choice
 }
 
+/// Generates a cryptographically strong random seed using OS entropy (`getrandom`),
+/// falling back to subsecond clock timestamp on failure.
+///
+/// # Returns
+/// A 32-bit unsigned integer suitable for world generator seeding.
 pub fn generate_random_seed() -> u32 {
     let mut buf = [0u8; 4];
     getrandom::getrandom(&mut buf).unwrap_or_else(|_| {
@@ -50,6 +59,10 @@ pub fn generate_random_seed() -> u32 {
     u32::from_le_bytes(buf)
 }
 
+/// Parses the `--seed <NUMBER>` CLI option if provided, or generates a random seed.
+///
+/// # Returns
+/// Parsed or randomly generated 32-bit world generation seed.
 pub fn parse_seed() -> u32 {
     let args: Vec<String> = std::env::args().collect();
     for index in 1..args.len() {
@@ -57,7 +70,7 @@ pub fn parse_seed() -> u32 {
             return args.get(index + 1)
                 .and_then(|value| value.parse::<u32>().ok())
                 .unwrap_or_else(|| {
-                    eprintln!("Seed musi być liczbą: --seed LICZBA");
+                    eprintln!("Seed must be an integer: --seed NUMBER");
                     std::process::exit(2);
                 });
         }

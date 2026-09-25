@@ -1,7 +1,10 @@
+//! Settings menu user interface rendering and button layout.
+
 use crate::core::settings::GameSettings;
 use crate::graphics::font;
 use crate::ui::draw::{draw_text_colored_shadowed, draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color};
 
+/// Computes bounding boxes `(x, y, width, height)` for each of the 12 settings menu options.
 pub fn settings_option_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 12] {
     let opt_w = 460;
     let opt_h = 22;
@@ -26,6 +29,7 @@ pub fn settings_option_rects(width: usize, height: usize) -> [(i32, i32, i32, i3
     ]
 }
 
+/// Draws the graphics & video settings menu overlay with buttons and current values.
 pub fn draw_settings_menu(
     buffer: &mut [u32],
     width: usize,
@@ -38,38 +42,38 @@ pub fn draw_settings_menu(
     let cx = width as i32 / 2;
     let cy = height as i32 / 2;
 
-    let title = "USTAWIENIA GRAFICZNE";
+    let title = "GRAPHICS SETTINGS";
     let t_w = font::measure_text(title, 3, 2);
     draw_text_colored_shadowed(buffer, width, height, title, cx - t_w / 2, cy - 192, 3, 2, pack_color(0.95, 0.85, 0.35));
 
     let msaa_str = match settings.msaa {
         2 => "2X",
         4 => "4X",
-        _ => "WYLACZONY",
+        _ => "OFF",
     };
 
     let fps_str = if settings.fps_limit == 0 {
-        "BRAK LIMITU".to_string()
+        "UNLIMITED".to_string()
     } else {
         format!("{} FPS", settings.fps_limit)
     };
 
     let options = [
-        format!("ZASIEG WIDZENIA: < {} CHUNKOW >", settings.render_distance),
-        format!("LISCIE: {}", if settings.fancy_leaves { "PRZESWITUJACE (FANCY)" } else { "ZWARTE (FAST)" }),
-        format!("MGLA: {}", if settings.fog { "WLACZONA" } else { "WYLACZONA" }),
-        format!("CHMURY: {}", if settings.clouds { "WLACZONE" } else { "WYLACZONE" }),
-        format!("CZASTECZKI (PARTICLES): {}", if settings.particles { "WLACZONE" } else { "WYLACZONE" }),
-        format!("ANIMACJA CHUNKOW: {}", if settings.chunk_anim { "WLACZONA" } else { "WYLACZONA" }),
-        format!("POLE WIDZENIA (FOV): < {:.0} DEG >", settings.fov_deg),
-        format!("ANTYALIASING (MSAA): < {} >", msaa_str),
-        format!("LIMIT FPS: < {} >", fps_str),
-        format!("EFEKTY PODWODNE: {}", if settings.underwater_fx { "WLACZONE" } else { "WYLACZONE" }),
-        format!("NAKLADKA DEBUGOWANIA: {}", if settings.debug_overlay { "WLACZONA" } else { "WYLACZONA" }),
+        format!("RENDER DISTANCE: < {} CHUNKS >", settings.render_distance),
+        format!("LEAVES: {}", if settings.fancy_leaves { "TRANSPARENT (FANCY)" } else { "SOLID (FAST)" }),
+        format!("FOG: {}", if settings.fog { "ON" } else { "OFF" }),
+        format!("CLOUDS: {}", if settings.clouds { "ON" } else { "OFF" }),
+        format!("PARTICLES: {}", if settings.particles { "ON" } else { "OFF" }),
+        format!("CHUNK ANIMATION: {}", if settings.chunk_anim { "ON" } else { "OFF" }),
+        format!("FOV: < {:.0} DEG >", settings.fov_deg),
+        format!("ANTI-ALIASING (MSAA): < {} >", msaa_str),
+        format!("FPS LIMIT: < {} >", fps_str),
+        format!("UNDERWATER EFFECTS: {}", if settings.underwater_fx { "ON" } else { "OFF" }),
+        format!("DEBUG OVERLAY: {}", if settings.debug_overlay { "ON" } else { "OFF" }),
         #[cfg(target_os = "vita")]
-        "ZAPISZ I WSTECZ [O]".to_string(),
+        "SAVE AND BACK [O]".to_string(),
         #[cfg(not(target_os = "vita"))]
-        "ZAPISZ I WSTECZ (ESC)".to_string(),
+        "SAVE AND BACK (ESC)".to_string(),
     ];
 
     let rects = settings_option_rects(width, height);
@@ -105,9 +109,9 @@ pub fn draw_settings_menu(
     }
 
     #[cfg(target_os = "vita")]
-    let hint = "STEROWANIE: [D-PAD] WYBOR/ZMIANA | [X / DOTYK] PRZELACZ | [O] WSTECZ";
+    let hint = "CONTROLS: [D-PAD] SELECT/CHANGE | [X / TOUCH] TOGGLE | [O] BACK";
     #[cfg(not(target_os = "vita"))]
-    let hint = "STEROWANIE: [D-PAD / STRZALKI] WYBOR/ZMIANA | [A / ENTER / LPM] PRZELACZ | [B / ESC] WSTECZ";
+    let hint = "CONTROLS: [D-PAD / ARROWS] SELECT/CHANGE | [A / ENTER / LMB] TOGGLE | [B / ESC] BACK";
     let hw = font::measure_text(hint, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, hint, cx - hw / 2, height as i32 - 20, 1, 1, pack_color(0.7, 0.75, 0.85));
 }

@@ -92,7 +92,7 @@ impl<'a> ChunkNeighborCache<'a> {
         let base_x = cx * CHUNK_SIZE_X;
         let base_z = cz * CHUNK_SIZE_Z;
 
-        // 1. Wysokość kolumn nieprzezroczystych (Opaque Heightmap) i liści (Leaf Heightmap)
+        // 1. Column heights for opaque blocks (Opaque Heightmap) and tree foliage (Leaf Heightmap)
         let mut heightmap = [0u8; 16 * 16];
         let mut leaf_heightmap = [0u8; 16 * 16];
         let blocks = chunk.blocks.as_slice();
@@ -116,7 +116,7 @@ impl<'a> ChunkNeighborCache<'a> {
             }
         }
 
-        // 2. Źródła światła tylko z zarejestrowanych pochodni w pobliżu (O(liczba_pochodni) zamiast 160k pętli!)
+        // 2. Light sources query only from registered nearby torches (O(torch_count) instead of 160k loops!)
         let mut lights = Vec::new();
         for &t_pos in &world.torches {
             let dx = (t_pos.x - (base_x + 8)).abs();
@@ -197,9 +197,9 @@ impl<'a> ChunkNeighborCache<'a> {
 
             if ly >= opaque_h {
                 if leaf_h > 0 && ly < leaf_h {
-                    0.88 // Delikatny, naturalny cień pod koroną drzewa
+                    0.88 // Soft natural shadow under tree canopy
                 } else {
-                    1.0  // Pełne, bezpośrednie światło słoneczne
+                    1.0  // Full direct sunlight
                 }
             } else {
                 let depth = (opaque_h - ly).max(1);

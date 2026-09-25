@@ -41,8 +41,8 @@ impl MobKind {
     #[allow(dead_code)]
     pub fn name(&self) -> &'static str {
         match self {
-            MobKind::Pig => "Świnia",
-            MobKind::Cow => "Krowa",
+            MobKind::Pig => "Pig",
+            MobKind::Cow => "Cow",
         }
     }
 }

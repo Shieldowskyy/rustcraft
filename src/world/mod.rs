@@ -863,7 +863,7 @@ impl World {
         Self::new_with_seed(DEFAULT_WORLD_SEED)
     }
 
-    /// Szuka bezpiecznej pozycji spawnu dla gracza, omijając głęboki ocean, ocean i bagno
+    /// Searches for a safe player spawn position, avoiding deep oceans, open water, and swamps.
     pub fn find_spawn_position(seed: u32) -> Vec3 {
         let mut x = 0i32;
         let mut z = 0i32;
@@ -927,7 +927,7 @@ impl World {
                                 fn sceKernelChangeThreadCpuAffinityMask(thid: i32, bitmask: i32) -> i32;
                             }
                             let thid = sceKernelGetThreadId();
-                            // Przypnij wątek do Core 1 (0x20000) lub Core 2 (0x40000), uwalniając Core 0 dla renderingu
+                            // Pin thread to Core 1 (0x20000) or Core 2 (0x40000), freeing Core 0 for rendering
                             let mask = if i % 2 == 0 { 0x00020000 } else { 0x00040000 };
                             sceKernelChangeThreadCpuAffinityMask(thid, mask);
                         }
@@ -961,7 +961,7 @@ impl World {
         let spawn_cz = (spawn_pos.z.floor() as i32) >> 4;
 
         let mut chunks = HashMap::new();
-        // Lekka pregeneracja początkowego obszaru spawnu (promień 2 chunków -> 5x5 = 25 chunków)
+        // Light pregeneration of initial spawn area (2-chunk radius -> 5x5 = 25 chunks)
         for dz in -2..=2 {
             for dx in -2..=2 {
                 let cx = spawn_cx + dx;
@@ -972,7 +972,7 @@ impl World {
         }
 
         World {
-            name: "Nowy Swiat".to_string(),
+            name: "New World".to_string(),
             gamemode: crate::gameplay::player::GameMode::Survival,
             chunks,
             seed,
@@ -1099,15 +1099,15 @@ impl World {
             bytes.extend_from_slice(&pos.z.to_le_bytes());
             bytes.push(*level);
         }
-        std::fs::write(path, bytes).map_err(|error| format!("nie udało się zapisać świata: {error}"))
+        std::fs::write(path, bytes).map_err(|error| format!("failed to save world: {error}"))
     }
 
     pub fn load(path: &str) -> Result<Self, String> {
-        let bytes = std::fs::read(path).map_err(|error| format!("nie udało się odczytać świata: {error}"))?;
+        let bytes = std::fs::read(path).map_err(|error| format!("failed to read world file: {error}"))?;
         let mut cursor = 0usize;
         let format = read_bytes(&bytes, &mut cursor, 10)?;
         if format != b"RUSTCRAFT1" && format != b"RUSTCRAFT2" && format != b"RUSTCRAFT3" && format != b"RUSTCRAFT4" {
-            return Err("nieznany format pliku świata".to_owned());
+            return Err("unknown world file format".to_owned());
         }
         let seed = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap());
         let (gamemode, name) = if format == b"RUSTCRAFT4" {
@@ -1117,11 +1117,11 @@ impl World {
             let name_str = if name_len > 0 {
                 String::from_utf8_lossy(read_bytes(&bytes, &mut cursor, name_len)?).to_string()
             } else {
-                format!("Swiat {}", seed)
+                format!("World {}", seed)
             };
             (gm, name_str)
         } else {
-            (crate::gameplay::player::GameMode::Survival, format!("Swiat {}", seed))
+            (crate::gameplay::player::GameMode::Survival, format!("World {}", seed))
         };
         let player_position = if format == b"RUSTCRAFT2" || format == b"RUSTCRAFT3" || format == b"RUSTCRAFT4" {
             Vec3::new(
@@ -1143,7 +1143,7 @@ impl World {
             let cz = i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap());
             let block_len = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()) as usize;
             if block_len != expected_len {
-                return Err("nieprawidłowy rozmiar chunka w pliku świata".to_owned());
+                return Err("invalid chunk data length in world file".to_owned());
             }
             let blocks = read_bytes(&bytes, &mut cursor, block_len)?.to_vec();
             world.chunks.insert((cx, cz), Chunk { cx, cz, blocks, dirty: true });
@@ -1200,17 +1200,17 @@ impl World {
         let is_savanna  = !is_mountain && !is_snowy && !is_desert && !is_ocean && !is_cherry && temp > 0.18 && humidity < 0.05;
         let is_forest   = !is_mountain && !is_snowy && !is_desert && !is_ocean && !is_cherry && !is_savanna && humidity > 0.15;
 
-        if is_mountain   { "GORY" }
-        else if is_snowy { "SNIEG" }
-        else if is_desert{ "PUSTYNIA" }
+        if is_mountain   { "MOUNTAINS" }
+        else if is_snowy { "SNOW" }
+        else if is_desert{ "DESERT" }
         else if is_ocean { "OCEAN" }
-        else if is_cherry{ "WISNIOWY SAD" }
-        else if is_savanna{"SAWANNA" }
-        else if is_forest{ "LAS" }
-        else             { "ROWNINA" }
+        else if is_cherry{ "CHERRY GROVE" }
+        else if is_savanna{"SAVANNA" }
+        else if is_forest{ "FOREST" }
+        else             { "PLAINS" }
     }
 
-    /// Sprawdza czy pole widzenia kamery jest w 100% przesłonięte przez litą ścianę/blok bezpośrednio przed oczami
+    /// Checks whether the camera view frustum is completely blocked by an opaque solid block immediately in front.
     #[inline]
     pub fn is_view_fully_occluded(&self, camera_pos: crate::core::math::Vec3, yaw: f32, pitch: f32) -> bool {
         let eye_block = self.get_block(camera_pos.floor_to_ivec());
@@ -1825,7 +1825,7 @@ impl World {
 
 pub(crate) fn read_bytes<'a>(bytes: &'a [u8], cursor: &mut usize, count: usize) -> Result<&'a [u8], String> {
     if bytes.len().saturating_sub(*cursor) < count {
-        return Err("uszkodzony plik świata".to_owned());
+        return Err("corrupted world file".to_owned());
     }
     let slice = &bytes[*cursor..*cursor + count];
     *cursor += count;

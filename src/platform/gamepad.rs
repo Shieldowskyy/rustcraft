@@ -1,7 +1,9 @@
+//! Cross-platform gamepad polling and event abstraction using `gilrs`.
+
 use gilrs::{Axis, Button, Event, EventType, Gilrs};
 
-/// Stan kontrolera / gamepada z obsługą martwej strefy (deadzone) oraz detekcją
-/// pojedynczych kliknięć (just-pressed) do nawigacji po menu i ekwipunku.
+/// Gamepad manager tracking analog axes, button states, deadzones,
+/// and edge-triggered click events (`just_pressed`) for menus and gameplay.
 pub struct GamepadManager {
     gilrs: Option<Gilrs>,
     pub state: GamepadState,
@@ -10,11 +12,12 @@ pub struct GamepadManager {
     stick_repeat_timer: f32,
 }
 
+/// Instantaneous gamepad hardware state.
 #[derive(Clone, Copy, Default, Debug)]
 pub struct GamepadState {
     pub is_connected: bool,
 
-    // Osie analogowe (-1.0 .. 1.0 lub 0.0 .. 1.0)
+    // Analog stick axes (-1.0 .. 1.0) and analog triggers (0.0 .. 1.0)
     pub left_stick_x: f32,
     pub left_stick_y: f32,
     pub right_stick_x: f32,
@@ -22,23 +25,23 @@ pub struct GamepadState {
     pub left_trigger: f32,
     pub right_trigger: f32,
 
-    // Przyciski cyfrowe (wciskanie ciągłe)
-    pub btn_south: bool,   // A / Cross (Skok / Wybór w UI)
-    pub btn_east: bool,    // B / Circle (Kucanie / Wstecz w UI)
-    pub btn_west: bool,    // X / Square (Wyrzucanie przedmiotu)
-    pub btn_north: bool,   // Y / Triangle (Ekwipunek)
-    pub btn_lb: bool,      // L1 / Left Bumper (Poprzedni slot hotbara)
-    pub btn_rb: bool,      // R1 / Right Bumper (Następny slot hotbara)
-    pub btn_lt: bool,      // L2 / Left Trigger (Stawianie bloku)
-    pub btn_rt: bool,      // R2 / Right Trigger (Niszczenie bloku / Atak)
-    pub btn_l3: bool,      // Left Stick Click (Bieg / Sprint)
-    pub btn_r3: bool,      // Right Stick Click (Tryb lotu)
-    pub btn_start: bool,   // Start / Menu (Pauza)
-    pub btn_select: bool,  // Select / Back (Zmiana trybu gry / Zapis)
-    pub dpad_up: bool,     // D-Pad Góra
-    pub dpad_down: bool,   // D-Pad Dół
-    pub dpad_left: bool,   // D-Pad Lewo
-    pub dpad_right: bool,  // D-Pad Prawo
+    // Digital button continuous press states
+    pub btn_south: bool,   // A / Cross (Jump / UI Confirm)
+    pub btn_east: bool,    // B / Circle (Sneak / UI Back)
+    pub btn_west: bool,    // X / Square (Drop item)
+    pub btn_north: bool,   // Y / Triangle (Inventory)
+    pub btn_lb: bool,      // L1 / Left Bumper (Previous hotbar slot)
+    pub btn_rb: bool,      // R1 / Right Bumper (Next hotbar slot)
+    pub btn_lt: bool,      // L2 / Left Trigger (Place block)
+    pub btn_rt: bool,      // R2 / Right Trigger (Break block / Attack)
+    pub btn_l3: bool,      // Left Stick Click (Sprint)
+    pub btn_r3: bool,      // Right Stick Click (Toggle fly mode)
+    pub btn_start: bool,   // Start / Menu (Pause)
+    pub btn_select: bool,  // Select / Back (Toggle game mode / Save)
+    pub dpad_up: bool,     // D-Pad Up
+    pub dpad_down: bool,   // D-Pad Down
+    pub dpad_left: bool,   // D-Pad Left
+    pub dpad_right: bool,  // D-Pad Right
 }
 
 #[derive(Clone, Copy, Default, Debug)]
@@ -66,7 +69,7 @@ impl GamepadManager {
         let gilrs = match Gilrs::new() {
             Ok(g) => Some(g),
             Err(e) => {
-                eprintln!("Brak obsługi lub błąd inicjalizacji gamepadów: {e}");
+                eprintln!("Gamepad subsystem unavailable or failed to initialize: {e}");
                 None
             }
         };
@@ -80,7 +83,7 @@ impl GamepadManager {
         }
     }
 
-    /// Aktualizuje stan pada na podstawie zdarzeń systemowych z biblioteki gilrs.
+    /// Updates the gamepad state based on system events from the gilrs library.
     pub fn update(&mut self, dt: f32) -> GamepadEvents {
         self.prev_state = self.state;
 
@@ -168,7 +171,7 @@ impl GamepadManager {
                 }
             }
 
-            // Bezpośredni odczyt stanu z podłączonych padów
+            // Direct state polling from connected gamepads
             for (_id, gamepad) in gilrs.gamepads() {
                 if gamepad.is_connected() {
                     self.state.is_connected = true;
@@ -191,7 +194,7 @@ impl GamepadManager {
             }
         }
 
-        // Obsługa powtarzania nawigacji analogowej w menu (stick repeat)
+        // Handle analog stick repeat for UI navigation
         self.stick_repeat_timer += dt;
         let mut stick_nav_up = false;
         let mut stick_nav_down = false;

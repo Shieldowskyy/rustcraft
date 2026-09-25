@@ -1,27 +1,37 @@
-// System cząsteczek: efekty rozbicia bloku, eksplozji, trafienia moba
-// i "poofu" po jego śmierci. Czysto kosmetyczne - nie wpływa na logikę gry.
+//! Particle system for visual block breaking, explosions, mob hits, and death poofs.
+//!
+//! Purely cosmetic and client-side; does not alter game simulation state.
 
 use crate::core::math::Vec3;
 
+/// An individual particle instance with position, velocity, RGB tint, lifetime, and size.
 #[derive(Clone, Copy)]
 pub struct Particle {
+    /// World position of the particle.
     pub pos: Vec3,
+    /// Velocity vector in units/sec.
     pub vel: Vec3,
+    /// RGB color modulation.
     pub color: [f32; 3],
+    /// Remaining lifetime in seconds.
     pub life: f32,
+    /// Render size in world units.
     pub size: f32,
 }
 
+/// Particle manager managing active particles, physics integration, and emitter helpers.
 pub struct ParticleSystem {
+    /// Active particle buffer.
     pub particles: Vec<Particle>,
 }
 
 impl ParticleSystem {
+    /// Creates an empty particle system.
     pub fn new() -> Self {
         ParticleSystem { particles: Vec::new() }
     }
 
-    /// Spawn a burst of particles at `pos` with the block's face color.
+    /// Spawns a burst of particles at `pos` matching the block's face color.
     pub fn spawn_block_break(&mut self, pos: Vec3, color: [f32; 3]) {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -49,7 +59,7 @@ impl ParticleSystem {
         }
     }
 
-    /// Efektowna eksplozja ogniowo-dymna
+    /// Spawns an explosive fire-and-smoke effect (e.g. for TNT).
     pub fn spawn_explosion(&mut self, pos: Vec3) {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -83,7 +93,7 @@ impl ParticleSystem {
         }
     }
 
-    /// Efekt spalenia przedmiotu / bytu w lawie (płomienie i dym)
+    /// Spawns fire and smoke particles when an item or entity burns in lava.
     pub fn spawn_lava_burn(&mut self, pos: Vec3) {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -116,7 +126,7 @@ impl ParticleSystem {
         }
     }
 
-    /// Efekt uderzenia moba (krytyczne/czerwone iskry)
+    /// Spawns hit impact sparks (critical / damage flashes).
     pub fn spawn_mob_hit(&mut self, pos: Vec3) {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -149,7 +159,7 @@ impl ParticleSystem {
         }
     }
 
-    /// Minecraftowy obłok dymu („poof”) po wyparowaniu moba
+    /// Spawns a Minecraft-style white smoke cloud ("poof") upon mob death.
     pub fn spawn_mob_death_poof(&mut self, pos: Vec3) {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -181,7 +191,7 @@ impl ParticleSystem {
         }
     }
 
-    /// Efekt bąbelków wody podczas tonięcia (drowning)
+    /// Spawns water bubble particles when an entity is submerged and drowning.
     pub fn spawn_drown_bubbles(&mut self, pos: Vec3) {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -212,6 +222,7 @@ impl ParticleSystem {
         }
     }
 
+    /// Advances simulation of all active particles by `dt` seconds, applying gravity and drag.
     pub fn update(&mut self, dt: f32) {
         const GRAVITY: f32 = 8.0;
         self.particles.retain_mut(|p| {

@@ -49,11 +49,11 @@ windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "W
 x11-dl = "2.21"
 
 [profile.release]
-opt-level = "s"      # Optymalizacja pod kątem małego rozmiaru (lub "z")
-lto = true           # Link Time Optimization włączone w pełni dla mniejszego kodu
-codegen-units = 1    # Jedna jednostka generacji kodu (maksymalna optymalizacja rozmiaru/wyszukiwanie martwego kodu)
-panic = "abort"      # Usuwa kod obsługi unwindingu (stack unrolling), oszczędza sporo KB
-strip = false        # Nie usuwamy symboli w ld (wymagane dla vita-elf-create i relokacji -q)
+opt-level = "s"      # Optimize for binary size (or "z")
+lto = true           # Full Link Time Optimization for smaller binary footprint
+codegen-units = 1    # Single codegen unit for maximum size optimization and dead code elimination
+panic = "abort"      # Abort on panic to remove stack unwinding code, saving space
+strip = false        # Keep symbols for Vita elf conversion and relocation tools (-q)
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false

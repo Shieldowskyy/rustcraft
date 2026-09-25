@@ -1,10 +1,9 @@
-// Zapisywanie i wczytywanie światów: ustalenie katalogu na sejwy oraz
-// budowanie ścieżek do plików poszczególnych slotów.
+//! World persistence, save file discovery, slot metadata, and thumbnail storage.
 
 use crate::graphics::camera::Camera;
 use crate::world::World;
 
-/// Zwraca (i zapamiętuje) katalog, w którym mają być przechowywane sejwy.
+/// Returns (and lazily caches) the directory path where world save files are stored.
 fn saves_dir() -> &'static std::path::PathBuf {
     use std::sync::OnceLock;
     static SAVES_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
@@ -17,6 +16,7 @@ fn saves_dir() -> &'static std::path::PathBuf {
     })
 }
 
+/// Returns the `saves/` subdirectory adjacent to the executable if it exists and is writable.
 fn exe_saves_dir_if_writable() -> Option<std::path::PathBuf> {
     let exe_path = std::env::current_exe().ok()?;
     let exe_dir = exe_path.parent()?;
@@ -33,6 +33,7 @@ fn exe_saves_dir_if_writable() -> Option<std::path::PathBuf> {
     }
 }
 
+/// Fallback save directory per platform (ux0 on PS Vita, APPDATA on Windows, ~/.config on Linux).
 fn fallback_saves_dir() -> std::path::PathBuf {
     #[cfg(target_os = "vita")]
     {
@@ -61,6 +62,7 @@ fn fallback_saves_dir() -> std::path::PathBuf {
     }
 }
 
+/// Checks whether write permissions are granted in `dir` by creating and deleting a temporary test file.
 fn is_dir_writable(dir: &std::path::Path) -> bool {
     let test_path = dir.join(".rustcraft_write_test");
     match std::fs::File::create(&test_path) {
@@ -72,7 +74,7 @@ fn is_dir_writable(dir: &std::path::Path) -> bool {
     }
 }
 
-/// Ścieżka do pliku sejwu dla danego slotu (1-based).
+/// Returns the absolute path to the world save binary for a given 1-based `slot` number.
 pub fn save_path(slot: u8) -> String {
     saves_dir()
         .join(format!("rustcraft_world_{slot:02}.bin"))
@@ -80,6 +82,7 @@ pub fn save_path(slot: u8) -> String {
         .into_owned()
 }
 
+/// Returns the absolute path to the world thumbnail image for a given 1-based `slot` number.
 pub fn thumbnail_path(slot: u8) -> String {
     saves_dir()
         .join(format!("rustcraft_world_{slot:02}.thumb"))
@@ -87,8 +90,10 @@ pub fn thumbnail_path(slot: u8) -> String {
         .into_owned()
 }
 
+/// Width and height of generated world save thumbnails in pixels.
 pub const THUMB_SIZE: usize = 56;
 
+/// Crops and downsamples the color buffer into a 56x56 square thumbnail.
 pub fn capture_thumbnail(color_buffer: &[u32], width: usize, height: usize) -> Vec<u32> {
     let mut thumb = Vec::with_capacity(THUMB_SIZE * THUMB_SIZE);
     if width == 0 || height == 0 || color_buffer.len() < width * height {
@@ -109,12 +114,14 @@ pub fn capture_thumbnail(color_buffer: &[u32], width: usize, height: usize) -> V
     thumb
 }
 
+/// Writes the thumbnail pixel array to disk for the given save `slot`.
 pub fn save_thumbnail(slot: u8, thumb: &[u32]) {
     let path = thumbnail_path(slot);
     let bytes: &[u8] = bytemuck::cast_slice(thumb);
     let _ = std::fs::write(path, bytes);
 }
 
+/// Reads the thumbnail pixel array from disk for the given save `slot` if present.
 pub fn load_thumbnail(slot: u8) -> Option<Vec<u32>> {
     let path = thumbnail_path(slot);
     if let Ok(bytes) = std::fs::read(&path) {
@@ -128,24 +135,37 @@ pub fn load_thumbnail(slot: u8) -> Option<Vec<u32>> {
     None
 }
 
+/// Returns the configuration file path for persistent settings.
 pub fn settings_file_path() -> std::path::PathBuf {
     saves_dir().join("settings.bin")
 }
 
+/// Metadata header describing an individual world save slot.
 #[derive(Clone, Debug)]
 pub struct SaveMetadata {
+    /// Slot number (1-based).
     pub slot: u8,
+    /// Whether a valid save file currently exists on disk.
     pub exists: bool,
+    /// Human-readable world name.
     pub name: String,
+    /// Game mode (Survival or Creative).
     pub gamemode: crate::gameplay::player::GameMode,
+    /// Numerical world seed.
     pub seed: u32,
+    /// Saved player coordinates.
     pub player_pos: crate::core::math::Vec3,
+    /// Number of serialized chunk columns.
     pub chunk_count: usize,
+    /// Total file size on disk in bytes.
     pub file_size_bytes: u64,
+    /// Human-readable relative timestamp (e.g. "5 min ago", "yesterday").
     pub last_modified_str: String,
+    /// 56x56 RGBA/ARGB preview thumbnail if available.
     pub thumbnail: Option<Vec<u32>>,
 }
 
+/// Parses the save file header on disk for `slot` and returns its `SaveMetadata`.
 pub fn get_save_metadata(slot: u8) -> SaveMetadata {
     let path = save_path(slot);
     let p = std::path::Path::new(&path);
@@ -172,16 +192,16 @@ pub fn get_save_metadata(slot: u8) -> SaveMetadata {
             let dur = std::time::SystemTime::now().duration_since(time).unwrap_or_default();
             let secs = dur.as_secs();
             if secs < 60 {
-                "przed chwila".to_string()
+                "just now".to_string()
             } else if secs < 3600 {
-                format!("{} min temu", secs / 60)
+                format!("{} min ago", secs / 60)
             } else if secs < 86400 {
-                format!("{} godz temu", secs / 3600)
+                format!("{} hours ago", secs / 3600)
             } else {
-                format!("{} dni temu", secs / 86400)
+                format!("{} days ago", secs / 86400)
             }
         })
-        .unwrap_or_else(|| "zapisany".to_string());
+        .unwrap_or_else(|| "saved".to_string());
 
     let thumbnail = load_thumbnail(slot);
 
@@ -200,14 +220,14 @@ pub fn get_save_metadata(slot: u8) -> SaveMetadata {
                                 if let Ok(nb) = crate::world::read_bytes(&bytes, &mut cursor, name_len) {
                                     String::from_utf8_lossy(nb).to_string()
                                 } else {
-                                    format!("Swiat {}", seed)
+                                    format!("World {}", seed)
                                 }
                             } else {
-                                format!("Swiat {}", seed)
+                                format!("World {}", seed)
                             };
                             (gm, name_str)
                         } else {
-                            (crate::gameplay::player::GameMode::Survival, format!("Swiat {}", seed))
+                            (crate::gameplay::player::GameMode::Survival, format!("World {}", seed))
                         };
 
                         let mut player_pos = crate::world::World::find_spawn_position(seed);
@@ -260,6 +280,7 @@ pub fn get_save_metadata(slot: u8) -> SaveMetadata {
     }
 }
 
+/// Deletes a save file and its associated thumbnail preview from disk.
 pub fn delete_save(slot: u8) -> Result<(), String> {
     let _ = std::fs::remove_file(thumbnail_path(slot));
     let path = save_path(slot);
@@ -271,7 +292,7 @@ pub fn delete_save(slot: u8) -> Result<(), String> {
     }
 }
 
-/// Zapisuje aktualny stan świata (pozycję gracza z kamery, tryb gry, screenshot) do slotu.
+/// Saves the active world state (player position, game mode, modified chunks, and thumbnail) to `slot`.
 pub fn save_current_world(
     world: &mut World,
     camera: &Camera,

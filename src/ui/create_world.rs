@@ -1,7 +1,19 @@
+//! Create World menu screen and interactive UI element positioning.
+
 use crate::gameplay::player::GameMode;
 use crate::graphics::font;
 use crate::ui::draw::{draw_text_colored_shadowed, fill_rect, fill_rect_alpha, pack_color};
 
+/// Calculates layout bounding boxes for interactive create-world form elements.
+///
+/// # Returns
+/// An array of 6 rectangles `[(x, y, width, height); 6]`:
+/// - `0`: Name input field
+/// - `1`: Seed input field
+/// - `2`: Random seed generator button
+/// - `3`: Game mode toggle button
+/// - `4`: Create World action button
+/// - `5`: Cancel action button
 pub fn create_world_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 6] {
     let cx = width as i32 / 2;
     let _ = height;
@@ -39,6 +51,7 @@ pub fn create_world_rects(width: usize, height: usize) -> [(i32, i32, i32, i32);
     ]
 }
 
+/// Renders the Create World configuration dialogue.
 pub fn draw_create_world_menu(
     buffer: &mut [u32],
     width: usize,
@@ -55,11 +68,11 @@ pub fn draw_create_world_menu(
     let cx = width as i32 / 2;
     let rects = create_world_rects(width, height);
 
-    // Pełne, czyste tło menu
+    // Dark backdrop overlay
     fill_rect(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.06, 0.07, 0.09));
     fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.02, 0.03, 0.05), 0.65);
 
-    // Główny kontener dialogowy
+    // Main modal dialogue panel
     let panel_w = 540;
     let panel_h = 450;
     let panel_x = cx - panel_w / 2;
@@ -71,20 +84,20 @@ pub fn draw_create_world_menu(
     fill_rect(buffer, width, height, panel_x, panel_y + panel_h - 2, panel_w, 2, pack_color(0.05, 0.06, 0.08));
     fill_rect(buffer, width, height, panel_x + panel_w - 2, panel_y, 2, panel_h, pack_color(0.05, 0.06, 0.08));
 
-    // Nagłówek
-    let title = "TWORZENIE NOWEGO SWIATA";
+    // Header title
+    let title = "CREATE NEW WORLD";
     let title_w = font::measure_text(title, 3, 2);
     draw_text_colored_shadowed(buffer, width, height, title, cx - title_w / 2, panel_y + 16, 3, 2, pack_color(0.95, 0.85, 0.35));
 
-    let subtitle = format!("Konfiguracja nowego swiata dla slotu {:02}", slot);
+    let subtitle = format!("Configure world parameters for slot {:02}", slot);
     let sub_w = font::measure_text(&subtitle, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, &subtitle, cx - sub_w / 2, panel_y + 44, 1, 1, pack_color(0.7, 0.75, 0.85));
 
     let cursor_visible = (blink_timer % 0.8) < 0.4;
 
-    // --- 1. NAZWA ŚWIATA ---
+    // --- 1. WORLD NAME ---
     let (nx, ny, nw, nh) = rects[0];
-    draw_text_colored_shadowed(buffer, width, height, "NAZWA SWIATA:", nx, ny - 16, 1, 1, pack_color(0.85, 0.90, 0.95));
+    draw_text_colored_shadowed(buffer, width, height, "WORLD NAME:", nx, ny - 16, 1, 1, pack_color(0.85, 0.90, 0.95));
 
     let name_is_active = focused_element == 0;
     let name_is_hover = hovered_element == Some(0);
@@ -100,7 +113,7 @@ pub fn draw_create_world_menu(
     fill_rect(buffer, width, height, nx, ny, nw, nh, pack_color(0.06, 0.07, 0.09));
 
     let display_name = if name.is_empty() && !name_is_active {
-        format!("Nowy Swiat {:02}", slot)
+        format!("New World {:02}", slot)
     } else {
         name.to_string()
     };
@@ -124,9 +137,9 @@ pub fn draw_create_world_menu(
         draw_text_colored_shadowed(buffer, width, height, "_", cur_x, ny + 10, 2, 1, pack_color(1.0, 0.9, 0.3));
     }
 
-    // --- 2. SEED ŚWIATA ---
+    // --- 2. WORLD SEED ---
     let (sx, sy, sw, sh) = rects[1];
-    draw_text_colored_shadowed(buffer, width, height, "SEED (POZOSTAW PUSTE DLA LOSOWEGO):", sx, sy - 16, 1, 1, pack_color(0.85, 0.90, 0.95));
+    draw_text_colored_shadowed(buffer, width, height, "SEED (LEAVE BLANK FOR RANDOM):", sx, sy - 16, 1, 1, pack_color(0.85, 0.90, 0.95));
 
     let seed_is_active = focused_element == 1;
     let seed_is_hover = hovered_element == Some(1);
@@ -142,7 +155,7 @@ pub fn draw_create_world_menu(
     fill_rect(buffer, width, height, sx, sy, sw, sh, pack_color(0.06, 0.07, 0.09));
 
     let display_seed = if seed_str.is_empty() && !seed_is_active {
-        "(Losowy seed)".to_string()
+        "(Random seed)".to_string()
     } else {
         seed_str.to_string()
     };
@@ -166,7 +179,7 @@ pub fn draw_create_world_menu(
         draw_text_colored_shadowed(buffer, width, height, "_", cur_x, sy + 10, 2, 1, pack_color(1.0, 0.9, 0.3));
     }
 
-    // Przycisk LOSUJ SEED
+    // RANDOM SEED BUTTON
     let (rx, ry, rw, rh) = rects[2];
     let rand_is_active = focused_element == 2;
     let rand_is_hover = hovered_element == Some(2);
@@ -175,13 +188,13 @@ pub fn draw_create_world_menu(
 
     fill_rect(buffer, width, height, rx - 2, ry - 2, rw + 4, rh + 4, rand_border);
     fill_rect(buffer, width, height, rx, ry, rw, rh, rand_body);
-    let r_label = "LOSUJ";
+    let r_label = "RANDOM";
     let r_tw = font::measure_text(r_label, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, r_label, rx + (rw - r_tw) / 2, ry + (rh - 5) / 2, 1, 1, pack_color(0.95, 0.95, 0.95));
 
-    // --- 3. DOMYŚLNY TRYB GRY ---
+    // --- 3. DEFAULT GAME MODE ---
     let (gx, gy, gw, gh) = rects[3];
-    draw_text_colored_shadowed(buffer, width, height, "TRYB GRY:", gx, gy - 16, 1, 1, pack_color(0.85, 0.90, 0.95));
+    draw_text_colored_shadowed(buffer, width, height, "GAME MODE:", gx, gy - 16, 1, 1, pack_color(0.85, 0.90, 0.95));
 
     let mode_is_active = focused_element == 3;
     let mode_is_hover = hovered_element == Some(3);
@@ -204,14 +217,14 @@ pub fn draw_create_world_menu(
 
     let (mode_btn_text, mode_text_color, mode_desc) = match gamemode {
         GameMode::Survival => (
-            "TRYB GRY: SURVIVAL (PRZETRWANIE)",
+            "GAME MODE: SURVIVAL",
             pack_color(0.4, 0.95, 0.45),
-            "Paski zdrowia i glodu, potwory, niszczenie blokow wymaga czasu.",
+            "Health & hunger meters, mobs, block destruction takes time.",
         ),
         GameMode::Creative => (
-            "TRYB GRY: KREATYWNY (BUDOWANIE)",
+            "GAME MODE: CREATIVE",
             pack_color(0.4, 0.85, 1.0),
-            "Latanie, niesmiertelnosc, blyskawiczne niszczenie, pelny ekwipunek.",
+            "Flight, invulnerability, instant block breaking, full item inventory.",
         ),
     };
 
@@ -221,7 +234,7 @@ pub fn draw_create_world_menu(
     let desc_w = font::measure_text(mode_desc, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, mode_desc, cx - desc_w / 2, gy + gh + 8, 1, 1, pack_color(0.65, 0.72, 0.82));
 
-    // --- 4. PRZYCISK STWÓRZ ŚWIAT ---
+    // --- 4. CREATE WORLD BUTTON ---
     let (bx, by, bw, bh) = rects[4];
     let create_is_active = focused_element == 4;
     let create_is_hover = hovered_element == Some(4);
@@ -233,14 +246,14 @@ pub fn draw_create_world_menu(
     fill_rect(buffer, width, height, bx, by, bw, bh, create_bg);
 
     #[cfg(target_os = "vita")]
-    let create_lbl = "STWORZ SWIAT [X]";
+    let create_lbl = "CREATE WORLD [X]";
     #[cfg(not(target_os = "vita"))]
-    let create_lbl = "STWORZ SWIAT (ENTER)";
+    let create_lbl = "CREATE WORLD (ENTER)";
 
     let c_tw = font::measure_text(create_lbl, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, create_lbl, bx + (bw - c_tw) / 2, by + (bh - 5) / 2, 1, 1, pack_color(1.0, 1.0, 1.0));
 
-    // --- 5. PRZYCISK ANULUJ ---
+    // --- 5. CANCEL BUTTON ---
     let (ax, ay, aw, ah) = rects[5];
     let cancel_is_active = focused_element == 5;
     let cancel_is_hover = hovered_element == Some(5);
@@ -252,18 +265,18 @@ pub fn draw_create_world_menu(
     fill_rect(buffer, width, height, ax, ay, aw, ah, cancel_bg);
 
     #[cfg(target_os = "vita")]
-    let cancel_lbl = "ANULUJ [O]";
+    let cancel_lbl = "CANCEL [O]";
     #[cfg(not(target_os = "vita"))]
-    let cancel_lbl = "ANULUJ (ESC)";
+    let cancel_lbl = "CANCEL (ESC)";
 
     let a_tw = font::measure_text(cancel_lbl, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, cancel_lbl, ax + (aw - a_tw) / 2, ay + (ah - 5) / 2, 1, 1, pack_color(1.0, 1.0, 1.0));
 
-    // Pasek pomocy / nawigacji na dole ekranu
+    // Bottom help/navigation bar
     #[cfg(target_os = "vita")]
-    let footer = "[D-PAD] NAWIGACJA | [X] PRZELACZ/WYBIERZ | [TROJKAT] LOSUJ SEED | [O] WSTECZ";
+    let footer = "[D-PAD] NAVIGATE | [X] TOGGLE/SELECT | [TRIANGLE] RANDOM SEED | [O] BACK";
     #[cfg(not(target_os = "vita"))]
-    let footer = "[TAB / STRZALKI] NAWIGACJA | [KLAWIATURA] WPISYWANIE | [ENTER] STWORZ | [ESC] ANULUJ";
+    let footer = "[TAB / ARROWS] NAVIGATE | [KEYBOARD] TYPE | [ENTER] CREATE | [ESC] CANCEL";
 
     let ft_w = font::measure_text(footer, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, footer, cx - ft_w / 2, height as i32 - 18, 1, 1, pack_color(0.65, 0.72, 0.85));
