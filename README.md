@@ -17,6 +17,7 @@ RustCraft features a multithreaded CPU software rasterizer (tiled rasterization,
 |---|---|---|---|
 | **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./compile_linux.sh` |
 | **Linux (ARM64 / AArch64)** | `aarch64-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./build_linux_arm64.sh` |
+| **Linux (ARMv7 32-bit HF)** | `armv7-unknown-linux-gnueabihf` | Software CPU (Rayon) / Vulkan | `./build_linux_armv7.sh` |
 | **Raspberry Pi Zero W (ARMv6)** | `arm-unknown-linux-gnueabihf` | Software CPU (Tuned for ARM11) | `./build_rpi_armv6.sh` |
 | **FreeBSD (x86_64)** | `x86_64-unknown-freebsd` | Software CPU / X11 | `./build_freebsd.sh` |
 | **Windows (x86_64)** | `x86_64-pc-windows-gnu` | Software CPU / Vulkan | `./compile-windows.sh` |
@@ -47,7 +48,7 @@ RustCraft separates core engine capabilities from gameplay logic, providing huma
 
 ## 3. Requirements
 
-### Desktop & Embedded Linux (x86_64, ARM64, ARMv6, FreeBSD)
+### Desktop & Embedded Linux (x86_64, ARM64, ARMv7, ARMv6, FreeBSD)
 * **Rust**: stable toolchain 1.75+ (`rustup` recommended: https://rustup.rs).
 * **Linux / FreeBSD**: X11 development headers (`libx11-dev` on Debian/Ubuntu, `xorgproto` on FreeBSD).
 * **Windows / macOS**: No external C libraries required (`minifb` uses native OS windowing APIs).
@@ -88,6 +89,12 @@ cargo run --release -- --vulkan
 ```bash
 ./build_linux_arm64.sh
 # Output: target/aarch64-unknown-linux-gnu/release/rustcraft
+```
+
+### Linux ARMv7 (Raspberry Pi 2/3 32-bit, BeagleBone, Retro Handhelds)
+```bash
+./build_linux_armv7.sh
+# Output: target/armv7-unknown-linux-gnueabihf/release/rustcraft
 ```
 
 ### Raspberry Pi Zero W / Zero / 1 (ARMv6)
@@ -218,6 +225,7 @@ rustcraft/
 ├── compile_linux.sh            # Linux x86_64 release & strip script
 ├── compile-windows.sh          # MinGW cross-compilation script
 ├── build_linux_arm64.sh        # Linux ARM64 (Raspberry Pi 4/5) build script
+├── build_linux_armv7.sh        # Linux ARMv7 (Raspberry Pi 2/3 32-bit) build script
 ├── build_rpi_armv6.sh          # Raspberry Pi Zero W (ARMv6) build script
 ├── build_freebsd.sh            # FreeBSD x86_64 build script
 ├── build_vita.sh               # PS Vita VPK packaging script
