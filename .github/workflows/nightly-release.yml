@@ -248,6 +248,28 @@ jobs:
           name: windows-i686-pkg
           path: dist/rustcraft-windows-i686.zip
 
+  build-windows-arm64:
+    name: Build Windows ARM64 (AArch64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: aarch64-pc-windows-msvc
+      - name: Build
+        run: cargo build --target aarch64-pc-windows-msvc --release
+      - name: Package Windows ARM64 ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Compress-Archive -Path target\aarch64-pc-windows-msvc\release\rustcraft.exe -DestinationPath dist\rustcraft-windows-arm64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-arm64-pkg
+          path: dist/rustcraft-windows-arm64.zip
+
   build-vita:
     name: Build PS Vita (.vpk)
     runs-on: ubuntu-latest
@@ -308,6 +330,7 @@ jobs:
       build-freebsd,
       build-windows,
       build-windows-i686,
+      build-windows-arm64,
       build-vita,
       build-wasm
     ]
@@ -340,6 +363,7 @@ jobs:
             - **PlayStation Vita:** `RustCraft.vpk`
             - **Windows (x86_64):** `rustcraft-windows-x86_64.zip`
             - **Windows (32-bit i686):** `rustcraft-windows-i686.zip`
+            - **Windows (ARM64 / AArch64):** `rustcraft-windows-arm64.zip`
             - **Linux (x86_64):** `rustcraft-linux-x86_64.tar.gz`
             - **Linux (32-bit i686):** `rustcraft-linux-i686.tar.gz`
             - **Linux (ARM64):** `rustcraft-linux-arm64.tar.gz`

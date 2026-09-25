@@ -1,0 +1,42 @@
+name: Build Windows ARM64
+
+on:
+  push:
+    branches: [ "main", "refactor/**" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-windows-arm64:
+    name: Build Windows ARM64 (AArch64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Stable with Windows ARM64 Target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: aarch64-pc-windows-msvc
+
+      - name: Build
+        run: cargo build --target aarch64-pc-windows-msvc --release
+
+      - name: Package Windows ARM64 ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Compress-Archive -Path target\aarch64-pc-windows-msvc\release\rustcraft.exe -DestinationPath dist\rustcraft-windows-arm64.zip
+
+      - name: Upload Windows ARM64 Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: RustCraft-Windows-ARM64
+          path: dist/rustcraft-windows-arm64.zip
+          if-no-files-found: error
