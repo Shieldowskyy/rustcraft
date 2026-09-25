@@ -2417,7 +2417,9 @@ impl crate::engine::EngineApp for RustCraftApp {
     }
 
     fn resize(&mut self, width: usize, height: usize) {
-        self.resize(width, height);
+        self.width = width;
+        self.height = height;
+        self.renderer.resize(width, height);
     }
 
     fn pixel_buffer(&self) -> &[u32] {

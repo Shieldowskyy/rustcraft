@@ -140,6 +140,14 @@ impl Renderer {
         &self.color_buffer
     }
 
+    /// Resizes internal color and depth buffers to new resolution dimensions.
+    pub fn resize(&mut self, width: usize, height: usize) {
+        self.width = width;
+        self.height = height;
+        self.color_buffer.resize(width * height, 0);
+        self.depth_buffer.resize(width * height, f32::INFINITY);
+    }
+
     pub fn update_textures(&mut self, fancy_leaves: bool) {
         self.textures = TextureAtlas::generate_with_fancy(fancy_leaves);
         #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
