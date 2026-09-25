@@ -2395,14 +2395,33 @@ impl RustCraftApp {
         self.prev_key_digits = input.key_digits;
 
         out.title = format!(
-            "RustCraft [{} renderer] - {} FPS - blok: {}{}{}",
+            "RustCraft [{} renderer] - {} FPS - block: {}{}{}",
             self.renderer.backend_name(),
             self.fps_display,
             BlockId::from_u8(self.renderer.selected_block()).name(),
-            if self.fly_mode { " - [LOT]" } else { "" },
-            if matches!(self.state, GameState::Paused) { " - [PAUZA]" } else { "" }
+            if self.fly_mode { " - [FLYING]" } else { "" },
+            if matches!(self.state, GameState::Paused) { " - [PAUSED]" } else { "" }
         );
 
         out
     }
 }
+
+impl crate::engine::EngineApp for RustCraftApp {
+    fn update(&mut self, dt: f32, input: &InputState) -> AppOutput {
+        self.update_and_render(dt, input)
+    }
+
+    fn render(&mut self) {
+        // Frame rendering is integrated into the update_and_render pipeline
+    }
+
+    fn resize(&mut self, width: usize, height: usize) {
+        self.resize(width, height);
+    }
+
+    fn pixel_buffer(&self) -> &[u32] {
+        self.pixel_buffer()
+    }
+}
+
