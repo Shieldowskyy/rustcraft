@@ -1,0 +1,42 @@
+name: Build Windows 32-bit
+
+on:
+  push:
+    branches: [ "main", "refactor/**" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-windows-i686:
+    name: Build Windows 32-bit (i686)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Stable with 32-bit Target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: i686-pc-windows-msvc
+
+      - name: Build
+        run: cargo build --target i686-pc-windows-msvc --release
+
+      - name: Package Windows 32-bit ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Compress-Archive -Path target\i686-pc-windows-msvc\release\rustcraft.exe -DestinationPath dist\rustcraft-windows-i686.zip
+
+      - name: Upload Windows 32-bit Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: RustCraft-Windows-i686
+          path: dist/rustcraft-windows-i686.zip
+          if-no-files-found: error

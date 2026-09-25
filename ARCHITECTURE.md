@@ -185,11 +185,14 @@ Active biome is displayed in the debug panel via `World::biome_name_at(wx, wz)`.
 | Platform / Architecture | Target Triple | Renderer | Build Script / Command |
 |---|---|---|---|
 | Linux (x86_64) | `x86_64-unknown-linux-gnu` | Software CPU / Vulkan | `./compile_linux.sh` |
+| Linux (32-bit x86 / i686) | `i686-unknown-linux-gnu` | Software CPU / Vulkan | `./build_linux_x86_32.sh` |
 | Linux ARM64 (RPi 4/5) | `aarch64-unknown-linux-gnu` | Software CPU / Vulkan | `./build_linux_arm64.sh` |
 | Linux ARMv7 (RPi 2/3 32-bit) | `armv7-unknown-linux-gnueabihf` | Software CPU / Vulkan | `./build_linux_armv7.sh` |
+| Linux RISC-V 64-bit | `riscv64gc-unknown-linux-gnu` | Software CPU (Rayon) | `./build_linux_riscv64.sh` |
 | Raspberry Pi Zero W (ARMv6) | `arm-unknown-linux-gnueabihf` | Software CPU (Tuned for ARM11) | `./build_rpi_armv6.sh` |
 | FreeBSD (x86_64) | `x86_64-unknown-freebsd` | Software CPU / X11 | `./build_freebsd.sh` |
 | Windows (x86_64) | `x86_64-pc-windows-gnu` | Software CPU / Vulkan | `./compile-windows.sh` |
+| Windows (32-bit x86 / i686) | `i686-pc-windows-gnu` | Software CPU / Vulkan | `./build_windows_32.sh` |
 | WebAssembly | `wasm32-unknown-unknown` | Software CPU (Single-threaded) | `./build_web.sh` |
 | PlayStation Vita | `armv7-sony-vita-newlibeabihf` | Bare-Metal GXM GPU (SGX543MP4) | `./build_vita.sh` |
 | macOS | `x86_64-apple-darwin` / `aarch64` | Software CPU / Metal (WGPU) | `cargo run --release` |

@@ -1,0 +1,57 @@
+name: Build Linux 32-bit
+
+on:
+  push:
+    branches: [ "main", "refactor/**" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux-i686:
+    name: Build Linux 32-bit (i686)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies & multilib
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-multilib \
+            g++-multilib \
+            libx11-dev:i386 \
+            libasound2-dev:i386 \
+            libudev-dev:i386 \
+            pkg-config
+
+      - name: Install Rust Stable with i686 Target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: i686-unknown-linux-gnu
+
+      - name: Install Cross
+        run: |
+          curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
+
+      - name: Build with Cross
+        run: |
+          cross build --target i686-unknown-linux-gnu --release
+
+      - name: Strip Binary
+        run: |
+          strip --strip-all target/i686-unknown-linux-gnu/release/rustcraft || true
+
+      - name: Upload Linux 32-bit Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: RustCraft-Linux-i686
+          path: target/i686-unknown-linux-gnu/release/rustcraft
+          if-no-files-found: error

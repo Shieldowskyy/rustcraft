@@ -125,6 +125,63 @@ jobs:
           name: rpi-armv6-pkg
           path: dist/rustcraft-rpi-armv6.tar.gz
 
+  build-linux-riscv64:
+    name: Build Linux RISC-V 64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies & toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils-riscv64-linux-gnu pkg-config
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: riscv64gc-unknown-linux-gnu
+      - name: Install Cross
+        run: |
+          curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
+      - name: Build with Cross
+        run: |
+          cross build --target riscv64gc-unknown-linux-gnu --release
+          riscv64-linux-gnu-strip target/riscv64gc-unknown-linux-gnu/release/rustcraft || true
+          mkdir -p dist
+          tar -czf dist/rustcraft-linux-riscv64.tar.gz -C target/riscv64gc-unknown-linux-gnu/release rustcraft
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-riscv64-pkg
+          path: dist/rustcraft-linux-riscv64.tar.gz
+
+  build-linux-i686:
+    name: Build Linux 32-bit (i686)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies & multilib
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib g++-multilib libx11-dev:i386 libasound2-dev:i386 libudev-dev:i386 pkg-config
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: i686-unknown-linux-gnu
+      - name: Install Cross
+        run: |
+          curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
+      - name: Build with Cross
+        run: |
+          cross build --target i686-unknown-linux-gnu --release
+          strip --strip-all target/i686-unknown-linux-gnu/release/rustcraft || true
+          mkdir -p dist
+          tar -czf dist/rustcraft-linux-i686.tar.gz -C target/i686-unknown-linux-gnu/release rustcraft
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-i686-pkg
+          path: dist/rustcraft-linux-i686.tar.gz
+
   build-freebsd:
     name: Build FreeBSD x86_64
     runs-on: ubuntu-latest
@@ -168,6 +225,28 @@ jobs:
         with:
           name: windows-x86_64-pkg
           path: dist/rustcraft-windows-x86_64.zip
+
+  build-windows-i686:
+    name: Build Windows 32-bit (i686)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: i686-pc-windows-msvc
+      - name: Build
+        run: cargo build --target i686-pc-windows-msvc --release
+      - name: Package Windows 32-bit ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Compress-Archive -Path target\i686-pc-windows-msvc\release\rustcraft.exe -DestinationPath dist\rustcraft-windows-i686.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-i686-pkg
+          path: dist/rustcraft-windows-i686.zip
 
   build-vita:
     name: Build PS Vita (.vpk)
@@ -224,8 +303,11 @@ jobs:
       build-linux-arm64,
       build-linux-armv7,
       build-rpi-armv6,
+      build-linux-riscv64,
+      build-linux-i686,
       build-freebsd,
       build-windows,
+      build-windows-i686,
       build-vita,
       build-wasm
     ]
@@ -257,9 +339,12 @@ jobs:
             ### Available Packages:
             - **PlayStation Vita:** `RustCraft.vpk`
             - **Windows (x86_64):** `rustcraft-windows-x86_64.zip`
+            - **Windows (32-bit i686):** `rustcraft-windows-i686.zip`
             - **Linux (x86_64):** `rustcraft-linux-x86_64.tar.gz`
+            - **Linux (32-bit i686):** `rustcraft-linux-i686.tar.gz`
             - **Linux (ARM64):** `rustcraft-linux-arm64.tar.gz`
             - **Linux (ARMv7):** `rustcraft-linux-armv7.tar.gz`
+            - **Linux (RISC-V 64):** `rustcraft-linux-riscv64.tar.gz`
             - **Raspberry Pi Zero W (ARMv6):** `rustcraft-rpi-armv6.tar.gz`
             - **FreeBSD (x86_64):** `rustcraft-freebsd-x86_64.tar.gz`
             - **Web (WASM / HTML5):** `rustcraft-web-wasm.zip`

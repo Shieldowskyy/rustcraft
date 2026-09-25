@@ -2,10 +2,10 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20FreeBSD%20%7C%20ARM64%20%7C%20ARMv6%20%7C%20PS%20Vita%20%7C%20WASM-brightgreen.svg)]()
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20FreeBSD%20%7C%20ARM64%20%7C%20ARMv7%20%7C%20ARMv6%20%7C%20RISC--V%20%7C%20x86__32%20%7C%20PS%20Vita%20%7C%20WASM-brightgreen.svg)]()
 
 A high-performance, modular voxel sandbox game and engine written in Rust with first-class support for **multiple platforms and architectures**:
-Desktop (Linux x86_64 / ARM64, Windows, macOS, FreeBSD), Embedded Linux (Raspberry Pi Zero W / ARMv6), Sony PlayStation Vita (GXM GPU), and Web browsers (WebAssembly / HTML5 canvas).
+Desktop (Linux x86_64 / x86 32-bit / ARM64 / RISC-V 64, Windows 64-bit / 32-bit, macOS, FreeBSD), Embedded Linux (Raspberry Pi Zero W / ARMv6, Raspberry Pi 2/3 / ARMv7), Sony PlayStation Vita (GXM GPU), and Web browsers (WebAssembly / HTML5 canvas).
 
 RustCraft features a multithreaded CPU software rasterizer (tiled rasterization, sub-pixel precision, per-vertex Ambient Occlusion, distance fog) with zero graphics library dependencies, a hardware-accelerated Vulkan/WGPU backend, and a bare-metal GXM GPU renderer for the PlayStation Vita (SGX543MP4) delivering smooth 60 FPS.
 
@@ -16,11 +16,14 @@ RustCraft features a multithreaded CPU software rasterizer (tiled rasterization,
 | Platform / Architecture | Target Triple | Primary Renderer | Build Script / Command |
 |---|---|---|---|
 | **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./compile_linux.sh` |
+| **Linux (32-bit x86 / i686)** | `i686-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./build_linux_x86_32.sh` |
 | **Linux (ARM64 / AArch64)** | `aarch64-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./build_linux_arm64.sh` |
 | **Linux (ARMv7 32-bit HF)** | `armv7-unknown-linux-gnueabihf` | Software CPU (Rayon) / Vulkan | `./build_linux_armv7.sh` |
+| **Linux (RISC-V 64-bit)** | `riscv64gc-unknown-linux-gnu` | Software CPU (Rayon) | `./build_linux_riscv64.sh` |
 | **Raspberry Pi Zero W (ARMv6)** | `arm-unknown-linux-gnueabihf` | Software CPU (Tuned for ARM11) | `./build_rpi_armv6.sh` |
 | **FreeBSD (x86_64)** | `x86_64-unknown-freebsd` | Software CPU / X11 | `./build_freebsd.sh` |
 | **Windows (x86_64)** | `x86_64-pc-windows-gnu` | Software CPU / Vulkan | `./compile-windows.sh` |
+| **Windows (32-bit x86 / i686)** | `i686-pc-windows-gnu` | Software CPU / Vulkan | `./build_windows_32.sh` |
 | **WebAssembly** | `wasm32-unknown-unknown` | Single-threaded Software CPU | `./build_web.sh` |
 | **PlayStation Vita** | `armv7-sony-vita-newlibeabihf` | Bare-Metal GXM GPU (SGX543MP4) | `./build_vita.sh` |
 | **macOS** | `x86_64-apple-darwin` / `aarch64` | Software CPU / Metal (WGPU) | `cargo run --release` |
@@ -69,7 +72,7 @@ RustCraft separates core engine capabilities from gameplay logic, providing huma
 
 ## 4. Building and Running
 
-### Linux / Desktop (x86_64)
+### Linux (x86_64)
 ```bash
 # Optimized release build with symbol stripping and UPX compression
 ./compile_linux.sh
@@ -85,6 +88,12 @@ cargo run --release -- --renderer vulkan
 cargo run --release -- --vulkan
 ```
 
+### Linux (32-bit x86 / i686)
+```bash
+./build_linux_x86_32.sh
+# Output: target/i686-unknown-linux-gnu/release/rustcraft
+```
+
 ### Linux ARM64 (Raspberry Pi 3/4/5 64-bit, Orange Pi, Servers)
 ```bash
 ./build_linux_arm64.sh
@@ -95,6 +104,12 @@ cargo run --release -- --vulkan
 ```bash
 ./build_linux_armv7.sh
 # Output: target/armv7-unknown-linux-gnueabihf/release/rustcraft
+```
+
+### Linux RISC-V (64-bit GC / VisionFive 2, StarFive, Allwinner D1 64-bit)
+```bash
+./build_linux_riscv64.sh
+# Output: target/riscv64gc-unknown-linux-gnu/release/rustcraft
 ```
 
 ### Raspberry Pi Zero W / Zero / 1 (ARMv6)
@@ -114,6 +129,12 @@ cargo run --release -- --vulkan
 ```bash
 ./compile-windows.sh
 # Output: target/x86_64-pc-windows-gnu/release/rustcraft.exe
+```
+
+### Windows (32-bit x86 / i686)
+```bash
+./build_windows_32.sh
+# Output: target/i686-pc-windows-gnu/release/rustcraft.exe
 ```
 
 ### PlayStation Vita
@@ -223,9 +244,12 @@ rustcraft/
 ├── Cargo.toml                  # Project dependencies & feature flags
 ├── ARCHITECTURE.md             # Comprehensive engine architecture guide
 ├── compile_linux.sh            # Linux x86_64 release & strip script
-├── compile-windows.sh          # MinGW cross-compilation script
+├── build_linux_x86_32.sh       # Linux 32-bit (i686) build script
+├── compile-windows.sh          # MinGW cross-compilation script (x86_64)
+├── build_windows_32.sh         # Windows 32-bit (i686) build script
 ├── build_linux_arm64.sh        # Linux ARM64 (Raspberry Pi 4/5) build script
 ├── build_linux_armv7.sh        # Linux ARMv7 (Raspberry Pi 2/3 32-bit) build script
+├── build_linux_riscv64.sh      # Linux RISC-V 64-bit build script
 ├── build_rpi_armv6.sh          # Raspberry Pi Zero W (ARMv6) build script
 ├── build_freebsd.sh            # FreeBSD x86_64 build script
 ├── build_vita.sh               # PS Vita VPK packaging script
