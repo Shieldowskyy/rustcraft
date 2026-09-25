@@ -228,7 +228,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 10] {
+    pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 11] {
         crate::ui::settings_option_rects(self.width, self.height)
     }
 
@@ -1062,7 +1062,7 @@ impl Renderer {
         }
     }
 
-    pub fn draw_mob(&mut self, mob: &crate::gameplay::mob::Mob, _camera: &Camera, view_proj: &Mat4) {
+    pub fn draw_mob(&mut self, mob: &crate::gameplay::mob::Mob, camera: &Camera, view_proj: &Mat4) {
         use crate::gameplay::mob::MobKind;
 
         let hurt_tint = if mob.hurt_timer > 0.0 { 0.7 } else { 0.0 };
@@ -1072,6 +1072,7 @@ impl Renderer {
         let base_pos = mob.pos;
         let yaw = mob.yaw;
         let leg_swing = mob.walk_phase.sin() * 0.65;
+        let camera_pos = camera.position;
 
         match mob.kind {
             MobKind::Pig => {
@@ -1087,7 +1088,7 @@ impl Renderer {
                     tex_side: TextureId::PigSkin,
                     tex_front: TextureId::PigSkin,
                 };
-                self.draw_mob_box(&body_box, hurt_tint, view_proj);
+                self.draw_mob_box(&body_box, hurt_tint, camera_pos, view_proj);
 
                 let head_pos = base_pos + Vec3::new(yaw.sin() * 0.48, 0.52, yaw.cos() * 0.48);
                 let head_yaw = yaw + mob.head_yaw_offset;
@@ -1103,7 +1104,7 @@ impl Renderer {
                     tex_side: TextureId::PigSkin,
                     tex_front: TextureId::PigFace,
                 };
-                self.draw_mob_box(&head_box, hurt_tint, view_proj);
+                self.draw_mob_box(&head_box, hurt_tint, camera_pos, view_proj);
 
                 let snout_pos = head_pos + Vec3::new(head_yaw.sin() * 0.28, -0.06, head_yaw.cos() * 0.28);
                 let snout_box = MobBox {
@@ -1118,7 +1119,7 @@ impl Renderer {
                     tex_side: TextureId::PigSkin,
                     tex_front: TextureId::PigSnout,
                 };
-                self.draw_mob_box(&snout_box, hurt_tint, view_proj);
+                self.draw_mob_box(&snout_box, hurt_tint, camera_pos, view_proj);
 
                 let leg_offsets = [
                     (-0.22, -0.28, leg_swing),
@@ -1144,7 +1145,7 @@ impl Renderer {
                         tex_side: TextureId::PigSkin,
                         tex_front: TextureId::PigSkin,
                     };
-                    self.draw_mob_box(&leg_box, hurt_tint, view_proj);
+                    self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
                 }
             }
             MobKind::Cow => {
@@ -1160,7 +1161,7 @@ impl Renderer {
                     tex_side: TextureId::CowSkin,
                     tex_front: TextureId::CowSkin,
                 };
-                self.draw_mob_box(&body_box, hurt_tint, view_proj);
+                self.draw_mob_box(&body_box, hurt_tint, camera_pos, view_proj);
 
                 let udder_pos = base_pos + Vec3::new(0.0, 0.44, 0.0);
                 let udder_box = MobBox {
@@ -1175,7 +1176,7 @@ impl Renderer {
                     tex_side: TextureId::CowUdder,
                     tex_front: TextureId::CowUdder,
                 };
-                self.draw_mob_box(&udder_box, hurt_tint, view_proj);
+                self.draw_mob_box(&udder_box, hurt_tint, camera_pos, view_proj);
 
                 let head_pos = base_pos + Vec3::new(yaw.sin() * 0.62, 0.95, yaw.cos() * 0.62);
                 let head_yaw = yaw + mob.head_yaw_offset;
@@ -1191,7 +1192,7 @@ impl Renderer {
                     tex_side: TextureId::CowSkin,
                     tex_front: TextureId::CowFace,
                 };
-                self.draw_mob_box(&head_box, hurt_tint, view_proj);
+                self.draw_mob_box(&head_box, hurt_tint, camera_pos, view_proj);
 
                 let snout_pos = head_pos + Vec3::new(head_yaw.sin() * 0.26, -0.10, head_yaw.cos() * 0.26);
                 let snout_box = MobBox {
@@ -1206,7 +1207,7 @@ impl Renderer {
                     tex_side: TextureId::CowSkin,
                     tex_front: TextureId::CowSnout,
                 };
-                self.draw_mob_box(&snout_box, hurt_tint, view_proj);
+                self.draw_mob_box(&snout_box, hurt_tint, camera_pos, view_proj);
 
                 for side in [-1.0f32, 1.0f32] {
                     let horn_x = side * 0.28 * head_yaw.cos();
@@ -1224,7 +1225,7 @@ impl Renderer {
                         tex_side: TextureId::CowHorns,
                         tex_front: TextureId::CowHorns,
                     };
-                    self.draw_mob_box(&horn_box, hurt_tint, view_proj);
+                    self.draw_mob_box(&horn_box, hurt_tint, camera_pos, view_proj);
                 }
 
                 let leg_offsets = [
@@ -1251,13 +1252,13 @@ impl Renderer {
                         tex_side: TextureId::CowSkin,
                         tex_front: TextureId::CowSkin,
                     };
-                    self.draw_mob_box(&leg_box, hurt_tint, view_proj);
+                    self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
                 }
             }
         }
     }
 
-    fn draw_mob_box(&mut self, b: &MobBox, hurt_tint: f32, view_proj: &Mat4) {
+    fn draw_mob_box(&mut self, b: &MobBox, hurt_tint: f32, camera_pos: Vec3, view_proj: &Mat4) {
         let half = Vec3::new(b.size.x * 0.5, b.size.y * 0.5, b.size.z * 0.5);
 
         let local_corners = [
@@ -1313,16 +1314,31 @@ impl Renderer {
         ];
 
         let mut draw_quad = |i0: usize, i1: usize, i2: usize, i3: usize, tex: TextureId, shade: f32| {
+            let p0 = world_pts[i0];
+            let p1 = world_pts[i1];
+            let p2 = world_pts[i2];
+            let p3 = world_pts[i3];
+
+            // Backface culling w przestrzeni świata (eliminuje ściany tyłem oraz wszystkie ściany gdy kamera jest wewnątrz obiektu)
+            let edge1 = p1 - p0;
+            let edge2 = p3 - p0;
+            let normal = edge1.cross(edge2);
+            let center = (p0 + p1 + p2 + p3) * 0.25;
+            let to_face = center - camera_pos;
+            if to_face.dot(normal) >= 0.0 {
+                return;
+            }
+
             let t1 = Triangle {
-                v0: Vertex::new(world_pts[i0], (0.0, 1.0), shade),
-                v1: Vertex::new(world_pts[i1], (1.0, 1.0), shade),
-                v2: Vertex::new(world_pts[i2], (1.0, 0.0), shade),
+                v0: Vertex::new(p0, (0.0, 1.0), shade),
+                v1: Vertex::new(p1, (1.0, 1.0), shade),
+                v2: Vertex::new(p2, (1.0, 0.0), shade),
                 texture: tex,
             };
             let t2 = Triangle {
-                v0: Vertex::new(world_pts[i0], (0.0, 1.0), shade),
-                v1: Vertex::new(world_pts[i2], (1.0, 0.0), shade),
-                v2: Vertex::new(world_pts[i3], (0.0, 0.0), shade),
+                v0: Vertex::new(p0, (0.0, 1.0), shade),
+                v1: Vertex::new(p2, (1.0, 0.0), shade),
+                v2: Vertex::new(p3, (0.0, 0.0), shade),
                 texture: tex,
             };
             self.raster_triangle_tinted(&t1, hurt_tint, view_proj);
@@ -2473,7 +2489,7 @@ fn to_clip_ao(v: Vertex, view_proj: &Mat4) -> ClipVertAO {
 }
 
 fn clip_near_ao(verts: &[ClipVertAO; 3]) -> Vec<ClipVertAO> {
-    const EPS: f32 = 1e-4;
+    const EPS: f32 = 0.05;
     let inside = |v: &ClipVertAO| v.clip[3] > EPS;
 
     let mut output: Vec<ClipVertAO> = Vec::with_capacity(4);

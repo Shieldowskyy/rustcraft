@@ -131,19 +131,20 @@ fn leaves_swamp(fancy: bool) -> Texture {
         for x in 0..TEX_SIZE {
             let rib = ((x % 3 == 0) || (y % 3 == 0)) as i32 as f32;
             let noise = rand_at(x, y, 37);
+            let mut col = mix(dark_green, light_green, rib);
+            col[0] = (col[0] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[1] = (col[1] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[2] = (col[2] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+
             if fancy {
                 let hole = ((x + y) % 3 == 0 && noise > 0.45)
                     || ((x ^ y) % 5 == 0 && noise > 0.62)
                     || ((x * 3 + y * 2) % 7 == 0 && noise > 0.54);
                 if hole {
-                    texels[y * TEX_SIZE + x] = [-1.0, 0.0, 0.0];
+                    texels[y * TEX_SIZE + x] = [-col[0] - 0.001, col[1], col[2]];
                     continue;
                 }
             }
-            let mut col = mix(dark_green, light_green, rib);
-            col[0] = (col[0] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
-            col[1] = (col[1] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
-            col[2] = (col[2] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
             texels[y * TEX_SIZE + x] = col;
         }
     }
@@ -191,19 +192,20 @@ fn leaves_savanna(fancy: bool) -> Texture {
         for x in 0..TEX_SIZE {
             let rib = ((x % 3 == 0) || (y % 3 == 0)) as i32 as f32;
             let noise = rand_at(x, y, 47);
+            let mut col = mix(dark, light, rib);
+            col[0] = (col[0] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[1] = (col[1] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[2] = (col[2] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+
             if fancy {
                 let hole = ((x + y) % 3 == 0 && noise > 0.42)
                     || ((x ^ y) % 5 == 0 && noise > 0.58)
                     || ((x * 2 + y * 3) % 7 == 0 && noise > 0.50);
                 if hole {
-                    texels[y * TEX_SIZE + x] = [-1.0, 0.0, 0.0];
+                    texels[y * TEX_SIZE + x] = [-col[0] - 0.001, col[1], col[2]];
                     continue;
                 }
             }
-            let mut col = mix(dark, light, rib);
-            col[0] = (col[0] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
-            col[1] = (col[1] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
-            col[2] = (col[2] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
             texels[y * TEX_SIZE + x] = col;
         }
     }
@@ -369,19 +371,20 @@ fn leaves(fancy: bool) -> Texture {
         for x in 0..TEX_SIZE {
             let rib = ((x % 3 == 0) || (y % 3 == 0)) as i32 as f32;
             let noise = rand_at(x, y, 33);
+            let mut col = mix(dark_green, light_green, rib);
+            col[0] = (col[0] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[1] = (col[1] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[2] = (col[2] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+
             if fancy {
                 let hole = ((x + y) % 3 == 0 && noise > 0.42)
                     || ((x ^ y) % 5 == 0 && noise > 0.60)
                     || ((x * 2 + y * 3) % 7 == 0 && noise > 0.52);
                 if hole {
-                    texels[y * TEX_SIZE + x] = [-1.0, 0.0, 0.0];
+                    texels[y * TEX_SIZE + x] = [-col[0] - 0.001, col[1], col[2]];
                     continue;
                 }
             }
-            let mut col = mix(dark_green, light_green, rib);
-            col[0] = (col[0] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
-            col[1] = (col[1] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
-            col[2] = (col[2] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
             texels[y * TEX_SIZE + x] = col;
         }
     }
@@ -535,15 +538,6 @@ fn snow_leaves(fancy: bool) -> Texture {
     for y in 0..TEX_SIZE {
         for x in 0..TEX_SIZE {
             let noise = rand_at(x, y, 444);
-            if fancy {
-                let hole = ((x * 3 + y * 5) % 6 == 0 && noise > 0.44)
-                    || ((x ^ y) % 5 == 0 && noise > 0.60)
-                    || ((x + y * 2) % 7 == 0 && noise > 0.52);
-                if hole {
-                    texels[y * TEX_SIZE + x] = [-1.0, 0.0, 0.0];
-                    continue;
-                }
-            }
             let mut col = if noise > 0.65 {
                 snow
             } else if noise < 0.25 {
@@ -554,6 +548,16 @@ fn snow_leaves(fancy: bool) -> Texture {
             col[0] = (col[0] + (noise - 0.5) * 0.05).clamp(0.0, 1.0);
             col[1] = (col[1] + (noise - 0.5) * 0.05).clamp(0.0, 1.0);
             col[2] = (col[2] + (noise - 0.5) * 0.05).clamp(0.0, 1.0);
+
+            if fancy {
+                let hole = ((x * 3 + y * 5) % 6 == 0 && noise > 0.44)
+                    || ((x ^ y) % 5 == 0 && noise > 0.60)
+                    || ((x + y * 2) % 7 == 0 && noise > 0.52);
+                if hole {
+                    texels[y * TEX_SIZE + x] = [-col[0] - 0.001, col[1], col[2]];
+                    continue;
+                }
+            }
             texels[y * TEX_SIZE + x] = col;
         }
     }
@@ -808,15 +812,6 @@ fn cherry_leaves(fancy: bool) -> Texture {
     for y in 0..TEX_SIZE {
         for x in 0..TEX_SIZE {
             let noise = rand_at(x, y, 77);
-            if fancy {
-                let hole = ((x + y * 2) % 4 == 0 && noise > 0.46)
-                    || ((x ^ y) % 5 == 0 && noise > 0.62)
-                    || ((x * 3 + y) % 7 == 0 && noise > 0.52);
-                if hole {
-                    texels[y * TEX_SIZE + x] = [-1.0, 0.0, 0.0];
-                    continue;
-                }
-            }
             let mut col = if noise > 0.82 {
                 light
             } else if noise > 0.94 {
@@ -829,6 +824,16 @@ fn cherry_leaves(fancy: bool) -> Texture {
             col[0] = (col[0] + (noise - 0.5) * 0.06).clamp(0.0, 1.0);
             col[1] = (col[1] + (noise - 0.5) * 0.06).clamp(0.0, 1.0);
             col[2] = (col[2] + (noise - 0.5) * 0.06).clamp(0.0, 1.0);
+
+            if fancy {
+                let hole = ((x + y * 2) % 4 == 0 && noise > 0.46)
+                    || ((x ^ y) % 5 == 0 && noise > 0.62)
+                    || ((x * 3 + y) % 7 == 0 && noise > 0.52);
+                if hole {
+                    texels[y * TEX_SIZE + x] = [-col[0] - 0.001, col[1], col[2]];
+                    continue;
+                }
+            }
             texels[y * TEX_SIZE + x] = col;
         }
     }
@@ -844,15 +849,6 @@ fn autumn_leaves(fancy: bool) -> Texture {
     for y in 0..TEX_SIZE {
         for x in 0..TEX_SIZE {
             let noise = rand_at(x, y, 223);
-            if fancy {
-                let hole = ((x + y) % 3 == 0 && noise > 0.42)
-                    || ((x ^ y) % 5 == 0 && noise > 0.58)
-                    || ((x * 2 + y * 3) % 7 == 0 && noise > 0.50);
-                if hole {
-                    texels[y * TEX_SIZE + x] = [-1.0, 0.0, 0.0];
-                    continue;
-                }
-            }
             let mut col = if noise > 0.75 {
                 orange
             } else if noise > 0.50 {
@@ -865,6 +861,16 @@ fn autumn_leaves(fancy: bool) -> Texture {
             col[0] = (col[0] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
             col[1] = (col[1] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
             col[2] = (col[2] + (noise - 0.5) * 0.08).clamp(0.0, 1.0);
+
+            if fancy {
+                let hole = ((x + y) % 3 == 0 && noise > 0.42)
+                    || ((x ^ y) % 5 == 0 && noise > 0.58)
+                    || ((x * 2 + y * 3) % 7 == 0 && noise > 0.50);
+                if hole {
+                    texels[y * TEX_SIZE + x] = [-col[0] - 0.001, col[1], col[2]];
+                    continue;
+                }
+            }
             texels[y * TEX_SIZE + x] = col;
         }
     }

@@ -11,10 +11,16 @@ pub struct GameSettings {
     pub fov_deg: f32,         // domyślnie: 70.0
     pub underwater_fx: bool,  // domyślnie: true
     pub debug_overlay: bool,  // domyślnie: true
+    pub msaa: u32,            // 1 (wył), 2 (2x), 4 (4x) - domyślnie 4x na Vita, 1x na PC
 }
 
 impl Default for GameSettings {
     fn default() -> Self {
+        #[cfg(target_os = "vita")]
+        let default_msaa = 4;
+        #[cfg(not(target_os = "vita"))]
+        let default_msaa = 1;
+
         Self {
             render_distance: 6,
             fancy_leaves: true,
@@ -25,6 +31,7 @@ impl Default for GameSettings {
             fov_deg: 70.0,
             underwater_fx: true,
             debug_overlay: true,
+            msaa: default_msaa,
         }
     }
 }
@@ -47,6 +54,11 @@ impl GameSettings {
                 let particles = bytes.get(16).copied().unwrap_or(1) != 0;
                 let debug_overlay = bytes.get(17).copied().unwrap_or(1) != 0;
                 let fancy_leaves = bytes.get(18).copied().unwrap_or(1) != 0;
+                #[cfg(target_os = "vita")]
+                let default_msaa = 4;
+                #[cfg(not(target_os = "vita"))]
+                let default_msaa = 1;
+                let msaa = bytes.get(19).copied().map(|v| match v { 2 => 2, 4 => 4, _ => 1 }).unwrap_or(default_msaa);
                 return Self {
                     render_distance,
                     fancy_leaves,
@@ -57,6 +69,7 @@ impl GameSettings {
                     fov_deg,
                     underwater_fx,
                     debug_overlay,
+                    msaa,
                 };
             }
         }
@@ -68,7 +81,7 @@ impl GameSettings {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let mut bytes = Vec::with_capacity(19);
+        let mut bytes = Vec::with_capacity(20);
         bytes.extend_from_slice(b"RCST");
         bytes.extend_from_slice(&self.render_distance.to_le_bytes());
         bytes.push(if self.clouds { 1 } else { 0 });
@@ -79,6 +92,7 @@ impl GameSettings {
         bytes.push(if self.particles { 1 } else { 0 });
         bytes.push(if self.debug_overlay { 1 } else { 0 });
         bytes.push(if self.fancy_leaves { 1 } else { 0 });
+        bytes.push(self.msaa as u8);
         std::fs::write(&path, bytes).map_err(|e| e.to_string())
     }
 
@@ -110,5 +124,18 @@ impl GameSettings {
             idx - 1
         };
         self.fov_deg = CHOICES[next_idx];
+    }
+
+    pub fn cycle_msaa(&mut self, forward: bool) {
+        const CHOICES: [u32; 3] = [1, 2, 4];
+        let idx = CHOICES.iter().position(|&m| m == self.msaa).unwrap_or(0);
+        let next_idx = if forward {
+            (idx + 1) % CHOICES.len()
+        } else if idx == 0 {
+            CHOICES.len() - 1
+        } else {
+            idx - 1
+        };
+        self.msaa = CHOICES[next_idx];
     }
 }

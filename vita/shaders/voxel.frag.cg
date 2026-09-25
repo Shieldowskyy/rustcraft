@@ -12,13 +12,12 @@ float4 main(
 {
     float4 color = tex2D(uTexture, oUV);
     if (color.a < 0.05f) {
-        if (oFog < 0.18f) {
+        if (oFog < 0.85f) {
             discard;
         }
-        color = float4(0.08f, 0.18f, 0.06f, 1.0f);
     }
     // Ambient Occlusion + color + distance fog blend
-    float3 lit = color.rgb * oAO;
+    float3 block_color = color.rgb * oAO;
     float3 sky_color = float3(0.443f, 0.702f, 0.949f);
-    return float4(lerp(lit, sky_color, oFog), color.a);
+    return float4(lerp(block_color, sky_color, oFog), color.a);
 }

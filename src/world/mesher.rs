@@ -269,20 +269,32 @@ pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
                     let neighbor = cache.sample_block(lx + n.x, ly + n.y, lz + n.z);
 
                     let visible = if is_fluid {
-                        match face {
-                            Face::Top => neighbor != block,
-                            Face::Bottom => neighbor != block && (neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)),
-                            _ => {
-                                if neighbor != block {
-                                    neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)
-                                } else {
-                                    let above_neighbor = cache.sample_block(lx + n.x, ly + 1, lz + n.z);
-                                    if above_neighbor != block {
-                                        let my_lvl = world.fluid_level(IVec3::new(wx, wy, wz));
-                                        let neighbor_lvl = world.fluid_level(IVec3::new(wx + n.x, wy, wz + n.z));
-                                        my_lvl > neighbor_lvl
+                        let neighbor_loaded = match face {
+                            Face::East => lx < CHUNK_SIZE_X - 1 || cache.east_blocks.is_some(),
+                            Face::West => lx > 0 || cache.west_blocks.is_some(),
+                            Face::South => lz < CHUNK_SIZE_Z - 1 || cache.south_blocks.is_some(),
+                            Face::North => lz > 0 || cache.north_blocks.is_some(),
+                            Face::Top | Face::Bottom => true,
+                        };
+
+                        if !neighbor_loaded {
+                            false
+                        } else {
+                            match face {
+                                Face::Top => neighbor != block,
+                                Face::Bottom => wy > 0 && neighbor != block && (neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)),
+                                _ => {
+                                    if neighbor != block {
+                                        neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)
                                     } else {
-                                        false
+                                        let above_neighbor = cache.sample_block(lx + n.x, ly + 1, lz + n.z);
+                                        if above_neighbor != block {
+                                            let my_lvl = world.fluid_level(IVec3::new(wx, wy, wz));
+                                            let neighbor_lvl = world.fluid_level(IVec3::new(wx + n.x, wy, wz + n.z));
+                                            my_lvl > neighbor_lvl
+                                        } else {
+                                            false
+                                        }
                                     }
                                 }
                             }

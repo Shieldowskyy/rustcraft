@@ -190,7 +190,7 @@ pub struct RustCraftApp {
     pub main_menu_rects: [(i32, i32, i32, i32); 3],
     pub save_card_rects: [(i32, i32, i32, i32); VISIBLE_SAVE_ROWS],
     pub save_btn_rects: [(i32, i32, i32, i32); 4],
-    pub settings_rects: [(i32, i32, i32, i32); 10],
+    pub settings_rects: [(i32, i32, i32, i32); 11],
     pub pause_menu_rects: [(i32, i32, i32, i32); 5],
     pub death_screen_rects: [(i32, i32, i32, i32); 2],
     pub seed: u32,
@@ -642,7 +642,7 @@ impl RustCraftApp {
 
                 if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
                     let next = match self.settings_hovered_opt {
-                        Some(0) | None => 9,
+                        Some(0) | None => 10,
                         Some(i) => i - 1,
                     };
                     self.settings_hovered_opt = Some(next);
@@ -650,7 +650,7 @@ impl RustCraftApp {
                 }
                 if input.gp_dpad_down_just_pressed || (down_arrow_down && !self.prev_down_arrow_down) {
                     let next = match self.settings_hovered_opt {
-                        Some(9) | None => 0,
+                        Some(10) | None => 0,
                         Some(i) => i + 1,
                     };
                     self.settings_hovered_opt = Some(next);
@@ -685,9 +685,10 @@ impl RustCraftApp {
                         4 => self.settings.particles = !self.settings.particles,
                         5 => self.settings.chunk_anim = !self.settings.chunk_anim,
                         6 => self.settings.cycle_fov(true),
-                        7 => self.settings.underwater_fx = !self.settings.underwater_fx,
-                        8 => self.settings.debug_overlay = !self.settings.debug_overlay,
-                        9 => {
+                        7 => self.settings.cycle_msaa(true),
+                        8 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                        9 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                        10 => {
                             let _ = self.settings.save();
                             self.state = match prev {
                                 PreviousMenu::MainMenu => GameState::MainMenu,
@@ -716,8 +717,9 @@ impl RustCraftApp {
                             4 => self.settings.particles = !self.settings.particles,
                             5 => self.settings.chunk_anim = !self.settings.chunk_anim,
                             6 => self.settings.cycle_fov(false),
-                            7 => self.settings.underwater_fx = !self.settings.underwater_fx,
-                            8 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                            7 => self.settings.cycle_msaa(false),
+                            8 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                            9 => self.settings.debug_overlay = !self.settings.debug_overlay,
                             _ => {}
                         }
                     }
@@ -741,8 +743,9 @@ impl RustCraftApp {
                             4 => self.settings.particles = !self.settings.particles,
                             5 => self.settings.chunk_anim = !self.settings.chunk_anim,
                             6 => self.settings.cycle_fov(true),
-                            7 => self.settings.underwater_fx = !self.settings.underwater_fx,
-                            8 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                            7 => self.settings.cycle_msaa(true),
+                            8 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                            9 => self.settings.debug_overlay = !self.settings.debug_overlay,
                             _ => {}
                         }
                     }

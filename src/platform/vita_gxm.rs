@@ -71,6 +71,10 @@ const SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4: u32 = 1;
 const SCE_GXM_DEPTH_STENCIL_FORMAT_DF32: u32 = 0x00044000;
 const SCE_GXM_DEPTH_STENCIL_SURFACE_LINEAR: u32 = 0x00000000;
 const SCE_GXM_MULTISAMPLE_NONE: u32 = 0;
+const SCE_GXM_MULTISAMPLE_2X: u32 = 1;
+const SCE_GXM_MULTISAMPLE_4X: u32 = 2;
+const SCE_GXM_COLOR_SURFACE_DITHER_DISABLED: u32 = 0x00000000;
+const SCE_GXM_COLOR_SURFACE_DITHER_ENABLED: u32 = 0x00000008;
 const SCE_GXM_PRIMITIVE_TRIANGLES: u32 = 0x00000000;
 
 const SCE_GXM_INDEX_FORMAT_U16: u32 = 0x00000000;
@@ -106,6 +110,8 @@ const SCE_GXM_TEXTURE_SWIZZLE4_ABGR: u32 = 0x00000000;
 const SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR: u32 = SCE_GXM_TEXTURE_BASE_FORMAT_U8U8U8U8 | SCE_GXM_TEXTURE_SWIZZLE4_ABGR;
 const SCE_GXM_TEXTURE_FILTER_POINT: u32 = 0;
 const SCE_GXM_TEXTURE_FILTER_LINEAR: u32 = 1;
+const SCE_GXM_TEXTURE_MIP_FILTER_DISABLED: u32 = 0x00000000;
+const SCE_GXM_TEXTURE_MIP_FILTER_ENABLED: u32 = 0x00000200;
 const SCE_GXM_TEXTURE_ADDR_REPEAT: u32 = 0;
 
 const SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW: u32 = 0x09408060;
@@ -340,7 +346,17 @@ extern "C" {
     fn sceGxmSetCullMode(context: *mut SceGxmContext, mode: u32);
     fn sceGxmFinish(context: *mut SceGxmContext);
 
+    fn sceGxmColorSurfaceSetDitherMode(surface: *mut SceGxmColorSurface, ditherMode: u32) -> i32;
+
     fn sceGxmTextureInitLinear(
+        texture: *mut SceGxmTexture,
+        data: *const core::ffi::c_void,
+        format: u32,
+        width: u32,
+        height: u32,
+        mipCount: u32,
+    ) -> i32;
+    fn sceGxmTextureInitSwizzled(
         texture: *mut SceGxmTexture,
         data: *const core::ffi::c_void,
         format: u32,
@@ -350,6 +366,7 @@ extern "C" {
     ) -> i32;
     fn sceGxmTextureSetMinFilter(texture: *mut SceGxmTexture, filter: u32) -> i32;
     fn sceGxmTextureSetMagFilter(texture: *mut SceGxmTexture, filter: u32) -> i32;
+    fn sceGxmTextureSetMipFilter(texture: *mut SceGxmTexture, filter: u32) -> i32;
     fn sceGxmTextureSetUAddrMode(texture: *mut SceGxmTexture, mode: u32) -> i32;
     fn sceGxmTextureSetVAddrMode(texture: *mut SceGxmTexture, mode: u32) -> i32;
     fn sceGxmSetFragmentTexture(context: *mut SceGxmContext, textureIndex: u32, texture: *const SceGxmTexture) -> i32;
@@ -683,7 +700,7 @@ impl GxmVertex {
 }
 
 // ============================================================
-// 5. TEKSTURA ATLASU
+// 5. TEKSTURA ATLASU (GPU Linear Format)
 // ============================================================
 
 const ATLAS_TILES_PER_ROW: usize = 16;
@@ -709,6 +726,55 @@ pub const ALL_TEXTURES: &[TextureId] = &[
     TextureId::GrassTopTaiga, TextureId::GrassSideTaiga,
 ];
 
+unsafe fn populate_atlas(pixels: *mut u32, atlas: &TextureAtlas) {
+    for (tile_idx, &tex_id) in ALL_TEXTURES.iter().enumerate() {
+        let tex = atlas.texture_for(tex_id);
+        let tile_col = tile_idx % ATLAS_TILES_PER_ROW;
+        let tile_row = tile_idx / ATLAS_TILES_PER_ROW;
+        let base_x = tile_col * TEX_SIZE;
+        let base_y = tile_row * TEX_SIZE;
+        let is_water = tex_id == TextureId::Water;
+        let is_glass = tex_id == TextureId::Glass;
+        let is_damage = tex_id == TextureId::DamageFlash;
+        let is_underwater = tex_id == TextureId::UnderwaterTint;
+        let is_vignette = tex_id == TextureId::VignetteTint;
+        let is_lava = tex_id == TextureId::LavaTint;
+        let is_shadow = tex_id == TextureId::EntityShadow;
+        for py in 0..TEX_SIZE {
+            for px in 0..TEX_SIZE {
+                let [r, g, b] = tex.texels[py * TEX_SIZE + px];
+                let is_transparent = r < 0.0;
+                let real_r = if is_transparent { (-r - 0.001).clamp(0.0, 1.0) } else { r.clamp(0.0, 1.0) };
+                let a = if is_transparent {
+                    0u32
+                } else if is_shadow {
+                    130u32 // Semi-transparent black entity shadow (~51% opacity)
+                } else if is_water {
+                    130u32 // Semi-transparent water (~51% opacity)
+                } else if is_glass {
+                    120u32 // Semi-transparent glass (~47% opacity)
+                } else if is_damage {
+                    85u32  // Semi-transparent damage flash (~33% opacity)
+                } else if is_underwater {
+                    95u32  // Semi-transparent underwater overlay (~37% opacity)
+                } else if is_vignette {
+                    70u32  // Semi-transparent heartbeat vignette
+                } else if is_lava {
+                    215u32 // Gęsta, gorąca mgła lawowa (~84% opacity)
+                } else {
+                    255u32
+                };
+                let ri = (real_r * 255.0) as u32;
+                let gi = (g.clamp(0.0, 1.0) * 255.0) as u32;
+                let bi = (b.clamp(0.0, 1.0) * 255.0) as u32;
+                // ABGR8888
+                let abgr = (a << 24) | (bi << 16) | (gi << 8) | ri;
+                *pixels.add((base_y + py) * ATLAS_SIZE + (base_x + px)) = abgr;
+            }
+        }
+    }
+}
+
 fn build_gpu_texture(atlas: &TextureAtlas) -> (GpuMem, SceGxmTexture) {
     let tex_bytes = ATLAS_SIZE * ATLAS_SIZE * 4;
     let mem = GpuMem::alloc_gpu(
@@ -722,50 +788,7 @@ fn build_gpu_texture(atlas: &TextureAtlas) -> (GpuMem, SceGxmTexture) {
 
     unsafe {
         core::ptr::write_bytes(pixels as *mut u8, 0, tex_bytes);
-        for (tile_idx, &tex_id) in ALL_TEXTURES.iter().enumerate() {
-            let tex = atlas.texture_for(tex_id);
-            let tile_col = tile_idx % ATLAS_TILES_PER_ROW;
-            let tile_row = tile_idx / ATLAS_TILES_PER_ROW;
-            let base_x = tile_col * TEX_SIZE;
-            let base_y = tile_row * TEX_SIZE;
-            let is_water = tex_id == TextureId::Water;
-            let is_glass = tex_id == TextureId::Glass;
-            let is_damage = tex_id == TextureId::DamageFlash;
-            let is_underwater = tex_id == TextureId::UnderwaterTint;
-            let is_vignette = tex_id == TextureId::VignetteTint;
-            let is_lava = tex_id == TextureId::LavaTint;
-            let is_shadow = tex_id == TextureId::EntityShadow;
-            for py in 0..TEX_SIZE {
-                for px in 0..TEX_SIZE {
-                    let [r, g, b] = tex.texels[py * TEX_SIZE + px];
-                    let a = if r < 0.0 {
-                        0u32
-                    } else if is_shadow {
-                        130u32 // Semi-transparent black entity shadow (~51% opacity)
-                    } else if is_water {
-                        130u32 // Semi-transparent water (~51% opacity)
-                    } else if is_glass {
-                        120u32 // Semi-transparent glass (~47% opacity)
-                    } else if is_damage {
-                        85u32  // Semi-transparent damage flash (~33% opacity)
-                    } else if is_underwater {
-                        95u32  // Semi-transparent underwater overlay (~37% opacity)
-                    } else if is_vignette {
-                        70u32  // Semi-transparent heartbeat vignette
-                    } else if is_lava {
-                        215u32 // Gęsta, gorąca mgła lawowa (~84% opacity)
-                    } else {
-                        255u32
-                    };
-                    let ri = (r.clamp(0.0, 1.0) * 255.0) as u32;
-                    let gi = (g.clamp(0.0, 1.0) * 255.0) as u32;
-                    let bi = (b.clamp(0.0, 1.0) * 255.0) as u32;
-                    // ABGR8888
-                    let abgr = (a << 24) | (bi << 16) | (gi << 8) | ri;
-                    *pixels.add((base_y + py) * ATLAS_SIZE + (base_x + px)) = abgr;
-                }
-            }
-        }
+        populate_atlas(pixels, atlas);
     }
 
     let mut texture = SceGxmTexture { _private: [0u32; 4] };
@@ -1030,7 +1053,7 @@ impl GxmRenderer {
         let rc = sceGxmCreateRenderTarget(&rt_params, &mut render_target);
         assert_eq!(rc, SCE_OK, "sceGxmCreateRenderTarget failed: 0x{:08X}", rc);
 
-        // --- 5. Triple Display Buffers w pamięci CDRAM ---
+        // --- 5. Triple Display Buffers w pamięci CDRAM (ze sprzętowym ditheringiem) ---
         let color_surface_size = (VITA_WIDTH * VITA_HEIGHT * 4) as usize;
         let names: [&[u8]; 3] = [b"RC_GXM_CB0\0", b"RC_GXM_CB1\0", b"RC_GXM_CB2\0"];
 
@@ -1067,6 +1090,8 @@ impl GxmRenderer {
                 VITA_STRIDE,
                 ptr,
             );
+            // Sprzętowy Dithering eliminuje banding kolorów przy winietach, mgle i gradientach
+            sceGxmColorSurfaceSetDitherMode(&mut color_surfaces[i], SCE_GXM_COLOR_SURFACE_DITHER_ENABLED);
             display_data[i].address = ptr;
 
             let mut sync: *mut SceGxmSyncObject = core::ptr::null_mut();
@@ -1810,11 +1835,11 @@ impl GxmRenderer {
             }
 
             for mob in mobs {
-                append_mob(mob, ent_vb, ent_ib, &mut ent_v_count, &mut ent_i_count, max_ent_verts, max_ent_idx);
+                append_mob(mob, camera.position, ent_vb, ent_ib, &mut ent_v_count, &mut ent_i_count, max_ent_verts, max_ent_idx);
             }
 
             for tnt in &world.primed_tnts {
-                append_tnt(tnt, ent_vb, ent_ib, &mut ent_v_count, &mut ent_i_count, max_ent_verts, max_ent_idx);
+                append_tnt(tnt, camera.position, ent_vb, ent_ib, &mut ent_v_count, &mut ent_i_count, max_ent_verts, max_ent_idx);
             }
 
             append_hand_3d(
@@ -2205,6 +2230,7 @@ struct GxmMobBox {
 
 fn append_mob_box(
     b: &GxmMobBox,
+    camera_pos: Vec3,
     vb: *mut GxmVertex,
     ib: *mut u16,
     v_count: &mut usize,
@@ -2266,16 +2292,35 @@ fn append_mob_box(
         transform_point(local_corners[7]),
     ];
 
-    append_quad(vb, ib, v_count, i_count, max_verts, max_idx, world_pts[7], world_pts[6], world_pts[2], world_pts[3], b.tex_top, 1.00);
-    append_quad(vb, ib, v_count, i_count, max_verts, max_idx, world_pts[4], world_pts[0], world_pts[1], world_pts[5], b.tex_bottom, 0.50);
-    append_quad(vb, ib, v_count, i_count, max_verts, max_idx, world_pts[4], world_pts[5], world_pts[6], world_pts[7], b.tex_front, 0.85);
-    append_quad(vb, ib, v_count, i_count, max_verts, max_idx, world_pts[1], world_pts[0], world_pts[3], world_pts[2], b.tex_side, 0.85);
-    append_quad(vb, ib, v_count, i_count, max_verts, max_idx, world_pts[0], world_pts[4], world_pts[7], world_pts[3], b.tex_side, 0.70);
-    append_quad(vb, ib, v_count, i_count, max_verts, max_idx, world_pts[5], world_pts[1], world_pts[2], world_pts[6], b.tex_side, 0.70);
+    let mut append_face = |i0: usize, i1: usize, i2: usize, i3: usize, tex: TextureId, shade: f32| {
+        let p0 = world_pts[i0];
+        let p1 = world_pts[i1];
+        let p2 = world_pts[i2];
+        let p3 = world_pts[i3];
+
+        let edge1 = p1 - p0;
+        let edge2 = p3 - p0;
+        let normal = edge1.cross(edge2);
+        let center = (p0 + p1 + p2 + p3) * 0.25;
+        let to_face = center - camera_pos;
+        if to_face.dot(normal) >= 0.0 {
+            return;
+        }
+
+        append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p0, p1, p2, p3, tex, shade);
+    };
+
+    append_face(7, 6, 2, 3, b.tex_top, 1.00);
+    append_face(4, 0, 1, 5, b.tex_bottom, 0.50);
+    append_face(4, 5, 6, 7, b.tex_front, 0.85);
+    append_face(1, 0, 3, 2, b.tex_side, 0.85);
+    append_face(0, 4, 7, 3, b.tex_side, 0.70);
+    append_face(5, 1, 2, 6, b.tex_side, 0.70);
 }
 
 fn append_mob(
     mob: &crate::gameplay::mob::Mob,
+    camera_pos: Vec3,
     vb: *mut GxmVertex,
     ib: *mut u16,
     v_count: &mut usize,
@@ -2306,7 +2351,7 @@ fn append_mob(
                 tex_side: TextureId::PigSkin,
                 tex_front: TextureId::PigSkin,
             };
-            append_mob_box(&body_box, vb, ib, v_count, i_count, max_verts, max_idx);
+            append_mob_box(&body_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
 
             let head_pos = base_pos + Vec3::new(yaw.sin() * 0.48, 0.52, yaw.cos() * 0.48);
             let head_yaw = yaw + mob.head_yaw_offset;
@@ -2322,7 +2367,7 @@ fn append_mob(
                 tex_side: TextureId::PigSkin,
                 tex_front: TextureId::PigFace,
             };
-            append_mob_box(&head_box, vb, ib, v_count, i_count, max_verts, max_idx);
+            append_mob_box(&head_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
 
             let snout_pos = head_pos + Vec3::new(head_yaw.sin() * 0.28, -0.06, head_yaw.cos() * 0.28);
             let snout_box = GxmMobBox {
@@ -2337,7 +2382,7 @@ fn append_mob(
                 tex_side: TextureId::PigSkin,
                 tex_front: TextureId::PigSnout,
             };
-            append_mob_box(&snout_box, vb, ib, v_count, i_count, max_verts, max_idx);
+            append_mob_box(&snout_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
 
             let leg_offsets = [
                 (-0.22, -0.28, leg_swing),
@@ -2363,7 +2408,7 @@ fn append_mob(
                     tex_side: TextureId::PigSkin,
                     tex_front: TextureId::PigSkin,
                 };
-                append_mob_box(&leg_box, vb, ib, v_count, i_count, max_verts, max_idx);
+                append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
             }
         }
         MobKind::Cow => {
@@ -2379,7 +2424,7 @@ fn append_mob(
                 tex_side: TextureId::CowSkin,
                 tex_front: TextureId::CowSkin,
             };
-            append_mob_box(&body_box, vb, ib, v_count, i_count, max_verts, max_idx);
+            append_mob_box(&body_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
 
             let udder_pos = base_pos + Vec3::new(0.0, 0.44, 0.0);
             let udder_box = GxmMobBox {
@@ -2394,7 +2439,7 @@ fn append_mob(
                 tex_side: TextureId::CowUdder,
                 tex_front: TextureId::CowUdder,
             };
-            append_mob_box(&udder_box, vb, ib, v_count, i_count, max_verts, max_idx);
+            append_mob_box(&udder_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
 
             let head_pos = base_pos + Vec3::new(yaw.sin() * 0.62, 0.95, yaw.cos() * 0.62);
             let head_yaw = yaw + mob.head_yaw_offset;
@@ -2410,7 +2455,7 @@ fn append_mob(
                 tex_side: TextureId::CowSkin,
                 tex_front: TextureId::CowFace,
             };
-            append_mob_box(&head_box, vb, ib, v_count, i_count, max_verts, max_idx);
+            append_mob_box(&head_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
 
             let snout_pos = head_pos + Vec3::new(head_yaw.sin() * 0.26, -0.10, head_yaw.cos() * 0.26);
             let snout_box = GxmMobBox {
@@ -2425,7 +2470,7 @@ fn append_mob(
                 tex_side: TextureId::CowSkin,
                 tex_front: TextureId::CowSnout,
             };
-            append_mob_box(&snout_box, vb, ib, v_count, i_count, max_verts, max_idx);
+            append_mob_box(&snout_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
 
             for side in [-1.0f32, 1.0f32] {
                 let horn_x = side * 0.28 * head_yaw.cos();
@@ -2443,7 +2488,7 @@ fn append_mob(
                     tex_side: TextureId::CowHorns,
                     tex_front: TextureId::CowHorns,
                 };
-                append_mob_box(&horn_box, vb, ib, v_count, i_count, max_verts, max_idx);
+                append_mob_box(&horn_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
             }
 
             let leg_offsets = [
@@ -2470,7 +2515,7 @@ fn append_mob(
                     tex_side: TextureId::CowSkin,
                     tex_front: TextureId::CowSkin,
                 };
-                append_mob_box(&leg_box, vb, ib, v_count, i_count, max_verts, max_idx);
+                append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
             }
         }
     }
@@ -2478,6 +2523,7 @@ fn append_mob(
 
 fn append_tnt(
     tnt: &crate::world::PrimedTnt,
+    camera_pos: Vec3,
     vb: *mut GxmVertex,
     ib: *mut u16,
     v_count: &mut usize,
@@ -2500,6 +2546,14 @@ fn append_tnt(
     ];
 
     for (c0, c1, c2, c3, tex, ao) in faces {
+        let edge1 = c1 - c0;
+        let edge2 = c3 - c0;
+        let normal = edge1.cross(edge2);
+        let center = (c0 + c1 + c2 + c3) * 0.25;
+        let to_face = center - camera_pos;
+        if to_face.dot(normal) >= 0.0 {
+            continue;
+        }
         append_quad(vb, ib, v_count, i_count, max_verts, max_idx, c0, c1, c2, c3, tex, ao);
     }
 }
@@ -2928,53 +2982,11 @@ impl GxmRenderer {
         !(out_left || out_right || out_bottom || out_top || out_near || out_far)
     }
 
-    /// Aktualizuje tekstury w pamięci CDRAM GPU po zmianie ustawień graficznych (np. przełącznik Fancy Leaves)
+    /// Aktualizuje tekstury w pamięci CDRAM GPU po zmianie ustawień graficznych (np. przełącznik Fancy Leaves) oraz animacje
     pub fn update_textures(&mut self, atlas: &TextureAtlas) {
         let pixels = self._atlas_mem.ptr as *mut u32;
         unsafe {
-            for (tile_idx, &tex_id) in ALL_TEXTURES.iter().enumerate() {
-                let tex = atlas.texture_for(tex_id);
-                let tile_col = tile_idx % ATLAS_TILES_PER_ROW;
-                let tile_row = tile_idx / ATLAS_TILES_PER_ROW;
-                let base_x = tile_col * TEX_SIZE;
-                let base_y = tile_row * TEX_SIZE;
-                let is_water = tex_id == TextureId::Water;
-                let is_glass = tex_id == TextureId::Glass;
-                let is_damage = tex_id == TextureId::DamageFlash;
-                let is_underwater = tex_id == TextureId::UnderwaterTint;
-                let is_vignette = tex_id == TextureId::VignetteTint;
-                let is_lava = tex_id == TextureId::LavaTint;
-                let is_shadow = tex_id == TextureId::EntityShadow;
-                for py in 0..TEX_SIZE {
-                    for px in 0..TEX_SIZE {
-                        let [r, g, b] = tex.texels[py * TEX_SIZE + px];
-                        let a = if r < 0.0 {
-                            0u32
-                        } else if is_shadow {
-                            130u32
-                        } else if is_water {
-                            130u32
-                        } else if is_glass {
-                            120u32
-                        } else if is_damage {
-                            85u32
-                        } else if is_underwater {
-                            95u32
-                        } else if is_vignette {
-                            70u32
-                        } else if is_lava {
-                            215u32
-                        } else {
-                            255u32
-                        };
-                        let ri = (r.clamp(0.0, 1.0) * 255.0) as u32;
-                        let gi = (g.clamp(0.0, 1.0) * 255.0) as u32;
-                        let bi = (b.clamp(0.0, 1.0) * 255.0) as u32;
-                        let abgr = (a << 24) | (bi << 16) | (gi << 8) | ri;
-                        *pixels.add((base_y + py) * ATLAS_SIZE + (base_x + px)) = abgr;
-                    }
-                }
-            }
+            populate_atlas(pixels, atlas);
         }
     }
 
