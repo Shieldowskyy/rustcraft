@@ -57,9 +57,9 @@ pub fn draw_main_menu(
     draw_text_colored_shadowed(buffer, width, height, subtitle, cx - subtitle_w / 2, 185, 2, 2, pack_color(0.7, 0.75, 0.85));
 
     let buttons = [
-        "PLAY / SELECT WORLD",
-        "GRAPHICS SETTINGS",
-        "QUIT GAME",
+        crate::core::i18n::t("menu.play"),
+        crate::core::i18n::t("menu.settings"),
+        crate::core::i18n::t("menu.quit"),
     ];
     let rects = main_menu_button_rects(width, height);
     for (i, (&label, &(bx, by, bw, bh))) in buttons.iter().zip(rects.iter()).enumerate() {
@@ -85,10 +85,7 @@ pub fn draw_main_menu(
         }
     }
 
-    #[cfg(target_os = "vita")]
-    let footer = "CONTROLS: [D-PAD / TOUCH] NAVIGATE | [X] SELECT | [O] QUIT";
-    #[cfg(not(target_os = "vita"))]
-    let footer = "CONTROLS: [D-PAD / ARROWS] NAVIGATE | [A / ENTER] SELECT | [B / ESC] QUIT";
+    let footer = crate::core::i18n::t("menu.controls");
     let fw = font::measure_text(footer, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, footer, cx - fw / 2, 460, 1, 1, pack_color(0.6, 0.65, 0.75));
 }

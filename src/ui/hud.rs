@@ -345,11 +345,11 @@ pub fn draw_debug_panel(buffer: &mut [u32], width: usize, height: usize, lines: 
 pub fn draw_capture_prompt(buffer: &mut [u32], width: usize, height: usize, native_capture: bool) {
     fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.0, 0.0, 0.0), 0.35);
 
-    let line1 = "KLIKNIJ ABY GRAC";
+    let line1 = crate::core::i18n::t("capture.prompt");
     let line2 = if native_capture {
-        "MYSZ ZOSTANIE ZABLOKOWANA W OKNIE"
+        crate::core::i18n::t("capture.mouse_locked")
     } else {
-        "ESC - MENU PAUZY / WYJSCIE"
+        crate::core::i18n::t("capture.esc_pause")
     };
 
     let scale1 = 4;
@@ -387,31 +387,46 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
     let cy = height as i32 / 2;
 
     // Title
-    let title = "GAME MENU";
+    let title = crate::core::i18n::t("pause.title");
     let t_scale = 3;
     let t_w = font::measure_text(title, t_scale, 2);
     draw_text_colored_shadowed(buffer, width, height, title, cx - t_w / 2, cy - 145, t_scale, 2, pack_color(0.95, 0.85, 0.35));
 
     #[cfg(target_os = "vita")]
-    let buttons = [
-        "RESUME GAME (START)",
-        "GRAPHICS SETTINGS",
-        if fly_mode { "FLY MODE: ON (R3)" } else { "FLY MODE: OFF (R3)" },
-        "MAIN MENU (SELECT)",
-        "QUIT GAME",
-    ];
+    let b0 = format!("{} (START)", crate::core::i18n::t("pause.resume"));
     #[cfg(not(target_os = "vita"))]
-    let buttons = [
-        "RESUME GAME (ESC)",
-        "GRAPHICS SETTINGS",
-        if fly_mode { "FLY MODE: ON (F)" } else { "FLY MODE: OFF (F)" },
-        "MAIN MENU (M)",
-        "QUIT GAME (Q)",
-    ];
+    let b0 = format!("{} (ESC)", crate::core::i18n::t("pause.resume"));
+
+    let b1 = crate::core::i18n::t("pause.settings").to_string();
+
+    #[cfg(target_os = "vita")]
+    let b2 = if fly_mode {
+        format!("{} (R3)", crate::core::i18n::t("pause.fly_on"))
+    } else {
+        format!("{} (R3)", crate::core::i18n::t("pause.fly_off"))
+    };
+    #[cfg(not(target_os = "vita"))]
+    let b2 = if fly_mode {
+        format!("{} (F)", crate::core::i18n::t("pause.fly_on"))
+    } else {
+        format!("{} (F)", crate::core::i18n::t("pause.fly_off"))
+    };
+
+    #[cfg(target_os = "vita")]
+    let b3 = format!("{} (SELECT)", crate::core::i18n::t("pause.main_menu"));
+    #[cfg(not(target_os = "vita"))]
+    let b3 = format!("{} (M)", crate::core::i18n::t("pause.main_menu"));
+
+    #[cfg(target_os = "vita")]
+    let b4 = crate::core::i18n::t("pause.quit").to_string();
+    #[cfg(not(target_os = "vita"))]
+    let b4 = format!("{} (Q)", crate::core::i18n::t("pause.quit"));
+
+    let buttons = [b0, b1, b2, b3, b4];
 
     let rects = pause_menu_button_rects(width, height);
 
-    for (i, (&label, &(bx, by, bw, bh))) in buttons.iter().zip(rects.iter()).enumerate() {
+    for (i, (label, &(bx, by, bw, bh))) in buttons.iter().zip(rects.iter()).enumerate() {
         let is_hover = hovered_idx == Some(i);
 
         let body_color = if is_hover {
@@ -634,30 +649,31 @@ pub fn draw_death_screen(
     let cx = width as i32 / 2;
     let cy = height as i32 / 2;
 
-    let title = "NIE ZYJESZ!";
+    let title = crate::core::i18n::t("death.title");
     let t_scale = 5;
     let tw = font::measure_text(title, t_scale, 2);
     draw_text_colored_shadowed(buffer, width, height, title, cx - tw / 2, cy - 110, t_scale, 2, pack_color(1.0, 0.15, 0.15));
 
-    let subtitle = "Polegles w swiecie gry";
+    let subtitle = crate::core::i18n::t("death.subtitle");
     let s_scale = 2;
     let sw = font::measure_text(subtitle, s_scale, 1);
     draw_text_colored_shadowed(buffer, width, height, subtitle, cx - sw / 2, cy - 40, s_scale, 1, pack_color(0.9, 0.85, 0.85));
 
     #[cfg(target_os = "vita")]
-    let buttons = [
-        "ODRODZENIE [X]",
-        "MENU GLOWNE [O]",
-    ];
+    let b0 = format!("{} [X]", crate::core::i18n::t("death.respawn"));
     #[cfg(not(target_os = "vita"))]
-    let buttons = [
-        "ODRODZENIE (ENTER)",
-        "MENU GLOWNE (ESC)",
-    ];
+    let b0 = format!("{} (ENTER)", crate::core::i18n::t("death.respawn"));
+
+    #[cfg(target_os = "vita")]
+    let b1 = format!("{} [O]", crate::core::i18n::t("death.main_menu"));
+    #[cfg(not(target_os = "vita"))]
+    let b1 = format!("{} (ESC)", crate::core::i18n::t("death.main_menu"));
+
+    let buttons = [b0, b1];
 
     let rects = death_screen_button_rects(width, height);
 
-    for (i, (&label, &(bx, by, bw, bh))) in buttons.iter().zip(rects.iter()).enumerate() {
+    for (i, (label, &(bx, by, bw, bh))) in buttons.iter().zip(rects.iter()).enumerate() {
         let is_hover = hovered_idx == Some(i);
 
         let body_color = if is_hover {

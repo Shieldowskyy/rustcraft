@@ -85,7 +85,7 @@ pub fn draw_create_world_menu(
     fill_rect(buffer, width, height, panel_x + panel_w - 2, panel_y, 2, panel_h, pack_color(0.05, 0.06, 0.08));
 
     // Header title
-    let title = "CREATE NEW WORLD";
+    let title = crate::core::i18n::t("create_world.title");
     let title_w = font::measure_text(title, 3, 2);
     draw_text_colored_shadowed(buffer, width, height, title, cx - title_w / 2, panel_y + 16, 3, 2, pack_color(0.95, 0.85, 0.35));
 
@@ -97,7 +97,7 @@ pub fn draw_create_world_menu(
 
     // --- 1. WORLD NAME ---
     let (nx, ny, nw, nh) = rects[0];
-    draw_text_colored_shadowed(buffer, width, height, "WORLD NAME:", nx, ny - 16, 1, 1, pack_color(0.85, 0.90, 0.95));
+    draw_text_colored_shadowed(buffer, width, height, crate::core::i18n::t("create_world.name_label"), nx, ny - 16, 1, 1, pack_color(0.85, 0.90, 0.95));
 
     let name_is_active = focused_element == 0;
     let name_is_hover = hovered_element == Some(0);
@@ -139,7 +139,7 @@ pub fn draw_create_world_menu(
 
     // --- 2. WORLD SEED ---
     let (sx, sy, sw, sh) = rects[1];
-    draw_text_colored_shadowed(buffer, width, height, "SEED (LEAVE BLANK FOR RANDOM):", sx, sy - 16, 1, 1, pack_color(0.85, 0.90, 0.95));
+    draw_text_colored_shadowed(buffer, width, height, crate::core::i18n::t("create_world.seed_label"), sx, sy - 16, 1, 1, pack_color(0.85, 0.90, 0.95));
 
     let seed_is_active = focused_element == 1;
     let seed_is_hover = hovered_element == Some(1);
@@ -194,7 +194,7 @@ pub fn draw_create_world_menu(
 
     // --- 3. DEFAULT GAME MODE ---
     let (gx, gy, gw, gh) = rects[3];
-    draw_text_colored_shadowed(buffer, width, height, "GAME MODE:", gx, gy - 16, 1, 1, pack_color(0.85, 0.90, 0.95));
+    draw_text_colored_shadowed(buffer, width, height, crate::core::i18n::t("create_world.gamemode_label"), gx, gy - 16, 1, 1, pack_color(0.85, 0.90, 0.95));
 
     let mode_is_active = focused_element == 3;
     let mode_is_hover = hovered_element == Some(3);
@@ -217,19 +217,19 @@ pub fn draw_create_world_menu(
 
     let (mode_btn_text, mode_text_color, mode_desc) = match gamemode {
         GameMode::Survival => (
-            "GAME MODE: SURVIVAL",
+            format!("{}: {}", crate::core::i18n::t("create_world.gamemode_label"), crate::core::i18n::t("create_world.mode_survival")),
             pack_color(0.4, 0.95, 0.45),
             "Health & hunger meters, mobs, block destruction takes time.",
         ),
         GameMode::Creative => (
-            "GAME MODE: CREATIVE",
+            format!("{}: {}", crate::core::i18n::t("create_world.gamemode_label"), crate::core::i18n::t("create_world.mode_creative")),
             pack_color(0.4, 0.85, 1.0),
             "Flight, invulnerability, instant block breaking, full item inventory.",
         ),
     };
 
-    let m_tw = font::measure_text(mode_btn_text, 2, 1);
-    draw_text_colored_shadowed(buffer, width, height, mode_btn_text, gx + (gw - m_tw) / 2, gy + 12, 2, 1, mode_text_color);
+    let m_tw = font::measure_text(&mode_btn_text, 2, 1);
+    draw_text_colored_shadowed(buffer, width, height, &mode_btn_text, gx + (gw - m_tw) / 2, gy + 12, 2, 1, mode_text_color);
 
     let desc_w = font::measure_text(mode_desc, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, mode_desc, cx - desc_w / 2, gy + gh + 8, 1, 1, pack_color(0.65, 0.72, 0.82));
@@ -245,10 +245,7 @@ pub fn draw_create_world_menu(
     fill_rect(buffer, width, height, bx - 2, by - 2, bw + 4, bh + 4, create_border);
     fill_rect(buffer, width, height, bx, by, bw, bh, create_bg);
 
-    #[cfg(target_os = "vita")]
-    let create_lbl = "CREATE WORLD [X]";
-    #[cfg(not(target_os = "vita"))]
-    let create_lbl = "CREATE WORLD (ENTER)";
+    let create_lbl = crate::core::i18n::t("create_world.create_btn");
 
     let c_tw = font::measure_text(create_lbl, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, create_lbl, bx + (bw - c_tw) / 2, by + (bh - 5) / 2, 1, 1, pack_color(1.0, 1.0, 1.0));
@@ -264,10 +261,7 @@ pub fn draw_create_world_menu(
     fill_rect(buffer, width, height, ax - 2, ay - 2, aw + 4, ah + 4, cancel_border);
     fill_rect(buffer, width, height, ax, ay, aw, ah, cancel_bg);
 
-    #[cfg(target_os = "vita")]
-    let cancel_lbl = "CANCEL [O]";
-    #[cfg(not(target_os = "vita"))]
-    let cancel_lbl = "CANCEL (ESC)";
+    let cancel_lbl = crate::core::i18n::t("create_world.cancel_btn");
 
     let a_tw = font::measure_text(cancel_lbl, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, cancel_lbl, ax + (aw - a_tw) / 2, ay + (ah - 5) / 2, 1, 1, pack_color(1.0, 1.0, 1.0));

@@ -1,10 +1,13 @@
 //! User configuration, graphics options, persistent preferences, and serialization.
 
 use std::path::PathBuf;
+use crate::core::i18n::Language;
 
 /// Persistent game options and performance preferences.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GameSettings {
+    /// Active interface language.
+    pub language: Language,
     /// Chunk render distance radius (e.g. 2, 4, 6, 8, 10, 12, 16; default: 6).
     pub render_distance: i32,
     /// Transparent/fancy leaf rendering vs solid/fast leaves (default: true).
@@ -42,6 +45,7 @@ impl Default for GameSettings {
         let default_fps_limit = 0;
 
         Self {
+            language: Language::English,
             render_distance: 6,
             fancy_leaves: true,
             fog: true,
@@ -99,7 +103,15 @@ impl GameSettings {
                     default_fps_limit
                 };
 
+                let language = match bytes.get(24).copied().unwrap_or(0) {
+                    1 => Language::Polish,
+                    _ => Language::English,
+                };
+
+                crate::core::i18n::set_language(language);
+
                 return Self {
+                    language,
                     render_distance,
                     fancy_leaves,
                     fog,
@@ -114,15 +126,18 @@ impl GameSettings {
                 };
             }
         }
-        Self::default()
+        let def = Self::default();
+        crate::core::i18n::set_language(def.language);
+        def
     }
 
     pub fn save(&self) -> Result<(), String> {
+        crate::core::i18n::set_language(self.language);
         let path = Self::settings_path();
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let mut bytes = Vec::with_capacity(24);
+        let mut bytes = Vec::with_capacity(25);
         bytes.extend_from_slice(b"RCST");
         bytes.extend_from_slice(&self.render_distance.to_le_bytes());
         bytes.push(if self.clouds { 1 } else { 0 });
@@ -135,11 +150,29 @@ impl GameSettings {
         bytes.push(if self.fancy_leaves { 1 } else { 0 });
         bytes.push(self.msaa as u8);
         bytes.extend_from_slice(&self.fps_limit.to_le_bytes());
+        bytes.push(match self.language {
+            Language::Polish => 1,
+            Language::English => 0,
+        });
         std::fs::write(&path, bytes).map_err(|e| e.to_string())
     }
 
     fn settings_path() -> PathBuf {
         crate::world::storage::settings_file_path()
+    }
+
+    pub fn cycle_language(&mut self, forward: bool) {
+        let all = Language::all();
+        let idx = all.iter().position(|&l| l == self.language).unwrap_or(0);
+        let next_idx = if forward {
+            (idx + 1) % all.len()
+        } else if idx == 0 {
+            all.len() - 1
+        } else {
+            idx - 1
+        };
+        self.language = all[next_idx];
+        crate::core::i18n::set_language(self.language);
     }
 
     pub fn cycle_render_distance(&mut self, forward: bool) {

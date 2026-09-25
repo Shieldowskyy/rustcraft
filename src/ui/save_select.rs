@@ -58,7 +58,7 @@ pub fn draw_save_select_menu(
     fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.02, 0.03, 0.05), 0.65);
 
     // Header title
-    let title = "SELECT WORLD (SAVES)";
+    let title = crate::core::i18n::t("save_select.title");
     let title_w = font::measure_text(title, 3, 2);
     draw_text_colored_shadowed(buffer, width, height, title, cx - title_w / 2, 20, 3, 2, pack_color(0.95, 0.85, 0.35));
 
@@ -149,10 +149,10 @@ pub fn draw_save_select_menu(
 
             // Game mode badge
             let (mode_text, mode_color) = match meta.gamemode {
-                crate::gameplay::player::GameMode::Survival => ("[ SURVIVAL ]", pack_color(0.35, 0.95, 0.4)),
-                crate::gameplay::player::GameMode::Creative => ("[ CREATIVE ]", pack_color(0.35, 0.85, 1.0)),
+                crate::gameplay::player::GameMode::Survival => (crate::core::i18n::t("create_world.mode_survival"), pack_color(0.35, 0.95, 0.4)),
+                crate::gameplay::player::GameMode::Creative => (crate::core::i18n::t("create_world.mode_creative"), pack_color(0.35, 0.85, 1.0)),
             };
-            draw_text_colored_shadowed(buffer, width, height, mode_text, badge_x, by + 10, 1, 1, mode_color);
+            draw_text_colored_shadowed(buffer, width, height, &format!("[ {} ]", mode_text), badge_x, by + 10, 1, 1, mode_color);
 
             // Slot badge on far right
             let slot_badge = format!("SLOT {:02}", slot_num);
@@ -169,7 +169,7 @@ pub fn draw_save_select_menu(
             draw_text_colored_shadowed(buffer, width, height, &line2, text_x, by + 47, 1, 1, pack_color(0.65, 0.75, 0.85));
         } else {
             // Empty Slot Info
-            let empty_title = format!("[ EMPTY SLOT {:02} ]", slot_num);
+            let empty_title = format!("[ {} {:02} ]", crate::core::i18n::t("save_select.empty_slot"), slot_num);
             draw_text_colored_shadowed(buffer, width, height, &empty_title, text_x, by + 14, 2, 1, pack_color(0.6, 0.65, 0.7));
 
             let line1 = "Press 'New' or 'Play' to create and configure a world.";
@@ -189,19 +189,11 @@ pub fn draw_save_select_menu(
     fill_rect(buffer, width, height, sb_x, thumb_y, 6, thumb_h, pack_color(0.5, 0.7, 1.0));
 
     // Bottom action buttons
-    #[cfg(target_os = "vita")]
     let buttons = [
-        "PLAY [X]",
-        "NEW [T]",
-        "DELETE [SQ]",
-        "BACK [O]",
-    ];
-    #[cfg(not(target_os = "vita"))]
-    let buttons = [
-        "PLAY (ENTER)",
-        "NEW (N)",
-        "DELETE (DEL)",
-        "BACK (ESC)",
+        crate::core::i18n::t("save_select.play"),
+        crate::core::i18n::t("save_select.create"),
+        crate::core::i18n::t("save_select.delete"),
+        crate::core::i18n::t("save_select.back"),
     ];
     let btn_rects = save_bottom_button_rects(width, height);
 

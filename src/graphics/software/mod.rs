@@ -236,7 +236,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 12] {
+    pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 13] {
         crate::ui::settings_option_rects(self.width, self.height)
     }
 

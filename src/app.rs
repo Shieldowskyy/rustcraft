@@ -225,7 +225,7 @@ pub struct RustCraftApp {
     pub save_card_rects: [(i32, i32, i32, i32); VISIBLE_SAVE_ROWS],
     pub save_btn_rects: [(i32, i32, i32, i32); 4],
     pub create_world_rects: [(i32, i32, i32, i32); 6],
-    pub settings_rects: [(i32, i32, i32, i32); 12],
+    pub settings_rects: [(i32, i32, i32, i32); 13],
     pub pause_menu_rects: [(i32, i32, i32, i32); 5],
     pub death_screen_rects: [(i32, i32, i32, i32); 2],
     pub create_world_name: String,
@@ -271,6 +271,7 @@ pub struct RustCraftApp {
 impl RustCraftApp {
     pub fn new(width: usize, height: usize, renderer_choice: &str, seed: u32) -> Self {
         let settings = GameSettings::load();
+        crate::core::i18n::set_language(settings.language);
         let mut renderer = match renderer_choice {
             #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
             "vulkan" => Renderer::new_vulkan(width, height).unwrap_or_else(|error| {
@@ -935,7 +936,7 @@ impl RustCraftApp {
 
                 if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
                     let next = match self.settings_hovered_opt {
-                        Some(0) | None => 11,
+                        Some(0) | None => 12,
                         Some(i) => i - 1,
                     };
                     self.settings_hovered_opt = Some(next);
@@ -943,7 +944,7 @@ impl RustCraftApp {
                 }
                 if input.gp_dpad_down_just_pressed || (down_arrow_down && !self.prev_down_arrow_down) {
                     let next = match self.settings_hovered_opt {
-                        Some(11) | None => 0,
+                        Some(12) | None => 0,
                         Some(i) => i + 1,
                     };
                     self.settings_hovered_opt = Some(next);
@@ -962,27 +963,31 @@ impl RustCraftApp {
                 if let Some(opt_idx) = click_opt {
                     match opt_idx {
                         0 => {
+                            self.settings.cycle_language(true);
+                            crate::core::i18n::set_language(self.settings.language);
+                        }
+                        1 => {
                             self.settings.cycle_render_distance(true);
                             self.renderer.render_distance = self.settings.render_distance;
                             self.world.purge_distant_chunks(self.camera.position, self.settings.render_distance);
                             self.renderer.clear_mesh_cache();
                         }
-                        1 => {
+                        2 => {
                             self.settings.fancy_leaves = !self.settings.fancy_leaves;
                             self.renderer.update_textures(self.settings.fancy_leaves);
                             self.world.mark_all_chunks_dirty();
                             self.renderer.clear_mesh_cache();
                         }
-                        2 => self.settings.fog = !self.settings.fog,
-                        3 => self.settings.clouds = !self.settings.clouds,
-                        4 => self.settings.particles = !self.settings.particles,
-                        5 => self.settings.chunk_anim = !self.settings.chunk_anim,
-                        6 => self.settings.cycle_fov(true),
-                        7 => self.settings.cycle_msaa(true),
-                        8 => self.settings.cycle_fps_limit(true),
-                        9 => self.settings.underwater_fx = !self.settings.underwater_fx,
-                        10 => self.settings.debug_overlay = !self.settings.debug_overlay,
-                        11 => {
+                        3 => self.settings.fog = !self.settings.fog,
+                        4 => self.settings.clouds = !self.settings.clouds,
+                        5 => self.settings.particles = !self.settings.particles,
+                        6 => self.settings.chunk_anim = !self.settings.chunk_anim,
+                        7 => self.settings.cycle_fov(true),
+                        8 => self.settings.cycle_msaa(true),
+                        9 => self.settings.cycle_fps_limit(true),
+                        10 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                        11 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                        12 => {
                             let _ = self.settings.save();
                             self.state = match prev {
                                 PreviousMenu::MainMenu => GameState::MainMenu,
@@ -995,26 +1000,30 @@ impl RustCraftApp {
                     if let Some(opt_idx) = hovered_opt {
                         match opt_idx {
                             0 => {
+                                self.settings.cycle_language(false);
+                                crate::core::i18n::set_language(self.settings.language);
+                            }
+                            1 => {
                                 self.settings.cycle_render_distance(false);
                                 self.renderer.render_distance = self.settings.render_distance;
                                 self.world.purge_distant_chunks(self.camera.position, self.settings.render_distance);
                                 self.renderer.clear_mesh_cache();
                             }
-                            1 => {
+                            2 => {
                                 self.settings.fancy_leaves = !self.settings.fancy_leaves;
                                 self.renderer.update_textures(self.settings.fancy_leaves);
                                 self.world.mark_all_chunks_dirty();
                                 self.renderer.clear_mesh_cache();
                             }
-                            2 => self.settings.fog = !self.settings.fog,
-                            3 => self.settings.clouds = !self.settings.clouds,
-                            4 => self.settings.particles = !self.settings.particles,
-                            5 => self.settings.chunk_anim = !self.settings.chunk_anim,
-                            6 => self.settings.cycle_fov(false),
-                            7 => self.settings.cycle_msaa(false),
-                            8 => self.settings.cycle_fps_limit(false),
-                            9 => self.settings.underwater_fx = !self.settings.underwater_fx,
-                            10 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                            3 => self.settings.fog = !self.settings.fog,
+                            4 => self.settings.clouds = !self.settings.clouds,
+                            5 => self.settings.particles = !self.settings.particles,
+                            6 => self.settings.chunk_anim = !self.settings.chunk_anim,
+                            7 => self.settings.cycle_fov(false),
+                            8 => self.settings.cycle_msaa(false),
+                            9 => self.settings.cycle_fps_limit(false),
+                            10 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                            11 => self.settings.debug_overlay = !self.settings.debug_overlay,
                             _ => {}
                         }
                     }
@@ -1022,26 +1031,30 @@ impl RustCraftApp {
                     if let Some(opt_idx) = hovered_opt {
                         match opt_idx {
                             0 => {
+                                self.settings.cycle_language(true);
+                                crate::core::i18n::set_language(self.settings.language);
+                            }
+                            1 => {
                                 self.settings.cycle_render_distance(true);
                                 self.renderer.render_distance = self.settings.render_distance;
                                 self.world.purge_distant_chunks(self.camera.position, self.settings.render_distance);
                                 self.renderer.clear_mesh_cache();
                             }
-                            1 => {
+                            2 => {
                                 self.settings.fancy_leaves = !self.settings.fancy_leaves;
                                 self.renderer.update_textures(self.settings.fancy_leaves);
                                 self.world.mark_all_chunks_dirty();
                                 self.renderer.clear_mesh_cache();
                             }
-                            2 => self.settings.fog = !self.settings.fog,
-                            3 => self.settings.clouds = !self.settings.clouds,
-                            4 => self.settings.particles = !self.settings.particles,
-                            5 => self.settings.chunk_anim = !self.settings.chunk_anim,
-                            6 => self.settings.cycle_fov(true),
-                            7 => self.settings.cycle_msaa(true),
-                            8 => self.settings.cycle_fps_limit(true),
-                            9 => self.settings.underwater_fx = !self.settings.underwater_fx,
-                            10 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                            3 => self.settings.fog = !self.settings.fog,
+                            4 => self.settings.clouds = !self.settings.clouds,
+                            5 => self.settings.particles = !self.settings.particles,
+                            6 => self.settings.chunk_anim = !self.settings.chunk_anim,
+                            7 => self.settings.cycle_fov(true),
+                            8 => self.settings.cycle_msaa(true),
+                            9 => self.settings.cycle_fps_limit(true),
+                            10 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                            11 => self.settings.debug_overlay = !self.settings.debug_overlay,
                             _ => {}
                         }
                     }
@@ -1937,30 +1950,40 @@ impl RustCraftApp {
                         let px = self.camera.position.x as i32;
                         let pz = self.camera.position.z as i32;
                         let biome = self.world.biome_name_at(px, pz);
-                        let _ = write!(&mut self.debug_lines[6], "BIOME: {}", biome);
+                        let biome_key = match biome {
+                            "MOUNTAINS" => "biome.mountains",
+                            "SNOW" => "biome.snow",
+                            "DESERT" => "biome.desert",
+                            "OCEAN" => "biome.ocean",
+                            "CHERRY GROVE" => "biome.cherry_grove",
+                            "SAVANNA" => "biome.savanna",
+                            "FOREST" => "biome.forest",
+                            _ => "biome.plains",
+                        };
+                        let _ = write!(&mut self.debug_lines[6], "BIOME: {}", crate::core::i18n::t(biome_key));
 
                         // Line 7: Time of Day & Light Level
                         self.debug_lines[7].clear();
                         let time_hrs = (self.world.day_fraction() * 24.0 + 6.0) % 24.0;
                         let hours = time_hrs.floor() as u32;
                         let minutes = (time_hrs.fract() * 60.0) as u32;
-                        let time_period = if time_hrs >= 5.0 && time_hrs < 7.0 {
-                            "DAWN"
+                        let time_key = if time_hrs >= 5.0 && time_hrs < 7.0 {
+                            "time.dawn"
                         } else if time_hrs >= 7.0 && time_hrs < 12.0 {
-                            "MORNING"
+                            "time.morning"
                         } else if time_hrs >= 12.0 && time_hrs < 14.0 {
-                            "NOON"
+                            "time.noon"
                         } else if time_hrs >= 14.0 && time_hrs < 18.0 {
-                            "AFTERNOON"
+                            "time.afternoon"
                         } else if time_hrs >= 18.0 && time_hrs < 21.0 {
-                            "DUSK"
+                            "time.dusk"
                         } else {
-                            "NIGHT"
+                            "time.night"
                         };
                         let _ = write!(
                             &mut self.debug_lines[7],
                             "TIME: {} ({:02}:{:02}) | LIGHT: {:.0}%",
-                            time_period,
+                            crate::core::i18n::t(time_key),
                             hours,
                             minutes,
                             self.world.sunlight_factor() * 100.0
