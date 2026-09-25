@@ -233,6 +233,11 @@ impl Renderer {
     }
 
     #[inline(always)]
+    pub fn create_world_rects(&self) -> [(i32, i32, i32, i32); 6] {
+        crate::ui::create_world_rects(self.width, self.height)
+    }
+
+    #[inline(always)]
     pub fn pause_menu_button_rects(&self) -> [(i32, i32, i32, i32); 5] {
         crate::ui::pause_menu_button_rects(self.width, self.height)
     }
@@ -258,6 +263,32 @@ impl Renderer {
             metadata_cache,
             hovered_card,
             hovered_btn,
+        );
+    }
+
+    pub fn draw_create_world_menu(
+        &mut self,
+        slot: u8,
+        name: &str,
+        seed_str: &str,
+        gamemode: crate::gameplay::player::GameMode,
+        focused_element: usize,
+        hovered_element: Option<usize>,
+        blink_timer: f32,
+        is_selected: bool,
+    ) {
+        crate::ui::draw_create_world_menu(
+            &mut self.color_buffer,
+            self.width,
+            self.height,
+            slot,
+            name,
+            seed_str,
+            gamemode,
+            focused_element,
+            hovered_element,
+            blink_timer,
+            is_selected,
         );
     }
 

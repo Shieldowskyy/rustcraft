@@ -43,6 +43,7 @@ pub enum WorldLoadResult {
 pub enum GameState {
     MainMenu,
     SaveSelect,
+    CreateWorld,
     Settings(PreviousMenu),
     #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
     Loading(mpsc::Receiver<WorldLoadResult>),
@@ -71,6 +72,8 @@ pub struct InputState {
     pub key_shift: bool,
     pub key_ctrl: bool,
     pub key_c: bool,
+    pub key_v: bool,
+    pub key_x: bool,
     pub key_escape: bool,
     pub key_p: bool,
     pub key_f: bool,
@@ -86,7 +89,10 @@ pub struct InputState {
     pub key_right: bool,
     pub key_n: bool,
     pub key_del: bool,
+    pub key_backspace: bool,
+    pub key_tab: bool,
     pub key_digits: [bool; 10],
+    pub typed_chars: Vec<char>,
 
     // Gamepad (analog axes & buttons)
     pub gp_left_stick_x: f32,
@@ -190,9 +196,18 @@ pub struct RustCraftApp {
     pub main_menu_rects: [(i32, i32, i32, i32); 3],
     pub save_card_rects: [(i32, i32, i32, i32); VISIBLE_SAVE_ROWS],
     pub save_btn_rects: [(i32, i32, i32, i32); 4],
+    pub create_world_rects: [(i32, i32, i32, i32); 6],
     pub settings_rects: [(i32, i32, i32, i32); 12],
     pub pause_menu_rects: [(i32, i32, i32, i32); 5],
     pub death_screen_rects: [(i32, i32, i32, i32); 2],
+    pub create_world_name: String,
+    pub create_world_seed: String,
+    pub create_world_gamemode: GameMode,
+    pub create_world_focus: usize,
+    pub create_world_slot: u8,
+    pub create_world_selected: bool,
+    pub last_clean_thumbnail: Option<Vec<u32>>,
+    pub thumbnail_timer: f32,
     pub seed: u32,
     pub fps_display: u32,
     pub frozen_frame: Option<Vec<u32>>,
@@ -216,6 +231,12 @@ pub struct RustCraftApp {
     prev_right_arrow_down: bool,
     prev_n_down: bool,
     prev_del_down: bool,
+    prev_backspace_down: bool,
+    prev_tab_down: bool,
+    prev_a_down: bool,
+    prev_c_down: bool,
+    prev_v_down: bool,
+    prev_x_down: bool,
     prev_key_digits: [bool; 10],
 }
 
@@ -245,6 +266,7 @@ impl RustCraftApp {
         let main_menu_rects = renderer.main_menu_button_rects();
         let save_card_rects = renderer.save_card_rects();
         let save_btn_rects = renderer.save_bottom_button_rects();
+        let create_world_rects = renderer.create_world_rects();
         let settings_rects = renderer.settings_option_rects();
         let pause_menu_rects = renderer.pause_menu_button_rects();
         let death_screen_rects = renderer.death_screen_button_rects();
@@ -318,9 +340,18 @@ impl RustCraftApp {
             main_menu_rects,
             save_card_rects,
             save_btn_rects,
+            create_world_rects,
             settings_rects,
             pause_menu_rects,
             death_screen_rects,
+            create_world_name: String::new(),
+            create_world_seed: String::new(),
+            create_world_gamemode: GameMode::Survival,
+            create_world_focus: 0,
+            create_world_slot: 1,
+            create_world_selected: false,
+            last_clean_thumbnail: None,
+            thumbnail_timer: 0.0,
             seed,
             fps_display: 60,
             frozen_frame: None,
@@ -343,6 +374,12 @@ impl RustCraftApp {
             prev_right_arrow_down: false,
             prev_n_down: false,
             prev_del_down: false,
+            prev_backspace_down: false,
+            prev_tab_down: false,
+            prev_a_down: false,
+            prev_c_down: false,
+            prev_v_down: false,
+            prev_x_down: false,
             prev_key_digits: [false; 10],
         }
     }
@@ -383,10 +420,17 @@ impl RustCraftApp {
         let q_down = input.key_q;
         let m_down = input.key_m;
         let g_down = input.key_g;
+        let a_down = input.key_a;
+        let c_down = input.key_c;
+        let v_down = input.key_v;
+        let x_down = input.key_x;
+        let ctrl_down = input.key_ctrl;
         let f5_down = input.key_f5;
         let enter_down = input.key_enter;
         let n_down = input.key_n;
         let del_down = input.key_del;
+        let backspace_down = input.key_backspace;
+        let tab_down = input.key_tab;
         let left_arrow_down = input.key_left;
         let right_arrow_down = input.key_right;
         let up_arrow_down = input.key_up;
@@ -560,6 +604,7 @@ impl RustCraftApp {
                             match World::load(&path) {
                                 Ok(loaded_world) => {
                                     let pos = loaded_world.player_position;
+                                    self.player.gamemode = loaded_world.gamemode;
                                     self.world = loaded_world;
                                     self.camera = Camera::new(pos);
                                     self.mob_manager = MobManager::new();
@@ -574,45 +619,24 @@ impl RustCraftApp {
                             }
                         }
                     } else {
-                        self.seed = generate_random_seed();
-                        #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
-                        {
-                            let (tx, rx) = mpsc::channel();
-                            let thread_seed = self.seed;
-                            thread::spawn(move || {
-                                let new_world = World::new_with_seed(thread_seed);
-                                let _ = tx.send(WorldLoadResult::Success(new_world, None));
-                            });
-                            self.state = GameState::Loading(rx);
-                        }
-                        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
-                        {
-                            self.world = World::new_with_seed(self.seed);
-                            self.camera = Camera::new(self.world.player_position);
-                            self.mob_manager = MobManager::new();
-                            self.state = GameState::Playing;
-                        }
+                        // Otwórz menu tworzenia świata dla pustego slotu
+                        self.create_world_slot = self.save_select_slot;
+                        self.create_world_name = format!("Nowy Swiat {:02}", self.save_select_slot);
+                        self.create_world_seed = String::new();
+                        self.create_world_gamemode = GameMode::Survival;
+                        self.create_world_focus = 0;
+                        self.create_world_selected = false;
+                        self.state = GameState::CreateWorld;
                     }
                 } else if new_action {
-                    self.save_slot = self.save_select_slot;
-                    self.seed = generate_random_seed();
-                    #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
-                    {
-                        let (tx, rx) = mpsc::channel();
-                        let thread_seed = self.seed;
-                        thread::spawn(move || {
-                            let new_world = World::new_with_seed(thread_seed);
-                            let _ = tx.send(WorldLoadResult::Success(new_world, None));
-                        });
-                        self.state = GameState::Loading(rx);
-                    }
-                    #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
-                    {
-                        self.world = World::new_with_seed(self.seed);
-                        self.camera = Camera::new(self.world.player_position);
-                        self.mob_manager = MobManager::new();
-                        self.state = GameState::Playing;
-                    }
+                    // Otwórz menu tworzenia nowego świata dla wybranego slotu
+                    self.create_world_slot = self.save_select_slot;
+                    self.create_world_name = format!("Nowy Swiat {:02}", self.save_select_slot);
+                    self.create_world_seed = String::new();
+                    self.create_world_gamemode = GameMode::Survival;
+                    self.create_world_focus = 0;
+                    self.create_world_selected = false;
+                    self.state = GameState::CreateWorld;
                 } else if delete_action {
                     let _ = delete_save(self.save_select_slot);
                     self.save_metadata_cache[self.save_select_slot as usize - 1] = get_save_metadata(self.save_select_slot);
@@ -620,13 +644,253 @@ impl RustCraftApp {
                     self.state = GameState::MainMenu;
                 }
 
-                self.renderer.draw_save_select_menu(
-                    self.save_select_slot,
-                    self.save_select_scroll,
-                    &self.save_metadata_cache,
-                    save_select_hovered_card,
-                    save_select_hovered_btn,
-                );
+                if matches!(self.state, GameState::SaveSelect) {
+                    self.renderer.draw_save_select_menu(
+                        self.save_select_slot,
+                        self.save_select_scroll,
+                        &self.save_metadata_cache,
+                        save_select_hovered_card,
+                        save_select_hovered_btn,
+                    );
+                }
+            }
+            GameState::CreateWorld => {
+                let mut hovered_elem = None;
+                if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    for (i, &(bx, by, bw, bh)) in self.create_world_rects.iter().enumerate() {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            hovered_elem = Some(i);
+                            if left_down && !self.prev_left_down {
+                                if self.create_world_focus != i {
+                                    self.create_world_selected = false;
+                                }
+                                self.create_world_focus = i;
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                let tab_just = tab_down && !self.prev_tab_down;
+                let up_just = (up_arrow_down && !self.prev_up_arrow_down) || input.gp_dpad_up_just_pressed;
+                let down_just = (down_arrow_down && !self.prev_down_arrow_down) || input.gp_dpad_down_just_pressed;
+                let left_just = (left_arrow_down && !self.prev_left_arrow_down) || input.gp_dpad_left_just_pressed;
+                let right_just = (right_arrow_down && !self.prev_right_arrow_down) || input.gp_dpad_right_just_pressed;
+
+                if tab_just || down_just {
+                    self.create_world_focus = (self.create_world_focus + 1) % 6;
+                    self.create_world_selected = false;
+                } else if up_just {
+                    self.create_world_focus = if self.create_world_focus == 0 { 5 } else { self.create_world_focus - 1 };
+                    self.create_world_selected = false;
+                } else if left_just && self.create_world_focus == 5 {
+                    self.create_world_focus = 4;
+                    self.create_world_selected = false;
+                } else if right_just && self.create_world_focus == 4 {
+                    self.create_world_focus = 5;
+                    self.create_world_selected = false;
+                }
+
+                // Skróty klawiszowe Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X
+                let a_just = a_down && !self.prev_a_down;
+                let c_just = c_down && !self.prev_c_down;
+                let v_just = v_down && !self.prev_v_down;
+                let x_just = x_down && !self.prev_x_down;
+
+                if ctrl_down {
+                    if a_just {
+                        if self.create_world_focus == 0 && !self.create_world_name.is_empty() {
+                            self.create_world_selected = true;
+                        } else if self.create_world_focus == 1 && !self.create_world_seed.is_empty() {
+                            self.create_world_selected = true;
+                        }
+                    } else if c_just {
+                        if self.create_world_focus == 0 {
+                            crate::ui::clipboard::set_clipboard(&self.create_world_name);
+                        } else if self.create_world_focus == 1 {
+                            crate::ui::clipboard::set_clipboard(&self.create_world_seed);
+                        }
+                    } else if x_just {
+                        if self.create_world_focus == 0 {
+                            crate::ui::clipboard::set_clipboard(&self.create_world_name);
+                            self.create_world_name.clear();
+                            self.create_world_selected = false;
+                        } else if self.create_world_focus == 1 {
+                            crate::ui::clipboard::set_clipboard(&self.create_world_seed);
+                            self.create_world_seed.clear();
+                            self.create_world_selected = false;
+                        }
+                    } else if v_just {
+                        let clip = crate::ui::clipboard::get_clipboard();
+                        let filtered: String = clip.chars().filter(|c| !c.is_control()).collect();
+                        if self.create_world_focus == 0 {
+                            if self.create_world_selected {
+                                self.create_world_name.clear();
+                                self.create_world_selected = false;
+                            }
+                            for ch in filtered.chars() {
+                                if self.create_world_name.len() < 24 {
+                                    self.create_world_name.push(ch);
+                                }
+                            }
+                        } else if self.create_world_focus == 1 {
+                            if self.create_world_selected {
+                                self.create_world_seed.clear();
+                                self.create_world_selected = false;
+                            }
+                            for ch in filtered.chars() {
+                                if self.create_world_seed.len() < 16 {
+                                    self.create_world_seed.push(ch);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Wpisywanie znaków z klawiatury do pola tekstowego
+                if !ctrl_down {
+                    for &ch in &input.typed_chars {
+                        if !ch.is_control() {
+                            if self.create_world_focus == 0 {
+                                if self.create_world_selected {
+                                    self.create_world_name.clear();
+                                    self.create_world_selected = false;
+                                }
+                                if self.create_world_name.len() < 24 {
+                                    self.create_world_name.push(ch);
+                                }
+                            } else if self.create_world_focus == 1 {
+                                if self.create_world_selected {
+                                    self.create_world_seed.clear();
+                                    self.create_world_selected = false;
+                                }
+                                if self.create_world_seed.len() < 16 {
+                                    self.create_world_seed.push(ch);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let backspace_just = (backspace_down && !self.prev_backspace_down) || (del_down && !self.prev_del_down);
+                if backspace_just {
+                    if self.create_world_focus == 0 {
+                        if self.create_world_selected {
+                            self.create_world_name.clear();
+                            self.create_world_selected = false;
+                        } else {
+                            self.create_world_name.pop();
+                        }
+                    } else if self.create_world_focus == 1 {
+                        if self.create_world_selected {
+                            self.create_world_seed.clear();
+                            self.create_world_selected = false;
+                        } else {
+                            self.create_world_seed.pop();
+                        }
+                    }
+                }
+
+                if input.gp_north_just_pressed {
+                    self.create_world_seed = format!("{}", generate_random_seed());
+                    self.create_world_selected = false;
+                }
+                if input.gp_west_just_pressed {
+                    self.create_world_gamemode = match self.create_world_gamemode {
+                        GameMode::Survival => GameMode::Creative,
+                        GameMode::Creative => GameMode::Survival,
+                    };
+                }
+
+                let enter_just = enter_down && !self.prev_enter_down;
+                let south_just = input.gp_south_just_pressed;
+                let click_elem = if left_down && !self.prev_left_down { hovered_elem } else { None };
+
+                let do_cancel = (escape_down && !self.prev_escape_down)
+                    || input.gp_east_just_pressed
+                    || click_elem == Some(5)
+                    || (self.create_world_focus == 5 && (enter_just || south_just));
+
+                let do_create = click_elem == Some(4)
+                    || (enter_just && (self.create_world_focus == 0 || self.create_world_focus == 1 || self.create_world_focus == 4))
+                    || (south_just && self.create_world_focus == 4);
+
+                let do_rand_seed = (self.create_world_focus == 2 && (enter_just || south_just)) || click_elem == Some(2);
+                let do_toggle_mode = (self.create_world_focus == 3 && (enter_just || south_just)) || click_elem == Some(3);
+
+                if do_rand_seed {
+                    self.create_world_seed = format!("{}", generate_random_seed());
+                    self.create_world_selected = false;
+                } else if do_toggle_mode {
+                    self.create_world_gamemode = match self.create_world_gamemode {
+                        GameMode::Survival => GameMode::Creative,
+                        GameMode::Creative => GameMode::Survival,
+                    };
+                } else if do_cancel {
+                    self.state = GameState::SaveSelect;
+                } else if do_create {
+                    let seed = if self.create_world_seed.trim().is_empty() {
+                        generate_random_seed()
+                    } else if let Ok(s) = self.create_world_seed.trim().parse::<u32>() {
+                        s
+                    } else {
+                        let mut s = 0u32;
+                        for b in self.create_world_seed.trim().bytes() {
+                            s = s.wrapping_mul(31).wrapping_add(b as u32);
+                        }
+                        if s == 0 { generate_random_seed() } else { s }
+                    };
+
+                    let name = if self.create_world_name.trim().is_empty() {
+                        format!("Nowy Swiat {:02}", self.create_world_slot)
+                    } else {
+                        self.create_world_name.trim().to_string()
+                    };
+
+                    let gamemode = self.create_world_gamemode;
+                    self.save_slot = self.create_world_slot;
+                    self.seed = seed;
+                    self.player.gamemode = gamemode;
+
+                    #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
+                    {
+                        let (tx, rx) = mpsc::channel();
+                        let thread_seed = self.seed;
+                        let thread_name = name;
+                        let thread_gamemode = gamemode;
+                        thread::spawn(move || {
+                            let mut new_world = World::new_with_seed(thread_seed);
+                            new_world.name = thread_name;
+                            new_world.gamemode = thread_gamemode;
+                            let _ = tx.send(WorldLoadResult::Success(new_world, None));
+                        });
+                        self.state = GameState::Loading(rx);
+                    }
+                    #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+                    {
+                        self.world = World::new_with_seed(self.seed);
+                        self.world.name = name;
+                        self.world.gamemode = gamemode;
+                        self.camera = Camera::new(self.world.player_position);
+                        self.mob_manager = MobManager::new();
+                        self.state = GameState::Playing;
+                    }
+                }
+
+                if matches!(self.state, GameState::CreateWorld) {
+                    self.renderer.draw_create_world_menu(
+                        self.create_world_slot,
+                        &self.create_world_name,
+                        &self.create_world_seed,
+                        self.create_world_gamemode,
+                        self.create_world_focus,
+                        hovered_elem,
+                        self.total_time,
+                        self.create_world_selected,
+                    );
+                }
             }
             GameState::Settings(prev) => {
                 let mut hovered_opt = self.settings_hovered_opt;
@@ -803,12 +1067,14 @@ impl RustCraftApp {
             GameState::Playing => {
                 if f5_down && !self.prev_f5_down {
                     let path = save_path(self.save_slot);
-                    match save_current_world(&mut self.world, &self.camera, self.save_slot) {
+                    match save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref()) {
                         Ok(()) => println!("Zapisano świat do {path}"),
                         Err(error) => eprintln!("{error}"),
                     }
+                    self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                 }
                 if (escape_down && !self.prev_escape_down) || (p_down && !self.prev_p_down) || input.gp_start_just_pressed {
+                    self.last_clean_thumbnail = Some(crate::world::storage::capture_thumbnail(self.renderer.pixel_buffer(), self.width, self.height));
                     self.state = GameState::Paused;
                     out.request_release_mouse = true;
                     self.horiz_velocity = Vec3::zero();
@@ -1680,6 +1946,12 @@ impl RustCraftApp {
                 if !input.is_mouse_captured {
                     self.renderer.draw_capture_prompt(true);
                 }
+
+                self.thumbnail_timer += dt;
+                if self.thumbnail_timer >= 0.5 {
+                    self.thumbnail_timer = 0.0;
+                    self.last_clean_thumbnail = Some(crate::world::storage::capture_thumbnail(self.renderer.pixel_buffer(), self.width, self.height));
+                }
             }
             GameState::Paused => {
                 let t_fov = 1.0 - (-8.0 * dt).exp();
@@ -1735,13 +2007,13 @@ impl RustCraftApp {
                             self.fly_mode = !self.fly_mode;
                         }
                         3 => {
-                            let _ = save_current_world(&mut self.world, &self.camera, self.save_slot);
+                            let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                             self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                             self.state = GameState::MainMenu;
                             out.request_release_mouse = true;
                         }
                         4 => {
-                            let _ = save_current_world(&mut self.world, &self.camera, self.save_slot);
+                            let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                             out.quit_requested = true;
                         }
                         _ => {}
@@ -1756,11 +2028,11 @@ impl RustCraftApp {
                     self.fly_mode = !self.fly_mode;
                 }
                 if q_down && !self.prev_q_down {
-                    let _ = save_current_world(&mut self.world, &self.camera, self.save_slot);
+                    let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                     out.quit_requested = true;
                 }
                 if m_down && !self.prev_m_down {
-                    let _ = save_current_world(&mut self.world, &self.camera, self.save_slot);
+                    let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                     self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                     self.state = GameState::MainMenu;
                     out.request_release_mouse = true;
@@ -2042,7 +2314,7 @@ impl RustCraftApp {
                             out.request_capture_mouse = true;
                         }
                         1 => {
-                            let _ = save_current_world(&mut self.world, &self.camera, self.save_slot);
+                            let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                             self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                             self.state = GameState::MainMenu;
                             out.request_release_mouse = true;
@@ -2052,7 +2324,7 @@ impl RustCraftApp {
                 }
 
                 if (escape_down && !self.prev_escape_down) || (p_down && !self.prev_p_down) || input.gp_east_just_pressed {
-                    let _ = save_current_world(&mut self.world, &self.camera, self.save_slot);
+                    let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                     self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                     self.state = GameState::MainMenu;
                     out.request_release_mouse = true;
@@ -2087,6 +2359,12 @@ impl RustCraftApp {
         self.prev_right_arrow_down = right_arrow_down;
         self.prev_n_down = n_down;
         self.prev_del_down = del_down;
+        self.prev_backspace_down = backspace_down;
+        self.prev_tab_down = tab_down;
+        self.prev_a_down = a_down;
+        self.prev_c_down = c_down;
+        self.prev_v_down = v_down;
+        self.prev_x_down = x_down;
         self.prev_key_digits = input.key_digits;
 
         out.title = format!(

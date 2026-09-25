@@ -826,6 +826,8 @@ pub struct PrimedTnt {
 }
 
 pub struct World {
+    pub name: String,
+    pub gamemode: crate::gameplay::player::GameMode,
     pub chunks: HashMap<(i32, i32), Chunk>,
     pub seed: u32,
     pub player_position: Vec3,
@@ -970,6 +972,8 @@ impl World {
         }
 
         World {
+            name: "Nowy Swiat".to_string(),
+            gamemode: crate::gameplay::player::GameMode::Survival,
             chunks,
             seed,
             player_position: spawn_pos,
@@ -1066,9 +1070,18 @@ impl World {
     }
 
     pub fn save(&self, path: &str) -> Result<(), String> {
-        let mut bytes = Vec::with_capacity(16 + self.chunks.len() * 4);
-        bytes.extend_from_slice(b"RUSTCRAFT3");
+        let mut bytes = Vec::with_capacity(32 + self.chunks.len() * 4);
+        bytes.extend_from_slice(b"RUSTCRAFT4");
         bytes.extend_from_slice(&self.seed.to_le_bytes());
+        let mode_byte: u8 = match self.gamemode {
+            crate::gameplay::player::GameMode::Survival => 0,
+            crate::gameplay::player::GameMode::Creative => 1,
+        };
+        bytes.push(mode_byte);
+        let name_bytes = self.name.as_bytes();
+        let name_len = name_bytes.len().min(255) as u8;
+        bytes.push(name_len);
+        bytes.extend_from_slice(&name_bytes[..name_len as usize]);
         bytes.extend_from_slice(&self.player_position.x.to_le_bytes());
         bytes.extend_from_slice(&self.player_position.y.to_le_bytes());
         bytes.extend_from_slice(&self.player_position.z.to_le_bytes());
@@ -1093,11 +1106,24 @@ impl World {
         let bytes = std::fs::read(path).map_err(|error| format!("nie udało się odczytać świata: {error}"))?;
         let mut cursor = 0usize;
         let format = read_bytes(&bytes, &mut cursor, 10)?;
-        if format != b"RUSTCRAFT1" && format != b"RUSTCRAFT2" && format != b"RUSTCRAFT3" {
+        if format != b"RUSTCRAFT1" && format != b"RUSTCRAFT2" && format != b"RUSTCRAFT3" && format != b"RUSTCRAFT4" {
             return Err("nieznany format pliku świata".to_owned());
         }
         let seed = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap());
-        let player_position = if format == b"RUSTCRAFT2" || format == b"RUSTCRAFT3" {
+        let (gamemode, name) = if format == b"RUSTCRAFT4" {
+            let gm_byte = read_bytes(&bytes, &mut cursor, 1)?[0];
+            let gm = if gm_byte == 1 { crate::gameplay::player::GameMode::Creative } else { crate::gameplay::player::GameMode::Survival };
+            let name_len = read_bytes(&bytes, &mut cursor, 1)?[0] as usize;
+            let name_str = if name_len > 0 {
+                String::from_utf8_lossy(read_bytes(&bytes, &mut cursor, name_len)?).to_string()
+            } else {
+                format!("Swiat {}", seed)
+            };
+            (gm, name_str)
+        } else {
+            (crate::gameplay::player::GameMode::Survival, format!("Swiat {}", seed))
+        };
+        let player_position = if format == b"RUSTCRAFT2" || format == b"RUSTCRAFT3" || format == b"RUSTCRAFT4" {
             Vec3::new(
                 f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
                 f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
@@ -1109,6 +1135,8 @@ impl World {
         let chunk_count = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()) as usize;
         let expected_len = (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize;
         let mut world = Self::new_with_seed(seed);
+        world.name = name;
+        world.gamemode = gamemode;
         world.player_position = player_position;
         for _ in 0..chunk_count {
             let cx = i32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap());
@@ -1120,7 +1148,7 @@ impl World {
             let blocks = read_bytes(&bytes, &mut cursor, block_len)?.to_vec();
             world.chunks.insert((cx, cz), Chunk { cx, cz, blocks, dirty: true });
         }
-        if format == b"RUSTCRAFT3" {
+        if format == b"RUSTCRAFT3" || format == b"RUSTCRAFT4" {
             let fluid_count = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()) as usize;
             for _ in 0..fluid_count {
                 let pos = IVec3::new(
@@ -1728,7 +1756,7 @@ impl World {
 
         while traveled <= max_dist {
             let block = self.get_block(IVec3::new(x, y, z));
-            if block.is_solid() {
+            if block.is_targetable() {
                 return Some(RaycastHit {
                     block_pos: IVec3::new(x, y, z),
                     normal: last_normal,

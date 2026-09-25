@@ -38,6 +38,8 @@ pub fn draw_main_menu(
     hovered_idx: Option<usize>,
 ) {
     let cx = width as i32 / 2;
+    // Wyczyść cały ekran pod menu (zapobiega nakładaniu się klatek menu save / innych ekranów)
+    fill_rect(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.06, 0.07, 0.09));
     fill_rect_alpha(buffer, width, height, cx - 240, 30, 480, 465, pack_color(0.02, 0.03, 0.05), 0.75);
     draw_rustcraft_logo(buffer, width, height, cx, 65);
 

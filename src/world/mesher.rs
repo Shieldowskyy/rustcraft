@@ -395,9 +395,11 @@ fn emit_door(
 
     let (x0, x1, z0, z1) = if !is_open {
         // Closed door: positioned along front edge (Z in [0, thick], X in [0, 1])
+        // Hinge is at x0 (x=0), handle is at x1 (x=1)
         (x, x + 1.0, z, z + thick)
     } else {
         // Open door: swung 90 degrees against the wall (X in [0, thick], Z in [0, 1])
+        // Hinge is at z0 (z=0), handle is at z1 (z=1)
         (x, x + thick, z, z + 1.0)
     };
     let y0 = y;
@@ -415,31 +417,125 @@ fn emit_door(
     let sky = cache.sample_sky_light(lx, wy, lz);
     let block_l = cache.sample_block_light(x + 0.5, y + 0.5, z + 0.5);
 
-    let quad = |tris: &mut Vec<Triangle>, a: Vec3, b: Vec3, c: Vec3, d: Vec3, texture: TextureId, shade: f32| {
-        let va = Vertex { pos: a, uv: (0.0, 1.0), ao: shade, sky_light: sky, block_light: block_l };
-        let vb = Vertex { pos: b, uv: (1.0, 1.0), ao: shade, sky_light: sky, block_light: block_l };
-        let vc = Vertex { pos: c, uv: (1.0, 0.0), ao: shade, sky_light: sky, block_light: block_l };
-        let vd = Vertex { pos: d, uv: (0.0, 0.0), ao: shade, sky_light: sky, block_light: block_l };
+    let quad_uv = |tris: &mut Vec<Triangle>,
+                   a: (Vec3, (f32, f32)),
+                   b: (Vec3, (f32, f32)),
+                   c: (Vec3, (f32, f32)),
+                   d: (Vec3, (f32, f32)),
+                   texture: TextureId,
+                   shade: f32| {
+        let va = Vertex { pos: a.0, uv: a.1, ao: shade, sky_light: sky, block_light: block_l };
+        let vb = Vertex { pos: b.0, uv: b.1, ao: shade, sky_light: sky, block_light: block_l };
+        let vc = Vertex { pos: c.0, uv: c.1, ao: shade, sky_light: sky, block_light: block_l };
+        let vd = Vertex { pos: d.0, uv: d.1, ao: shade, sky_light: sky, block_light: block_l };
         tris.push(Triangle { v0: va, v1: vb, v2: vc, texture });
         tris.push(Triangle { v0: va, v1: vc, v2: vd, texture });
     };
 
     if !is_open {
-        // Closed: North (Front) & South (Back) get door face texture
-        quad(tris, c100, c000, c010, c110, tex, 0.85); // North
-        quad(tris, c001, c101, c111, c011, tex, 0.85); // South
-        quad(tris, c101, c100, c110, c111, side_tex, 0.70); // East
-        quad(tris, c000, c001, c011, c010, side_tex, 0.70); // West
+        // Closed door: Hinge is at x0 (U=0), Handle is at x1 (U=1)
+        // North (Front, facing -Z)
+        quad_uv(
+            tris,
+            (c100, (1.0, 1.0)),
+            (c000, (0.0, 1.0)),
+            (c010, (0.0, 0.0)),
+            (c110, (1.0, 0.0)),
+            tex,
+            0.85,
+        );
+        // South (Back, facing +Z)
+        quad_uv(
+            tris,
+            (c001, (0.0, 1.0)),
+            (c101, (1.0, 1.0)),
+            (c111, (1.0, 0.0)),
+            (c011, (0.0, 0.0)),
+            tex,
+            0.85,
+        );
+        // East (Outer side edge at x1)
+        quad_uv(
+            tris,
+            (c101, (0.0, 1.0)),
+            (c100, (1.0, 1.0)),
+            (c110, (1.0, 0.0)),
+            (c111, (0.0, 0.0)),
+            side_tex,
+            0.70,
+        );
+        // West (Hinge side edge at x0)
+        quad_uv(
+            tris,
+            (c000, (0.0, 1.0)),
+            (c001, (1.0, 1.0)),
+            (c011, (1.0, 0.0)),
+            (c010, (0.0, 0.0)),
+            side_tex,
+            0.70,
+        );
     } else {
-        // Open: East & West get door face texture
-        quad(tris, c101, c100, c110, c111, tex, 0.85); // East
-        quad(tris, c000, c001, c011, c010, tex, 0.85); // West
-        quad(tris, c100, c000, c010, c110, side_tex, 0.70); // North
-        quad(tris, c001, c101, c111, c011, side_tex, 0.70); // South
+        // Open door: Hinge is at z0 (U=0), Handle is at z1 (U=1)
+        // East (facing +X)
+        quad_uv(
+            tris,
+            (c101, (1.0, 1.0)),
+            (c100, (0.0, 1.0)),
+            (c110, (0.0, 0.0)),
+            (c111, (1.0, 0.0)),
+            tex,
+            0.85,
+        );
+        // West (facing -X)
+        quad_uv(
+            tris,
+            (c000, (0.0, 1.0)),
+            (c001, (1.0, 1.0)),
+            (c011, (1.0, 0.0)),
+            (c010, (0.0, 0.0)),
+            tex,
+            0.85,
+        );
+        // North (Hinge side edge at z0)
+        quad_uv(
+            tris,
+            (c100, (0.0, 1.0)),
+            (c000, (1.0, 1.0)),
+            (c010, (1.0, 0.0)),
+            (c110, (0.0, 0.0)),
+            side_tex,
+            0.70,
+        );
+        // South (Outer side edge at z1)
+        quad_uv(
+            tris,
+            (c001, (0.0, 1.0)),
+            (c101, (1.0, 1.0)),
+            (c111, (1.0, 0.0)),
+            (c011, (0.0, 0.0)),
+            side_tex,
+            0.70,
+        );
     }
     // Top & Bottom
-    quad(tris, c010, c011, c111, c110, side_tex, 1.0);  // Top
-    quad(tris, c001, c000, c100, c101, side_tex, 0.5);  // Bottom
+    quad_uv(
+        tris,
+        (c010, (0.0, 1.0)),
+        (c011, (1.0, 1.0)),
+        (c111, (1.0, 0.0)),
+        (c110, (0.0, 0.0)),
+        side_tex,
+        1.0,
+    );
+    quad_uv(
+        tris,
+        (c001, (0.0, 1.0)),
+        (c000, (1.0, 1.0)),
+        (c100, (1.0, 0.0)),
+        (c101, (0.0, 0.0)),
+        side_tex,
+        0.5,
+    );
 }
 
 #[inline(always)]

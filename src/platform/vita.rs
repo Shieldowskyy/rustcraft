@@ -435,6 +435,8 @@ impl VitaInputTracker {
             key_shift: btn_circle,
             key_ctrl: false,
             key_c: false,
+            key_v: false,
+            key_x: false,
             key_escape: btn_start,
             key_p: btn_start,
             key_f: false,
@@ -450,9 +452,12 @@ impl VitaInputTracker {
             key_right: dpad_right,
             key_n: false,
             key_del: btn_circle,
+            key_backspace: btn_circle,
+            key_tab: false,
             key_digits: [
                 false, false, false, false, false, false, false, false, false, false,
             ],
+            typed_chars: Vec::new(),
 
             gp_left_stick_x: left_x,
             gp_left_stick_y: -left_y,

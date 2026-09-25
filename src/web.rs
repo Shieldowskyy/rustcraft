@@ -174,6 +174,8 @@ impl WebGame {
             key_shift,
             key_ctrl,
             key_c,
+            key_v: false,
+            key_x: false,
             key_escape,
             key_p,
             key_f,
@@ -189,6 +191,8 @@ impl WebGame {
             key_right: key_right_key,
             key_n,
             key_del,
+            key_backspace: false,
+            key_tab: false,
             key_digits: [
                 key_digit_1,
                 key_digit_2,
@@ -201,6 +205,7 @@ impl WebGame {
                 key_digit_9,
                 key_digit_0,
             ],
+            typed_chars: Vec::new(),
 
             gp_left_stick_x: gp_lx,
             gp_left_stick_y: gp_ly,

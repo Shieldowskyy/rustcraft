@@ -218,6 +218,11 @@ impl BlockId {
     }
 
     #[inline(always)]
+    pub fn is_targetable(self) -> bool {
+        self.is_solid() || matches!(self, BlockId::DoorOpen | BlockId::Torch)
+    }
+
+    #[inline(always)]
     pub fn is_opaque(self) -> bool {
         self.is_solid() && !self.is_transparent()
     }

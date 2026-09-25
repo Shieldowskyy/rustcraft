@@ -127,6 +127,56 @@ fn main() {
         let scroll_wheel = window.get_scroll_wheel();
         let scroll_delta = scroll_wheel.map(|(_sx, sy)| sy).unwrap_or(0.0);
 
+        let is_shift = window.is_key_down(Key::LeftShift) || window.is_key_down(Key::RightShift);
+        let is_ctrl = window.is_key_down(Key::LeftCtrl) || window.is_key_down(Key::RightCtrl);
+        let mut typed_chars = Vec::new();
+        if !is_ctrl {
+            for key in window.get_keys_pressed(minifb::KeyRepeat::Yes) {
+                match key {
+                    Key::A => typed_chars.push(if is_shift { 'A' } else { 'a' }),
+                    Key::B => typed_chars.push(if is_shift { 'B' } else { 'b' }),
+                    Key::C => typed_chars.push(if is_shift { 'C' } else { 'c' }),
+                    Key::D => typed_chars.push(if is_shift { 'D' } else { 'd' }),
+                    Key::E => typed_chars.push(if is_shift { 'E' } else { 'e' }),
+                    Key::F => typed_chars.push(if is_shift { 'F' } else { 'f' }),
+                    Key::G => typed_chars.push(if is_shift { 'G' } else { 'g' }),
+                    Key::H => typed_chars.push(if is_shift { 'H' } else { 'h' }),
+                    Key::I => typed_chars.push(if is_shift { 'I' } else { 'i' }),
+                    Key::J => typed_chars.push(if is_shift { 'J' } else { 'j' }),
+                    Key::K => typed_chars.push(if is_shift { 'K' } else { 'k' }),
+                    Key::L => typed_chars.push(if is_shift { 'L' } else { 'l' }),
+                    Key::M => typed_chars.push(if is_shift { 'M' } else { 'm' }),
+                    Key::N => typed_chars.push(if is_shift { 'N' } else { 'n' }),
+                    Key::O => typed_chars.push(if is_shift { 'O' } else { 'o' }),
+                    Key::P => typed_chars.push(if is_shift { 'P' } else { 'p' }),
+                    Key::Q => typed_chars.push(if is_shift { 'Q' } else { 'q' }),
+                    Key::R => typed_chars.push(if is_shift { 'R' } else { 'r' }),
+                    Key::S => typed_chars.push(if is_shift { 'S' } else { 's' }),
+                    Key::T => typed_chars.push(if is_shift { 'T' } else { 't' }),
+                    Key::U => typed_chars.push(if is_shift { 'U' } else { 'u' }),
+                    Key::V => typed_chars.push(if is_shift { 'V' } else { 'v' }),
+                    Key::W => typed_chars.push(if is_shift { 'W' } else { 'w' }),
+                    Key::X => typed_chars.push(if is_shift { 'X' } else { 'x' }),
+                    Key::Y => typed_chars.push(if is_shift { 'Y' } else { 'y' }),
+                    Key::Z => typed_chars.push(if is_shift { 'Z' } else { 'z' }),
+                    Key::Key0 => typed_chars.push(if is_shift { ')' } else { '0' }),
+                    Key::Key1 => typed_chars.push(if is_shift { '!' } else { '1' }),
+                    Key::Key2 => typed_chars.push(if is_shift { '@' } else { '2' }),
+                    Key::Key3 => typed_chars.push(if is_shift { '#' } else { '3' }),
+                    Key::Key4 => typed_chars.push(if is_shift { '$' } else { '4' }),
+                    Key::Key5 => typed_chars.push(if is_shift { '%' } else { '5' }),
+                    Key::Key6 => typed_chars.push(if is_shift { '^' } else { '6' }),
+                    Key::Key7 => typed_chars.push(if is_shift { '&' } else { '7' }),
+                    Key::Key8 => typed_chars.push(if is_shift { '*' } else { '8' }),
+                    Key::Key9 => typed_chars.push(if is_shift { '(' } else { '9' }),
+                    Key::Space => typed_chars.push(' '),
+                    Key::Minus => typed_chars.push(if is_shift { '_' } else { '-' }),
+                    Key::Period => typed_chars.push('.'),
+                    _ => {}
+                }
+            }
+        }
+
         let input = InputState {
             mouse_dx,
             mouse_dy,
@@ -140,9 +190,11 @@ fn main() {
             key_a: window.is_key_down(Key::A),
             key_d: window.is_key_down(Key::D),
             key_space: window.is_key_down(Key::Space),
-            key_shift: window.is_key_down(Key::LeftShift),
-            key_ctrl: window.is_key_down(Key::LeftCtrl),
+            key_shift: is_shift,
+            key_ctrl: is_ctrl,
             key_c: window.is_key_down(Key::C),
+            key_v: window.is_key_down(Key::V),
+            key_x: window.is_key_down(Key::X),
             key_escape: window.is_key_down(Key::Escape),
             key_p: window.is_key_down(Key::P),
             key_f: window.is_key_down(Key::F),
@@ -157,7 +209,9 @@ fn main() {
             key_left: window.is_key_down(Key::Left),
             key_right: window.is_key_down(Key::Right),
             key_n: window.is_key_down(Key::N),
-            key_del: window.is_key_down(Key::Delete) || window.is_key_down(Key::Backspace),
+            key_del: window.is_key_down(Key::Delete),
+            key_backspace: window.is_key_down(Key::Backspace),
+            key_tab: window.is_key_down(Key::Tab),
             key_digits: [
                 window.is_key_down(Key::Key1),
                 window.is_key_down(Key::Key2),
@@ -170,6 +224,7 @@ fn main() {
                 window.is_key_down(Key::Key9),
                 window.is_key_down(Key::Key0),
             ],
+            typed_chars,
 
             gp_left_stick_x: gp.left_stick_x,
             gp_left_stick_y: gp.left_stick_y,
