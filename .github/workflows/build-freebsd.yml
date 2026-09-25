@@ -1,0 +1,38 @@
+name: Build FreeBSD
+
+on:
+  push:
+    branches: [ "main", "refactor/**" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-freebsd:
+    name: Build FreeBSD x86_64
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build in FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          pkgng: true
+          prepare: |
+            pkg install -y rust libX11 libXcursor libXrandr libXi libXinerama libXext libXfixes alsa-lib pkgconf
+          run: |
+            cargo build --release
+            strip --strip-all target/release/rustcraft || true
+
+      - name: Upload FreeBSD Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: RustCraft-FreeBSD-x86_64
+          path: target/release/rustcraft
+          if-no-files-found: error

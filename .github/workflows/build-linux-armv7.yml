@@ -1,0 +1,54 @@
+name: Build Linux ARMv7
+
+on:
+  push:
+    branches: [ "main", "refactor/**" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux-armv7:
+    name: Build Linux ARMv7 (32-bit HF)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies & cross toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-arm-linux-gnueabihf \
+            g++-arm-linux-gnueabihf \
+            binutils-arm-linux-gnueabihf \
+            pkg-config
+
+      - name: Install Rust Stable with ARMv7 Target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: armv7-unknown-linux-gnueabihf
+
+      - name: Install Cross
+        run: |
+          curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
+
+      - name: Build with Cross
+        run: |
+          cross build --target armv7-unknown-linux-gnueabihf --release
+
+      - name: Strip Binary
+        run: |
+          arm-linux-gnueabihf-strip target/armv7-unknown-linux-gnueabihf/release/rustcraft || true
+
+      - name: Upload Linux ARMv7 Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: RustCraft-Linux-ARMv7
+          path: target/armv7-unknown-linux-gnueabihf/release/rustcraft
+          if-no-files-found: error

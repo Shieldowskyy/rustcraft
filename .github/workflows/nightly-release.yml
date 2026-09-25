@@ -69,6 +69,84 @@ jobs:
           name: linux-arm64-pkg
           path: dist/rustcraft-linux-arm64.tar.gz
 
+  build-linux-armv7:
+    name: Build Linux ARMv7
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies & toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils-arm-linux-gnueabihf pkg-config
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: armv7-unknown-linux-gnueabihf
+      - name: Install Cross
+        run: |
+          curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
+      - name: Build with Cross
+        run: |
+          cross build --target armv7-unknown-linux-gnueabihf --release
+          arm-linux-gnueabihf-strip target/armv7-unknown-linux-gnueabihf/release/rustcraft || true
+          mkdir -p dist
+          tar -czf dist/rustcraft-linux-armv7.tar.gz -C target/armv7-unknown-linux-gnueabihf/release rustcraft
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-armv7-pkg
+          path: dist/rustcraft-linux-armv7.tar.gz
+
+  build-rpi-armv6:
+    name: Build RPi Zero W (ARMv6)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies & toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils-arm-linux-gnueabihf pkg-config
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: arm-unknown-linux-gnueabihf
+      - name: Install Cross
+        run: |
+          curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
+      - name: Build with Cross
+        run: |
+          RUSTFLAGS="-C target-cpu=arm1176jzf-s" cross build --target arm-unknown-linux-gnueabihf --release
+          arm-linux-gnueabihf-strip target/arm-unknown-linux-gnueabihf/release/rustcraft || true
+          mkdir -p dist
+          tar -czf dist/rustcraft-rpi-armv6.tar.gz -C target/arm-unknown-linux-gnueabihf/release rustcraft
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpi-armv6-pkg
+          path: dist/rustcraft-rpi-armv6.tar.gz
+
+  build-freebsd:
+    name: Build FreeBSD x86_64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build in FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          pkgng: true
+          prepare: |
+            pkg install -y rust libX11 libXcursor libXrandr libXi libXinerama libXext libXfixes alsa-lib pkgconf
+          run: |
+            cargo build --release
+            strip --strip-all target/release/rustcraft || true
+            mkdir -p dist
+            tar -czf dist/rustcraft-freebsd-x86_64.tar.gz -C target/release rustcraft
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freebsd-x86_64-pkg
+          path: dist/rustcraft-freebsd-x86_64.tar.gz
+
   build-windows:
     name: Build Windows x86_64
     runs-on: windows-latest
@@ -141,7 +219,16 @@ jobs:
 
   publish-nightly:
     name: Publish Nightly Release
-    needs: [build-linux-x86_64, build-linux-arm64, build-windows, build-vita, build-wasm]
+    needs: [
+      build-linux-x86_64,
+      build-linux-arm64,
+      build-linux-armv7,
+      build-rpi-armv6,
+      build-freebsd,
+      build-windows,
+      build-vita,
+      build-wasm
+    ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -167,12 +254,15 @@ jobs:
             Automated Nightly build of **RustCraft**.
             Built from commit `${{ github.sha }}` on branch `${{ github.ref_name }}`.
 
-            ### Dostępne paczki:
+            ### Available Packages:
             - **PlayStation Vita:** `RustCraft.vpk`
             - **Windows (x86_64):** `rustcraft-windows-x86_64.zip`
             - **Linux (x86_64):** `rustcraft-linux-x86_64.tar.gz`
             - **Linux (ARM64):** `rustcraft-linux-arm64.tar.gz`
-            - **Web (WASM/HTML5):** `rustcraft-web-wasm.zip`
+            - **Linux (ARMv7):** `rustcraft-linux-armv7.tar.gz`
+            - **Raspberry Pi Zero W (ARMv6):** `rustcraft-rpi-armv6.tar.gz`
+            - **FreeBSD (x86_64):** `rustcraft-freebsd-x86_64.tar.gz`
+            - **Web (WASM / HTML5):** `rustcraft-web-wasm.zip`
           prerelease: true
           files: release-files/*
         env:
