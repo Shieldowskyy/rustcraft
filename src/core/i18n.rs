@@ -172,6 +172,18 @@ pub fn current_language() -> Language {
     }
 }
 
+/// Translates a localization key for a specific explicit language.
+pub fn translate_lang(lang: Language, key: &str) -> &'static str {
+    if let Ok(mgr) = get_i18n().read() {
+        match lang {
+            Language::English => mgr.en_dict.get(key).copied().unwrap_or(""),
+            Language::Polish => mgr.pl_dict.get(key).copied().or_else(|| mgr.en_dict.get(key).copied()).unwrap_or(""),
+        }
+    } else {
+        ""
+    }
+}
+
 /// Returns a slice of all supported languages.
 pub fn available_languages() -> &'static [Language] {
     Language::all()
@@ -182,24 +194,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_i18n_translation_and_fallback() {
+    fn test_i18n_translation_and_formatting() {
+        assert_eq!(translate_lang(Language::English, "menu.play"), "PLAY GAME");
+        assert_eq!(translate_lang(Language::English, "settings.on"), "ON");
+        assert_eq!(translate_lang(Language::Polish, "menu.play"), "GRAJ");
+        assert_eq!(translate_lang(Language::Polish, "settings.on"), "WLACZONE");
+
         set_language(Language::English);
         assert_eq!(t("menu.play"), "PLAY GAME");
-        assert_eq!(t("settings.on"), "ON");
+        assert_eq!(t_fmt("save_select.min_ago", &["5"]), "5 min ago");
 
         set_language(Language::Polish);
         assert_eq!(t("menu.play"), "GRAJ");
-        assert_eq!(t("settings.on"), "WLACZONE");
-    }
+        assert_eq!(t_fmt("save_select.min_ago", &["5"]), "5 min temu");
 
-    #[test]
-    fn test_i18n_placeholder_formatting() {
+        // Restore default English
         set_language(Language::English);
-        let res = t_fmt("save_select.min_ago", &["5"]);
-        assert_eq!(res, "5 min ago");
-
-        set_language(Language::Polish);
-        let res_pl = t_fmt("save_select.min_ago", &["5"]);
-        assert_eq!(res_pl, "5 min temu");
     }
 }
+
