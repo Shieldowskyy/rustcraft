@@ -6,48 +6,48 @@ BINARY_NAME="rustcraft.exe"
 BINARY_PATH="target/${TARGET}/release/${BINARY_NAME}"
 
 if ! command -v cargo &> /dev/null; then
-    echo "==> Błąd: Nie znaleziono polecenia 'cargo'. Upewnij się, że Rust jest zainstalowany."
+    echo "==> Error: 'cargo' command not found. Please ensure Rust is installed."
     exit 1
 fi
 
-echo "==> Kompilowanie projektu pod Windowsa (${TARGET})..."
+echo "==> Compiling project for Windows (${TARGET})..."
 cargo build --release --target "$TARGET"
 
 if [ -f "$BINARY_PATH" ]; then
     echo "--------------------------------------------------"
-    echo " Sukces! Plik .exe został zbudowany."
-    echo -n " Rozmiar przed odchudzaniem: "
+    echo " Success! .exe binary built successfully."
+    echo -n " Size before stripping: "
     du -h "$BINARY_PATH" | awk '{print $1}'
     echo "--------------------------------------------------"
 
-    # Usuwanie symboli debugowania za pomocą cross-stripa MinGW
+    # Strip debug symbols using MinGW cross-strip tool
     STRIP_TOOL="x86_64-w64-mingw32-strip"
     if command -v "$STRIP_TOOL" &> /dev/null; then
-        echo "==> Uruchamianie '$STRIP_TOOL'..."
+        echo "==> Running '$STRIP_TOOL'..."
         "$STRIP_TOOL" --strip-all "$BINARY_PATH"
-        echo -n " Rozmiar po strip: "
+        echo -n " Size after strip: "
         du -h "$BINARY_PATH" | awk '{print $1}'
         echo "--------------------------------------------------"
     elif command -v strip &> /dev/null; then
-        echo "==> Używanie domyślnego 'strip'..."
+        echo "==> Using default 'strip'..."
         strip --strip-all "$BINARY_PATH" 2>/dev/null || true
-        echo -n " Rozmiar po strip: "
+        echo -n " Size after strip: "
         du -h "$BINARY_PATH" | awk '{print $1}'
         echo "--------------------------------------------------"
     fi
 
-    # Kompresja UPX
+    # UPX compression
     if command -v upx &> /dev/null; then
-        echo "==> Wykryto narzędzie UPX. Trwa kompresja pliku .exe..."
+        echo "==> UPX tool detected. Compressing .exe binary..."
         upx --best --lzma "$BINARY_PATH"
         echo "--------------------------------------------------"
-        echo -n " Rozmiar po kompresji UPX: "
+        echo -n " Size after UPX compression: "
         du -h "$BINARY_PATH" | awk '{print $1}'
         echo "--------------------------------------------------"
     fi
 
-    echo "Gotowe! Twój plik znajduje się w: $BINARY_PATH"
+    echo "Done! Your executable is located at: $BINARY_PATH"
 else
-    echo "==> Błąd: Nie znaleziono wygenerowanego pliku binarnego w $BINARY_PATH"
+    echo "==> Error: Generated binary not found at $BINARY_PATH"
     exit 1
 fi

@@ -1,6 +1,6 @@
 /**
  * RustCraft – Voxel Fragment Shader (Cg / psp2cgc)
- * Kompilacja: psp2cgc -profile sce_fp_psp2 voxel.frag.cg -o voxel.frag.gxp
+ * Compilation: psp2cgc -profile sce_fp_psp2 voxel.frag.cg -o voxel.frag.gxp
  */
 float4 main(
     float2  oUV  : TEXCOORD0,

@@ -1,12 +1,12 @@
 /**
  * RustCraft – Voxel Vertex Shader (Cg / psp2cgc)
- * Kompilacja: psp2cgc -profile sce_vp_psp2 voxel.vert.cg -o voxel.vert.gxp
+ * Compilation: psp2cgc -profile sce_vp_psp2 voxel.vert.cg -o voxel.vert.gxp
  *
- * UKŁAD MACIERZY (PS Vita Cg):
- *   - GXM wysyła macierze column-major (m[col*4+row])
- *   - Cg mul(v, M): row-vector × column-major matrix = M*v (poprawne!)
- *   - Cg mul(M, v): column-major × column-vector = TRANSPONOWANE (błąd!)
- *   - SDL2/GXM używa mul(pos, wvp) — identycznie jak poniżej.
+ * MATRIX LAYOUT (PS Vita Cg):
+ *   - GXM passes column-major matrices (m[col*4+row])
+ *   - Cg mul(v, M): row-vector × column-major matrix = M*v (correct!)
+ *   - Cg mul(M, v): column-major × column-vector = TRANSPOSED (incorrect!)
+ *   - SDL2/GXM uses mul(pos, wvp) — identically to below.
  */
 void main(
     float3  aPosition : POSITION,

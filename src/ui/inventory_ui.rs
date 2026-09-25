@@ -17,10 +17,10 @@ pub enum InventorySlotTarget {
 }
 
 pub const CREATIVE_TABS: [&str; 4] = [
-    "BUDULEC",
-    "NARZEDZIA",
-    "WSZYSTKIE",
-    "EKWIPUNEK",
+    "BLOCKS",
+    "TOOLS",
+    "ALL",
+    "INVENTORY",
 ];
 
 pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
@@ -379,9 +379,9 @@ pub fn draw_inventory_screen(
         if player.creative_tab < 3 {
             // Category title
             let title = match player.creative_tab {
-                0 => "BLOKI I BUDULEC",
-                1 => "NARZEDZIA I PRZEDMIOTY",
-                2 => "WSZYSTKIE PRZEDMIOTY",
+                0 => "BUILDING BLOCKS",
+                1 => "TOOLS & ITEMS",
+                2 => "ALL ITEMS",
                 _ => "",
             };
             draw_text_shadowed(buffer, width, height, title, start_x + 18, start_y + 14, 2, 1);
@@ -409,8 +409,8 @@ pub fn draw_inventory_screen(
 
             // Divider & Hotbar Header
             fill_rect(buffer, width, height, start_x + 16, start_y + 218, 432, 2, pack_color(0.25, 0.25, 0.28));
-            draw_text_colored_shadowed(buffer, width, height, "PASEK SZYBKIEGO DOSTEPU", start_x + 16, start_y + 226, 1, 1, pack_color(0.85, 0.85, 0.4));
-            draw_text_colored_shadowed(buffer, width, height, "KOSZ", start_x + 424, start_y + 226, 1, 1, pack_color(1.0, 0.4, 0.4));
+            draw_text_colored_shadowed(buffer, width, height, "QUICK ACCESS HOTBAR", start_x + 16, start_y + 226, 1, 1, pack_color(0.85, 0.85, 0.4));
+            draw_text_colored_shadowed(buffer, width, height, "TRASH", start_x + 424, start_y + 226, 1, 1, pack_color(1.0, 0.4, 0.4));
 
             // Hotbar 10 slots
             let hotbar_x = start_x + 16;
@@ -428,7 +428,7 @@ pub fn draw_inventory_screen(
                 draw_slot_custom(buffer, width, height, x, y, 38, 38, player.inventory.hotbar[i], is_hovered, border_override);
             }
 
-            // Trash Slot (Kosz)
+            // Trash Slot
             let trash_x = start_x + 420;
             let trash_y = start_y + 242;
             let is_trash_hover = hovered_slot == Some(InventorySlotTarget::Trash);
@@ -445,27 +445,27 @@ pub fn draw_inventory_screen(
             #[cfg(target_os = "vita")]
             draw_text_colored_shadowed(
                 buffer, width, height,
-                "[X]/DOTYK: WEZ STACK | [KWADRAT]: USUN | [D-PAD]: WYBOR | [O]: ZAMKNIJ",
+                "[X]/TOUCH: TAKE STACK | [SQUARE]: DELETE | [D-PAD]: SELECT | [O]: CLOSE",
                 start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75)
             );
             #[cfg(not(target_os = "vita"))]
             draw_text_colored_shadowed(
                 buffer, width, height,
-                "LPM: WEZ (64) | SHIFT+LPM: DO PASKA | 1-0: WYBIERZ SLOT | [E]/[ESC]: ZAMKNIJ",
+                "LMB: TAKE (64) | SHIFT+LMB: TO HOTBAR | 1-0: SELECT SLOT | [E]/[ESC]: CLOSE",
                 start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75)
             );
         } else {
             // Tab 3: Survival Inventory inside Creative
-            draw_text_shadowed(buffer, width, height, "EKWIPUNEK PRZETRWANIA", start_x + 18, start_y + 14, 2, 1);
+            draw_text_shadowed(buffer, width, height, "SURVIVAL INVENTORY", start_x + 18, start_y + 14, 2, 1);
 
             // Character Info Box
             fill_rect_alpha(buffer, width, height, start_x + 22, start_y + 38, 130, 92, pack_color(0.08, 0.08, 0.10), 0.85);
-            draw_text_shadowed(buffer, width, height, "POSTAC (KREATYWNY)", start_x + 30, start_y + 46, 1, 1);
-            draw_text_colored_shadowed(buffer, width, height, "NIESKONCZONE ZASOBY", start_x + 30, start_y + 68, 1, 1, pack_color(0.4, 0.9, 0.4));
-            draw_text_colored_shadowed(buffer, width, height, "LATANIE: WLACZONE", start_x + 30, start_y + 88, 1, 1, pack_color(0.4, 0.8, 1.0));
+            draw_text_shadowed(buffer, width, height, "CHARACTER (CREATIVE)", start_x + 30, start_y + 46, 1, 1);
+            draw_text_colored_shadowed(buffer, width, height, "INFINITE RESOURCES", start_x + 30, start_y + 68, 1, 1, pack_color(0.4, 0.9, 0.4));
+            draw_text_colored_shadowed(buffer, width, height, "FLYING: ENABLED", start_x + 30, start_y + 88, 1, 1, pack_color(0.4, 0.8, 1.0));
 
             // 2x2 Crafting Grid
-            draw_text_colored_shadowed(buffer, width, height, "Tworzenie 2x2", start_x + 220, start_y + 26, 1, 1, pack_color(0.85, 0.85, 0.85));
+            draw_text_colored_shadowed(buffer, width, height, "Crafting 2x2", start_x + 220, start_y + 26, 1, 1, pack_color(0.85, 0.85, 0.85));
             let craft_x = start_x + 220;
             let craft_y = start_y + 42;
             for row in 0..2 {
@@ -487,7 +487,7 @@ pub fn draw_inventory_screen(
             draw_slot(buffer, width, height, out_x, out_y, 42, 42, result_item, is_out_hovered);
 
             // Main 27 slots
-            draw_text_colored_shadowed(buffer, width, height, "Plecak", start_x + 22, start_y + 132, 1, 1, pack_color(0.75, 0.75, 0.75));
+            draw_text_colored_shadowed(buffer, width, height, "Backpack", start_x + 22, start_y + 132, 1, 1, pack_color(0.75, 0.75, 0.75));
             let main_x = start_x + 22;
             let main_y = start_y + 144;
             for row in 0..3 {
@@ -501,8 +501,8 @@ pub fn draw_inventory_screen(
             }
 
             // Hotbar & Trash
-            draw_text_colored_shadowed(buffer, width, height, "Pasek podreczny", start_x + 16, start_y + 264, 1, 1, pack_color(0.85, 0.85, 0.4));
-            draw_text_colored_shadowed(buffer, width, height, "KOSZ", start_x + 424, start_y + 264, 1, 1, pack_color(1.0, 0.4, 0.4));
+            draw_text_colored_shadowed(buffer, width, height, "Hotbar", start_x + 16, start_y + 264, 1, 1, pack_color(0.85, 0.85, 0.4));
+            draw_text_colored_shadowed(buffer, width, height, "TRASH", start_x + 424, start_y + 264, 1, 1, pack_color(1.0, 0.4, 0.4));
             let hotbar_x = start_x + 16;
             let hotbar_y = start_y + 276;
             for i in 0..10 {
@@ -530,28 +530,28 @@ pub fn draw_inventory_screen(
             #[cfg(not(target_os = "vita"))]
             draw_text_colored_shadowed(
                 buffer, width, height,
-                "LPM: CALOSC | PPM: 1 SZT/POLOWA | SHIFT+LPM: PRZENIES | [E]/[ESC]: ZAMKNIJ",
+                "LPM: ALL | PPM: 1 ITEM/HALF | SHIFT+LPM: MOVE | [E]/[ESC]: CLOSE",
                 start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75)
             );
             #[cfg(target_os = "vita")]
             draw_text_colored_shadowed(
                 buffer, width, height,
-                "[X]: CALOSC | [KWADRAT]: 1 SZT/POLOWA | [O]: ZAMKNIJ",
+                "[X]: ALL | [SQUARE]: 1 ITEM/HALF | [O]: CLOSE",
                 start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75)
             );
         }
     } else {
         // Survival Mode
-        let title = if crafting_table_open { "STOL RZEMIESLNICZY" } else { "EKWIPUNEK" };
+        let title = if crafting_table_open { "CRAFTING TABLE" } else { "INVENTORY" };
         draw_text_shadowed(buffer, width, height, title, start_x + 10, start_y + 8, 2, 1);
         #[cfg(target_os = "vita")]
-        draw_text_shadowed(buffer, width, height, "[X]/DOTYK: CALOSC | [KWADRAT]: 1 SZT/POLOWA | [O]/[TROJKAT]: ZAMKNIJ", start_x + 10, start_y + 342, 1, 1);
+        draw_text_shadowed(buffer, width, height, "[X]/TOUCH: ALL | [SQUARE]: 1 ITEM/HALF | [O]/[TRIANGLE]: CLOSE", start_x + 10, start_y + 342, 1, 1);
         #[cfg(not(target_os = "vita"))]
-        draw_text_shadowed(buffer, width, height, "LPM: CALOSC | PPM: 1 SZT / POLOWA | [E]/[ESC]/[B]: ZAMKNIJ", start_x + 10, start_y + 342, 1, 1);
+        draw_text_shadowed(buffer, width, height, "LMB: ALL | RMB: 1 ITEM / HALF | [E]/[ESC]/[B]: CLOSE", start_x + 10, start_y + 342, 1, 1);
 
         // Crafting section
         if crafting_table_open {
-            draw_text_colored_shadowed(buffer, width, height, "Siatka 3x3", start_x + 40, start_y + 20, 1, 1, pack_color(0.8, 0.8, 0.8));
+            draw_text_colored_shadowed(buffer, width, height, "3x3 Grid", start_x + 40, start_y + 20, 1, 1, pack_color(0.8, 0.8, 0.8));
             // 3x3 input slots
             let craft_x = start_x + 40;
             let craft_y = start_y + 35;
@@ -577,12 +577,12 @@ pub fn draw_inventory_screen(
         } else {
             // Player character info area
             fill_rect_alpha(buffer, width, height, start_x + 22, start_y + 38, 130, 95, pack_color(0.08, 0.08, 0.10), 0.8);
-            draw_text_shadowed(buffer, width, height, "POSTAC", start_x + 60, start_y + 48, 1, 1);
+            draw_text_shadowed(buffer, width, height, "CHARACTER", start_x + 60, start_y + 48, 1, 1);
             let hp_text = format!("HP: {}/20", player.health as i32);
             draw_text_colored_shadowed(buffer, width, height, &hp_text, start_x + 35, start_y + 78, 1, 1, pack_color(1.0, 0.3, 0.3));
 
             // 2x2 Crafting
-            draw_text_colored_shadowed(buffer, width, height, "Tworzenie 2x2", start_x + 220, start_y + 32, 1, 1, pack_color(0.85, 0.85, 0.85));
+            draw_text_colored_shadowed(buffer, width, height, "Crafting 2x2", start_x + 220, start_y + 32, 1, 1, pack_color(0.85, 0.85, 0.85));
             let craft_x = start_x + 220;
             let craft_y = start_y + 48;
             for row in 0..2 {
@@ -607,7 +607,7 @@ pub fn draw_inventory_screen(
         }
 
         // Main Inventory
-        draw_text_colored_shadowed(buffer, width, height, "Plecak", start_x + 22, start_y + 146, 1, 1, pack_color(0.75, 0.75, 0.75));
+        draw_text_colored_shadowed(buffer, width, height, "Backpack", start_x + 22, start_y + 146, 1, 1, pack_color(0.75, 0.75, 0.75));
         let main_x = start_x + 22;
         let main_y = start_y + 160;
         for row in 0..3 {
@@ -621,7 +621,7 @@ pub fn draw_inventory_screen(
         }
 
         // Hotbar
-        draw_text_colored_shadowed(buffer, width, height, "Pasek podreczny", start_x + 16, start_y + 282, 1, 1, pack_color(0.75, 0.75, 0.75));
+        draw_text_colored_shadowed(buffer, width, height, "Hotbar", start_x + 16, start_y + 282, 1, 1, pack_color(0.75, 0.75, 0.75));
         let hotbar_x = start_x + 16;
         let hotbar_y = start_y + 295;
         for i in 0..10 {
@@ -660,11 +660,11 @@ pub fn draw_inventory_screen(
             }
             InventorySlotTarget::CreativeTab(idx) => {
                 if idx < CREATIVE_TABS.len() {
-                    hovered_item_name = Some((format!("Kategoria: {}", CREATIVE_TABS[idx]), 1));
+                    hovered_item_name = Some((format!("Category: {}", CREATIVE_TABS[idx]), 1));
                 }
             }
             InventorySlotTarget::Trash => {
-                hovered_item_name = Some(("KOSZ (LPM: Usun trzymany | Shift: Wyczysc pasek)".to_string(), 1));
+                hovered_item_name = Some(("TRASH (LMB: Delete held item | Shift+LMB: Clear hotbar)".to_string(), 1));
             }
         }
     }
@@ -1222,12 +1222,12 @@ mod tests {
         player.gamemode = GameMode::Creative;
         player.creative_tab = 0;
 
-        // Top tab click (Tab 0: BUDULEC)
+        // Top tab click (Tab 0: BLOCKS)
         let tab0_x = layout.start_x + 20;
         let tab0_y = layout.start_y - 10;
         assert_eq!(layout.find_slot_at(tab0_x, tab0_y, &player), Some(InventorySlotTarget::CreativeTab(0)));
 
-        // Top tab click (Tab 1: NARZEDZIA)
+        // Top tab click (Tab 1: TOOLS)
         let tab1_x = layout.start_x + 130;
         assert_eq!(layout.find_slot_at(tab1_x, tab0_y, &player), Some(InventorySlotTarget::CreativeTab(1)));
 

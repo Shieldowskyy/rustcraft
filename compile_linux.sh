@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-# Automatyczne załadowanie środowiska Rusta (jeśli istnieje)
+# Automatically load Rust environment (if present)
 if [ -f "$HOME/.cargo/env" ]; then
     source "$HOME/.cargo/env"
 elif [ -d "$HOME/.cargo/bin" ]; then
@@ -9,35 +9,35 @@ elif [ -d "$HOME/.cargo/bin" ]; then
 fi
 
 if ! command -v cargo &> /dev/null; then
-    echo "==> Błąd: Nie znaleziono polecenia 'cargo'. Upewnij się, że Rust jest zainstalowany."
+    echo "==> Error: 'cargo' command not found. Please ensure Rust is installed."
     exit 1
 fi
 
-echo "==> Kompilowanie projektu w trybie release..."
+echo "==> Compiling project in release mode..."
 RUSTFLAGS="-C target-cpu=native" cargo build --release
 
 BINARY_PATH="target/release/rustcraft"
 
 if [ -f "$BINARY_PATH" ]; then
     echo "--------------------------------------------------"
-    echo " Sukces! Plik binarny został zbudowany."
-    echo -n " Rozmiar przed odchudzaniem: "
+    echo " Success! Binary built successfully."
+    echo -n " Size before stripping: "
     du -h "$BINARY_PATH" | awk '{print $1}'
     echo "--------------------------------------------------"
 
-    # Usuwanie symboli debugowania (strip)
+    # Strip debug symbols
     if command -v strip &> /dev/null; then
-        echo "==> Uruchamianie 'strip' w celu usunięcia symboli debugowania..."
+        echo "==> Running 'strip' to remove debug symbols..."
         strip --strip-all "$BINARY_PATH"
-        echo -n " Rozmiar po strip: "
+        echo -n " Size after stripping: "
         du -h "$BINARY_PATH" | awk '{print $1}'
         echo "--------------------------------------------------"
     else
-        echo "==> Wskazówka: Narzędzie 'strip' nie jest dostępne, pomijam ten krok."
+        echo "==> Note: 'strip' utility not found, skipping this step."
     fi
 
-    echo "Gotowe! Twój plik znajduje się w: $BINARY_PATH"
+    echo "Done! Your binary is located at: $BINARY_PATH"
 else
-    echo "==> Błąd: Nie znaleziono wygenerowanego pliku binarnego."
+    echo "==> Error: Generated binary not found."
     exit 1
 fi
