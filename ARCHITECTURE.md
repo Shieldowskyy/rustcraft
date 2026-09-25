@@ -182,12 +182,16 @@ Active biome is displayed in the debug panel via `World::biome_name_at(wx, wz)`.
 
 ## 6. Supported Platforms & Build Targets
 
-| Platform | Renderer | Build Script / Command |
-|---|---|---|
-| Linux (x86_64) | Software CPU / WGPU GPU | `./compile_linux.sh` |
-| Windows (x86_64) | Software CPU / WGPU GPU | `cargo build --release` |
-| WebAssembly | Software CPU (Rayon disabled) | `./build_web.sh` |
-| PlayStation Vita | GXM GPU (SGX543MP4) | `./build_vita.sh` |
+| Platform / Architecture | Target Triple | Renderer | Build Script / Command |
+|---|---|---|---|
+| Linux (x86_64) | `x86_64-unknown-linux-gnu` | Software CPU / Vulkan | `./compile_linux.sh` |
+| Linux ARM64 (RPi 4/5) | `aarch64-unknown-linux-gnu` | Software CPU / Vulkan | `./build_linux_arm64.sh` |
+| Raspberry Pi Zero W (ARMv6) | `arm-unknown-linux-gnueabihf` | Software CPU (Tuned for ARM11) | `./build_rpi_armv6.sh` |
+| FreeBSD (x86_64) | `x86_64-unknown-freebsd` | Software CPU / X11 | `./build_freebsd.sh` |
+| Windows (x86_64) | `x86_64-pc-windows-gnu` | Software CPU / Vulkan | `./compile-windows.sh` |
+| WebAssembly | `wasm32-unknown-unknown` | Software CPU (Single-threaded) | `./build_web.sh` |
+| PlayStation Vita | `armv7-sony-vita-newlibeabihf` | Bare-Metal GXM GPU (SGX543MP4) | `./build_vita.sh` |
+| macOS | `x86_64-apple-darwin` / `aarch64` | Software CPU / Metal (WGPU) | `cargo run --release` |
 
 ---
 

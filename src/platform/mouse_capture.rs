@@ -7,7 +7,7 @@
 
 use minifb::Window;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod x11_capture {
     use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
     use std::os::raw::{c_char, c_int, c_ulong};
@@ -369,7 +369,7 @@ mod win32_capture {
 }
 
 pub struct MouseCapture {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     inner: Option<x11_capture::X11Capture>,
     #[cfg(windows)]
     inner: Option<win32_capture::Win32Capture>,
@@ -378,7 +378,7 @@ pub struct MouseCapture {
 
 impl MouseCapture {
     pub fn new(window: &Window, width: i32, height: i32) -> MouseCapture {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {
             let inner = x11_capture::X11Capture::new(window, width, height);
             MouseCapture {
@@ -394,7 +394,7 @@ impl MouseCapture {
                 captured: false,
             }
         }
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd", windows)))]
         {
             let _ = (window, width, height);
             MouseCapture { captured: false }
@@ -402,7 +402,7 @@ impl MouseCapture {
     }
 
     pub fn has_native_capture(&self) -> bool {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {
             self.inner.is_some()
         }
@@ -410,7 +410,7 @@ impl MouseCapture {
         {
             self.inner.is_some()
         }
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd", windows)))]
         {
             false
         }
@@ -418,7 +418,7 @@ impl MouseCapture {
 
     pub fn set_captured(&mut self, captured: bool) {
         self.captured = captured;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {
             if let Some(inner) = &mut self.inner {
                 inner.set_captured(captured);
@@ -437,7 +437,7 @@ impl MouseCapture {
     }
 
     pub fn resize(&mut self, width: i32, height: i32) {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {
             if let Some(inner) = &mut self.inner {
                 inner.resize(width, height);
@@ -449,14 +449,14 @@ impl MouseCapture {
                 inner.resize(width, height);
             }
         }
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd", windows)))]
         {
             let _ = (width, height);
         }
     }
 
     pub fn poll_delta(&self) -> (f32, f32) {
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {
             if let Some(inner) = &self.inner {
                 return inner.poll_delta_and_recenter();
@@ -470,7 +470,7 @@ impl MouseCapture {
             }
             (0.0, 0.0)
         }
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd", windows)))]
         {
             (0.0, 0.0)
         }
@@ -478,7 +478,7 @@ impl MouseCapture {
 }
 
 pub fn maximize_window(window: &Window) {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     {
         x11_capture::maximize_x11(window);
     }
@@ -486,7 +486,7 @@ pub fn maximize_window(window: &Window) {
     {
         win32_capture::maximize_win32(window);
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(not(any(target_os = "linux", target_os = "freebsd", windows)))]
     {
         let _ = window;
     }

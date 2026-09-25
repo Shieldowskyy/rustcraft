@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -e
+
+# ============================================================================
+# Build script for RustCraft on Linux ARMv6 (Raspberry Pi Zero / Zero W / Pi 1)
+# Target: arm-unknown-linux-gnueabihf with ARMv6KZ VFPv2 tuning
+# ============================================================================
+
+export PATH="$HOME/.cargo/bin:$PATH"
+
+TARGET="arm-unknown-linux-gnueabihf"
+BINARY_NAME="rustcraft"
+BINARY_PATH="target/${TARGET}/release/${BINARY_NAME}"
+
+# Detect if we are building natively on an ARMv6 host
+ARCH=$(uname -m)
+if [ "$ARCH" = "armv6l" ]; then
+    echo "=== Detected native Raspberry Pi ARMv6 host ($ARCH) ==="
+    RUSTFLAGS="-C target-cpu=arm1176jzf-s" cargo build --release
+    NATIVE_BIN="target/release/${BINARY_NAME}"
+    if [ -f "$NATIVE_BIN" ]; then
+        if command -v strip &> /dev/null; then
+            strip --strip-all "$NATIVE_BIN"
+        fi
+        echo "✓ Successfully built native ARMv6 binary at: $NATIVE_BIN"
+        exit 0
+    fi
+fi
+
+echo "=== Cross-compiling RustCraft for Raspberry Pi Zero W / ARMv6 ($TARGET) ==="
+
+# Check if target is installed in rustup
+if command -v rustup &> /dev/null; then
+    if ! rustup target list --installed | grep -q "$TARGET"; then
+        echo "==> Adding target $TARGET via rustup..."
+        rustup target add "$TARGET"
+    fi
+fi
+
+# Detect cross-linker
+if command -v arm-linux-gnueabihf-gcc &> /dev/null; then
+    export CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER="arm-linux-gnueabihf-gcc"
+elif command -v zig &> /dev/null; then
+    export CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER="zig cc -target arm-linux-gnueabihf -mcpu=arm1176jzf-s"
+else
+    echo "==> Note: 'arm-linux-gnueabihf-gcc' not found. If linking fails, install it via:"
+    echo "    sudo apt install gcc-arm-linux-gnueabihf (Debian/Ubuntu)"
+    echo "    sudo dnf install gcc-arm-linux-gnu (Fedora)"
+    echo "    sudo pacman -S arm-linux-gnueabihf-gcc (Arch)"
+fi
+
+# Set CPU flag specifically for ARM1176JZF-S (Raspberry Pi Zero / Zero W / 1)
+export RUSTFLAGS="-C target-cpu=arm1176jzf-s"
+
+cargo build --release --target "$TARGET"
+
+if [ -f "$BINARY_PATH" ]; then
+    echo "--------------------------------------------------"
+    echo " Success! Raspberry Pi ARMv6 binary built."
+    echo -n " Size before stripping: "
+    du -h "$BINARY_PATH" | awk '{print $1}'
+    echo "--------------------------------------------------"
+
+    # Strip symbols
+    if command -v arm-linux-gnueabihf-strip &> /dev/null; then
+        echo "==> Running 'arm-linux-gnueabihf-strip'..."
+        arm-linux-gnueabihf-strip --strip-all "$BINARY_PATH"
+        echo -n " Size after strip: "
+        du -h "$BINARY_PATH" | awk '{print $1}'
+        echo "--------------------------------------------------"
+    elif command -v strip &> /dev/null; then
+        strip --strip-all "$BINARY_PATH" 2>/dev/null || true
+    fi
+
+    echo "Done! Raspberry Pi Zero W binary is located at: $BINARY_PATH"
+    echo "To run on RPi Zero W: copy binary to device, ensure X11/FB environment is running, and launch ./rustcraft"
+else
+    echo "==> Error: Generated binary not found at $BINARY_PATH"
+    exit 1
+fi

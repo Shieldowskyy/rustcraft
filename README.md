@@ -2,10 +2,10 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS%20%7C%20WASM%20%7C%20PS%20Vita-brightgreen.svg)]()
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20FreeBSD%20%7C%20ARM64%20%7C%20ARMv6%20%7C%20PS%20Vita%20%7C%20WASM-brightgreen.svg)]()
 
-A high-performance, modular voxel sandbox game and engine written in Rust with first-class support for **five targets**:
-Desktop (Linux, Windows, macOS), Sony PlayStation Vita (GXM GPU), and Web browsers (WebAssembly / HTML5 canvas).
+A high-performance, modular voxel sandbox game and engine written in Rust with first-class support for **multiple platforms and architectures**:
+Desktop (Linux x86_64 / ARM64, Windows, macOS, FreeBSD), Embedded Linux (Raspberry Pi Zero W / ARMv6), Sony PlayStation Vita (GXM GPU), and Web browsers (WebAssembly / HTML5 canvas).
 
 RustCraft features a multithreaded CPU software rasterizer (tiled rasterization, sub-pixel precision, per-vertex Ambient Occlusion, distance fog) with zero graphics library dependencies, a hardware-accelerated Vulkan/WGPU backend, and a bare-metal GXM GPU renderer for the PlayStation Vita (SGX543MP4) delivering smooth 60 FPS.
 
@@ -13,13 +13,16 @@ RustCraft features a multithreaded CPU software rasterizer (tiled rasterization,
 
 ## 1. Supported Platforms & Renderers
 
-| Platform | Primary Renderer | Build Script / Command |
-|---|---|---|
-| **Linux (x86_64)** | Software CPU (Rayon) or Vulkan | `./compile_linux.sh` |
-| **Windows (x86_64)** | Software CPU (Rayon) or Vulkan | `./compile-windows.sh` |
-| **WebAssembly** | Single-threaded Software CPU | `./build_web.sh` |
-| **PlayStation Vita** | Bare-Metal GXM GPU (SGX543MP4) | `./build_vita.sh` |
-| **macOS** | Software CPU or Metal / WGPU | `cargo run --release` |
+| Platform / Architecture | Target Triple | Primary Renderer | Build Script / Command |
+|---|---|---|---|
+| **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./compile_linux.sh` |
+| **Linux (ARM64 / AArch64)** | `aarch64-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./build_linux_arm64.sh` |
+| **Raspberry Pi Zero W (ARMv6)** | `arm-unknown-linux-gnueabihf` | Software CPU (Tuned for ARM11) | `./build_rpi_armv6.sh` |
+| **FreeBSD (x86_64)** | `x86_64-unknown-freebsd` | Software CPU / X11 | `./build_freebsd.sh` |
+| **Windows (x86_64)** | `x86_64-pc-windows-gnu` | Software CPU / Vulkan | `./compile-windows.sh` |
+| **WebAssembly** | `wasm32-unknown-unknown` | Single-threaded Software CPU | `./build_web.sh` |
+| **PlayStation Vita** | `armv7-sony-vita-newlibeabihf` | Bare-Metal GXM GPU (SGX543MP4) | `./build_vita.sh` |
+| **macOS** | `x86_64-apple-darwin` / `aarch64` | Software CPU / Metal (WGPU) | `cargo run --release` |
 
 ---
 
@@ -44,9 +47,9 @@ RustCraft separates core engine capabilities from gameplay logic, providing huma
 
 ## 3. Requirements
 
-### Desktop (Linux / Windows / macOS)
+### Desktop & Embedded Linux (x86_64, ARM64, ARMv6, FreeBSD)
 * **Rust**: stable toolchain 1.75+ (`rustup` recommended: https://rustup.rs).
-* **Linux**: X11 development headers (`libx11-dev` on Debian/Ubuntu).
+* **Linux / FreeBSD**: X11 development headers (`libx11-dev` on Debian/Ubuntu, `xorgproto` on FreeBSD).
 * **Windows / macOS**: No external C libraries required (`minifb` uses native OS windowing APIs).
 * **Vulkan (Optional)**: Vulkan loader and GPU with graphic queue support.
 
@@ -65,7 +68,7 @@ RustCraft separates core engine capabilities from gameplay logic, providing huma
 
 ## 4. Building and Running
 
-### Linux / Desktop (Default Software Renderer)
+### Linux / Desktop (x86_64)
 ```bash
 # Optimized release build with symbol stripping and UPX compression
 ./compile_linux.sh
@@ -81,13 +84,26 @@ cargo run --release -- --renderer vulkan
 cargo run --release -- --vulkan
 ```
 
-To launch with a custom world seed:
+### Linux ARM64 (Raspberry Pi 3/4/5 64-bit, Orange Pi, Servers)
 ```bash
-cargo run --release -- --seed 8675309
-cargo run --release -- --renderer vulkan --seed 8675309
+./build_linux_arm64.sh
+# Output: target/aarch64-unknown-linux-gnu/release/rustcraft
 ```
 
-### Windows
+### Raspberry Pi Zero W / Zero / 1 (ARMv6)
+```bash
+./build_rpi_armv6.sh
+# Cross-compiles for ARMv6KZ (arm1176jzf-s) with VFPv2 hardware float support
+# Output: target/arm-unknown-linux-gnueabihf/release/rustcraft
+```
+
+### FreeBSD (x86_64)
+```bash
+./build_freebsd.sh
+# Output: target/x86_64-unknown-freebsd/release/rustcraft
+```
+
+### Windows (x86_64)
 ```bash
 ./compile-windows.sh
 # Output: target/x86_64-pc-windows-gnu/release/rustcraft.exe
@@ -111,7 +127,7 @@ cd web && python3 -m http.server 8080
 
 ## 5. Controls
 
-### Desktop (Keyboard & Mouse)
+### Desktop & Embedded Linux (Keyboard & Mouse)
 
 | Key / Input | Action |
 |---|---|
@@ -199,8 +215,11 @@ RustCraft features a built-in zero-dependency localization system supporting run
 rustcraft/
 ├── Cargo.toml                  # Project dependencies & feature flags
 ├── ARCHITECTURE.md             # Comprehensive engine architecture guide
-├── compile_linux.sh            # Linux build & strip script
+├── compile_linux.sh            # Linux x86_64 release & strip script
 ├── compile-windows.sh          # MinGW cross-compilation script
+├── build_linux_arm64.sh        # Linux ARM64 (Raspberry Pi 4/5) build script
+├── build_rpi_armv6.sh          # Raspberry Pi Zero W (ARMv6) build script
+├── build_freebsd.sh            # FreeBSD x86_64 build script
 ├── build_vita.sh               # PS Vita VPK packaging script
 ├── build_web.sh                # WebAssembly build script
 ├── locales/                    # Embedded i18n JSON dictionaries
