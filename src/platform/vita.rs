@@ -611,6 +611,20 @@ pub fn run_vita_app() {
         } else {
             gxm.present_2d_buffer(app.renderer.pixel_buffer(), app.width, app.height);
         }
+
+        if app.settings.fps_limit > 0 {
+            let target_frame_us = 1_000_000u64 / app.settings.fps_limit as u64;
+            let frame_end = unsafe { sceKernelGetProcessTimeWide() };
+            let elapsed_us = frame_end.saturating_sub(current_time);
+            if elapsed_us < target_frame_us {
+                let sleep_us = target_frame_us - elapsed_us;
+                if sleep_us >= 500 {
+                    unsafe {
+                        sceKernelDelayThread(sleep_us as u32);
+                    }
+                }
+            }
+        }
     }
 
     unsafe {

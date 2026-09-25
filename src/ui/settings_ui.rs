@@ -2,9 +2,9 @@ use crate::core::settings::GameSettings;
 use crate::graphics::font;
 use crate::ui::draw::{draw_text_colored_shadowed, draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color};
 
-pub fn settings_option_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 11] {
+pub fn settings_option_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 12] {
     let opt_w = 460;
-    let opt_h = 24;
+    let opt_h = 22;
     let spacing = 3;
     let cx = width as i32 / 2;
     let cy = height as i32 / 2;
@@ -21,7 +21,8 @@ pub fn settings_option_rects(width: usize, height: usize) -> [(i32, i32, i32, i3
         (cx - opt_w / 2, start_y + (opt_h + spacing) * 7, opt_w, opt_h),
         (cx - opt_w / 2, start_y + (opt_h + spacing) * 8, opt_w, opt_h),
         (cx - opt_w / 2, start_y + (opt_h + spacing) * 9, opt_w, opt_h),
-        (cx - opt_w / 2, start_y + (opt_h + spacing) * 10 + 4, opt_w, opt_h),
+        (cx - opt_w / 2, start_y + (opt_h + spacing) * 10, opt_w, opt_h),
+        (cx - opt_w / 2, start_y + (opt_h + spacing) * 11 + 3, opt_w, opt_h),
     ]
 }
 
@@ -47,6 +48,12 @@ pub fn draw_settings_menu(
         _ => "WYLACZONY",
     };
 
+    let fps_str = if settings.fps_limit == 0 {
+        "BRAK LIMITU".to_string()
+    } else {
+        format!("{} FPS", settings.fps_limit)
+    };
+
     let options = [
         format!("ZASIEG WIDZENIA: < {} CHUNKOW >", settings.render_distance),
         format!("LISCIE: {}", if settings.fancy_leaves { "PRZESWITUJACE (FANCY)" } else { "ZWARTE (FAST)" }),
@@ -56,6 +63,7 @@ pub fn draw_settings_menu(
         format!("ANIMACJA CHUNKOW: {}", if settings.chunk_anim { "WLACZONA" } else { "WYLACZONA" }),
         format!("POLE WIDZENIA (FOV): < {:.0} DEG >", settings.fov_deg),
         format!("ANTYALIASING (MSAA): < {} >", msaa_str),
+        format!("LIMIT FPS: < {} >", fps_str),
         format!("EFEKTY PODWODNE: {}", if settings.underwater_fx { "WLACZONE" } else { "WYLACZONE" }),
         format!("NAKLADKA DEBUGOWANIA: {}", if settings.debug_overlay { "WLACZONA" } else { "WYLACZONA" }),
         #[cfg(target_os = "vita")]
@@ -70,9 +78,9 @@ pub fn draw_settings_menu(
         let is_hover = hovered_idx == Some(i);
 
         let body_color = if is_hover {
-            if i == 10 { pack_color(0.25, 0.45, 0.35) } else { pack_color(0.32, 0.42, 0.60) }
+            if i == 11 { pack_color(0.25, 0.45, 0.35) } else { pack_color(0.32, 0.42, 0.60) }
         } else {
-            if i == 10 { pack_color(0.18, 0.30, 0.22) } else { pack_color(0.20, 0.22, 0.26) }
+            if i == 11 { pack_color(0.18, 0.30, 0.22) } else { pack_color(0.20, 0.22, 0.26) }
         };
 
         let top_left = if is_hover { pack_color(0.75, 0.85, 1.0) } else { pack_color(0.55, 0.55, 0.60) };

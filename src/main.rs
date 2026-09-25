@@ -12,8 +12,6 @@ use rustcraft::platform::gamepad::GamepadManager;
 #[cfg(not(target_os = "vita"))]
 use rustcraft::platform::mouse_capture::{self, MouseCapture};
 
-#[cfg(not(target_os = "vita"))]
-const TARGET_FPS: usize = 300;
 
 #[cfg(target_os = "vita")]
 fn main() {
@@ -41,17 +39,18 @@ fn main() {
     )
     .expect("Nie udało się utworzyć okna");
 
+    let mut app = RustCraftApp::new(WIDTH, HEIGHT, renderer_choice, seed);
+    let mut gamepad_mgr = GamepadManager::new();
+
     mouse_capture::maximize_window(&window);
-    window.set_target_fps(TARGET_FPS);
+    let mut current_target_fps = app.settings.fps_limit;
+    window.set_target_fps(if current_target_fps == 0 { 0 } else { current_target_fps as usize });
     window.set_cursor_visibility(false);
     let _ = window.set_cursor_style(CursorStyle::Crosshair);
 
     let mut win_size = window.get_size();
     let mut mouse_capture = MouseCapture::new(&window, win_size.0 as i32, win_size.1 as i32);
     mouse_capture.set_captured(false);
-
-    let mut app = RustCraftApp::new(WIDTH, HEIGHT, renderer_choice, seed);
-    let mut gamepad_mgr = GamepadManager::new();
 
     let mut last_time = Instant::now();
     let mut fps_timer = Instant::now();
@@ -225,6 +224,11 @@ fn main() {
         }
         if out.quit_requested {
             break;
+        }
+
+        if app.settings.fps_limit != current_target_fps {
+            current_target_fps = app.settings.fps_limit;
+            window.set_target_fps(if current_target_fps == 0 { 0 } else { current_target_fps as usize });
         }
 
         window

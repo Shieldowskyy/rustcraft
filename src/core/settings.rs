@@ -12,6 +12,7 @@ pub struct GameSettings {
     pub underwater_fx: bool,  // domyślnie: true
     pub debug_overlay: bool,  // domyślnie: true
     pub msaa: u32,            // 1 (wył), 2 (2x), 4 (4x) - domyślnie 4x na Vita, 1x na PC
+    pub fps_limit: u32,       // 25, 30, 40, 60, 75, 90, 120, 144, 165, 0 (0 = no limit) - domyślnie 30 na Vita, 0 na PC
 }
 
 impl Default for GameSettings {
@@ -20,6 +21,11 @@ impl Default for GameSettings {
         let default_msaa = 4;
         #[cfg(not(target_os = "vita"))]
         let default_msaa = 1;
+
+        #[cfg(target_os = "vita")]
+        let default_fps_limit = 30;
+        #[cfg(not(target_os = "vita"))]
+        let default_fps_limit = 0;
 
         Self {
             render_distance: 6,
@@ -32,11 +38,14 @@ impl Default for GameSettings {
             underwater_fx: true,
             debug_overlay: true,
             msaa: default_msaa,
+            fps_limit: default_fps_limit,
         }
     }
 }
 
 impl GameSettings {
+    pub const FPS_LIMIT_PRESETS: [u32; 10] = [25, 30, 40, 60, 75, 90, 120, 144, 165, 0];
+
     pub fn load() -> Self {
         let path = Self::settings_path();
         if let Ok(bytes) = std::fs::read(&path) {
@@ -59,6 +68,23 @@ impl GameSettings {
                 #[cfg(not(target_os = "vita"))]
                 let default_msaa = 1;
                 let msaa = bytes.get(19).copied().map(|v| match v { 2 => 2, 4 => 4, _ => 1 }).unwrap_or(default_msaa);
+
+                #[cfg(target_os = "vita")]
+                let default_fps_limit = 30;
+                #[cfg(not(target_os = "vita"))]
+                let default_fps_limit = 0;
+
+                let fps_limit = if bytes.len() >= 24 {
+                    let val = u32::from_le_bytes(bytes[20..24].try_into().unwrap_or([0, 0, 0, 0]));
+                    if Self::FPS_LIMIT_PRESETS.contains(&val) {
+                        val
+                    } else {
+                        default_fps_limit
+                    }
+                } else {
+                    default_fps_limit
+                };
+
                 return Self {
                     render_distance,
                     fancy_leaves,
@@ -70,6 +96,7 @@ impl GameSettings {
                     underwater_fx,
                     debug_overlay,
                     msaa,
+                    fps_limit,
                 };
             }
         }
@@ -81,7 +108,7 @@ impl GameSettings {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let mut bytes = Vec::with_capacity(20);
+        let mut bytes = Vec::with_capacity(24);
         bytes.extend_from_slice(b"RCST");
         bytes.extend_from_slice(&self.render_distance.to_le_bytes());
         bytes.push(if self.clouds { 1 } else { 0 });
@@ -93,6 +120,7 @@ impl GameSettings {
         bytes.push(if self.debug_overlay { 1 } else { 0 });
         bytes.push(if self.fancy_leaves { 1 } else { 0 });
         bytes.push(self.msaa as u8);
+        bytes.extend_from_slice(&self.fps_limit.to_le_bytes());
         std::fs::write(&path, bytes).map_err(|e| e.to_string())
     }
 
@@ -137,5 +165,17 @@ impl GameSettings {
             idx - 1
         };
         self.msaa = CHOICES[next_idx];
+    }
+
+    pub fn cycle_fps_limit(&mut self, forward: bool) {
+        let idx = Self::FPS_LIMIT_PRESETS.iter().position(|&f| f == self.fps_limit).unwrap_or(0);
+        let next_idx = if forward {
+            (idx + 1) % Self::FPS_LIMIT_PRESETS.len()
+        } else if idx == 0 {
+            Self::FPS_LIMIT_PRESETS.len() - 1
+        } else {
+            idx - 1
+        };
+        self.fps_limit = Self::FPS_LIMIT_PRESETS[next_idx];
     }
 }
