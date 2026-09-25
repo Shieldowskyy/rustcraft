@@ -57,6 +57,8 @@ pub enum BlockId {
     CookedBeef,
     /// Apple dropped from leaves (restores 4 hunger)
     Apple,
+    /// Open Door
+    DoorOpen,
 }
 
 impl BlockId {
@@ -104,6 +106,7 @@ impl BlockId {
             40 => BlockId::RawBeef,
             41 => BlockId::CookedBeef,
             42 => BlockId::Apple,
+            43 => BlockId::DoorOpen,
             _ => BlockId::Air,
         }
     }
@@ -153,6 +156,7 @@ impl BlockId {
             BlockId::RawBeef => 40,
             BlockId::CookedBeef => 41,
             BlockId::Apple => 42,
+            BlockId::DoorOpen => 43,
         }
     }
 
@@ -160,6 +164,7 @@ impl BlockId {
         !matches!(
             self,
             BlockId::Air
+                | BlockId::DoorOpen
                 | BlockId::Stick
                 | BlockId::WoodenPickaxe
                 | BlockId::StonePickaxe
@@ -206,6 +211,7 @@ impl BlockId {
             | (1u64 << 40) // RawBeef
             | (1u64 << 41) // CookedBeef
             | (1u64 << 42) // Apple
+            | (1u64 << 43) // DoorOpen (passable)
         );
         let id = self.to_u8() as u32;
         ((SOLID_MASK >> id) & 1) != 0
@@ -272,19 +278,19 @@ impl BlockId {
 
     pub fn attack_damage(self) -> f32 {
         match self {
-            BlockId::IronSword => 9.0,
-            BlockId::StoneSword => 7.0,
-            BlockId::WoodenSword => 5.0,
-            BlockId::IronAxe => 6.0,
-            BlockId::StoneAxe => 5.0,
-            BlockId::WoodenAxe => 4.0,
-            BlockId::IronPickaxe => 4.5,
-            BlockId::StonePickaxe => 3.5,
-            BlockId::WoodenPickaxe => 3.0,
-            BlockId::IronShovel => 3.5,
-            BlockId::StoneShovel => 3.0,
-            BlockId::WoodenShovel => 2.5,
-            BlockId::Stick => 2.0,
+            BlockId::IronSword => 10.0,
+            BlockId::StoneSword => 8.0,
+            BlockId::WoodenSword => 6.0,
+            BlockId::IronAxe => 9.0,
+            BlockId::StoneAxe => 8.0,
+            BlockId::WoodenAxe => 7.0,
+            BlockId::IronPickaxe => 6.0,
+            BlockId::StonePickaxe => 5.0,
+            BlockId::WoodenPickaxe => 4.0,
+            BlockId::IronShovel => 4.0,
+            BlockId::StoneShovel => 3.5,
+            BlockId::WoodenShovel => 3.0,
+            BlockId::Stick => 2.5,
             _ => 1.5,
         }
     }
@@ -347,7 +353,7 @@ impl BlockId {
             BlockId::SnowLeaves => 0.2,
             BlockId::Planks => 1.5,
             BlockId::CraftingTable => 1.5,
-            BlockId::Door => 1.5,
+            BlockId::Door | BlockId::DoorOpen => 1.5,
             BlockId::Glass => 0.3,
             BlockId::Ice => 0.5,
             BlockId::Tnt => 0.0,
@@ -373,10 +379,12 @@ impl BlockId {
             | (1u64 << 11) // Water
             | (1u64 << 13) // Lava
             | (1u64 << 14) // SnowLeaves
+            | (1u64 << 16) // Door (thin)
             | (1u64 << 17) // Glass
             | (1u64 << 34) // CherryLeaves
             | (1u64 << 36) // AutumnLeaves
-            | (1u64 << 37); // Torch
+            | (1u64 << 37) // Torch
+            | (1u64 << 43); // DoorOpen
         let id = self.to_u8() as u32;
         ((TRANSPARENT_MASK >> id) & 1) != 0
     }
@@ -400,6 +408,7 @@ impl BlockId {
             BlockId::SnowLeaves => "liscie zimowe",
             BlockId::Planks => "deski",
             BlockId::Door => "drzwi",
+            BlockId::DoorOpen => "drzwi (otwarte)",
             BlockId::Glass => "szyba",
             BlockId::Ice => "lod",
             BlockId::Tnt => "TNT",
@@ -460,7 +469,7 @@ impl BlockId {
             BlockId::Lava => [0.95, 0.42, 0.05],
             BlockId::SnowLeaves => [0.55, 0.72, 0.80],
             BlockId::Planks => [0.62, 0.42, 0.20],
-            BlockId::Door => [0.50, 0.30, 0.12],
+            BlockId::Door | BlockId::DoorOpen => [0.50, 0.30, 0.12],
             BlockId::Glass => [0.55, 0.82, 0.95],
             BlockId::Ice => [0.70, 0.88, 1.0],
             BlockId::Tnt => match face {
@@ -517,7 +526,7 @@ impl BlockId {
             BlockId::Lava => TextureId::Lava,
             BlockId::SnowLeaves => TextureId::SnowLeaves,
             BlockId::Planks => TextureId::Planks,
-            BlockId::Door => TextureId::Door,
+            BlockId::Door | BlockId::DoorOpen => TextureId::Door,
             BlockId::Glass => TextureId::Glass,
             BlockId::Ice => TextureId::Ice,
             BlockId::Tnt => match face {

@@ -260,6 +260,14 @@ pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
                     emit_torch(&mut solid_tris, wx, wy, wz, &cache);
                     continue;
                 }
+                if block == BlockId::Door {
+                    emit_door(&mut solid_tris, wx, wy, wz, false, &cache);
+                    continue;
+                }
+                if block == BlockId::DoorOpen {
+                    emit_door(&mut solid_tris, wx, wy, wz, true, &cache);
+                    continue;
+                }
 
                 let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
                 let is_trans = matches!(block, BlockId::Water | BlockId::Glass);
@@ -363,6 +371,75 @@ fn emit_torch(
     quad(tris, c000, c001, c011, c010, tex, 0.90);
     // Bottom
     quad(tris, c001, c000, c100, c101, tex, 0.70);
+}
+
+fn emit_door(
+    tris: &mut Vec<Triangle>,
+    wx: i32, wy: i32, wz: i32,
+    is_open: bool,
+    cache: &ChunkNeighborCache,
+) {
+    let lx = wx - cache.base_x;
+    let lz = wz - cache.base_z;
+    let below = cache.sample_block(lx, wy - 1, lz);
+    let is_top = below == BlockId::Door || below == BlockId::DoorOpen;
+    let tex = if is_top { TextureId::DoorTop } else { TextureId::Door };
+    let side_tex = TextureId::Planks;
+
+    let x = wx as f32;
+    let y = wy as f32;
+    let z = wz as f32;
+
+    // Door thickness: 3/16 = 0.1875
+    let thick = 0.1875f32;
+
+    let (x0, x1, z0, z1) = if !is_open {
+        // Closed door: positioned along front edge (Z in [0, thick], X in [0, 1])
+        (x, x + 1.0, z, z + thick)
+    } else {
+        // Open door: swung 90 degrees against the wall (X in [0, thick], Z in [0, 1])
+        (x, x + thick, z, z + 1.0)
+    };
+    let y0 = y;
+    let y1 = y + 1.0;
+
+    let c000 = Vec3::new(x0, y0, z0);
+    let c100 = Vec3::new(x1, y0, z0);
+    let c010 = Vec3::new(x0, y1, z0);
+    let c110 = Vec3::new(x1, y1, z0);
+    let c001 = Vec3::new(x0, y0, z1);
+    let c101 = Vec3::new(x1, y0, z1);
+    let c011 = Vec3::new(x0, y1, z1);
+    let c111 = Vec3::new(x1, y1, z1);
+
+    let sky = cache.sample_sky_light(lx, wy, lz);
+    let block_l = cache.sample_block_light(x + 0.5, y + 0.5, z + 0.5);
+
+    let quad = |tris: &mut Vec<Triangle>, a: Vec3, b: Vec3, c: Vec3, d: Vec3, texture: TextureId, shade: f32| {
+        let va = Vertex { pos: a, uv: (0.0, 1.0), ao: shade, sky_light: sky, block_light: block_l };
+        let vb = Vertex { pos: b, uv: (1.0, 1.0), ao: shade, sky_light: sky, block_light: block_l };
+        let vc = Vertex { pos: c, uv: (1.0, 0.0), ao: shade, sky_light: sky, block_light: block_l };
+        let vd = Vertex { pos: d, uv: (0.0, 0.0), ao: shade, sky_light: sky, block_light: block_l };
+        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture });
+        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture });
+    };
+
+    if !is_open {
+        // Closed: North (Front) & South (Back) get door face texture
+        quad(tris, c100, c000, c010, c110, tex, 0.85); // North
+        quad(tris, c001, c101, c111, c011, tex, 0.85); // South
+        quad(tris, c101, c100, c110, c111, side_tex, 0.70); // East
+        quad(tris, c000, c001, c011, c010, side_tex, 0.70); // West
+    } else {
+        // Open: East & West get door face texture
+        quad(tris, c101, c100, c110, c111, tex, 0.85); // East
+        quad(tris, c000, c001, c011, c010, tex, 0.85); // West
+        quad(tris, c100, c000, c010, c110, side_tex, 0.70); // North
+        quad(tris, c001, c101, c111, c011, side_tex, 0.70); // South
+    }
+    // Top & Bottom
+    quad(tris, c010, c011, c111, c110, side_tex, 1.0);  // Top
+    quad(tris, c001, c000, c100, c101, side_tex, 0.5);  // Bottom
 }
 
 #[inline(always)]

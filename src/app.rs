@@ -196,6 +196,7 @@ pub struct RustCraftApp {
     pub seed: u32,
     pub fps_display: u32,
     pub frozen_frame: Option<Vec<u32>>,
+    pub right_drag_visited: Vec<crate::ui::inventory_ui::InventorySlotTarget>,
 
     // Previous input state for edge detection
     prev_left_down: bool,
@@ -323,6 +324,7 @@ impl RustCraftApp {
             seed,
             fps_display: 60,
             frozen_frame: None,
+            right_drag_visited: Vec::new(),
 
             prev_left_down: false,
             prev_right_down: false,
@@ -1238,28 +1240,28 @@ impl RustCraftApp {
                                     let rx = ((seed % 100) as f32 / 100.0 - 0.5) * 1.8;
                                     let rz = (((seed / 10) % 100) as f32 / 100.0 - 0.5) * 1.8;
                                     let drop_vel = Vec3::new(rx, 3.2, rz);
-                                    let drop_block = if matches!(broken_block, BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves) && (seed % 25 == 0) {
-                                        BlockId::Apple
-                                    } else {
-                                        broken_block
-                                    };
-                                    self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, drop_block, 1));
-                                }
-
-                                if broken_block == BlockId::Door {
-                                    let above = target + IVec3::new(0, 1, 0);
-                                    let below = target - IVec3::new(0, 1, 0);
-                                    if self.world.get_block(above) == BlockId::Door {
-                                        self.world.set_block(above, BlockId::Air);
-                                        if self.player.gamemode == GameMode::Survival {
-                                            self.items.push(ItemEntity::new(Vec3::new(bx, by + 1.0, bz), Vec3::new(0.0, 3.2, 0.0), BlockId::Door, 1));
+                                    if broken_block != BlockId::Glass {
+                                        let drop_block = if matches!(broken_block, BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves) {
+                                            if seed % 25 == 0 { Some(BlockId::Apple) } else { None }
+                                        } else if matches!(broken_block, BlockId::Door | BlockId::DoorOpen) {
+                                            Some(BlockId::Door)
+                                        } else {
+                                            Some(broken_block)
+                                        };
+                                        if let Some(drop_id) = drop_block {
+                                            self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, drop_id, 1));
                                         }
                                     }
-                                    if self.world.get_block(below) == BlockId::Door {
+                                }
+
+                                if matches!(broken_block, BlockId::Door | BlockId::DoorOpen) {
+                                    let above = target + IVec3::new(0, 1, 0);
+                                    let below = target - IVec3::new(0, 1, 0);
+                                    if matches!(self.world.get_block(above), BlockId::Door | BlockId::DoorOpen) {
+                                        self.world.set_block(above, BlockId::Air);
+                                    }
+                                    if matches!(self.world.get_block(below), BlockId::Door | BlockId::DoorOpen) {
                                         self.world.set_block(below, BlockId::Air);
-                                        if self.player.gamemode == GameMode::Survival {
-                                            self.items.push(ItemEntity::new(Vec3::new(bx, by - 1.0, bz), Vec3::new(0.0, 3.2, 0.0), BlockId::Door, 1));
-                                        }
                                     }
                                 }
                             }
@@ -1300,7 +1302,18 @@ impl RustCraftApp {
                     if !ate_food {
                         if let Some(hit) = self.world.raycast(self.camera.position, self.camera.forward(), 8.0) {
                         let targeted_block = self.world.get_block(hit.block_pos);
-                        if targeted_block == BlockId::CraftingTable && !is_crouching {
+                        if matches!(targeted_block, BlockId::Door | BlockId::DoorOpen) && !is_crouching {
+                            let new_block = if targeted_block == BlockId::Door { BlockId::DoorOpen } else { BlockId::Door };
+                            self.world.set_block(hit.block_pos, new_block);
+                            let above = hit.block_pos + IVec3::new(0, 1, 0);
+                            let below = hit.block_pos - IVec3::new(0, 1, 0);
+                            if matches!(self.world.get_block(above), BlockId::Door | BlockId::DoorOpen) {
+                                self.world.set_block(above, new_block);
+                            } else if matches!(self.world.get_block(below), BlockId::Door | BlockId::DoorOpen) {
+                                self.world.set_block(below, new_block);
+                            }
+                            self.hand_animation = 1.0;
+                        } else if targeted_block == BlockId::CraftingTable && !is_crouching {
                             self.crafting_table_open = true;
                             self.state = GameState::Inventory;
                             out.request_release_mouse = true;
@@ -1815,9 +1828,60 @@ impl RustCraftApp {
                 }
 
                 let click_left = (left_down && !self.prev_left_down) || input.gp_south_just_pressed;
-                let click_right = (right_down && !self.prev_right_down) || input.gp_west_just_pressed;
+                let is_right_active = right_down || input.gp_btn_west;
+                let click_right = (!self.prev_right_down && right_down) || input.gp_west_just_pressed;
 
-                if click_left || click_right {
+                if !is_right_active {
+                    self.right_drag_visited.clear();
+                }
+
+                // Handle right-click dragging across slots to distribute 1 item per slot (like Minecraft)
+                if is_right_active {
+                    if let Some(target) = inv_hovered_target {
+                        if matches!(target, InventorySlotTarget::Hotbar(_) | InventorySlotTarget::Main(_) | InventorySlotTarget::Crafting2x2(_) | InventorySlotTarget::Crafting3x3(_)) {
+                            if !self.right_drag_visited.contains(&target) {
+                                self.right_drag_visited.push(target);
+                                match target {
+                                    InventorySlotTarget::Hotbar(idx) => {
+                                        let slot = &mut self.player.inventory.hotbar[idx];
+                                        if click_right && self.player.inventory.held_item.is_none() {
+                                            Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                        } else {
+                                            Inventory::handle_slot_right_drag(slot, &mut self.player.inventory.held_item);
+                                        }
+                                    }
+                                    InventorySlotTarget::Main(idx) => {
+                                        let slot = &mut self.player.inventory.main[idx];
+                                        if click_right && self.player.inventory.held_item.is_none() {
+                                            Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                        } else {
+                                            Inventory::handle_slot_right_drag(slot, &mut self.player.inventory.held_item);
+                                        }
+                                    }
+                                    InventorySlotTarget::Crafting2x2(idx) => {
+                                        let slot = &mut self.player.inventory.crafting_2x2[idx];
+                                        if click_right && self.player.inventory.held_item.is_none() {
+                                            Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                        } else {
+                                            Inventory::handle_slot_right_drag(slot, &mut self.player.inventory.held_item);
+                                        }
+                                    }
+                                    InventorySlotTarget::Crafting3x3(idx) => {
+                                        let slot = &mut self.player.inventory.crafting_3x3[idx];
+                                        if click_right && self.player.inventory.held_item.is_none() {
+                                            Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                        } else {
+                                            Inventory::handle_slot_right_drag(slot, &mut self.player.inventory.held_item);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if click_left || (click_right && inv_hovered_target.map_or(false, |t| matches!(t, InventorySlotTarget::CreativeTab(_) | InventorySlotTarget::Creative(_) | InventorySlotTarget::Trash | InventorySlotTarget::CraftingOutput))) {
                     if let Some(target) = inv_hovered_target {
                         match target {
                             InventorySlotTarget::CreativeTab(tab_idx) => {
@@ -1854,32 +1918,24 @@ impl RustCraftApp {
                                 let slot = &mut self.player.inventory.hotbar[idx];
                                 if click_left {
                                     Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
-                                } else {
-                                    Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
                                 }
                             }
                             InventorySlotTarget::Main(idx) => {
                                 let slot = &mut self.player.inventory.main[idx];
                                 if click_left {
                                     Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
-                                } else {
-                                    Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
                                 }
                             }
                             InventorySlotTarget::Crafting2x2(idx) => {
                                 let slot = &mut self.player.inventory.crafting_2x2[idx];
                                 if click_left {
                                     Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
-                                } else {
-                                    Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
                                 }
                             }
                             InventorySlotTarget::Crafting3x3(idx) => {
                                 let slot = &mut self.player.inventory.crafting_3x3[idx];
                                 if click_left {
                                     Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
-                                } else {
-                                    Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
                                 }
                             }
                             InventorySlotTarget::CraftingOutput => {

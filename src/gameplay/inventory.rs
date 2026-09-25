@@ -117,6 +117,32 @@ impl Inventory {
         }
     }
 
+    pub fn handle_slot_right_drag(slot: &mut Option<ItemStack>, held: &mut Option<ItemStack>) {
+        if let Some(h) = held.as_mut() {
+            if h.count > 0 {
+                match slot.as_mut() {
+                    None => {
+                        *slot = Some(ItemStack { block: h.block, count: 1 });
+                        if h.count > 1 {
+                            h.count -= 1;
+                        } else {
+                            *held = None;
+                        }
+                    }
+                    Some(s) if s.block == h.block && s.count < 64 => {
+                        s.count += 1;
+                        if h.count > 1 {
+                            h.count -= 1;
+                        } else {
+                            *held = None;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     pub fn add_item(&mut self, block: BlockId, mut count: u8) -> u8 {
         // Try to stack in hotbar first
         for slot in &mut self.hotbar {
@@ -227,5 +253,31 @@ mod tests {
         assert_eq!(inv.hotbar[0], Some(ItemStack { block: BlockId::Wood, count: 2 }));
         assert_eq!(inv.hotbar[1], Some(ItemStack { block: BlockId::Stick, count: 5 }));
         assert_eq!(inv.hotbar[2], Some(ItemStack { block: BlockId::IronPickaxe, count: 1 }));
+    }
+
+    #[test]
+    fn test_slot_right_drag_distribution() {
+        let mut held = Some(ItemStack { block: BlockId::Planks, count: 4 });
+        let mut slot1 = None;
+        let mut slot2 = None;
+        let mut slot3 = Some(ItemStack { block: BlockId::Planks, count: 2 });
+        let mut slot4 = Some(ItemStack { block: BlockId::Stone, count: 5 }); // Different item
+
+        Inventory::handle_slot_right_drag(&mut slot1, &mut held);
+        assert_eq!(slot1, Some(ItemStack { block: BlockId::Planks, count: 1 }));
+        assert_eq!(held, Some(ItemStack { block: BlockId::Planks, count: 3 }));
+
+        Inventory::handle_slot_right_drag(&mut slot2, &mut held);
+        assert_eq!(slot2, Some(ItemStack { block: BlockId::Planks, count: 1 }));
+        assert_eq!(held, Some(ItemStack { block: BlockId::Planks, count: 2 }));
+
+        Inventory::handle_slot_right_drag(&mut slot3, &mut held);
+        assert_eq!(slot3, Some(ItemStack { block: BlockId::Planks, count: 3 }));
+        assert_eq!(held, Some(ItemStack { block: BlockId::Planks, count: 1 }));
+
+        // Incompatible slot should not take items or modify slot
+        Inventory::handle_slot_right_drag(&mut slot4, &mut held);
+        assert_eq!(slot4, Some(ItemStack { block: BlockId::Stone, count: 5 }));
+        assert_eq!(held, Some(ItemStack { block: BlockId::Planks, count: 1 }));
     }
 }
