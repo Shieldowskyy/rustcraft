@@ -188,3 +188,16 @@ Active biome is displayed in the debug panel via `World::biome_name_at(wx, wz)`.
 | Windows (x86_64) | Software CPU / WGPU GPU | `cargo build --release` |
 | WebAssembly | Software CPU (Rayon disabled) | `./build_web.sh` |
 | PlayStation Vita | GXM GPU (SGX543MP4) | `./build_vita.sh` |
+
+---
+
+## 7. Engine API & Extensibility (`src/engine/`)
+
+RustCraft provides an explicit, documented engine trait layer to decouple game simulation from platforms and enable rapid extension.
+
+### Core Engine Subsystems
+- **`PlatformBackend`** (`src/engine/platform.rs`): Abstraction for window creation, raw event polling, mouse capture, timer queries, and framebuffer presentation. Adding support for a new console (e.g. Nintendo Switch `libnx`, Android `NDK`, SDL2) only requires implementing this trait.
+- **`BlockRegistry` & `BlockProperties`** (`src/engine/registry.rs`): Extensible voxel metadata (hardness, opacity, luminance, flammability, face texture mapping) allowing new custom blocks to be registered without altering mesher or rendering loops.
+- **`EngineModule` & `ModuleManager`** (`src/engine/module.rs`): Pluggable lifecycle hooks (`on_init`, `on_pre_update`, `on_post_update`, `on_shutdown`) enabling custom gameplay systems, mod loaders, and analytics passes.
+- **`EngineApp`** (`src/engine/mod.rs`): Top-level engine runtime contract implemented by `RustCraftApp` (`update`, `render`, `resize`, `pixel_buffer`).
+
