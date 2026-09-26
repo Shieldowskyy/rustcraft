@@ -1896,6 +1896,35 @@ impl RustCraftApp {
                                         self.world.set_block(below, BlockId::Air);
                                     }
                                 }
+
+                                if broken_block.is_wood() || broken_block.is_leaves() {
+                                    let unsupported_leaves = self.world.find_unsupported_leaves_around(target);
+                                    for leaf_pos in unsupported_leaves {
+                                        let leaf_block = self.world.get_block(leaf_pos);
+                                        self.world.set_block(leaf_pos, BlockId::Air);
+
+                                        let lx = leaf_pos.x as f32 + 0.5;
+                                        let ly = leaf_pos.y as f32 + 0.5;
+                                        let lz = leaf_pos.z as f32 + 0.5;
+                                        let leaf_color = leaf_block.face_color(Face::Top);
+                                        self.particles.spawn_block_break(Vec3::new(lx - 0.5, ly - 0.5, lz - 0.5), leaf_color);
+
+                                        if self.player.gamemode == GameMode::Survival {
+                                            let l_seed = ((leaf_pos.x as u32).wrapping_mul(73856093)
+                                                ^ (leaf_pos.y as u32).wrapping_mul(19349663)
+                                                ^ (leaf_pos.z as u32).wrapping_mul(83492791))
+                                                % 1000;
+                                            if matches!(leaf_block, BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves) {
+                                                if l_seed % 20 == 0 {
+                                                    let l_rx = ((l_seed % 100) as f32 / 100.0 - 0.5) * 1.5;
+                                                    let l_rz = (((l_seed / 10) % 100) as f32 / 100.0 - 0.5) * 1.5;
+                                                    let l_drop_vel = Vec3::new(l_rx, 2.0, l_rz);
+                                                    self.items.push(ItemEntity::new(Vec3::new(lx, ly, lz), l_drop_vel, BlockId::Apple, 1));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     } else {

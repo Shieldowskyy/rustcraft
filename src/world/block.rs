@@ -235,6 +235,19 @@ impl BlockId {
     }
 
     #[inline(always)]
+    pub fn is_leaves(self) -> bool {
+        matches!(
+            self,
+            BlockId::Leaves | BlockId::SnowLeaves | BlockId::CherryLeaves | BlockId::AutumnLeaves
+        )
+    }
+
+    #[inline(always)]
+    pub fn is_wood(self) -> bool {
+        matches!(self, BlockId::Wood)
+    }
+
+    #[inline(always)]
     pub fn is_solid(self) -> bool {
         const SOLID_MASK: u64 = !(
             (1u64 << 0)   // Air

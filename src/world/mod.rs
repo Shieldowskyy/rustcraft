@@ -1330,6 +1330,62 @@ impl World {
         }
     }
 
+    /// Checks if a leaf block at `start` has a valid connection to a Wood block within `max_dist` steps.
+    pub fn is_leaf_supported(&self, start: IVec3, max_dist: i32) -> bool {
+        let mut visited = std::collections::HashSet::new();
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back((start, 0));
+        visited.insert(start);
+
+        while let Some((pos, dist)) = queue.pop_front() {
+            let block = self.get_block(pos);
+            if block.is_wood() {
+                return true;
+            }
+            if dist < max_dist {
+                for offset in [
+                    IVec3::new(1, 0, 0),
+                    IVec3::new(-1, 0, 0),
+                    IVec3::new(0, 1, 0),
+                    IVec3::new(0, -1, 0),
+                    IVec3::new(0, 0, 1),
+                    IVec3::new(0, 0, -1),
+                ] {
+                    let neighbor = pos + offset;
+                    if !visited.contains(&neighbor) {
+                        visited.insert(neighbor);
+                        let n_block = self.get_block(neighbor);
+                        if n_block.is_wood() {
+                            return true;
+                        }
+                        if n_block.is_leaves() {
+                            queue.push_back((neighbor, dist + 1));
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Finds all leaves in the surrounding canopy that no longer have a connection to any Wood block.
+    pub fn find_unsupported_leaves_around(&self, center: IVec3) -> Vec<IVec3> {
+        let mut unsupported = Vec::new();
+        for dx in -5..=5 {
+            for dz in -5..=5 {
+                for dy in -5..=10 {
+                    let leaf_pos = center + IVec3::new(dx, dy, dz);
+                    if self.get_block(leaf_pos).is_leaves() {
+                        if !self.is_leaf_supported(leaf_pos, 5) {
+                            unsupported.push(leaf_pos);
+                        }
+                    }
+                }
+            }
+        }
+        unsupported
+    }
+
     /// Returns the biome name at world coordinates (wx, wz) using the same
     /// logic as chunk generation.
     pub fn biome_name_at(&self, wx: i32, wz: i32) -> &'static str {
@@ -2061,5 +2117,49 @@ mod tests {
             assert_ne!(biome, Biome::Swamp, "Spawn cannot be in Swamp for seed {}", seed);
             assert!(spawn.y >= 24.0, "Spawn Y ({}) should be above water level", spawn.y);
         }
+    }
+
+    #[test]
+    fn test_leaf_support_and_decay_after_trunk_removal() {
+        let mut world = World::new();
+        // Insert empty chunk at (0, 0)
+        let chunk = Chunk {
+            cx: 0,
+            cz: 0,
+            blocks: vec![0u8; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
+            dirty: false,
+        };
+        world.chunks.insert((0, 0), chunk);
+
+        // Build a mini tree: trunk at (5, 10, 5) and (5, 11, 5)
+        world.set_block(IVec3::new(5, 10, 5), BlockId::Wood);
+        world.set_block(IVec3::new(5, 11, 5), BlockId::Wood);
+
+        // Canopy leaves around (5, 11, 5) and (5, 12, 5)
+        world.set_block(IVec3::new(5, 12, 5), BlockId::Leaves);
+        world.set_block(IVec3::new(6, 11, 5), BlockId::Leaves);
+        world.set_block(IVec3::new(4, 11, 5), BlockId::Leaves);
+
+        // Leaves are supported initially
+        assert!(world.is_leaf_supported(IVec3::new(5, 12, 5), 5));
+        assert!(world.is_leaf_supported(IVec3::new(6, 11, 5), 5));
+        assert!(world.is_leaf_supported(IVec3::new(4, 11, 5), 5));
+        assert!(world.find_unsupported_leaves_around(IVec3::new(5, 10, 5)).is_empty());
+
+        // Remove lower trunk: top trunk still supports leaves
+        world.set_block(IVec3::new(5, 10, 5), BlockId::Air);
+        assert!(world.is_leaf_supported(IVec3::new(5, 12, 5), 5));
+        assert!(world.find_unsupported_leaves_around(IVec3::new(5, 10, 5)).is_empty());
+
+        // Remove top trunk: now trunk is completely destroyed!
+        world.set_block(IVec3::new(5, 11, 5), BlockId::Air);
+        assert!(!world.is_leaf_supported(IVec3::new(5, 12, 5), 5));
+        assert!(!world.is_leaf_supported(IVec3::new(6, 11, 5), 5));
+
+        let unsupported = world.find_unsupported_leaves_around(IVec3::new(5, 11, 5));
+        assert_eq!(unsupported.len(), 3);
+        assert!(unsupported.contains(&IVec3::new(5, 12, 5)));
+        assert!(unsupported.contains(&IVec3::new(6, 11, 5)));
+        assert!(unsupported.contains(&IVec3::new(4, 11, 5)));
     }
 }
