@@ -32,6 +32,7 @@ pub fn smelting_result(input: BlockId) -> Option<BlockId> {
     match input {
         BlockId::RawPorkchop => Some(BlockId::CookedPorkchop),
         BlockId::RawBeef => Some(BlockId::CookedBeef),
+        BlockId::RawChicken => Some(BlockId::CookedChicken),
         BlockId::Sand => Some(BlockId::Glass),
         BlockId::IronOre => Some(BlockId::IronOunce),
         BlockId::GoldOre => Some(BlockId::GoldOunce),
@@ -284,6 +285,7 @@ mod tests {
     fn test_smelting_recipes() {
         assert_eq!(smelting_result(BlockId::RawPorkchop), Some(BlockId::CookedPorkchop));
         assert_eq!(smelting_result(BlockId::RawBeef), Some(BlockId::CookedBeef));
+        assert_eq!(smelting_result(BlockId::RawChicken), Some(BlockId::CookedChicken));
         assert_eq!(smelting_result(BlockId::Sand), Some(BlockId::Glass));
         assert_eq!(smelting_result(BlockId::IronOre), Some(BlockId::IronOunce));
         assert_eq!(smelting_result(BlockId::GoldOre), Some(BlockId::GoldOunce));

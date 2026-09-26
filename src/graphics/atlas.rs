@@ -989,6 +989,17 @@ pub enum TextureId {
     GoldBlock,
     GoldOre,
     CoalBlock,
+    RawChicken,
+    CookedChicken,
+    Feather,
+    ChickenFeathers,
+    ChickenFace,
+    ChickenBeak,
+    ChickenWattle,
+    ChickenLeg,
+    PigSpawnEgg,
+    CowSpawnEgg,
+    ChickenSpawnEgg,
 }
 
 impl TextureId {
@@ -1364,6 +1375,17 @@ pub struct TextureAtlas {
     pub gold_block: Texture,
     pub gold_ore: Texture,
     pub coal_block: Texture,
+    pub raw_chicken: Texture,
+    pub cooked_chicken: Texture,
+    pub feather: Texture,
+    pub chicken_feathers: Texture,
+    pub chicken_face: Texture,
+    pub chicken_beak: Texture,
+    pub chicken_wattle: Texture,
+    pub chicken_leg: Texture,
+    pub pig_spawn_egg: Texture,
+    pub cow_spawn_egg: Texture,
+    pub chicken_spawn_egg: Texture,
 }
 
 fn chest_top() -> Texture {
@@ -1689,6 +1711,155 @@ fn entity_shadow() -> Texture {
     Texture { texels }
 }
 
+fn raw_chicken() -> Texture {
+    let mut tex = speckled([0.90, 0.70, 0.65], 0.08, 881);
+    let bone = [0.95, 0.95, 0.90];
+    let meat_dark = [0.80, 0.52, 0.50];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if (x < 3 && y < 3) || (x > 12 && y > 12) {
+                tex.texels[y * TEX_SIZE + x] = bone;
+            } else if (x + y) % 3 == 0 {
+                tex.texels[y * TEX_SIZE + x] = meat_dark;
+            }
+        }
+    }
+    tex
+}
+
+fn cooked_chicken() -> Texture {
+    let mut tex = speckled([0.72, 0.45, 0.20], 0.10, 882);
+    let crispy = [0.55, 0.30, 0.12];
+    let golden = [0.85, 0.60, 0.25];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let n = rand_at(x, y, 883);
+            if n > 0.75 {
+                tex.texels[y * TEX_SIZE + x] = golden;
+            } else if n < 0.25 {
+                tex.texels[y * TEX_SIZE + x] = crispy;
+            }
+        }
+    }
+    tex
+}
+
+fn feather() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let white = [0.96, 0.96, 0.98];
+    let gray = [0.82, 0.84, 0.88];
+    let quill = [0.65, 0.60, 0.55];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let diag = x as i32 - y as i32;
+            if diag == 0 {
+                texels[y * TEX_SIZE + x] = quill;
+            } else if diag.abs() <= 3 && y >= 2 && y <= 14 {
+                let col = if (x + y) % 2 == 0 { white } else { gray };
+                texels[y * TEX_SIZE + x] = col;
+            } else {
+                texels[y * TEX_SIZE + x] = [0.0, 0.0, 0.0];
+            }
+        }
+    }
+    Texture { texels }
+}
+
+fn chicken_feathers() -> Texture {
+    speckled([0.95, 0.95, 0.93], 0.04, 884)
+}
+
+fn chicken_face() -> Texture {
+    let mut tex = chicken_feathers();
+    let eye_white = [0.98, 0.98, 0.98];
+    let pupil = [0.10, 0.08, 0.08];
+    let beak = [0.95, 0.65, 0.10];
+    let wattle = [0.85, 0.15, 0.15];
+
+    // Eyes
+    tex.texels[5 * TEX_SIZE + 2] = eye_white;
+    tex.texels[5 * TEX_SIZE + 3] = pupil;
+    tex.texels[6 * TEX_SIZE + 2] = eye_white;
+    tex.texels[6 * TEX_SIZE + 3] = pupil;
+
+    tex.texels[5 * TEX_SIZE + 12] = pupil;
+    tex.texels[5 * TEX_SIZE + 13] = eye_white;
+    tex.texels[6 * TEX_SIZE + 12] = pupil;
+    tex.texels[6 * TEX_SIZE + 13] = eye_white;
+
+    // Beak center
+    for y in 7..11 {
+        for x in 6..10 {
+            tex.texels[y * TEX_SIZE + x] = beak;
+        }
+    }
+
+    // Wattle under beak
+    for y in 11..14 {
+        for x in 7..9 {
+            tex.texels[y * TEX_SIZE + x] = wattle;
+        }
+    }
+
+    tex
+}
+
+fn chicken_beak() -> Texture {
+    speckled([0.95, 0.65, 0.10], 0.05, 885)
+}
+
+fn chicken_wattle() -> Texture {
+    speckled([0.85, 0.15, 0.15], 0.05, 886)
+}
+
+fn chicken_leg() -> Texture {
+    speckled([0.92, 0.60, 0.10], 0.05, 887)
+}
+
+fn spawn_egg_texture(base: [f32; 3], spot: [f32; 3], outline: [f32; 3], seed: u32) -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    for y in 2..=14 {
+        for x in 3..=12 {
+            let dx = (x as f32 - 7.5).abs();
+            let dy = y as f32;
+            let width_at_y = if dy < 6.0 {
+                (dy - 1.0) * 0.7 + 0.5
+            } else if dy <= 11.0 {
+                4.2
+            } else {
+                (14.5 - dy) * 1.1 + 0.5
+            };
+            if dx <= width_at_y {
+                let is_border = dx > width_at_y - 0.9 || y == 2 || y == 14;
+                if is_border {
+                    texels[y * TEX_SIZE + x] = outline;
+                } else {
+                    let n = rand_at(x, y, seed);
+                    let is_spot = n > 0.75;
+                    let mut col = if is_spot { spot } else { base };
+                    col[0] = (col[0] + (n - 0.5) * 0.04).clamp(0.0, 1.0);
+                    col[1] = (col[1] + (n - 0.5) * 0.04).clamp(0.0, 1.0);
+                    col[2] = (col[2] + (n - 0.5) * 0.04).clamp(0.0, 1.0);
+                    texels[y * TEX_SIZE + x] = col;
+                }
+            }
+        }
+    }
+    Texture { texels }
+}
+
+fn pig_spawn_egg() -> Texture {
+    spawn_egg_texture([0.95, 0.62, 0.68], [0.68, 0.32, 0.38], [0.48, 0.20, 0.25], 701)
+}
+
+fn cow_spawn_egg() -> Texture {
+    spawn_egg_texture([0.42, 0.30, 0.22], [0.85, 0.85, 0.85], [0.22, 0.15, 0.10], 702)
+}
+
+fn chicken_spawn_egg() -> Texture {
+    spawn_egg_texture([0.95, 0.95, 0.92], [0.85, 0.15, 0.15], [0.35, 0.35, 0.30], 703)
+}
+
 impl TextureAtlas {
     pub fn generate() -> TextureAtlas {
         Self::generate_with_fancy(true)
@@ -1764,6 +1935,17 @@ impl TextureAtlas {
             gold_block: gold_block(),
             gold_ore: gold_ore(),
             coal_block: coal_block(),
+            raw_chicken: raw_chicken(),
+            cooked_chicken: cooked_chicken(),
+            feather: feather(),
+            chicken_feathers: chicken_feathers(),
+            chicken_face: chicken_face(),
+            chicken_beak: chicken_beak(),
+            chicken_wattle: chicken_wattle(),
+            chicken_leg: chicken_leg(),
+            pig_spawn_egg: pig_spawn_egg(),
+            cow_spawn_egg: cow_spawn_egg(),
+            chicken_spawn_egg: chicken_spawn_egg(),
         }
     }
 
@@ -1846,6 +2028,17 @@ impl TextureAtlas {
             TextureId::GoldBlock => &self.gold_block,
             TextureId::GoldOre => &self.gold_ore,
             TextureId::CoalBlock => &self.coal_block,
+            TextureId::RawChicken => &self.raw_chicken,
+            TextureId::CookedChicken => &self.cooked_chicken,
+            TextureId::Feather => &self.feather,
+            TextureId::ChickenFeathers => &self.chicken_feathers,
+            TextureId::ChickenFace => &self.chicken_face,
+            TextureId::ChickenBeak => &self.chicken_beak,
+            TextureId::ChickenWattle => &self.chicken_wattle,
+            TextureId::ChickenLeg => &self.chicken_leg,
+            TextureId::PigSpawnEgg => &self.pig_spawn_egg,
+            TextureId::CowSpawnEgg => &self.cow_spawn_egg,
+            TextureId::ChickenSpawnEgg => &self.chicken_spawn_egg,
         }
     }
     /// Returns a reference to the texture corresponding to the specified `TextureId`.

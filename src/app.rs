@@ -1992,6 +1992,23 @@ impl RustCraftApp {
                             out.request_release_mouse = true;
                             self.horiz_velocity = Vec3::zero();
                             self.fly_velocity = Vec3::zero();
+                        } else if let Some(mob_kind) = BlockId::from_u8(selected_block_id).spawn_mob_kind() {
+                            let spawn_pos = Vec3::new(
+                                hit.block_pos.x as f32 + 0.5 + hit.normal.x as f32 * 0.5,
+                                hit.block_pos.y as f32 + (if hit.normal.y > 0 { 1.0 } else { 0.0 }),
+                                hit.block_pos.z as f32 + 0.5 + hit.normal.z as f32 * 0.5,
+                            );
+                            self.mob_manager.spawn_mob(mob_kind, spawn_pos);
+                            self.particles.spawn_mob_hit(spawn_pos);
+                            self.hand_animation = 1.0;
+                            if self.player.gamemode == GameMode::Survival {
+                                if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                                    stack.count -= 1;
+                                    if stack.count == 0 {
+                                        self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = None;
+                                    }
+                                }
+                            }
                         } else {
                             let place_pos = hit.block_pos + hit.normal;
                             let place_id = BlockId::from_u8(selected_block_id);

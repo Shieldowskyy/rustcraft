@@ -7,7 +7,7 @@ use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId, TEX_SIZE};
 use crate::world::mesher::Triangle;
 
-pub const TEXTURE_LAYER_COUNT: u32 = 73;
+pub const TEXTURE_LAYER_COUNT: u32 = 88;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -1111,6 +1111,17 @@ impl VulkanContext {
             TextureId::GoldBlock => 74,
             TextureId::GoldOre => 75,
             TextureId::CoalBlock => 76,
+            TextureId::RawChicken => 77,
+            TextureId::CookedChicken => 78,
+            TextureId::Feather => 79,
+            TextureId::ChickenFeathers => 80,
+            TextureId::ChickenFace => 81,
+            TextureId::ChickenBeak => 82,
+            TextureId::ChickenWattle => 83,
+            TextureId::ChickenLeg => 84,
+            TextureId::PigSpawnEgg => 85,
+            TextureId::CowSpawnEgg => 86,
+            TextureId::ChickenSpawnEgg => 87,
         }
     }
 
@@ -1193,6 +1204,17 @@ impl VulkanContext {
             74 => TextureId::GoldBlock,
             75 => TextureId::GoldOre,
             76 => TextureId::CoalBlock,
+            77 => TextureId::RawChicken,
+            78 => TextureId::CookedChicken,
+            79 => TextureId::Feather,
+            80 => TextureId::ChickenFeathers,
+            81 => TextureId::ChickenFace,
+            82 => TextureId::ChickenBeak,
+            83 => TextureId::ChickenWattle,
+            84 => TextureId::ChickenLeg,
+            85 => TextureId::PigSpawnEgg,
+            86 => TextureId::CowSpawnEgg,
+            87 => TextureId::ChickenSpawnEgg,
             _ => TextureId::CraftingTableFront,
         }
     }

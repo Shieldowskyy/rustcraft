@@ -1496,6 +1496,123 @@ impl Renderer {
                     self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
                 }
             }
+            MobKind::Chicken => {
+                let body_box = MobBox {
+                    center: Vec3::new(0.0, 0.34, 0.0),
+                    size: Vec3::new(0.36, 0.30, 0.44),
+                    yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: base_pos,
+                    tex_top: TextureId::ChickenFeathers,
+                    tex_bottom: TextureId::ChickenFeathers,
+                    tex_side: TextureId::ChickenFeathers,
+                    tex_front: TextureId::ChickenFeathers,
+                };
+                self.draw_mob_box(&body_box, hurt_tint, camera_pos, view_proj);
+
+                let head_pos = base_pos + Vec3::new(yaw.sin() * 0.22, 0.48, yaw.cos() * 0.22);
+                let head_yaw = yaw + mob.head_yaw_offset;
+                let head_box = MobBox {
+                    center: Vec3::zero(),
+                    size: Vec3::new(0.24, 0.28, 0.22),
+                    yaw: head_yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: head_pos,
+                    tex_top: TextureId::ChickenFeathers,
+                    tex_bottom: TextureId::ChickenFeathers,
+                    tex_side: TextureId::ChickenFeathers,
+                    tex_front: TextureId::ChickenFace,
+                };
+                self.draw_mob_box(&head_box, hurt_tint, camera_pos, view_proj);
+
+                let beak_pos = head_pos + Vec3::new(head_yaw.sin() * 0.15, 0.02, head_yaw.cos() * 0.15);
+                let beak_box = MobBox {
+                    center: Vec3::zero(),
+                    size: Vec3::new(0.16, 0.08, 0.12),
+                    yaw: head_yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: beak_pos,
+                    tex_top: TextureId::ChickenBeak,
+                    tex_bottom: TextureId::ChickenBeak,
+                    tex_side: TextureId::ChickenBeak,
+                    tex_front: TextureId::ChickenBeak,
+                };
+                self.draw_mob_box(&beak_box, hurt_tint, camera_pos, view_proj);
+
+                let wattle_pos = head_pos + Vec3::new(head_yaw.sin() * 0.13, -0.08, head_yaw.cos() * 0.13);
+                let wattle_box = MobBox {
+                    center: Vec3::zero(),
+                    size: Vec3::new(0.08, 0.10, 0.08),
+                    yaw: head_yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: wattle_pos,
+                    tex_top: TextureId::ChickenWattle,
+                    tex_bottom: TextureId::ChickenWattle,
+                    tex_side: TextureId::ChickenWattle,
+                    tex_front: TextureId::ChickenWattle,
+                };
+                self.draw_mob_box(&wattle_box, hurt_tint, camera_pos, view_proj);
+
+                let flap = (mob.walk_phase.sin() * 0.45).abs();
+                let left_wing_origin = base_pos + Vec3::new(-0.20 * yaw.cos(), 0.38, 0.20 * yaw.sin());
+                let left_wing_box = MobBox {
+                    center: Vec3::new(-0.02, -0.06, 0.0),
+                    size: Vec3::new(0.06, 0.20, 0.30),
+                    yaw,
+                    pitch: 0.0,
+                    roll: roll_angle - flap,
+                    origin: left_wing_origin,
+                    tex_top: TextureId::ChickenFeathers,
+                    tex_bottom: TextureId::ChickenFeathers,
+                    tex_side: TextureId::ChickenFeathers,
+                    tex_front: TextureId::ChickenFeathers,
+                };
+                self.draw_mob_box(&left_wing_box, hurt_tint, camera_pos, view_proj);
+
+                let right_wing_origin = base_pos + Vec3::new(0.20 * yaw.cos(), 0.38, -0.20 * yaw.sin());
+                let right_wing_box = MobBox {
+                    center: Vec3::new(0.02, -0.06, 0.0),
+                    size: Vec3::new(0.06, 0.20, 0.30),
+                    yaw,
+                    pitch: 0.0,
+                    roll: roll_angle + flap,
+                    origin: right_wing_origin,
+                    tex_top: TextureId::ChickenFeathers,
+                    tex_bottom: TextureId::ChickenFeathers,
+                    tex_side: TextureId::ChickenFeathers,
+                    tex_front: TextureId::ChickenFeathers,
+                };
+                self.draw_mob_box(&right_wing_box, hurt_tint, camera_pos, view_proj);
+
+                let leg_offsets = [
+                    (-0.08, -0.02, leg_swing),
+                    (0.08, -0.02, -leg_swing),
+                ];
+
+                for &(lx, lz, swing) in &leg_offsets {
+                    let rotated_x = lx * yaw.cos() + lz * yaw.sin();
+                    let rotated_z = -lx * yaw.sin() + lz * yaw.cos();
+                    let leg_origin = base_pos + Vec3::new(rotated_x, 0.20, rotated_z);
+
+                    let leg_box = MobBox {
+                        center: Vec3::new(0.0, -0.10, 0.0),
+                        size: Vec3::new(0.08, 0.20, 0.08),
+                        yaw,
+                        pitch: swing,
+                        roll: roll_angle,
+                        origin: leg_origin,
+                        tex_top: TextureId::ChickenLeg,
+                        tex_bottom: TextureId::ChickenLeg,
+                        tex_side: TextureId::ChickenLeg,
+                        tex_front: TextureId::ChickenLeg,
+                    };
+                    self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
+                }
+            }
         }
     }
 

@@ -7,6 +7,7 @@ use crate::world::World;
 pub enum MobKind {
     Pig,
     Cow,
+    Chicken,
 }
 
 impl MobKind {
@@ -14,6 +15,7 @@ impl MobKind {
         match self {
             MobKind::Pig => 10.0,
             MobKind::Cow => 10.0,
+            MobKind::Chicken => 4.0,
         }
     }
 
@@ -21,6 +23,7 @@ impl MobKind {
         match self {
             MobKind::Pig => 0.4,
             MobKind::Cow => 0.45,
+            MobKind::Chicken => 0.25,
         }
     }
 
@@ -28,13 +31,14 @@ impl MobKind {
         match self {
             MobKind::Pig => 0.85,
             MobKind::Cow => 1.35,
+            MobKind::Chicken => 0.70,
         }
     }
 
     #[allow(dead_code)]
     pub fn is_hostile(&self) -> bool {
         match self {
-            MobKind::Pig | MobKind::Cow => false,
+            MobKind::Pig | MobKind::Cow | MobKind::Chicken => false,
         }
     }
 
@@ -43,6 +47,7 @@ impl MobKind {
         match self {
             MobKind::Pig => "Pig",
             MobKind::Cow => "Cow",
+            MobKind::Chicken => "Chicken",
         }
     }
 }
@@ -241,8 +246,9 @@ impl Mob {
         }
 
         self.velocity.y -= 22.0 * dt;
-        if self.velocity.y < -30.0 {
-            self.velocity.y = -30.0;
+        let max_fall_speed = if self.kind == MobKind::Chicken { -3.2 } else { -30.0 };
+        if self.velocity.y < max_fall_speed {
+            self.velocity.y = max_fall_speed;
         }
 
         if self.on_ground && (self.ai_state_is_moving || self.panic_timer > 0.0) {
@@ -268,7 +274,11 @@ impl Mob {
         if self.on_ground && horizontal_speed > 0.05 {
             self.walk_phase += dt * (horizontal_speed * 4.5);
         } else if !self.on_ground {
-            self.walk_phase += dt * 3.0;
+            if self.kind == MobKind::Chicken {
+                self.walk_phase += dt * 16.0; // Rapid wing flapping when in air
+            } else {
+                self.walk_phase += dt * 3.0;
+            }
         } else {
             self.walk_phase *= (1.0 - 6.0 * dt).max(0.0);
         }
@@ -400,16 +410,38 @@ impl MobManager {
             if m.despawn_pending {
                 if m.is_dead {
                     self.dying_poofs.push(m.center_pos());
-                    let drop_block = match m.kind {
-                        MobKind::Pig => BlockId::RawPorkchop,
-                        MobKind::Cow => BlockId::RawBeef,
-                    };
-                    let count = 1 + (m.id % 3) as u8; // 1-3 meat drops
-                    self.dying_drops.push(MobDrop {
-                        pos: m.center_pos(),
-                        block: drop_block,
-                        count,
-                    });
+                    match m.kind {
+                        MobKind::Pig => {
+                            let count = 1 + (m.id % 3) as u8; // 1-3 meat drops
+                            self.dying_drops.push(MobDrop {
+                                pos: m.center_pos(),
+                                block: BlockId::RawPorkchop,
+                                count,
+                            });
+                        }
+                        MobKind::Cow => {
+                            let count = 1 + (m.id % 3) as u8; // 1-3 meat drops
+                            self.dying_drops.push(MobDrop {
+                                pos: m.center_pos(),
+                                block: BlockId::RawBeef,
+                                count,
+                            });
+                        }
+                        MobKind::Chicken => {
+                            let meat_count = 1 + (m.id % 2) as u8; // 1-2 raw chicken
+                            let feather_count = 1 + ((m.id >> 2) % 3) as u8; // 1-3 feathers
+                            self.dying_drops.push(MobDrop {
+                                pos: m.center_pos(),
+                                block: BlockId::RawChicken,
+                                count: meat_count,
+                            });
+                            self.dying_drops.push(MobDrop {
+                                pos: m.center_pos() + Vec3::new(0.1, 0.1, 0.1),
+                                block: BlockId::Feather,
+                                count: feather_count,
+                            });
+                        }
+                    }
                 }
                 false
             } else {
@@ -488,10 +520,13 @@ impl MobManager {
         }
 
         if let Some(sy) = surface_y {
-            let kind = if rand_f32(rng) < 0.5 {
+            let roll = rand_f32(rng);
+            let kind = if roll < 0.33 {
                 MobKind::Pig
-            } else {
+            } else if roll < 0.66 {
                 MobKind::Cow
+            } else {
+                MobKind::Chicken
             };
 
             let spawn_pos = Vec3::new(target_x as f32 + 0.5, sy as f32, target_z as f32 + 0.5);

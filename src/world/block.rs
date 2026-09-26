@@ -81,6 +81,18 @@ pub enum BlockId {
     GoldOre,
     /// Solid block of coal (crafted from 9 coal ore)
     CoalBlock,
+    /// Raw Chicken dropped by chickens
+    RawChicken,
+    /// Cooked Chicken (restores 6 hunger)
+    CookedChicken,
+    /// Feather dropped by chickens
+    Feather,
+    /// Pig spawn egg
+    PigSpawnEgg,
+    /// Cow spawn egg
+    CowSpawnEgg,
+    /// Chicken spawn egg
+    ChickenSpawnEgg,
 }
 
 impl BlockId {
@@ -140,6 +152,12 @@ impl BlockId {
             52 => BlockId::GoldBlock,
             53 => BlockId::GoldOre,
             54 => BlockId::CoalBlock,
+            55 => BlockId::RawChicken,
+            56 => BlockId::CookedChicken,
+            57 => BlockId::Feather,
+            58 => BlockId::PigSpawnEgg,
+            59 => BlockId::CowSpawnEgg,
+            60 => BlockId::ChickenSpawnEgg,
             _ => BlockId::Air,
         }
     }
@@ -201,6 +219,12 @@ impl BlockId {
             BlockId::GoldBlock => 52,
             BlockId::GoldOre => 53,
             BlockId::CoalBlock => 54,
+            BlockId::RawChicken => 55,
+            BlockId::CookedChicken => 56,
+            BlockId::Feather => 57,
+            BlockId::PigSpawnEgg => 58,
+            BlockId::CowSpawnEgg => 59,
+            BlockId::ChickenSpawnEgg => 60,
         }
     }
 
@@ -231,6 +255,12 @@ impl BlockId {
                 | BlockId::GoldIngot
                 | BlockId::IronOunce
                 | BlockId::GoldOunce
+                | BlockId::RawChicken
+                | BlockId::CookedChicken
+                | BlockId::Feather
+                | BlockId::PigSpawnEgg
+                | BlockId::CowSpawnEgg
+                | BlockId::ChickenSpawnEgg
         )
     }
 
@@ -277,9 +307,24 @@ impl BlockId {
             | (1u64 << 48) // GoldIngot
             | (1u64 << 49) // IronOunce
             | (1u64 << 51) // GoldOunce
+            | (1u64 << 55) // RawChicken
+            | (1u64 << 56) // CookedChicken
+            | (1u64 << 57) // Feather
+            | (1u64 << 58) // PigSpawnEgg
+            | (1u64 << 59) // CowSpawnEgg
+            | (1u64 << 60) // ChickenSpawnEgg
         );
         let id = self.to_u8() as u32;
         ((SOLID_MASK >> id) & 1) != 0
+    }
+
+    pub fn spawn_mob_kind(self) -> Option<crate::gameplay::mob::MobKind> {
+        match self {
+            BlockId::PigSpawnEgg => Some(crate::gameplay::mob::MobKind::Pig),
+            BlockId::CowSpawnEgg => Some(crate::gameplay::mob::MobKind::Cow),
+            BlockId::ChickenSpawnEgg => Some(crate::gameplay::mob::MobKind::Chicken),
+            _ => None,
+        }
     }
 
     #[inline(always)]
@@ -308,6 +353,8 @@ impl BlockId {
                 | BlockId::RawBeef
                 | BlockId::CookedBeef
                 | BlockId::Apple
+                | BlockId::RawChicken
+                | BlockId::CookedChicken
         )
     }
 
@@ -319,6 +366,8 @@ impl BlockId {
             BlockId::RawBeef => Some((3.0, 1.8)),
             BlockId::CookedBeef => Some((8.0, 12.8)),
             BlockId::Apple => Some((4.0, 2.4)),
+            BlockId::RawChicken => Some((2.0, 1.2)),
+            BlockId::CookedChicken => Some((6.0, 7.2)),
             _ => None,
         }
     }
@@ -522,6 +571,12 @@ impl BlockId {
             BlockId::GoldBlock => "blok zlota",
             BlockId::GoldOre => "ruda zlota",
             BlockId::CoalBlock => "blok wegla",
+            BlockId::RawChicken => "surowy kurczak",
+            BlockId::CookedChicken => "pieczony kurczak",
+            BlockId::Feather => "pioro",
+            BlockId::PigSpawnEgg => "jajko spawnujace swinie",
+            BlockId::CowSpawnEgg => "jajko spawnujace krowe",
+            BlockId::ChickenSpawnEgg => "jajko spawnujace kurczaka",
         }
     }
 
@@ -584,6 +639,12 @@ impl BlockId {
             BlockId::CookedPorkchop => [0.72, 0.45, 0.25],
             BlockId::RawBeef => [0.85, 0.25, 0.25],
             BlockId::CookedBeef => [0.55, 0.30, 0.18],
+            BlockId::RawChicken => [0.90, 0.70, 0.65],
+            BlockId::CookedChicken => [0.72, 0.45, 0.20],
+            BlockId::Feather => [0.95, 0.95, 0.95],
+            BlockId::PigSpawnEgg => [0.95, 0.62, 0.68],
+            BlockId::CowSpawnEgg => [0.45, 0.35, 0.28],
+            BlockId::ChickenSpawnEgg => [0.95, 0.95, 0.90],
             BlockId::Apple => [0.90, 0.15, 0.15],
             BlockId::IronIngot => [0.85, 0.85, 0.88],
             BlockId::GoldIngot => [0.95, 0.85, 0.25],
@@ -627,6 +688,12 @@ impl BlockId {
             BlockId::IronBlock => TextureId::IronBlock,
             BlockId::GoldBlock => TextureId::GoldBlock,
             BlockId::CoalBlock => TextureId::CoalBlock,
+            BlockId::RawChicken => TextureId::RawChicken,
+            BlockId::CookedChicken => TextureId::CookedChicken,
+            BlockId::Feather => TextureId::Feather,
+            BlockId::PigSpawnEgg => TextureId::PigSpawnEgg,
+            BlockId::CowSpawnEgg => TextureId::CowSpawnEgg,
+            BlockId::ChickenSpawnEgg => TextureId::ChickenSpawnEgg,
             BlockId::Bedrock => TextureId::Bedrock,
             BlockId::Lava => TextureId::Lava,
             BlockId::SnowLeaves => TextureId::SnowLeaves,

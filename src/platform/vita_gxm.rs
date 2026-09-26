@@ -756,6 +756,10 @@ pub const ALL_TEXTURES: &[TextureId] = &[
     TextureId::GrassTopTaiga, TextureId::GrassSideTaiga,
     TextureId::ChestTop, TextureId::ChestSide, TextureId::ChestFront,
     TextureId::FurnaceTop, TextureId::FurnaceSide, TextureId::FurnaceFront, TextureId::FurnaceFrontLit,
+    TextureId::IronBlock, TextureId::GoldBlock, TextureId::GoldOre, TextureId::CoalBlock,
+    TextureId::RawChicken, TextureId::CookedChicken, TextureId::Feather,
+    TextureId::ChickenFeathers, TextureId::ChickenFace, TextureId::ChickenBeak, TextureId::ChickenWattle, TextureId::ChickenLeg,
+    TextureId::PigSpawnEgg, TextureId::CowSpawnEgg, TextureId::ChickenSpawnEgg,
 ];
 
 unsafe fn populate_atlas(pixels: *mut u32, atlas: &TextureAtlas) {
@@ -919,6 +923,21 @@ pub fn atlas_uv(tex_id: TextureId) -> (f32, f32, f32, f32) {
         TextureId::FurnaceSide => 70,
         TextureId::FurnaceFront => 71,
         TextureId::FurnaceFrontLit => 72,
+        TextureId::IronBlock => 73,
+        TextureId::GoldBlock => 74,
+        TextureId::GoldOre => 75,
+        TextureId::CoalBlock => 76,
+        TextureId::RawChicken => 77,
+        TextureId::CookedChicken => 78,
+        TextureId::Feather => 79,
+        TextureId::ChickenFeathers => 80,
+        TextureId::ChickenFace => 81,
+        TextureId::ChickenBeak => 82,
+        TextureId::ChickenWattle => 83,
+        TextureId::ChickenLeg => 84,
+        TextureId::PigSpawnEgg => 85,
+        TextureId::CowSpawnEgg => 86,
+        TextureId::ChickenSpawnEgg => 87,
     };
     const TILE_NORM: f32 = 1.0 / ATLAS_TILES_PER_ROW as f32;
     let col = tile_idx % ATLAS_TILES_PER_ROW;
@@ -2589,6 +2608,124 @@ fn append_mob(
                 append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
             }
         }
+        MobKind::Chicken => {
+            let body_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.34, 0.0),
+                size: Vec3::new(0.36, 0.30, 0.44),
+                yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::ChickenFeathers,
+                tex_bottom: TextureId::ChickenFeathers,
+                tex_side: TextureId::ChickenFeathers,
+                tex_front: TextureId::ChickenFeathers,
+            };
+            append_mob_box(&body_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let head_pos = base_pos + Vec3::new(yaw.sin() * 0.22, 0.48, yaw.cos() * 0.22);
+            let head_yaw = yaw + mob.head_yaw_offset;
+            let head_box = GxmMobBox {
+                center: Vec3::zero(),
+                size: Vec3::new(0.24, 0.28, 0.22),
+                yaw: head_yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: head_pos,
+                tex_top: TextureId::ChickenFeathers,
+                tex_bottom: TextureId::ChickenFeathers,
+                tex_side: TextureId::ChickenFeathers,
+                tex_front: TextureId::ChickenFace,
+            };
+            append_mob_box(&head_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let beak_pos = head_pos + Vec3::new(head_yaw.sin() * 0.15, 0.02, head_yaw.cos() * 0.15);
+            let beak_box = GxmMobBox {
+                center: Vec3::zero(),
+                size: Vec3::new(0.16, 0.08, 0.12),
+                yaw: head_yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: beak_pos,
+                tex_top: TextureId::ChickenBeak,
+                tex_bottom: TextureId::ChickenBeak,
+                tex_side: TextureId::ChickenBeak,
+                tex_front: TextureId::ChickenBeak,
+            };
+            append_mob_box(&beak_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let wattle_pos = head_pos + Vec3::new(head_yaw.sin() * 0.13, -0.08, head_yaw.cos() * 0.13);
+            let wattle_box = GxmMobBox {
+                center: Vec3::zero(),
+                size: Vec3::new(0.08, 0.10, 0.08),
+                yaw: head_yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: wattle_pos,
+                tex_top: TextureId::ChickenWattle,
+                tex_bottom: TextureId::ChickenWattle,
+                tex_side: TextureId::ChickenWattle,
+                tex_front: TextureId::ChickenWattle,
+            };
+            append_mob_box(&wattle_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let flap = (mob.walk_phase.sin() * 0.45).abs();
+            let left_wing_origin = base_pos + Vec3::new(-0.20 * yaw.cos(), 0.38, 0.20 * yaw.sin());
+            let left_wing_box = GxmMobBox {
+                center: Vec3::new(-0.02, -0.06, 0.0),
+                size: Vec3::new(0.06, 0.20, 0.30),
+                yaw,
+                pitch: 0.0,
+                roll: roll_angle - flap,
+                origin: left_wing_origin,
+                tex_top: TextureId::ChickenFeathers,
+                tex_bottom: TextureId::ChickenFeathers,
+                tex_side: TextureId::ChickenFeathers,
+                tex_front: TextureId::ChickenFeathers,
+            };
+            append_mob_box(&left_wing_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let right_wing_origin = base_pos + Vec3::new(0.20 * yaw.cos(), 0.38, -0.20 * yaw.sin());
+            let right_wing_box = GxmMobBox {
+                center: Vec3::new(0.02, -0.06, 0.0),
+                size: Vec3::new(0.06, 0.20, 0.30),
+                yaw,
+                pitch: 0.0,
+                roll: roll_angle + flap,
+                origin: right_wing_origin,
+                tex_top: TextureId::ChickenFeathers,
+                tex_bottom: TextureId::ChickenFeathers,
+                tex_side: TextureId::ChickenFeathers,
+                tex_front: TextureId::ChickenFeathers,
+            };
+            append_mob_box(&right_wing_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let leg_offsets = [
+                (-0.08, -0.02, leg_swing),
+                (0.08, -0.02, -leg_swing),
+            ];
+
+            for &(lx, lz, swing) in &leg_offsets {
+                let rotated_x = lx * yaw.cos() + lz * yaw.sin();
+                let rotated_z = -lx * yaw.sin() + lz * yaw.cos();
+                let leg_origin = base_pos + Vec3::new(rotated_x, 0.20, rotated_z);
+
+                let leg_box = GxmMobBox {
+                    center: Vec3::new(0.0, -0.10, 0.0),
+                    size: Vec3::new(0.08, 0.20, 0.08),
+                    yaw,
+                    pitch: swing,
+                    roll: roll_angle,
+                    origin: leg_origin,
+                    tex_top: TextureId::ChickenLeg,
+                    tex_bottom: TextureId::ChickenLeg,
+                    tex_side: TextureId::ChickenLeg,
+                    tex_front: TextureId::ChickenLeg,
+                };
+                append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+            }
+        }
+    }
     }
 }
 
