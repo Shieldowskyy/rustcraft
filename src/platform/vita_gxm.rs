@@ -2627,7 +2627,7 @@ fn append_mob(
             let head_yaw = yaw + mob.head_yaw_offset;
             let head_box = GxmMobBox {
                 center: Vec3::zero(),
-                size: Vec3::new(0.24, 0.28, 0.22),
+                size: Vec3::new(0.28, 0.28, 0.24),
                 yaw: head_yaw,
                 pitch: 0.0,
                 roll: roll_angle,
@@ -2639,10 +2639,10 @@ fn append_mob(
             };
             append_mob_box(&head_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
 
-            let beak_pos = head_pos + Vec3::new(head_yaw.sin() * 0.15, 0.02, head_yaw.cos() * 0.15);
+            let beak_pos = head_pos + Vec3::new(head_yaw.sin() * 0.14, -0.03, head_yaw.cos() * 0.14);
             let beak_box = GxmMobBox {
                 center: Vec3::zero(),
-                size: Vec3::new(0.16, 0.08, 0.12),
+                size: Vec3::new(0.12, 0.06, 0.08),
                 yaw: head_yaw,
                 pitch: 0.0,
                 roll: roll_angle,
@@ -2657,7 +2657,7 @@ fn append_mob(
             let wattle_pos = head_pos + Vec3::new(head_yaw.sin() * 0.13, -0.08, head_yaw.cos() * 0.13);
             let wattle_box = GxmMobBox {
                 center: Vec3::zero(),
-                size: Vec3::new(0.08, 0.10, 0.08),
+                size: Vec3::new(0.06, 0.08, 0.06),
                 yaw: head_yaw,
                 pitch: 0.0,
                 roll: roll_angle,

@@ -1771,32 +1771,47 @@ fn chicken_feathers() -> Texture {
 
 fn chicken_face() -> Texture {
     let mut tex = chicken_feathers();
-    let eye_white = [0.98, 0.98, 0.98];
-    let pupil = [0.10, 0.08, 0.08];
-    let beak = [0.95, 0.65, 0.10];
-    let wattle = [0.85, 0.15, 0.15];
+    let eye_white = [0.99, 0.99, 0.99];
+    let pupil = [0.05, 0.05, 0.05];
+    let pupil_shine = [0.35, 0.35, 0.40];
+    let beak = [0.96, 0.68, 0.10];
+    let wattle = [0.88, 0.12, 0.12];
 
-    // Eyes
-    tex.texels[5 * TEX_SIZE + 2] = eye_white;
-    tex.texels[5 * TEX_SIZE + 3] = pupil;
-    tex.texels[6 * TEX_SIZE + 2] = eye_white;
-    tex.texels[6 * TEX_SIZE + 3] = pupil;
+    // High-contrast, bold chicken eyes at the top corners of the face
+    // Left eye (x=1..4, y=2..5)
+    for y in 2..=5 {
+        for x in 1..=4 {
+            tex.texels[y * TEX_SIZE + x] = eye_white;
+        }
+    }
+    tex.texels[3 * TEX_SIZE + 2] = pupil;
+    tex.texels[4 * TEX_SIZE + 2] = pupil;
+    tex.texels[3 * TEX_SIZE + 3] = pupil;
+    tex.texels[4 * TEX_SIZE + 3] = pupil;
+    tex.texels[2 * TEX_SIZE + 3] = pupil_shine;
 
-    tex.texels[5 * TEX_SIZE + 12] = pupil;
-    tex.texels[5 * TEX_SIZE + 13] = eye_white;
-    tex.texels[6 * TEX_SIZE + 12] = pupil;
-    tex.texels[6 * TEX_SIZE + 13] = eye_white;
+    // Right eye (x=11..14, y=2..5)
+    for y in 2..=5 {
+        for x in 11..=14 {
+            tex.texels[y * TEX_SIZE + x] = eye_white;
+        }
+    }
+    tex.texels[3 * TEX_SIZE + 12] = pupil;
+    tex.texels[4 * TEX_SIZE + 12] = pupil;
+    tex.texels[3 * TEX_SIZE + 13] = pupil;
+    tex.texels[4 * TEX_SIZE + 13] = pupil;
+    tex.texels[2 * TEX_SIZE + 12] = pupil_shine;
 
-    // Beak center
-    for y in 7..11 {
-        for x in 6..10 {
+    // Beak center in lower middle
+    for y in 7..=10 {
+        for x in 5..=10 {
             tex.texels[y * TEX_SIZE + x] = beak;
         }
     }
 
     // Wattle under beak
-    for y in 11..14 {
-        for x in 7..9 {
+    for y in 11..=14 {
+        for x in 6..=9 {
             tex.texels[y * TEX_SIZE + x] = wattle;
         }
     }

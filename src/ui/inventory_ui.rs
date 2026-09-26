@@ -1209,6 +1209,127 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                 }
             }
         }
+        BlockId::RawChicken => {
+            let outline = pack_color(0.46, 0.24, 0.20);
+            let base = pack_color(0.92, 0.68, 0.62);
+            let hi = pack_color(0.98, 0.82, 0.78);
+            let sh = pack_color(0.76, 0.46, 0.40);
+            let bone = pack_color(0.95, 0.95, 0.88);
+            let bone_sh = pack_color(0.78, 0.76, 0.68);
+
+            // Bone tip top-right
+            px(buffer, 12, 4, bone);
+            px(buffer, 13, 3, bone);
+            px(buffer, 14, 2, bone);
+            px(buffer, 14, 3, bone_sh);
+            px(buffer, 13, 2, bone);
+            px(buffer, 12, 3, bone);
+            px(buffer, 11, 4, outline);
+            px(buffer, 14, 4, outline);
+            px(buffer, 15, 2, outline);
+            px(buffer, 13, 1, outline);
+
+            // Chicken drumstick meat body
+            for ly in 4..=13 {
+                for lx in 2..=11 {
+                    let in_shape = (lx + ly >= 8) && (lx + ly <= 21) && (ly - lx <= 7) && (lx - ly <= 4);
+                    if in_shape {
+                        let is_border = lx == 2 || lx == 11 || ly == 4 || ly == 13 || (lx + ly == 8) || (lx + ly == 21);
+                        if is_border {
+                            px(buffer, lx, ly, outline);
+                        } else if lx <= 5 && ly <= 7 {
+                            px(buffer, lx, ly, hi);
+                        } else if lx >= 8 || ly >= 10 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+        }
+        BlockId::CookedChicken => {
+            let outline = pack_color(0.30, 0.12, 0.04);
+            let base = pack_color(0.82, 0.46, 0.14);
+            let hi = pack_color(0.96, 0.72, 0.28);
+            let sh = pack_color(0.55, 0.24, 0.06);
+            let bone = pack_color(0.92, 0.90, 0.82);
+            let bone_sh = pack_color(0.72, 0.70, 0.62);
+
+            // Bone tip top-right
+            px(buffer, 12, 4, bone);
+            px(buffer, 13, 3, bone);
+            px(buffer, 14, 2, bone);
+            px(buffer, 14, 3, bone_sh);
+            px(buffer, 13, 2, bone);
+            px(buffer, 12, 3, bone);
+            px(buffer, 11, 4, outline);
+            px(buffer, 14, 4, outline);
+            px(buffer, 15, 2, outline);
+            px(buffer, 13, 1, outline);
+
+            // Roasted drumstick meat body
+            for ly in 4..=13 {
+                for lx in 2..=11 {
+                    let in_shape = (lx + ly >= 8) && (lx + ly <= 21) && (ly - lx <= 7) && (lx - ly <= 4);
+                    if in_shape {
+                        let is_border = lx == 2 || lx == 11 || ly == 4 || ly == 13 || (lx + ly == 8) || (lx + ly == 21);
+                        if is_border {
+                            px(buffer, lx, ly, outline);
+                        } else if lx <= 5 && ly <= 7 {
+                            px(buffer, lx, ly, hi);
+                        } else if lx >= 8 || ly >= 10 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+        }
+        BlockId::Feather => {
+            let outline = pack_color(0.25, 0.25, 0.28);
+            let white = pack_color(0.98, 0.98, 0.99);
+            let gray = pack_color(0.82, 0.84, 0.88);
+            let quill = pack_color(0.68, 0.62, 0.55);
+            let quill_base = pack_color(0.50, 0.44, 0.38);
+
+            // Feather shape diagonal from bottom-left (2, 13) to top-right (13, 2)
+            // Quill shaft
+            px(buffer, 2, 14, quill_base);
+            px(buffer, 3, 13, quill_base);
+            px(buffer, 4, 12, quill);
+            px(buffer, 5, 11, quill);
+            px(buffer, 6, 10, quill);
+            px(buffer, 7, 9, quill);
+            px(buffer, 8, 8, quill);
+            px(buffer, 9, 7, quill);
+            px(buffer, 10, 6, quill);
+            px(buffer, 11, 5, quill);
+            px(buffer, 12, 4, quill);
+            px(buffer, 13, 3, quill);
+
+            // Vanes
+            for y in 2..=13 {
+                for x in 2..=14 {
+                    let diag = (x as i32) - (15 - y as i32);
+                    if diag >= -2 && diag <= 3 && y >= 3 && y <= 11 && x >= 4 && x <= 13 {
+                        let is_edge = diag == 3 || diag == -2 || y == 3 || x == 13;
+                        if is_edge {
+                            px(buffer, x, y, outline);
+                        } else if (x + y) % 2 == 0 {
+                            px(buffer, x, y, white);
+                        } else {
+                            px(buffer, x, y, gray);
+                        }
+                    }
+                }
+            }
+            // Quill tip outline
+            px(buffer, 1, 14, outline);
+            px(buffer, 2, 15, outline);
+            px(buffer, 3, 14, outline);
+        }
         BlockId::PigSpawnEgg | BlockId::CowSpawnEgg | BlockId::ChickenSpawnEgg => {
             let (base, spot, outline) = match block {
                 BlockId::PigSpawnEgg => (
