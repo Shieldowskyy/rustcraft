@@ -308,8 +308,12 @@ pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
                             }
                         }
                     } else {
-                        neighbor == BlockId::Air
-                        || (neighbor.is_transparent() && neighbor != block)
+                        if face == Face::Bottom && wy == 0 {
+                            false
+                        } else {
+                            neighbor == BlockId::Air
+                            || (neighbor.is_transparent() && neighbor != block)
+                        }
                     };
 
                     if visible {
@@ -370,7 +374,9 @@ fn emit_torch(
     // West
     quad(tris, c000, c001, c011, c010, tex, 0.90);
     // Bottom
-    quad(tris, c001, c000, c100, c101, tex, 0.70);
+    if wy > 0 {
+        quad(tris, c001, c000, c100, c101, tex, 0.70);
+    }
 }
 
 fn emit_door(
@@ -527,15 +533,17 @@ fn emit_door(
         side_tex,
         1.0,
     );
-    quad_uv(
-        tris,
-        (c001, (0.0, 1.0)),
-        (c000, (1.0, 1.0)),
-        (c100, (1.0, 0.0)),
-        (c101, (0.0, 0.0)),
-        side_tex,
-        0.5,
-    );
+    if wy > 0 {
+        quad_uv(
+            tris,
+            (c001, (0.0, 1.0)),
+            (c000, (1.0, 1.0)),
+            (c100, (1.0, 0.0)),
+            (c101, (0.0, 0.0)),
+            side_tex,
+            0.5,
+        );
+    }
 }
 
 #[inline(always)]
@@ -696,4 +704,41 @@ fn emit_face(
 
     tris.push(Triangle { v0: va, v1: vb, v2: vc, texture });
     tris.push(Triangle { v0: va, v1: vc, v2: vd, texture });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::{Chunk, World};
+
+    #[test]
+    fn test_chunk_bottom_face_culling_at_y0() {
+        let mut world = World::new();
+        let mut chunk = Chunk {
+            cx: 0,
+            cz: 0,
+            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
+            dirty: false,
+        };
+        // Place stone at y = 0
+        chunk.set_local(0, 0, 0, BlockId::Stone);
+        // Place stone at y = 10 (floating with air below it)
+        chunk.set_local(5, 10, 5, BlockId::Stone);
+
+        world.chunks.insert((0, 0), chunk);
+        let mesh = build_chunk_mesh(world.chunks.get(&(0, 0)).unwrap(), &world);
+
+        // Verify that NO triangles have all vertex y coordinates equal to 0.0 with bottom face orientation
+        let has_y0_bottom_face = mesh.iter().any(|tri| {
+            tri.v0.pos.y == 0.0 && tri.v1.pos.y == 0.0 && tri.v2.pos.y == 0.0
+                && tri.v0.pos.x <= 1.0 && tri.v0.pos.z <= 1.0
+        });
+        assert!(!has_y0_bottom_face, "Bottom face at y=0 should be culled");
+
+        // Verify that floating stone at y=10 DOES have a bottom face at y=10.0
+        let has_y10_bottom_face = mesh.iter().any(|tri| {
+            tri.v0.pos.y == 10.0 && tri.v1.pos.y == 10.0 && tri.v2.pos.y == 10.0
+        });
+        assert!(has_y10_bottom_face, "Bottom face at y=10 with air below should be generated");
+    }
 }

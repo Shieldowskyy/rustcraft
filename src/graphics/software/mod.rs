@@ -451,10 +451,18 @@ impl Renderer {
 
         #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
         if let Some(vulkan) = self.vulkan.as_mut() {
+            let is_occluded = world.is_view_fully_occluded(camera.position, camera.yaw, camera.pitch);
             self.visible_keys.clear();
-            for key in &self.loaded_keys {
-                if Self::chunk_visible(*key, &view_proj) {
-                    self.visible_keys.push(*key);
+            if is_occluded {
+                let (cam_cx, cam_cz, _, _) = World::world_to_chunk(camera.position.x.floor() as i32, camera.position.z.floor() as i32);
+                if self.loaded_keys.contains(&(cam_cx, cam_cz)) {
+                    self.visible_keys.push((cam_cx, cam_cz));
+                }
+            } else {
+                for key in &self.loaded_keys {
+                    if Self::chunk_visible(*key, &view_proj) {
+                        self.visible_keys.push(*key);
+                    }
                 }
             }
 
@@ -1002,12 +1010,24 @@ impl Renderer {
                     emit_triangle(v0, v2, v3);
                 };
 
-                draw_quad(self, p010, p011, p111, p110, 1.00, view_proj);
-                draw_quad(self, p001, p000, p100, p101, 0.70, view_proj);
-                if !is_cloud(gx, gz - 1) { draw_quad(self, p100, p000, p010, p110, 0.85, view_proj); }
-                if !is_cloud(gx, gz + 1) { draw_quad(self, p001, p101, p111, p011, 0.85, view_proj); }
-                if !is_cloud(gx - 1, gz) { draw_quad(self, p000, p001, p011, p010, 0.78, view_proj); }
-                if !is_cloud(gx + 1, gz) { draw_quad(self, p101, p100, p110, p111, 0.78, view_proj); }
+                if player_pos.y >= y_top {
+                    draw_quad(self, p010, p011, p111, p110, 1.00, view_proj);
+                }
+                if player_pos.y <= y_bottom {
+                    draw_quad(self, p001, p000, p100, p101, 0.70, view_proj);
+                }
+                if player_pos.z <= z_min && !is_cloud(gx, gz - 1) {
+                    draw_quad(self, p100, p000, p010, p110, 0.85, view_proj);
+                }
+                if player_pos.z >= z_max && !is_cloud(gx, gz + 1) {
+                    draw_quad(self, p001, p101, p111, p011, 0.85, view_proj);
+                }
+                if player_pos.x <= x_min && !is_cloud(gx - 1, gz) {
+                    draw_quad(self, p000, p001, p011, p010, 0.78, view_proj);
+                }
+                if player_pos.x >= x_max && !is_cloud(gx + 1, gz) {
+                    draw_quad(self, p101, p100, p110, p111, 0.78, view_proj);
+                }
             }
         }
     }
@@ -1017,10 +1037,26 @@ impl Renderer {
         pos: Vec3,
         face: crate::world::block::Face,
         _color: [f32; 3],
-        _camera: &Camera,
+        camera: &Camera,
         view_proj: &Mat4,
     ) {
         use crate::world::block::Face;
+
+        if face == Face::Bottom && pos.y <= 0.0 {
+            return;
+        }
+        let cam_p = camera.position;
+        let is_backfacing = match face {
+            Face::Top => cam_p.y < pos.y + 1.0,
+            Face::Bottom => cam_p.y > pos.y,
+            Face::North => cam_p.z > pos.z,
+            Face::South => cam_p.z < pos.z + 1.0,
+            Face::West => cam_p.x > pos.x,
+            Face::East => cam_p.x < pos.x + 1.0,
+        };
+        if is_backfacing {
+            return;
+        }
 
         let (v0, v1, v2, v3) = match face {
             Face::Top => (

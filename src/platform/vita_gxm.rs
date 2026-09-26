@@ -2074,14 +2074,26 @@ fn append_clouds(
             let p011 = Vec3::new(x_min, y_top, z_max);
 
             // Top (+Y)
-            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p011, p111, p110, p010, TextureId::Snow, 1.0);
+            if player_pos.y >= y_top {
+                append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p011, p111, p110, p010, TextureId::Snow, 1.0);
+            }
             // Bottom (-Y)
-            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p000, p100, p101, p001, TextureId::Snow, 0.7);
+            if player_pos.y <= y_bottom {
+                append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p000, p100, p101, p001, TextureId::Snow, 0.7);
+            }
             // Sides
-            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p000, p010, p110, p100, TextureId::Snow, 0.85);
-            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p101, p111, p011, p001, TextureId::Snow, 0.85);
-            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p001, p011, p010, p000, TextureId::Snow, 0.75);
-            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p100, p110, p111, p101, TextureId::Snow, 0.75);
+            if player_pos.z <= z_min && !is_cloud(gx, gz - 1) {
+                append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p000, p010, p110, p100, TextureId::Snow, 0.85);
+            }
+            if player_pos.z >= z_max && !is_cloud(gx, gz + 1) {
+                append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p101, p111, p011, p001, TextureId::Snow, 0.85);
+            }
+            if player_pos.x <= x_min && !is_cloud(gx - 1, gz) {
+                append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p001, p011, p010, p000, TextureId::Snow, 0.75);
+            }
+            if player_pos.x >= x_max && !is_cloud(gx + 1, gz) {
+                append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p100, p110, p111, p101, TextureId::Snow, 0.75);
+            }
         }
     }
 }

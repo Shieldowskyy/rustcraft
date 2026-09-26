@@ -1813,46 +1813,55 @@ impl RustCraftApp {
                     self.renderer.fog_enabled = self.settings.fog;
                     self.renderer.render_frame(&mut self.world, &self.camera);
 
-                    for mob in &self.mob_manager.mobs {
-                        self.renderer.draw_mob(mob, &self.camera, &view_proj);
-                    }
-
-                    for tnt in &self.world.primed_tnts {
-                        self.renderer.draw_tnt_cube(tnt.pos, tnt.fuse, &self.camera, &view_proj);
-                    }
-
                     let is_occluded = self.world.is_view_fully_occluded(self.camera.position, self.camera.yaw, self.camera.pitch);
-                    if self.settings.clouds && !is_occluded {
-                        self.renderer.draw_clouds(self.camera.position, &view_proj, self.total_time);
-                    }
 
-                    for item in &self.items {
-                        // Ground drop shadow below floating block (Minecraft style)
-                        let ipos_x = item.position.x.floor() as i32;
-                        let ipos_z = item.position.z.floor() as i32;
-                        let item_y = item.position.y;
-                        for dy in 0..=3 {
-                            let test_y = (item_y.floor() as i32) - dy;
-                            let b = self.world.get_block(crate::core::math::IVec3::new(ipos_x, test_y, ipos_z));
-                            if b.is_solid() {
-                                let top_y = test_y as f32 + 1.0 + 0.015;
-                                if item_y >= top_y - 0.2 {
-                                    self.renderer.draw_item_shadow(item.position, top_y, &view_proj);
-                                    break;
+                    if !is_occluded {
+                        for mob in &self.mob_manager.mobs {
+                            self.renderer.draw_mob(mob, &self.camera, &view_proj);
+                        }
+
+                        for tnt in &self.world.primed_tnts {
+                            self.renderer.draw_tnt_cube(tnt.pos, tnt.fuse, &self.camera, &view_proj);
+                        }
+
+                        if self.settings.clouds {
+                            self.renderer.draw_clouds(self.camera.position, &view_proj, self.total_time);
+                        }
+
+                        for item in &self.items {
+                            // Ground drop shadow below floating block (Minecraft style)
+                            let ipos_x = item.position.x.floor() as i32;
+                            let ipos_z = item.position.z.floor() as i32;
+                            let item_y = item.position.y;
+                            for dy in 0..=3 {
+                                let test_y = (item_y.floor() as i32) - dy;
+                                let b = self.world.get_block(crate::core::math::IVec3::new(ipos_x, test_y, ipos_z));
+                                if b.is_solid() {
+                                    let top_y = test_y as f32 + 1.0 + 0.015;
+                                    if item_y >= top_y - 0.2 {
+                                        self.renderer.draw_item_shadow(item.position, top_y, &view_proj);
+                                        break;
+                                    }
                                 }
+                            }
+
+                            let y_offset = (item.age * 3.0).sin() * 0.08;
+                            let mut pos = item.position;
+                            pos.y += y_offset;
+                            let yaw = item.age * 2.5;
+                            self.renderer.draw_item_3d(item.block, pos, yaw, &view_proj);
+                        }
+
+                        if let Some(target) = self.break_target {
+                            if self.break_progress > 0.0 {
+                                self.renderer.draw_block_break_cracks(target, self.break_progress, &view_proj);
                             }
                         }
 
-                        let y_offset = (item.age * 3.0).sin() * 0.08;
-                        let mut pos = item.position;
-                        pos.y += y_offset;
-                        let yaw = item.age * 2.5;
-                        self.renderer.draw_item_3d(item.block, pos, yaw, &view_proj);
-                    }
-
-                    if let Some(target) = self.break_target {
-                        if self.break_progress > 0.0 {
-                            self.renderer.draw_block_break_cracks(target, self.break_progress, &view_proj);
+                        if self.settings.particles {
+                            for p in &self.particles.particles {
+                                self.renderer.draw_billboard(p.pos, p.size, p.color, &self.camera, &view_proj);
+                            }
                         }
                     }
 
@@ -1861,12 +1870,6 @@ impl RustCraftApp {
                         self.renderer.draw_lava_overlay(self.total_time);
                     } else if self.settings.underwater_fx && block_at_camera == BlockId::Water {
                         self.renderer.draw_underwater_overlay(self.total_time);
-                    }
-
-                    if self.settings.particles {
-                        for p in &self.particles.particles {
-                            self.renderer.draw_billboard(p.pos, p.size, p.color, &self.camera, &view_proj);
-                        }
                     }
 
                     if self.damage_tilt_timer > 0.0 {
