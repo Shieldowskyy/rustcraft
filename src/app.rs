@@ -3139,6 +3139,57 @@ impl RustCraftApp {
             if matches!(self.state, GameState::Paused) { " - [PAUSED]" } else { "" }
         );
 
+        if let Some(ref server) = self.profiler_server {
+            if server.is_screenshot_requested() {
+                let bmp_bytes = crate::core::profiler_server::encode_bmp(
+                    self.renderer.pixel_buffer(),
+                    self.width,
+                    self.height,
+                );
+                let bpos = self.camera.position.floor_to_ivec();
+                let biome = self.world.biome_name_at(bpos.x, bpos.z).to_string();
+                let game_state_str = match &self.state {
+                    GameState::MainMenu => "Main Menu",
+                    GameState::SaveSelect => "Save Select",
+                    GameState::CreateWorld => "Create World",
+                    GameState::Settings(_) => "Settings",
+                    #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
+                    GameState::Loading(_) => "Loading",
+                    #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+                    GameState::Loading => "Loading",
+                    GameState::Playing => "Playing",
+                    GameState::Paused => "Paused",
+                    GameState::Inventory => "Inventory",
+                    GameState::Chest { .. } => "Chest",
+                    GameState::Furnace { .. } => "Furnace",
+                    GameState::DeathScreen => "Death Screen",
+                };
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+
+                server.set_screenshot(crate::core::profiler_server::ScreenshotData {
+                    bmp_bytes,
+                    width: self.width,
+                    height: self.height,
+                    timestamp_ms: now_ms,
+                    fps: self.fps_display,
+                    player_pos: [
+                        self.camera.position.x,
+                        self.camera.position.y,
+                        self.camera.position.z,
+                    ],
+                    biome,
+                    game_state: game_state_str.to_string(),
+                    gamemode: match self.player.gamemode {
+                        GameMode::Survival => "Survival".to_string(),
+                        GameMode::Creative => "Creative".to_string(),
+                    },
+                });
+            }
+        }
+
         out
     }
 

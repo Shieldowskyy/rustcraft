@@ -2,11 +2,11 @@
 //!
 //! Provides a zero-external-dependency, high-performance micro HTTP server that hosts
 //! a real-time web dashboard for inspecting frame execution timings, memory allocations,
-//! GPU/rasterizer telemetry, and world diagnostics on PC and Sony PlayStation Vita.
+//! GPU/rasterizer telemetry, diagnostic screenshot capture, and world diagnostics on PC and Sony PlayStation Vita.
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -255,6 +255,108 @@ impl ProfilerSnapshot {
     }
 }
 
+/// Encapsulates a captured diagnostic frame and associated metadata.
+#[derive(Clone, Debug)]
+pub struct ScreenshotData {
+    pub bmp_bytes: Vec<u8>,
+    pub width: usize,
+    pub height: usize,
+    pub timestamp_ms: u64,
+    pub fps: u32,
+    pub player_pos: [f32; 3],
+    pub biome: String,
+    pub game_state: String,
+    pub gamemode: String,
+}
+
+impl ScreenshotData {
+    /// Serializes screenshot metadata into JSON.
+    pub fn to_json(&self) -> String {
+        format!(
+            "{{\
+\"timestamp_ms\":{},\
+\"width\":{},\
+\"height\":{},\
+\"fps\":{},\
+\"player_x\":{:.2},\
+\"player_y\":{:.2},\
+\"player_z\":{:.2},\
+\"biome\":\"{}\",\
+\"game_state\":\"{}\",\
+\"gamemode\":\"{}\",\
+\"size_bytes\":{},\
+\"url\":\"/api/screenshot\"\
+}}",
+            self.timestamp_ms,
+            self.width,
+            self.height,
+            self.fps,
+            self.player_pos[0],
+            self.player_pos[1],
+            self.player_pos[2],
+            escape_json(&self.biome),
+            escape_json(&self.game_state),
+            escape_json(&self.gamemode),
+            self.bmp_bytes.len()
+        )
+    }
+}
+
+/// Encodes raw 32-bit `0x00RRGGBB` color buffer pixels into a standard uncompressed 24-bit Windows BMP image.
+pub fn encode_bmp(color_buffer: &[u32], width: usize, height: usize) -> Vec<u8> {
+    if width == 0 || height == 0 || color_buffer.len() < width * height {
+        return Vec::new();
+    }
+
+    let row_bytes = width * 3;
+    let padding = (4 - (row_bytes % 4)) % 4;
+    let row_stride = row_bytes + padding;
+    let image_size = row_stride * height;
+    let file_size = 54 + image_size;
+
+    let mut bmp = Vec::with_capacity(file_size);
+
+    // 14-byte BITMAPFILEHEADER
+    bmp.extend_from_slice(b"BM");
+    bmp.extend_from_slice(&(file_size as u32).to_le_bytes());
+    bmp.extend_from_slice(&0u32.to_le_bytes()); // Reserved 1 & 2
+    bmp.extend_from_slice(&54u32.to_le_bytes()); // Offset to pixel data
+
+    // 40-byte BITMAPINFOHEADER
+    bmp.extend_from_slice(&40u32.to_le_bytes()); // biSize
+    bmp.extend_from_slice(&(width as i32).to_le_bytes()); // biWidth
+    bmp.extend_from_slice(&(height as i32).to_le_bytes()); // biHeight (bottom-up raster)
+    bmp.extend_from_slice(&1u16.to_le_bytes()); // biPlanes
+    bmp.extend_from_slice(&24u16.to_le_bytes()); // biBitCount (24 bits = RGB)
+    bmp.extend_from_slice(&0u32.to_le_bytes()); // biCompression (BI_RGB)
+    bmp.extend_from_slice(&(image_size as u32).to_le_bytes()); // biSizeImage
+    bmp.extend_from_slice(&2835u32.to_le_bytes()); // biXPelsPerMeter (72 DPI)
+    bmp.extend_from_slice(&2835u32.to_le_bytes()); // biYPelsPerMeter (72 DPI)
+    bmp.extend_from_slice(&0u32.to_le_bytes()); // biClrUsed
+    bmp.extend_from_slice(&0u32.to_le_bytes()); // biClrImportant
+
+    let pad_bytes = [0u8; 3];
+
+    // Standard bottom-up DIB raster format
+    for y in (0..height).rev() {
+        let row_start = y * width;
+        for x in 0..width {
+            let pixel = color_buffer[row_start + x];
+            let b = (pixel & 0xFF) as u8;
+            let g = ((pixel >> 8) & 0xFF) as u8;
+            let r = ((pixel >> 16) & 0xFF) as u8;
+            bmp.push(b);
+            bmp.push(g);
+            bmp.push(r);
+        }
+        if padding > 0 {
+            bmp.extend_from_slice(&pad_bytes[..padding]);
+        }
+    }
+
+    bmp
+}
+
 fn escape_json(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', " ").replace('\r', "")
 }
@@ -262,8 +364,11 @@ fn escape_json(s: &str) -> String {
 /// Real-time HTTP Profiler Server instance.
 pub struct ProfilerServer {
     running: Arc<AtomicBool>,
+    screenshot_requested: Arc<AtomicBool>,
+    screenshot_counter: Arc<AtomicU64>,
     latest_snapshot: Arc<RwLock<ProfilerSnapshot>>,
     history_buffer: Arc<Mutex<Vec<ProfilerSnapshot>>>,
+    latest_screenshot: Arc<RwLock<Option<ScreenshotData>>>,
     server_handle: Option<JoinHandle<()>>,
     pub port: u16,
     pub ip_address: String,
@@ -292,8 +397,11 @@ impl ProfilerServer {
     /// Spawns the HTTP profiler server thread on `0.0.0.0:port`.
     pub fn start(port: u16) -> Result<Self, String> {
         let running = Arc::new(AtomicBool::new(true));
+        let screenshot_requested = Arc::new(AtomicBool::new(false));
+        let screenshot_counter = Arc::new(AtomicU64::new(0));
         let latest_snapshot = Arc::new(RwLock::new(ProfilerSnapshot::default()));
         let history_buffer = Arc::new(Mutex::new(Vec::with_capacity(1200)));
+        let latest_screenshot = Arc::new(RwLock::new(None));
 
         let listener = TcpListener::bind(format!("0.0.0.0:{port}"))
             .map_err(|e| format!("Failed to bind profiler server on port {port}: {e}"))?;
@@ -304,14 +412,24 @@ impl ProfilerServer {
         let running_clone = running.clone();
         let snapshot_clone = latest_snapshot.clone();
         let history_clone = history_buffer.clone();
+        let shot_req_clone = screenshot_requested.clone();
+        let shot_counter_clone = screenshot_counter.clone();
+        let shot_data_clone = latest_screenshot.clone();
 
         let server_handle = std::thread::spawn(move || {
             while running_clone.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((stream, _)) => {
-                        let _ = stream.set_read_timeout(Some(Duration::from_millis(150)));
-                        let _ = stream.set_write_timeout(Some(Duration::from_millis(300)));
-                        Self::handle_connection(stream, &snapshot_clone, &history_clone);
+                        let _ = stream.set_read_timeout(Some(Duration::from_millis(1500)));
+                        let _ = stream.set_write_timeout(Some(Duration::from_millis(3000)));
+                        Self::handle_connection(
+                            stream,
+                            &snapshot_clone,
+                            &history_clone,
+                            &shot_req_clone,
+                            &shot_counter_clone,
+                            &shot_data_clone,
+                        );
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         std::thread::sleep(Duration::from_millis(30));
@@ -327,12 +445,39 @@ impl ProfilerServer {
 
         Ok(Self {
             running,
+            screenshot_requested,
+            screenshot_counter,
             latest_snapshot,
             history_buffer,
+            latest_screenshot,
             server_handle: Some(server_handle),
             port,
             ip_address,
         })
+    }
+
+    /// Returns true if a screenshot has been requested by the web dashboard.
+    pub fn is_screenshot_requested(&self) -> bool {
+        self.screenshot_requested.load(Ordering::Relaxed)
+    }
+
+    /// Triggers a screenshot capture request.
+    pub fn request_screenshot(&self) {
+        self.screenshot_requested.store(true, Ordering::Relaxed);
+    }
+
+    /// Stores the newly captured frame screenshot.
+    pub fn set_screenshot(&self, data: ScreenshotData) {
+        if let Ok(mut lock) = self.latest_screenshot.write() {
+            *lock = Some(data);
+        }
+        self.screenshot_counter.fetch_add(1, Ordering::SeqCst);
+        self.screenshot_requested.store(false, Ordering::Relaxed);
+    }
+
+    /// Retrieves the most recent screenshot if available.
+    pub fn get_screenshot(&self) -> Option<ScreenshotData> {
+        self.latest_screenshot.read().ok().and_then(|g| g.clone())
     }
 
     /// Updates the latest frame snapshot and appends to the history buffer.
@@ -360,8 +505,11 @@ impl ProfilerServer {
         mut stream: TcpStream,
         snapshot: &Arc<RwLock<ProfilerSnapshot>>,
         history: &Arc<Mutex<Vec<ProfilerSnapshot>>>,
+        screenshot_req: &Arc<AtomicBool>,
+        screenshot_counter: &Arc<AtomicU64>,
+        latest_screenshot: &Arc<RwLock<Option<ScreenshotData>>>,
     ) {
-        let mut buffer = [0u8; 1024];
+        let mut buffer = [0u8; 2048];
         let bytes_read = match stream.read(&mut buffer) {
             Ok(n) if n > 0 => n,
             _ => return,
@@ -377,8 +525,9 @@ impl ProfilerServer {
         if method == "OPTIONS" {
             let response = "HTTP/1.1 204 No Content\r\n\
 Access-Control-Allow-Origin: *\r\n\
-Access-Control-Allow-Methods: GET, OPTIONS\r\n\
+Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
 Access-Control-Allow-Headers: *\r\n\
+Access-Control-Expose-Headers: *\r\n\
 Content-Length: 0\r\n\r\n";
             let _ = stream.write_all(response.as_bytes());
             return;
@@ -394,6 +543,7 @@ Content-Length: 0\r\n\r\n";
                 "HTTP/1.1 200 OK\r\n\
 Content-Type: application/json; charset=utf-8\r\n\
 Access-Control-Allow-Origin: *\r\n\
+Access-Control-Expose-Headers: *\r\n\
 Cache-Control: no-cache, no-store, must-revalidate\r\n\
 Content-Length: {}\r\n\r\n{}",
                 json.len(),
@@ -412,6 +562,7 @@ Content-Length: {}\r\n\r\n{}",
 Content-Type: application/json; charset=utf-8\r\n\
 Content-Disposition: attachment; filename=\"rustcraft_profile.json\"\r\n\
 Access-Control-Allow-Origin: *\r\n\
+Access-Control-Expose-Headers: *\r\n\
 Content-Length: {}\r\n\r\n{}",
                 hist_json.len(),
                 hist_json
@@ -429,9 +580,97 @@ Content-Length: {}\r\n\r\n{}",
 Content-Type: text/csv; charset=utf-8\r\n\
 Content-Disposition: attachment; filename=\"rustcraft_profile.csv\"\r\n\
 Access-Control-Allow-Origin: *\r\n\
+Access-Control-Expose-Headers: *\r\n\
 Content-Length: {}\r\n\r\n{}",
                 csv.len(),
                 csv
+            );
+            let _ = stream.write_all(response.as_bytes());
+        } else if path == "/api/screenshot"
+            || path.starts_with("/api/screenshot?")
+            || path == "/api/screenshot.bmp"
+            || path.starts_with("/api/screenshot/take")
+        {
+            // Trigger screenshot capture request
+            let start_count = screenshot_counter.load(Ordering::Relaxed);
+            screenshot_req.store(true, Ordering::SeqCst);
+
+            // Wait up to 60 * 15ms = 900ms for a frame to render and produce screenshot
+            for _ in 0..60 {
+                if screenshot_counter.load(Ordering::Relaxed) > start_count {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(15));
+            }
+
+            if let Ok(lock) = latest_screenshot.read() {
+                if let Some(ref data) = *lock {
+                    let header = format!(
+                        "HTTP/1.1 200 OK\r\n\
+Content-Type: image/bmp\r\n\
+Content-Disposition: inline; filename=\"rustcraft_screenshot_{}.bmp\"\r\n\
+Access-Control-Allow-Origin: *\r\n\
+Access-Control-Expose-Headers: *\r\n\
+Cache-Control: no-cache, no-store, must-revalidate\r\n\
+X-Rustcraft-Width: {}\r\n\
+X-Rustcraft-Height: {}\r\n\
+X-Rustcraft-Timestamp: {}\r\n\
+X-Rustcraft-FPS: {}\r\n\
+X-Rustcraft-Biome: {}\r\n\
+X-Rustcraft-State: {}\r\n\
+X-Rustcraft-Gamemode: {}\r\n\
+X-Rustcraft-Player: {:.1},{:.1},{:.1}\r\n\
+Content-Length: {}\r\n\r\n",
+                        data.timestamp_ms,
+                        data.width,
+                        data.height,
+                        data.timestamp_ms,
+                        data.fps,
+                        escape_json(&data.biome),
+                        escape_json(&data.game_state),
+                        escape_json(&data.gamemode),
+                        data.player_pos[0],
+                        data.player_pos[1],
+                        data.player_pos[2],
+                        data.bmp_bytes.len()
+                    );
+                    let _ = stream.write_all(header.as_bytes());
+                    let _ = stream.write_all(&data.bmp_bytes);
+                    return;
+                }
+            }
+
+            // Fallback response if frame not yet rendered
+            let err_json = "{\"error\":\"Screenshot not ready yet. Please ensure the game session is active.\"}";
+            let response = format!(
+                "HTTP/1.1 503 Service Unavailable\r\n\
+Content-Type: application/json; charset=utf-8\r\n\
+Access-Control-Allow-Origin: *\r\n\
+Access-Control-Expose-Headers: *\r\n\
+Content-Length: {}\r\n\r\n{}",
+                err_json.len(),
+                err_json
+            );
+            let _ = stream.write_all(response.as_bytes());
+        } else if path == "/api/screenshot.json" || path == "/api/screenshot/info" {
+            let json = if let Ok(lock) = latest_screenshot.read() {
+                if let Some(ref data) = *lock {
+                    data.to_json()
+                } else {
+                    "{\"status\":\"none\"}".to_string()
+                }
+            } else {
+                "{\"status\":\"error\"}".to_string()
+            };
+            let response = format!(
+                "HTTP/1.1 200 OK\r\n\
+Content-Type: application/json; charset=utf-8\r\n\
+Access-Control-Allow-Origin: *\r\n\
+Access-Control-Expose-Headers: *\r\n\
+Cache-Control: no-cache, no-store, must-revalidate\r\n\
+Content-Length: {}\r\n\r\n{}",
+                json.len(),
+                json
             );
             let _ = stream.write_all(response.as_bytes());
         } else {
@@ -462,7 +701,7 @@ pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RustCraft Live Engine Profiler</title>
+  <title>RustCraft Live Engine Profiler & Diagnostics</title>
   <style>
     :root {
       --bg-dark: #0d1117;
@@ -546,6 +785,7 @@ pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
       display: flex;
       gap: 10px;
       align-items: center;
+      flex-wrap: wrap;
     }
     button, select {
       background: var(--bg-card);
@@ -559,14 +799,28 @@ pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
       transition: all 0.2s ease;
       outline: none;
     }
-    button:hover, select:hover {
+    button:hover:not(:disabled), select:hover {
       background: var(--bg-card-hover);
       border-color: var(--border-glow);
+    }
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
     }
     button.active {
       background: rgba(248, 81, 73, 0.2);
       border-color: var(--accent-red);
       color: var(--accent-red);
+    }
+    button.primary-btn {
+      background: linear-gradient(135deg, #1f6feb 0%, #238636 100%);
+      color: #fff;
+      border: none;
+      box-shadow: 0 0 10px rgba(31, 111, 235, 0.3);
+    }
+    button.primary-btn:hover:not(:disabled) {
+      box-shadow: 0 0 16px rgba(46, 160, 67, 0.5);
+      filter: brightness(1.1);
     }
     .grid {
       display: grid;
@@ -594,6 +848,9 @@ pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
       margin-bottom: 8px;
       display: flex;
       justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
     }
     .metric-val {
       font-size: 28px;
@@ -664,6 +921,33 @@ pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
       font-weight: 600;
       color: var(--accent-cyan);
     }
+    .screenshot-box {
+      position: relative;
+      background: #080c10;
+      border: 1px solid rgba(56, 139, 253, 0.25);
+      border-radius: 8px;
+      overflow: hidden;
+      min-height: 240px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: inset 0 0 20px rgba(0,0,0,0.6);
+    }
+    .screenshot-hud {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 12px 16px;
+      background: linear-gradient(0deg, rgba(9, 13, 19, 0.95) 0%, rgba(9, 13, 19, 0.6) 70%, transparent 100%);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 12px;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -684,6 +968,7 @@ pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
         <option value="500">500 ms (Eco)</option>
         <option value="1000">1000 ms (Slow)</option>
       </select>
+      <button id="hdr-screenshot-btn" class="primary-btn" title="Capture in-game session screenshot">📸 Take Screenshot</button>
       <button id="pause-btn">Pause Stream</button>
       <button id="record-btn">Record Session</button>
       <button id="export-json-btn">Export JSON</button>
@@ -712,6 +997,56 @@ pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
       <div class="card-title">World & Chunks <span>VOXELS</span></div>
       <div class="metric-val" id="val-chunks" style="color: var(--accent-purple);">-- Chunks</div>
       <div class="metric-sub" id="val-coords">XYZ: -- / -- / --</div>
+    </div>
+  </div>
+
+  <!-- Diagnostic Screenshot & Viewport Card -->
+  <div class="card" style="margin-bottom: 20px;" id="screenshot-section">
+    <div class="card-title">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-weight: 700; color: var(--text-primary);">📸 Live Viewport & Diagnostic Screenshot Capture</span>
+        <span class="status-badge" id="shot-status-badge" style="font-size: 11px; padding: 2px 8px; display: none;">Ready</span>
+      </div>
+      <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+        <label style="font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 4px;">
+          Auto-Refresh:
+          <select id="shot-auto-refresh" style="padding: 3px 8px; font-size: 12px;">
+            <option value="0" selected>Off</option>
+            <option value="1000">1s</option>
+            <option value="2000">2s</option>
+            <option value="5000">5s</option>
+          </select>
+        </label>
+        <button id="shot-capture-btn" class="primary-btn">📸 Capture Frame</button>
+        <button id="shot-dl-bmp-btn" disabled>💾 Download BMP</button>
+        <button id="shot-dl-png-btn" disabled>🖼️ Download PNG</button>
+        <button id="shot-fullscreen-btn" disabled>🔍 Full View</button>
+      </div>
+    </div>
+    
+    <div class="screenshot-box" id="shot-container">
+      <div id="shot-placeholder" style="text-align: center; color: var(--text-muted); padding: 50px 20px;">
+        <div style="font-size: 38px; margin-bottom: 10px;">📷</div>
+        <div style="font-weight: 700; font-size: 15px; color: var(--text-primary);">No Diagnostic Screenshot Captured Yet</div>
+        <div style="font-size: 13px; margin-top: 6px; color: var(--text-muted);">
+          Click <b style="color: var(--accent-green);">Capture Frame</b> or <b style="color: var(--accent-cyan);">Take Screenshot</b> to grab a live frame from the running game session.
+        </div>
+      </div>
+      <img id="shot-img" style="display: none; width: 100%; max-height: 560px; object-fit: contain; cursor: zoom-in;" title="Click to view full size" alt="RustCraft Game Viewport" />
+      
+      <!-- Diagnostic Overlay HUD -->
+      <div class="screenshot-hud" id="shot-hud" style="display: none;">
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+          <span class="status-badge" id="hud-res" style="background: rgba(88,166,255,0.15); color: var(--accent-cyan); border-color: rgba(88,166,255,0.3);">960 × 540</span>
+          <span class="status-badge" id="hud-fps" style="background: rgba(63,185,80,0.15); color: var(--accent-green); border-color: rgba(63,185,80,0.3);">60 FPS</span>
+          <span id="hud-pos" style="color: #c9d1d9; font-weight: 600;">XYZ: --</span>
+          <span id="hud-biome" style="color: var(--accent-amber);">Biome: --</span>
+        </div>
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <span id="hud-state" style="color: var(--accent-purple); font-weight: 700;">--</span>
+          <span id="hud-time" style="color: var(--text-muted);">--:--:--</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -795,6 +1130,15 @@ pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- Fullscreen Lightbox Modal -->
+  <div id="shot-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.92); backdrop-filter: blur(10px); z-index: 9999; justify-content: center; align-items: center; padding: 24px;">
+    <div style="position: relative; max-width: 96vw; max-height: 96vh; display: flex; flex-direction: column; align-items: center;">
+      <button id="shot-modal-close" style="position: absolute; top: -38px; right: 0; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: #fff; padding: 4px 12px; border-radius: 4px; font-size: 13px; cursor: pointer;">✕ Close (ESC)</button>
+      <img id="shot-modal-img" style="max-width: 100%; max-height: 88vh; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.9); border: 1px solid var(--border-glow);" alt="Full View Screenshot" />
+      <div id="shot-modal-caption" style="margin-top: 10px; font-size: 13px; color: var(--text-muted); text-align: center;"></div>
+    </div>
+  </div>
+
   <script>
     const COLORS = {
       terrain: '#3fb950',
@@ -814,6 +1158,11 @@ pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
     let recordBuffer = [];
     const history = [];
     const MAX_HISTORY = 90;
+
+    let currentShotBlob = null;
+    let currentShotTimestamp = 0;
+    let shotAutoRefreshInterval = null;
+    let isCapturing = false;
 
     const timelineCanvas = document.getElementById('timeline-chart');
     const tCtx = timelineCanvas.getContext('2d');
@@ -1066,6 +1415,159 @@ pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
       document.getElementById('ram-legend').innerHTML = legHtml;
     }
 
+    // --- Diagnostic Screenshot Capture Functions ---
+    async function takeScreenshot() {
+      if (isCapturing) return;
+      isCapturing = true;
+
+      const capBtn = document.getElementById('shot-capture-btn');
+      const hdrBtn = document.getElementById('hdr-screenshot-btn');
+      if (capBtn) {
+        capBtn.textContent = '⏳ Capturing...';
+        capBtn.disabled = true;
+      }
+      if (hdrBtn) {
+        hdrBtn.textContent = '⏳ Capturing...';
+        hdrBtn.disabled = true;
+      }
+
+      const startTime = performance.now();
+      try {
+        const res = await fetch('/api/screenshot/take?t=' + Date.now());
+        if (!res.ok) {
+          throw new Error('Server returned HTTP ' + res.status);
+        }
+
+        const blob = await res.blob();
+        currentShotBlob = blob;
+        currentShotTimestamp = res.headers.get('X-Rustcraft-Timestamp') || Date.now();
+
+        const imgUrl = URL.createObjectURL(blob);
+        const imgEl = document.getElementById('shot-img');
+        const placeholder = document.getElementById('shot-placeholder');
+        const hud = document.getElementById('shot-hud');
+
+        imgEl.src = imgUrl;
+        imgEl.style.display = 'block';
+        if (placeholder) placeholder.style.display = 'none';
+        if (hud) hud.style.display = 'flex';
+
+        // Read diagnostic headers
+        const w = res.headers.get('X-Rustcraft-Width') || '960';
+        const h = res.headers.get('X-Rustcraft-Height') || '540';
+        const fps = res.headers.get('X-Rustcraft-FPS') || '--';
+        const biome = res.headers.get('X-Rustcraft-Biome') || 'Unknown';
+        const state = res.headers.get('X-Rustcraft-State') || 'Playing';
+        const mode = res.headers.get('X-Rustcraft-Gamemode') || 'Survival';
+        const pos = res.headers.get('X-Rustcraft-Player') || '--';
+
+        document.getElementById('hud-res').textContent = `${w} × ${h}`;
+        document.getElementById('hud-fps').textContent = `${fps} FPS`;
+        document.getElementById('hud-pos').textContent = `XYZ: ${pos.split(',').join(' / ')}`;
+        document.getElementById('hud-biome').textContent = `Biome: ${biome}`;
+        document.getElementById('hud-state').textContent = `${state} (${mode})`;
+
+        const d = new Date(Number(currentShotTimestamp));
+        const timeStr = d.toTimeString().split(' ')[0] + '.' + String(d.getMilliseconds()).padStart(3, '0');
+        document.getElementById('hud-time').textContent = timeStr;
+
+        document.getElementById('shot-dl-bmp-btn').disabled = false;
+        document.getElementById('shot-dl-png-btn').disabled = false;
+        document.getElementById('shot-fullscreen-btn').disabled = false;
+
+        const elapsed = Math.round(performance.now() - startTime);
+        const badge = document.getElementById('shot-status-badge');
+        if (badge) {
+          badge.style.display = 'inline-flex';
+          badge.textContent = `Captured in ${elapsed}ms (${(blob.size / (1024 * 1024)).toFixed(2)} MB)`;
+        }
+      } catch (err) {
+        console.error('Screenshot capture failed:', err);
+      } finally {
+        isCapturing = false;
+        if (capBtn) {
+          capBtn.textContent = '📸 Capture Frame';
+          capBtn.disabled = false;
+        }
+        if (hdrBtn) {
+          hdrBtn.textContent = '📸 Take Screenshot';
+          hdrBtn.disabled = false;
+        }
+      }
+    }
+
+    // Download BMP
+    document.getElementById('shot-dl-bmp-btn').addEventListener('click', () => {
+      if (!currentShotBlob) return;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(currentShotBlob);
+      a.download = `rustcraft_screenshot_${currentShotTimestamp}.bmp`;
+      a.click();
+    });
+
+    // Download PNG (via client canvas conversion)
+    document.getElementById('shot-dl-png-btn').addEventListener('click', () => {
+      const imgEl = document.getElementById('shot-img');
+      if (!imgEl || !imgEl.src) return;
+      const canvas = document.createElement('canvas');
+      canvas.width = imgEl.naturalWidth || 960;
+      canvas.height = imgEl.naturalHeight || 540;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imgEl, 0, 0);
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `rustcraft_screenshot_${currentShotTimestamp}.png`;
+        a.click();
+      }, 'image/png');
+    });
+
+    // Lightbox Modal
+    function openShotModal() {
+      const imgEl = document.getElementById('shot-img');
+      if (!imgEl || !imgEl.src || imgEl.style.display === 'none') return;
+      const modal = document.getElementById('shot-modal');
+      const modalImg = document.getElementById('shot-modal-img');
+      const caption = document.getElementById('shot-modal-caption');
+      modalImg.src = imgEl.src;
+      caption.textContent = `RustCraft Diagnostic Frame • ${document.getElementById('hud-res').textContent} • ${document.getElementById('hud-fps').textContent} • ${document.getElementById('hud-pos').textContent} • ${document.getElementById('hud-biome').textContent} • ${document.getElementById('hud-state').textContent}`;
+      modal.style.display = 'flex';
+    }
+
+    function closeShotModal() {
+      const modal = document.getElementById('shot-modal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    document.getElementById('shot-fullscreen-btn').addEventListener('click', openShotModal);
+    document.getElementById('shot-img').addEventListener('click', openShotModal);
+    document.getElementById('shot-modal-close').addEventListener('click', closeShotModal);
+    document.getElementById('shot-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'shot-modal') closeShotModal();
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeShotModal();
+    });
+
+    document.getElementById('shot-capture-btn').addEventListener('click', takeScreenshot);
+    document.getElementById('hdr-screenshot-btn').addEventListener('click', () => {
+      document.getElementById('screenshot-section').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      takeScreenshot();
+    });
+
+    document.getElementById('shot-auto-refresh').addEventListener('change', (e) => {
+      if (shotAutoRefreshInterval) {
+        clearInterval(shotAutoRefreshInterval);
+        shotAutoRefreshInterval = null;
+      }
+      const val = parseInt(e.target.value);
+      if (val > 0) {
+        takeScreenshot();
+        shotAutoRefreshInterval = setInterval(takeScreenshot, val);
+      }
+    });
+
     // Controls
     let intervalId = setInterval(fetchStats, 250);
     document.getElementById('poll-rate').addEventListener('change', (e) => {
@@ -1187,6 +1689,38 @@ mod tests {
     }
 
     #[test]
+    fn test_encode_bmp_and_screenshot_metadata() {
+        let width = 4;
+        let height = 2;
+        let color_buffer = vec![
+            0x00FF0000, 0x0000FF00, 0x000000FF, 0x00FFFFFF,
+            0x00123456, 0x00654321, 0x00ABCDEF, 0x00000000,
+        ];
+
+        let bmp = encode_bmp(&color_buffer, width, height);
+        assert_eq!(&bmp[0..2], b"BM");
+        assert_eq!(bmp.len(), 54 + (width * 3) * height);
+
+        let data = ScreenshotData {
+            bmp_bytes: bmp,
+            width,
+            height,
+            timestamp_ms: 1700000000,
+            fps: 60,
+            player_pos: [10.0, 64.0, -20.0],
+            biome: "FOREST".to_string(),
+            game_state: "Playing".to_string(),
+            gamemode: "Creative".to_string(),
+        };
+
+        let json = data.to_json();
+        assert!(json.contains("\"width\":4"));
+        assert!(json.contains("\"height\":2"));
+        assert!(json.contains("\"fps\":60"));
+        assert!(json.contains("\"biome\":\"FOREST\""));
+    }
+
+    #[test]
     fn test_profiler_server_lifecycle() {
         // Use high unprivileged port for test
         let mut server = ProfilerServer::start(18080).expect("Failed to bind test profiler server");
@@ -1197,6 +1731,24 @@ mod tests {
         snap.fps = 120;
         snap.platform = "Unit Test".to_string();
         server.update_snapshot(snap);
+
+        server.request_screenshot();
+        assert!(server.is_screenshot_requested());
+
+        let shot = ScreenshotData {
+            bmp_bytes: vec![1, 2, 3],
+            width: 1,
+            height: 1,
+            timestamp_ms: 12345,
+            fps: 120,
+            player_pos: [0.0, 0.0, 0.0],
+            biome: "PLAINS".to_string(),
+            game_state: "Playing".to_string(),
+            gamemode: "Survival".to_string(),
+        };
+        server.set_screenshot(shot);
+        assert!(!server.is_screenshot_requested());
+        assert!(server.get_screenshot().is_some());
 
         server.stop();
         assert!(!server.running.load(std::sync::atomic::Ordering::Relaxed));
