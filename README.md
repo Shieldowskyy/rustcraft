@@ -44,9 +44,11 @@ RustCraft separates core engine capabilities from gameplay logic, providing huma
 * **Block & Voxel Registry (`src/engine/registry.rs`)**:
   [`BlockRegistry`](src/engine/registry.rs) and [`BlockProperties`](src/engine/registry.rs) for registering custom blocks with hardness, luminance, transparency, and flammability rules.
 * **Modular Typography Subsystem (`src/engine/fonts/`)**:
-  [`BitmapFont`](src/engine/fonts/mod.rs) trait with built-in [`RustcraftRegular`](src/engine/fonts/rustcraft_regular.rs) (3x5 pixel font with Polish diacritics and symbols) and font registry.
+  [`BitmapFont`](src/engine/fonts/mod.rs) trait with two built-in fonts: [`RustcraftRegular`](src/engine/fonts/rustcraft_regular.rs) (3×5 compact pixel font with Polish diacritics) and [`RustcraftLight`](src/engine/fonts/rustcraft_light.rs) (slender open 3×5 font optimized for profiler telemetry and diagnostics).
 * **Zero-Overhead Localization (`src/core/i18n.rs`)**:
   In-memory translation engine (`locales/*.json`) with zero runtime file I/O dependencies, dynamic in-game language switching, and Python synchronization pipeline (`scripts/sync_locales.py`).
+* **CLI Argument Parser (`src/cli.rs`)**:
+  Parses `--renderer`, `--seed`, `--profiler`, and `--help` flags with cryptographically-strong random seed generation via `getrandom`.
 
 ---
 
@@ -54,7 +56,7 @@ RustCraft separates core engine capabilities from gameplay logic, providing huma
 
 ### Desktop & Embedded Linux (x86_64, ARM64, ARMv7, ARMv6, FreeBSD)
 * **Rust**: stable toolchain 1.75+ (`rustup` recommended: https://rustup.rs).
-* **Linux / FreeBSD**: X11 development headers (`libx11-dev` on Debian/Ubuntu, `xorgproto` on FreeBSD).
+* **Linux / FreeBSD**: X11 development headers (`libx11-dev` on Debian/Ubuntu, `xorgproto` & `libudev-devd` on FreeBSD).
 * **Windows / macOS**: No external C libraries required (`minifb` uses native OS windowing APIs).
 * **Vulkan (Optional)**: Vulkan loader and GPU with graphic queue support.
 
@@ -87,6 +89,11 @@ To run with the hardware-accelerated Vulkan renderer:
 cargo run --release -- --renderer vulkan
 # or shortcut:
 cargo run --release -- --vulkan
+```
+
+To enable the embedded HTTP profiler dashboard:
+```bash
+cargo run --release -- --profiler
 ```
 
 ### Linux (32-bit x86 / i686)
@@ -208,22 +215,58 @@ cd web && python3 -m http.server 8080
 
 ## 6. Procedural Biomes
 
-The world generator procedural synthesizes 8 distinct biomes using multi-octave gradient noise:
+The world generator procedurally synthesizes **12 distinct biomes** using multi-octave gradient noise (temperature, humidity, and continentalness axes):
 
 | Biome | Characteristics |
 |---|---|
 | **Plains** | Flat grassy expanses with oak trees and flowers |
 | **Forest** | Rolling hills with dense oak foliage |
-| **Desert** | Sand dunes, sandstone layers, and cacti |
-| **Mountains** | Towering stone peaks reaching past cloud height |
-| **Snow** | Frozen tundra with snow layers and pine trees |
-| **Cherry Grove** | Vibrant cherry blossom trees with falling petals |
-| **Ocean** | Deep sea floor with dynamic underwater lighting |
+| **Autumn Forest** | Orange-red autumnal oak trees with `AutumnLeaves` |
+| **Desert** | Sand dunes, sandstone layers, and cacti; desert wells spawn here |
+| **Mountains** | Towering stone peaks reaching past cloud height; stone ruins |
+| **Snowy Tundra** | Frozen tundra with snow layers and pine trees |
+| **Snowy Taiga** | Dense pine forest in cold snowy regions |
+| **Cherry Grove** | Vibrant cherry blossom trees with `CherryLeaves` |
+| **Ocean** | Deep sea floor with dynamic underwater lighting; coral ruins |
+| **Deep Ocean** | Extra-deep ocean floor far from continental shelves |
 | **Savanna** | Arid grasslands with acacia-style trees |
+| **Swamp** | Waterlogged low terrain with swamp trees and `Mud` blocks |
+
+Each biome generates fitting procedural structures: **desert wells**, **stone ruins**, **forest log cabins** (with loot chests), and **coral ruins** in oceans.
 
 ---
 
-## 7. Localization Pipeline (i18n)
+## 7. Block & Item System
+
+RustCraft features **72 unique block and item IDs** across building materials, ores, tools, food, and functional blocks:
+
+* **Building blocks**: Grass, Dirt, Stone, Sand, Planks, Wood, Glass, Ice, Snow, Mud, Bedrock
+* **Fluids**: Water, Lava
+* **Foliage**: Leaves, SnowLeaves, CherryLeaves, AutumnLeaves, Cactus
+* **Ores & Resources**: CoalOre, IronOre, IronIngot, GoldIngot
+* **Tools (3 tiers)**: Wooden / Stone / Iron Pickaxe, Axe, Shovel, Sword
+* **Items & Food**: Stick, Torch, Apple, RawPorkchop, CookedPorkchop, RawBeef, CookedBeef
+* **Functional blocks**: CraftingTable, Chest, Furnace / FurnaceLit, Door / DoorOpen, TNT
+
+---
+
+## 8. Tile Entities (Interactive Blocks)
+
+* **Chest** (`src/world/tile_entity.rs`): 27-slot item storage, persistent per world position. Forest cabin chests spawn with procedurally generated starter loot (food, tools, materials).
+* **Furnace** (`src/world/tile_entity.rs`): Full smelting simulation — separate input, fuel, and output slots. Supports sand→glass, iron ore→iron ingot, raw meat→cooked food, wood→charcoal. Burn time and cook progress tick every simulation frame. Visual state switches between `Furnace` ↔ `FurnaceLit`.
+
+---
+
+## 9. Embedded Performance Profiler
+
+RustCraft includes a built-in **HTTP profiler web dashboard** (enabled with `--profiler` CLI flag):
+
+* **`src/core/profiler.rs`**: Per-frame telemetry structs — `MemoryBreakdown` (chunk voxels, mesh cache, textures, framebuffers, entities, CDRAM) and `RenderStats` (draw calls, subchunks rendered/culled, triangle counts, rasterizer thread count, pipeline name).
+* **`src/core/profiler_server.rs`**: Zero-external-dependency micro HTTP server with a JSON API and live HTML dashboard. Tracks granular micro-timings for: terrain render, transparent pass, clouds, sky, entities, 3D hand, UI, physics tick, mob AI, world gen, and mesh building. Port configurable via `GameSettings::profiler_server_port` (default 8080).
+
+---
+
+## 10. Localization Pipeline (i18n)
 
 RustCraft features a built-in zero-dependency localization system supporting runtime language switching.
 
@@ -244,12 +287,13 @@ RustCraft features a built-in zero-dependency localization system supporting run
 
 ---
 
-## 8. Codebase Structure
+## 11. Codebase Structure
 
 ```
 rustcraft/
 ├── Cargo.toml                  # Project dependencies & feature flags
 ├── ARCHITECTURE.md             # Comprehensive engine architecture guide
+├── build.rs                    # Vita shader compilation & cross-platform build config
 ├── compile_linux.sh            # Linux x86_64 release & strip script
 ├── build_linux_x86_32.sh       # Linux 32-bit (i686) build script
 ├── compile-windows.sh          # MinGW cross-compilation script (x86_64)
@@ -271,24 +315,64 @@ rustcraft/
 │   ├── lib.rs                  # Library root & public module exports
 │   ├── main.rs                 # Native binary entry point
 │   ├── app.rs                  # Core simulation loop & game state machine
+│   ├── cli.rs                  # CLI argument parser & random seed generation
+│   ├── web.rs                  # WebAssembly entry point & canvas blitter
 │   ├── engine/                 # Modular engine subsystems
 │   │   ├── mod.rs              # EngineApp trait & subsystem re-exports
 │   │   ├── platform.rs         # PlatformBackend trait & configuration
 │   │   ├── module.rs           # EngineModule & ModuleManager
 │   │   ├── registry.rs         # BlockRegistry & voxel properties
-│   │   └── fonts/              # Modular BitmapFont system (RustcraftRegular)
-│   ├── core/                   # Core math, noise, settings, and i18n
-│   ├── world/                  # Chunks, terrain gen, meshing, storage
-│   ├── gameplay/               # Inventory, crafting recipes, physics, mobs
-│   ├── graphics/               # Software rasterizer, Vulkan backend, camera
-│   ├── platform/               # Mouse capture, gamepad, PS Vita GXM
-│   ├── ui/                     # Pixel-rendered HUD, menus, and inventory
-│   └── web.rs                  # WebAssembly entry point & canvas blitter
+│   │   └── fonts/              # BitmapFont system (RustcraftRegular + RustcraftLight)
+│   ├── core/                   # Core math, noise, settings, profiler, and i18n
+│   │   ├── math.rs             # Vec3, IVec3, Mat4 — zero-dependency 3D math
+│   │   ├── noise.rs            # Deterministic 2D/3D fractal noise
+│   │   ├── settings.rs         # GameSettings with full serialization
+│   │   ├── i18n.rs             # In-memory localization engine
+│   │   ├── profiler.rs         # MemoryBreakdown & RenderStats telemetry structs
+│   │   └── profiler_server.rs  # Embedded HTTP profiler web dashboard
+│   ├── world/                  # Chunks, terrain gen, meshing, storage, tile entities
+│   │   ├── block.rs            # BlockId enum (72 types) & block properties
+│   │   ├── mesher.rs           # Chunk mesh builder with AO & async meshing
+│   │   ├── storage.rs          # Binary world save/load (cross-platform paths)
+│   │   ├── tile_entity.rs      # Chest (27-slot) & Furnace smelting simulation
+│   │   └── mod.rs              # World, 12-biome generator, structures, fluid/TNT sim
+│   ├── gameplay/               # Inventory, crafting, physics, mobs, particles
+│   │   ├── player.rs           # Player entity, GameMode, health, fall damage
+│   │   ├── inventory.rs        # Item stacking, hotbar (10), main inventory (27)
+│   │   ├── item.rs             # Dropped ItemEntity physics
+│   │   ├── physics.rs          # AABB collision, ice/lava friction, step-jumping
+│   │   ├── mob.rs              # MobManager: Pig & Cow with AI & pathfinding
+│   │   ├── particles.rs        # Block-break, hit sparks, explosion, lava particles
+│   │   └── recipe.rs           # 2×2 and 3×3 crafting recipe definitions
+│   ├── graphics/               # Rendering backends, camera, font, texture atlas
+│   │   ├── traits.rs           # RenderBackend trait
+│   │   ├── atlas.rs            # Procedural 128×128 px ABGR8888 texture atlas (50 layers)
+│   │   ├── camera.rs           # First-person camera, FOV, view matrix, chunk fade
+│   │   ├── font.rs             # Bitmap font renderer with shadow & measurement
+│   │   ├── software/           # Multi-threaded CPU rasterizer (Rayon tiled scanline)
+│   │   └── gpu/                # WGPU hardware backend (Vulkan / DX12 / Metal / WebGPU)
+│   ├── platform/               # OS abstractions
+│   │   ├── mouse_capture.rs    # X11 / Win32 raw mouse & cursor trap
+│   │   ├── gamepad.rs          # gilrs gamepad (buttons, sticks, triggers)
+│   │   ├── vita.rs             # PS Vita platform layer & SceDisplay
+│   │   └── vita_gxm.rs         # Complete GXM GPU renderer (SGX543MP4)
+│   └── ui/                     # Pixel-rendered HUD, menus, and inventory
+│       ├── draw.rs             # 2D primitives (fill_rect, draw_text, pack_color)
+│       ├── menu.rs             # Main menu, logo voxel art, save slot carousel
+│       ├── hud.rs              # Crosshair, hotbar, debug panel, damage vignette
+│       ├── inventory_ui.rs     # Creative picker, 2×2/3×3 crafting, inventory grid
+│       ├── container_ui.rs     # Chest (27-slot) & Furnace interaction UI
+│       ├── create_world.rs     # Create world form (name, seed, game mode)
+│       ├── save_select.rs      # Save slot selection screen
+│       ├── clipboard.rs        # Clipboard helper (wl-paste / xclip / fallback buffer)
+│       └── settings_ui.rs      # Settings menu (particles, FOV, render dist, leaf quality…)
 └── vita/                       # PS Vita shaders, LiveArea assets, param.sfo
+    ├── shaders/                # Cg vertex + fragment shaders (*.vert.cg / *.frag.cg)
+    └── sce_sys/                # Vita LiveArea assets & param.sfo metadata
 ```
 
 ---
 
-## 9. License
+## 12. License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
