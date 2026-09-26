@@ -57,6 +57,107 @@ pub struct LightSource {
     pub intensity: f32,
 }
 
+#[derive(Clone)]
+pub struct ChunkMeshJob {
+    pub key: (i32, i32),
+    pub center_blocks: Vec<u8>,
+    pub east_blocks: Option<Vec<u8>>,
+    pub west_blocks: Option<Vec<u8>>,
+    pub south_blocks: Option<Vec<u8>>,
+    pub north_blocks: Option<Vec<u8>>,
+    pub se_blocks: Option<Vec<u8>>,
+    pub sw_blocks: Option<Vec<u8>>,
+    pub ne_blocks: Option<Vec<u8>>,
+    pub nw_blocks: Option<Vec<u8>>,
+    pub seed: u32,
+    pub lights: Vec<LightSource>,
+    pub fluid_map: std::collections::HashMap<IVec3, u8>,
+}
+
+pub struct AsyncMesher {
+    req_tx: std::sync::mpsc::Sender<ChunkMeshJob>,
+    res_rx: std::sync::mpsc::Receiver<((i32, i32), Vec<Triangle>)>,
+}
+
+impl Default for AsyncMesher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AsyncMesher {
+    pub fn new() -> Self {
+        let (req_tx, req_rx) = std::sync::mpsc::channel::<ChunkMeshJob>();
+        let (res_tx, res_rx) = std::sync::mpsc::channel::<((i32, i32), Vec<Triangle>)>();
+
+        let req_rx = std::sync::Arc::new(std::sync::Mutex::new(req_rx));
+        let num_threads = {
+            #[cfg(target_os = "vita")]
+            { 2 }
+            #[cfg(not(target_os = "vita"))]
+            {
+                std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(2)
+                    .clamp(1, 4)
+            }
+        };
+
+        for i in 0..num_threads {
+            let req_rx_clone = std::sync::Arc::clone(&req_rx);
+            let res_tx_clone = res_tx.clone();
+            let _ = std::thread::Builder::new()
+                .name(format!("chunk_mesh_{}", i))
+                .spawn(move || {
+                    #[cfg(target_os = "vita")]
+                    unsafe {
+                        extern "C" {
+                            fn sceKernelGetThreadId() -> i32;
+                            fn sceKernelChangeThreadCpuAffinityMask(thid: i32, bitmask: i32) -> i32;
+                        }
+                        let thid = sceKernelGetThreadId();
+                        let mask = if i % 2 == 0 { 0x00020000 } else { 0x00040000 };
+                        sceKernelChangeThreadCpuAffinityMask(thid, mask);
+                    }
+
+                    loop {
+                        let job = {
+                            if let Ok(rx) = req_rx_clone.lock() {
+                                rx.recv().ok()
+                            } else {
+                                None
+                            }
+                        };
+                        match job {
+                            Some(job) => {
+                                let key = job.key;
+                                let mesh = build_chunk_mesh_from_job(&job);
+                                if res_tx_clone.send((key, mesh)).is_err() {
+                                    break;
+                                }
+                            }
+                            None => break,
+                        }
+                    }
+                });
+        }
+
+        Self { req_tx, res_rx }
+    }
+
+    pub fn submit_job(&self, job: ChunkMeshJob) {
+        let _ = self.req_tx.send(job);
+    }
+
+    pub fn drain_completed(&self) -> Vec<((i32, i32), Vec<Triangle>)> {
+        let mut completed = Vec::new();
+        while let Ok(res) = self.res_rx.try_recv() {
+            completed.push(res);
+        }
+        completed
+    }
+}
+
 pub struct ChunkNeighborCache<'a> {
     pub center_blocks: &'a [u8],
     pub east_blocks: Option<&'a [u8]>,   // +X
@@ -67,12 +168,13 @@ pub struct ChunkNeighborCache<'a> {
     pub sw_blocks: Option<&'a [u8]>,     // -X, +Z
     pub ne_blocks: Option<&'a [u8]>,     // +X, -Z
     pub nw_blocks: Option<&'a [u8]>,     // -X, -Z
-    pub world: &'a World,
     pub base_x: i32,
     pub base_z: i32,
+    pub seed: u32,
     pub heightmap: [u8; 16 * 16],
     pub leaf_heightmap: [u8; 16 * 16],
     pub lights: Vec<LightSource>,
+    pub fluid_map: Option<&'a std::collections::HashMap<IVec3, u8>>,
 }
 
 impl<'a> ChunkNeighborCache<'a> {
@@ -92,7 +194,6 @@ impl<'a> ChunkNeighborCache<'a> {
         let base_x = cx * CHUNK_SIZE_X;
         let base_z = cz * CHUNK_SIZE_Z;
 
-        // 1. Column heights for opaque blocks (Opaque Heightmap) and tree foliage (Leaf Heightmap)
         let mut heightmap = [0u8; 16 * 16];
         let mut leaf_heightmap = [0u8; 16 * 16];
         let blocks = chunk.blocks.as_slice();
@@ -116,7 +217,6 @@ impl<'a> ChunkNeighborCache<'a> {
             }
         }
 
-        // 2. Light sources query only from registered nearby torches (O(torch_count) instead of 160k loops!)
         let mut lights = Vec::new();
         for &t_pos in &world.torches {
             let dx = (t_pos.x - (base_x + 8)).abs();
@@ -140,12 +240,70 @@ impl<'a> ChunkNeighborCache<'a> {
             sw_blocks,
             ne_blocks,
             nw_blocks,
-            world,
             base_x,
             base_z,
+            seed: world.seed,
             heightmap,
             leaf_heightmap,
             lights,
+            fluid_map: None,
+        }
+    }
+
+    pub fn from_job(job: &'a ChunkMeshJob) -> Self {
+        let (cx, cz) = job.key;
+        let base_x = cx * CHUNK_SIZE_X;
+        let base_z = cz * CHUNK_SIZE_Z;
+
+        let mut heightmap = [0u8; 16 * 16];
+        let mut leaf_heightmap = [0u8; 16 * 16];
+        let blocks = job.center_blocks.as_slice();
+        for lx in 0..CHUNK_SIZE_X {
+            for lz in 0..CHUNK_SIZE_Z {
+                let mut h = 0u8;
+                let mut leaf_h = 0u8;
+                for ly in (0..CHUNK_SIZE_Y).rev() {
+                    let b = BlockId::from_u8(blocks[((lx << 10) | (ly << 4) | lz) as usize]);
+                    if b.is_leaf() && leaf_h == 0 {
+                        leaf_h = (ly + 1) as u8;
+                    }
+                    if b.is_opaque() {
+                        h = (ly + 1) as u8;
+                        break;
+                    }
+                }
+                let idx = ((lx << 4) | lz) as usize;
+                heightmap[idx] = h;
+                leaf_heightmap[idx] = leaf_h;
+            }
+        }
+
+        Self {
+            center_blocks: blocks,
+            east_blocks: job.east_blocks.as_deref(),
+            west_blocks: job.west_blocks.as_deref(),
+            south_blocks: job.south_blocks.as_deref(),
+            north_blocks: job.north_blocks.as_deref(),
+            se_blocks: job.se_blocks.as_deref(),
+            sw_blocks: job.sw_blocks.as_deref(),
+            ne_blocks: job.ne_blocks.as_deref(),
+            nw_blocks: job.nw_blocks.as_deref(),
+            base_x,
+            base_z,
+            seed: job.seed,
+            heightmap,
+            leaf_heightmap,
+            lights: job.lights.clone(),
+            fluid_map: Some(&job.fluid_map),
+        }
+    }
+
+    #[inline(always)]
+    pub fn fluid_level(&self, pos: IVec3) -> u8 {
+        if let Some(fm) = self.fluid_map {
+            fm.get(&pos).copied().unwrap_or(8)
+        } else {
+            8
         }
     }
 
@@ -240,7 +398,7 @@ pub const NUM_SUBCHUNKS: usize = (CHUNK_SIZE_Y / SUBCHUNK_SIZE) as usize; // 4
 
 pub fn build_subchunk_mesh_internal(
     chunk: &Chunk,
-    world: &World,
+    _world: &World,
     sub_y: usize,
     cache: &ChunkNeighborCache,
 ) -> (Vec<Triangle>, Vec<Triangle>) {
@@ -307,8 +465,8 @@ pub fn build_subchunk_mesh_internal(
                                     } else {
                                         let above_neighbor = cache.sample_block(lx + n.x, ly + 1, lz + n.z);
                                         if above_neighbor != block {
-                                            let my_lvl = world.fluid_level(IVec3::new(wx, wy, wz));
-                                            let neighbor_lvl = world.fluid_level(IVec3::new(wx + n.x, wy, wz + n.z));
+                                            let my_lvl = cache.fluid_level(IVec3::new(wx, wy, wz));
+                                            let neighbor_lvl = cache.fluid_level(IVec3::new(wx + n.x, wy, wz + n.z));
                                             my_lvl > neighbor_lvl
                                         } else {
                                             false
@@ -358,6 +516,121 @@ pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
 
     for sub_y in 0..NUM_SUBCHUNKS {
         let (sub_solid, sub_trans) = build_subchunk_mesh_internal(chunk, world, sub_y, &cache);
+        solid_tris.extend(sub_solid);
+        trans_tris.extend(sub_trans);
+    }
+
+    solid_tris.extend(trans_tris);
+    solid_tris
+}
+
+pub fn build_chunk_mesh_from_job(job: &ChunkMeshJob) -> Vec<Triangle> {
+    let mut solid_tris = Vec::with_capacity(3072);
+    let mut trans_tris = Vec::with_capacity(512);
+    let cache = ChunkNeighborCache::from_job(job);
+    let dummy_chunk = Chunk {
+        cx: job.key.0,
+        cz: job.key.1,
+        blocks: job.center_blocks.clone(),
+        dirty: false,
+    };
+
+    for sub_y in 0..NUM_SUBCHUNKS {
+        let (sub_solid, sub_trans) = {
+            let mut sub_solid = Vec::with_capacity(768);
+            let mut sub_trans = Vec::with_capacity(128);
+            let base_x = cache.base_x;
+            let base_z = cache.base_z;
+            let blocks = dummy_chunk.blocks.as_slice();
+
+            let y_start = (sub_y as i32) * SUBCHUNK_SIZE;
+            let y_end = y_start + SUBCHUNK_SIZE;
+
+            for lx in 0..CHUNK_SIZE_X {
+                for ly in y_start..y_end {
+                    for lz in 0..CHUNK_SIZE_Z {
+                        let block_u8 = blocks[((lx << 10) | (ly << 4) | lz) as usize];
+                        if block_u8 == 0 {
+                            continue;
+                        }
+                        let block = BlockId::from_u8(block_u8);
+                        let wx = base_x + lx;
+                        let wy = ly;
+                        let wz = base_z + lz;
+
+                        if block == BlockId::Torch {
+                            emit_torch(&mut sub_solid, wx, wy, wz, &cache);
+                            continue;
+                        }
+                        if block == BlockId::Door {
+                            emit_door(&mut sub_solid, wx, wy, wz, false, &cache);
+                            continue;
+                        }
+                        if block == BlockId::DoorOpen {
+                            emit_door(&mut sub_solid, wx, wy, wz, true, &cache);
+                            continue;
+                        }
+
+                        let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
+                        let is_trans = matches!(block, BlockId::Water | BlockId::Glass);
+
+                        for face in Face::ALL {
+                            let n = face.normal();
+                            let neighbor = cache.sample_block(lx + n.x, ly + n.y, lz + n.z);
+
+                            let visible = if is_fluid {
+                                let neighbor_loaded = match face {
+                                    Face::East => lx < CHUNK_SIZE_X - 1 || cache.east_blocks.is_some(),
+                                    Face::West => lx > 0 || cache.west_blocks.is_some(),
+                                    Face::South => lz < CHUNK_SIZE_Z - 1 || cache.south_blocks.is_some(),
+                                    Face::North => lz > 0 || cache.north_blocks.is_some(),
+                                    Face::Top | Face::Bottom => true,
+                                };
+
+                                if !neighbor_loaded {
+                                    false
+                                } else {
+                                    match face {
+                                        Face::Top => neighbor != block,
+                                        Face::Bottom => wy > 0 && neighbor != block && (neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)),
+                                        _ => {
+                                            if neighbor != block {
+                                                neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)
+                                            } else {
+                                                let above_neighbor = cache.sample_block(lx + n.x, ly + 1, lz + n.z);
+                                                if above_neighbor != block {
+                                                    let my_lvl = cache.fluid_level(IVec3::new(wx, wy, wz));
+                                                    let neighbor_lvl = cache.fluid_level(IVec3::new(wx + n.x, wy, wz + n.z));
+                                                    my_lvl > neighbor_lvl
+                                                } else {
+                                                    false
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                if face == Face::Bottom && wy == 0 {
+                                    false
+                                } else {
+                                    neighbor == BlockId::Air
+                                    || (neighbor.is_transparent() && neighbor != block)
+                                }
+                            };
+
+                            if visible {
+                                if is_trans {
+                                    emit_face(&mut sub_trans, wx, wy, wz, face, block, &cache);
+                                } else {
+                                    emit_face(&mut sub_solid, wx, wy, wz, face, block, &cache);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            (sub_solid, sub_trans)
+        };
         solid_tris.extend(sub_solid);
         trans_tris.extend(sub_trans);
     }
@@ -611,7 +884,7 @@ fn emit_face(
             TextureId::Door
         }
     } else if block == BlockId::Grass {
-        let (biome, _) = get_biome_at(wx, wz, cache.world.seed);
+        let (biome, _) = get_biome_at(wx, wz, cache.seed);
         match face {
             Face::Top => match biome {
                 Biome::Swamp => TextureId::GrassTopSwamp,
@@ -632,7 +905,7 @@ fn emit_face(
             },
         }
     } else if block == BlockId::Leaves {
-        let (biome, _) = get_biome_at(wx, wz, cache.world.seed);
+        let (biome, _) = get_biome_at(wx, wz, cache.seed);
         match biome {
             Biome::Swamp => TextureId::LeavesSwamp,
             Biome::Savanna | Biome::Desert => TextureId::LeavesSavanna,
@@ -655,7 +928,7 @@ fn emit_face(
         if above == block {
             y + 1.0
         } else {
-            let lvl = cache.world.fluid_level(IVec3::new(wx, wy, wz));
+            let lvl = cache.fluid_level(IVec3::new(wx, wy, wz));
             if lvl >= 8 {
                 y + 0.90
             } else {

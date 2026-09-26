@@ -1,13 +1,17 @@
 pub mod block;
 pub mod mesher;
 pub mod storage;
+pub mod tile_entity;
 
 use std::collections::{HashMap, HashSet};
 
-pub use block::{BlockId, Face};
-
-pub use mesher::{build_chunk_mesh, build_subchunk_mesh, Triangle, Vertex, NUM_SUBCHUNKS, SUBCHUNK_SIZE};
+pub use block::BlockId;
+pub use mesher::{
+    build_chunk_mesh, build_chunk_mesh_from_job, build_subchunk_mesh, AsyncMesher, ChunkMeshJob,
+    LightSource, Triangle, Vertex, NUM_SUBCHUNKS, SUBCHUNK_SIZE,
+};
 pub use storage::{save_current_world, save_path};
+pub use tile_entity::{fuel_burn_time, smelting_result, ChestData, FurnaceData, SMELT_DURATION};
 
 use crate::core::math::{IVec3, Vec3};
 use crate::core::noise::{fractal_noise2, fractal_noise3};
@@ -814,8 +818,11 @@ fn place_forest_cabin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i
         }
     }
 
-    set(blocks, min_x + 1, base_y + 1, max_z - 1, BlockId::Wood);
-    set(blocks, min_x + 1, base_y + 2, max_z - 1, BlockId::Planks);
+    // Cabin interior furniture: Crafting table, Furnace, Chest and Torch
+    set(blocks, min_x + 1, base_y + 1, max_z - 1, BlockId::CraftingTable);
+    set(blocks, min_x + 2, base_y + 1, max_z - 1, BlockId::Furnace);
+    set(blocks, max_x - 1, base_y + 1, max_z - 1, BlockId::Chest);
+    set(blocks, min_x + 1, base_y + 3, max_z - 1, BlockId::Torch);
 }
 
 #[derive(Clone)]
@@ -833,6 +840,8 @@ pub struct World {
     pub player_position: Vec3,
     fluid_levels: HashMap<IVec3, u8>,
     pub active_sand: HashSet<IVec3>,
+    pub chests: HashMap<IVec3, ChestData>,
+    pub furnaces: HashMap<IVec3, FurnaceData>,
     pub sim_tick: u64,
     pub time_of_day: f32,
     pub torches: HashSet<IVec3>,
@@ -861,6 +870,35 @@ impl Default for World {
 impl World {
     pub fn new() -> Self {
         Self::new_with_seed(DEFAULT_WORLD_SEED)
+    }
+
+    pub fn get_or_create_chest(&mut self, pos: IVec3) -> &mut ChestData {
+        let seed = self.seed;
+        self.chests.entry(pos).or_insert_with(|| ChestData::generate_house_loot(seed, pos))
+    }
+
+    pub fn get_or_create_furnace(&mut self, pos: IVec3) -> &mut FurnaceData {
+        self.furnaces.entry(pos).or_insert_with(FurnaceData::new)
+    }
+
+    pub fn update_furnaces(&mut self, dt: f32) {
+        let mut state_changes = Vec::new();
+        for (&pos, furnace) in &mut self.furnaces {
+            let changed = furnace.tick(dt);
+            if changed {
+                let new_block = if furnace.is_burning() {
+                    BlockId::FurnaceLit
+                } else {
+                    BlockId::Furnace
+                };
+                state_changes.push((pos, new_block));
+            }
+        }
+        for (pos, new_block) in state_changes {
+            if matches!(self.get_block(pos), BlockId::Furnace | BlockId::FurnaceLit) {
+                self.set_block(pos, new_block);
+            }
+        }
     }
 
     /// Searches for a safe player spawn position, avoiding deep oceans, open water, and swamps.
@@ -979,6 +1017,8 @@ impl World {
             player_position: spawn_pos,
             fluid_levels: HashMap::new(),
             active_sand: HashSet::new(),
+            chests: HashMap::new(),
+            furnaces: HashMap::new(),
             sim_tick: 0,
             time_of_day: 120.0, // Start around 9:00 AM bright daylight
             torches: HashSet::new(),
@@ -1071,7 +1111,7 @@ impl World {
 
     pub fn save(&self, path: &str) -> Result<(), String> {
         let mut bytes = Vec::with_capacity(32 + self.chunks.len() * 4);
-        bytes.extend_from_slice(b"RUSTCRAFT4");
+        bytes.extend_from_slice(b"RUSTCRAFT5");
         bytes.extend_from_slice(&self.seed.to_le_bytes());
         let mode_byte: u8 = match self.gamemode {
             crate::gameplay::player::GameMode::Survival => 0,
@@ -1099,6 +1139,41 @@ impl World {
             bytes.extend_from_slice(&pos.z.to_le_bytes());
             bytes.push(*level);
         }
+        // Save chests
+        bytes.extend_from_slice(&(self.chests.len() as u32).to_le_bytes());
+        for (pos, chest) in &self.chests {
+            bytes.extend_from_slice(&pos.x.to_le_bytes());
+            bytes.extend_from_slice(&pos.y.to_le_bytes());
+            bytes.extend_from_slice(&pos.z.to_le_bytes());
+            for item in &chest.items {
+                if let Some(stack) = item {
+                    bytes.push(stack.block.to_u8());
+                    bytes.push(stack.count);
+                } else {
+                    bytes.push(0);
+                    bytes.push(0);
+                }
+            }
+        }
+        // Save furnaces
+        bytes.extend_from_slice(&(self.furnaces.len() as u32).to_le_bytes());
+        for (pos, furnace) in &self.furnaces {
+            bytes.extend_from_slice(&pos.x.to_le_bytes());
+            bytes.extend_from_slice(&pos.y.to_le_bytes());
+            bytes.extend_from_slice(&pos.z.to_le_bytes());
+            for stack_opt in [&furnace.input, &furnace.fuel, &furnace.output] {
+                if let Some(stack) = stack_opt {
+                    bytes.push(stack.block.to_u8());
+                    bytes.push(stack.count);
+                } else {
+                    bytes.push(0);
+                    bytes.push(0);
+                }
+            }
+            bytes.extend_from_slice(&furnace.burn_time_remaining.to_le_bytes());
+            bytes.extend_from_slice(&furnace.burn_time_total.to_le_bytes());
+            bytes.extend_from_slice(&furnace.cook_progress.to_le_bytes());
+        }
         std::fs::write(path, bytes).map_err(|error| format!("failed to save world: {error}"))
     }
 
@@ -1106,11 +1181,11 @@ impl World {
         let bytes = std::fs::read(path).map_err(|error| format!("failed to read world file: {error}"))?;
         let mut cursor = 0usize;
         let format = read_bytes(&bytes, &mut cursor, 10)?;
-        if format != b"RUSTCRAFT1" && format != b"RUSTCRAFT2" && format != b"RUSTCRAFT3" && format != b"RUSTCRAFT4" {
+        if format != b"RUSTCRAFT1" && format != b"RUSTCRAFT2" && format != b"RUSTCRAFT3" && format != b"RUSTCRAFT4" && format != b"RUSTCRAFT5" {
             return Err("unknown world file format".to_owned());
         }
         let seed = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap());
-        let (gamemode, name) = if format == b"RUSTCRAFT4" {
+        let (gamemode, name) = if format == b"RUSTCRAFT4" || format == b"RUSTCRAFT5" {
             let gm_byte = read_bytes(&bytes, &mut cursor, 1)?[0];
             let gm = if gm_byte == 1 { crate::gameplay::player::GameMode::Creative } else { crate::gameplay::player::GameMode::Survival };
             let name_len = read_bytes(&bytes, &mut cursor, 1)?[0] as usize;
@@ -1123,7 +1198,7 @@ impl World {
         } else {
             (crate::gameplay::player::GameMode::Survival, format!("World {}", seed))
         };
-        let player_position = if format == b"RUSTCRAFT2" || format == b"RUSTCRAFT3" || format == b"RUSTCRAFT4" {
+        let player_position = if format == b"RUSTCRAFT2" || format == b"RUSTCRAFT3" || format == b"RUSTCRAFT4" || format == b"RUSTCRAFT5" {
             Vec3::new(
                 f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
                 f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
@@ -1148,7 +1223,7 @@ impl World {
             let blocks = read_bytes(&bytes, &mut cursor, block_len)?.to_vec();
             world.chunks.insert((cx, cz), Chunk { cx, cz, blocks, dirty: true });
         }
-        if format == b"RUSTCRAFT3" || format == b"RUSTCRAFT4" {
+        if format == b"RUSTCRAFT3" || format == b"RUSTCRAFT4" || format == b"RUSTCRAFT5" {
             let fluid_count = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()) as usize;
             for _ in 0..fluid_count {
                 let pos = IVec3::new(
@@ -1158,6 +1233,77 @@ impl World {
                 );
                 let level = read_bytes(&bytes, &mut cursor, 1)?[0].clamp(1, 8);
                 world.fluid_levels.insert(pos, level);
+            }
+        }
+        if format == b"RUSTCRAFT5" && bytes.len() > cursor {
+            if let Ok(chest_count_bytes) = read_bytes(&bytes, &mut cursor, 4) {
+                let chest_count = u32::from_le_bytes(chest_count_bytes.try_into().unwrap_or_default()) as usize;
+                for _ in 0..chest_count {
+                    if let (Ok(x_bytes), Ok(y_bytes), Ok(z_bytes)) = (
+                        read_bytes(&bytes, &mut cursor, 4),
+                        read_bytes(&bytes, &mut cursor, 4),
+                        read_bytes(&bytes, &mut cursor, 4),
+                    ) {
+                        let pos = IVec3::new(
+                            i32::from_le_bytes(x_bytes.try_into().unwrap_or_default()),
+                            i32::from_le_bytes(y_bytes.try_into().unwrap_or_default()),
+                            i32::from_le_bytes(z_bytes.try_into().unwrap_or_default()),
+                        );
+                        let mut chest = ChestData::new();
+                        for slot in &mut chest.items {
+                            if let Ok(item_bytes) = read_bytes(&bytes, &mut cursor, 2) {
+                                let block_id = item_bytes[0];
+                                let count = item_bytes[1];
+                                if block_id > 0 && count > 0 {
+                                    *slot = Some(crate::gameplay::inventory::ItemStack {
+                                        block: BlockId::from_u8(block_id),
+                                        count,
+                                    });
+                                }
+                            }
+                        }
+                        world.chests.insert(pos, chest);
+                    }
+                }
+            }
+            if let Ok(furnace_count_bytes) = read_bytes(&bytes, &mut cursor, 4) {
+                let furnace_count = u32::from_le_bytes(furnace_count_bytes.try_into().unwrap_or_default()) as usize;
+                for _ in 0..furnace_count {
+                    if let (Ok(x_bytes), Ok(y_bytes), Ok(z_bytes)) = (
+                        read_bytes(&bytes, &mut cursor, 4),
+                        read_bytes(&bytes, &mut cursor, 4),
+                        read_bytes(&bytes, &mut cursor, 4),
+                    ) {
+                        let pos = IVec3::new(
+                            i32::from_le_bytes(x_bytes.try_into().unwrap_or_default()),
+                            i32::from_le_bytes(y_bytes.try_into().unwrap_or_default()),
+                            i32::from_le_bytes(z_bytes.try_into().unwrap_or_default()),
+                        );
+                        let mut furnace = FurnaceData::new();
+                        for slot in [&mut furnace.input, &mut furnace.fuel, &mut furnace.output] {
+                            if let Ok(item_bytes) = read_bytes(&bytes, &mut cursor, 2) {
+                                let block_id = item_bytes[0];
+                                let count = item_bytes[1];
+                                if block_id > 0 && count > 0 {
+                                    *slot = Some(crate::gameplay::inventory::ItemStack {
+                                        block: BlockId::from_u8(block_id),
+                                        count,
+                                    });
+                                }
+                            }
+                        }
+                        if let (Ok(rem), Ok(tot), Ok(prog)) = (
+                            read_bytes(&bytes, &mut cursor, 4),
+                            read_bytes(&bytes, &mut cursor, 4),
+                            read_bytes(&bytes, &mut cursor, 4),
+                        ) {
+                            furnace.burn_time_remaining = f32::from_le_bytes(rem.try_into().unwrap_or_default());
+                            furnace.burn_time_total = f32::from_le_bytes(tot.try_into().unwrap_or_default());
+                            furnace.cook_progress = f32::from_le_bytes(prog.try_into().unwrap_or_default());
+                        }
+                        world.furnaces.insert(pos, furnace);
+                    }
+                }
             }
         }
         Ok(world)
@@ -1275,6 +1421,18 @@ impl World {
                 self.torches.remove(&pos);
             }
 
+            if block == BlockId::Chest {
+                self.chests.entry(pos).or_insert_with(ChestData::new);
+            } else {
+                self.chests.remove(&pos);
+            }
+
+            if matches!(block, BlockId::Furnace | BlockId::FurnaceLit) {
+                self.furnaces.entry(pos).or_insert_with(FurnaceData::new);
+            } else {
+                self.furnaces.remove(&pos);
+            }
+
             for offset in [
                 IVec3::new(1, 0, 0),
                 IVec3::new(-1, 0, 0),
@@ -1385,6 +1543,42 @@ impl World {
         for tnt_pos in tnts_to_prime {
             self.prime_tnt(tnt_pos);
         }
+    }
+
+    pub fn create_mesh_job(&self, key: (i32, i32)) -> Option<ChunkMeshJob> {
+        let chunk = self.chunks.get(&key)?;
+        let (cx, cz) = key;
+        let base_x = cx * CHUNK_SIZE_X;
+        let base_z = cz * CHUNK_SIZE_Z;
+
+        let mut lights = Vec::new();
+        for &t_pos in &self.torches {
+            let dx = (t_pos.x - (base_x + 8)).abs();
+            let dz = (t_pos.z - (base_z + 8)).abs();
+            if dx <= 24 && dz <= 24 {
+                lights.push(LightSource {
+                    pos: t_pos,
+                    radius: 12.0,
+                    intensity: 1.0,
+                });
+            }
+        }
+
+        Some(ChunkMeshJob {
+            key,
+            center_blocks: chunk.blocks.clone(),
+            east_blocks: self.chunks.get(&(cx + 1, cz)).map(|c| c.blocks.clone()),
+            west_blocks: self.chunks.get(&(cx - 1, cz)).map(|c| c.blocks.clone()),
+            south_blocks: self.chunks.get(&(cx, cz + 1)).map(|c| c.blocks.clone()),
+            north_blocks: self.chunks.get(&(cx, cz - 1)).map(|c| c.blocks.clone()),
+            se_blocks: self.chunks.get(&(cx + 1, cz + 1)).map(|c| c.blocks.clone()),
+            sw_blocks: self.chunks.get(&(cx - 1, cz + 1)).map(|c| c.blocks.clone()),
+            ne_blocks: self.chunks.get(&(cx + 1, cz - 1)).map(|c| c.blocks.clone()),
+            nw_blocks: self.chunks.get(&(cx - 1, cz - 1)).map(|c| c.blocks.clone()),
+            seed: self.seed,
+            lights,
+            fluid_map: self.fluid_levels.clone(),
+        })
     }
 
     fn mark_dirty(&mut self, cx: i32, cz: i32) {

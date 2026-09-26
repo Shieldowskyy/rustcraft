@@ -42,6 +42,9 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::IronOre,
             BlockId::Bedrock,
             BlockId::Planks,
+            BlockId::Chest,
+            BlockId::Furnace,
+            BlockId::FurnaceLit,
             BlockId::Glass,
             BlockId::Ice,
             BlockId::Torch,
@@ -61,12 +64,16 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::IronSword,
             BlockId::Stick,
             BlockId::Torch,
+            BlockId::IronIngot,
+            BlockId::GoldIngot,
             BlockId::RawPorkchop,
             BlockId::CookedPorkchop,
             BlockId::RawBeef,
             BlockId::CookedBeef,
             BlockId::Apple,
             BlockId::CraftingTable,
+            BlockId::Chest,
+            BlockId::Furnace,
             BlockId::Door,
             BlockId::Tnt,
             BlockId::Water,
@@ -91,10 +98,15 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::Bedrock,
             BlockId::Lava,
             BlockId::Planks,
+            BlockId::Chest,
+            BlockId::Furnace,
+            BlockId::FurnaceLit,
             BlockId::Door,
             BlockId::Glass,
             BlockId::Ice,
             BlockId::Torch,
+            BlockId::IronIngot,
+            BlockId::GoldIngot,
             BlockId::RawPorkchop,
             BlockId::CookedPorkchop,
             BlockId::RawBeef,
@@ -1207,12 +1219,14 @@ mod tests {
         assert!(tab1.contains(&BlockId::Tnt));
 
         let tab2 = creative_tab_blocks(2);
-        assert_eq!(tab2.len(), 42);
+        assert_eq!(tab2.len(), 47);
         assert!(tab2.contains(&BlockId::Grass));
         assert!(tab2.contains(&BlockId::Torch));
         assert!(tab2.contains(&BlockId::IronSword));
         assert!(tab2.contains(&BlockId::RawPorkchop));
         assert!(tab2.contains(&BlockId::CookedBeef));
+        assert!(tab2.contains(&BlockId::Chest));
+        assert!(tab2.contains(&BlockId::Furnace));
     }
 
     #[test]

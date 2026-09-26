@@ -977,6 +977,14 @@ pub enum TextureId {
     GrassSideAutumn,
     GrassTopTaiga,
     GrassSideTaiga,
+    // Chest & Furnace Textures
+    ChestTop,
+    ChestSide,
+    ChestFront,
+    FurnaceTop,
+    FurnaceSide,
+    FurnaceFront,
+    FurnaceFrontLit,
 }
 
 impl TextureId {
@@ -1341,6 +1349,170 @@ pub struct TextureAtlas {
     pub grass_side_autumn: Texture,
     pub grass_top_taiga: Texture,
     pub grass_side_taiga: Texture,
+    pub chest_top: Texture,
+    pub chest_side: Texture,
+    pub chest_front: Texture,
+    pub furnace_top: Texture,
+    pub furnace_side: Texture,
+    pub furnace_front: Texture,
+    pub furnace_front_lit: Texture,
+}
+
+fn chest_top() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let wood_base = [0.58, 0.40, 0.22];
+    let wood_dark = [0.45, 0.28, 0.14];
+    let rim_dark = [0.22, 0.14, 0.08];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let is_rim = x == 0 || x == TEX_SIZE - 1 || y == 0 || y == TEX_SIZE - 1;
+            let n = rand_at(x, y, 331);
+            let mut col = if is_rim {
+                rim_dark
+            } else if n > 0.65 {
+                wood_dark
+            } else {
+                wood_base
+            };
+            col[0] = (col[0] + (n - 0.5) * 0.04).clamp(0.0, 1.0);
+            col[1] = (col[1] + (n - 0.5) * 0.04).clamp(0.0, 1.0);
+            col[2] = (col[2] + (n - 0.5) * 0.04).clamp(0.0, 1.0);
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
+fn chest_side() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let wood_base = [0.55, 0.38, 0.20];
+    let wood_dark = [0.42, 0.26, 0.12];
+    let rim_dark = [0.22, 0.14, 0.08];
+    let lock_split = [0.15, 0.10, 0.06];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let is_rim = x == 0 || x == TEX_SIZE - 1 || y == 0 || y == TEX_SIZE - 1;
+            let is_split = y == 4;
+            let n = rand_at(x, y, 442);
+            let mut col = if is_split || is_rim {
+                if is_split { lock_split } else { rim_dark }
+            } else if n > 0.65 {
+                wood_dark
+            } else {
+                wood_base
+            };
+            col[0] = (col[0] + (n - 0.5) * 0.04).clamp(0.0, 1.0);
+            col[1] = (col[1] + (n - 0.5) * 0.04).clamp(0.0, 1.0);
+            col[2] = (col[2] + (n - 0.5) * 0.04).clamp(0.0, 1.0);
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
+fn chest_front() -> Texture {
+    let mut base = chest_side();
+    let lock_silver = [0.85, 0.85, 0.88];
+    let lock_shadow = [0.35, 0.35, 0.38];
+    let keyhole = [0.12, 0.12, 0.14];
+    // Center lock latch
+    for y in 3..=6 {
+        for x in 7..=8 {
+            base.texels[y * TEX_SIZE + x] = if y == 3 || y == 6 { lock_shadow } else { lock_silver };
+        }
+    }
+    base.texels[4 * TEX_SIZE + 7] = keyhole;
+    base.texels[4 * TEX_SIZE + 8] = keyhole;
+    base
+}
+
+fn furnace_top() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let stone_base = [0.48, 0.48, 0.48];
+    let ring_dark = [0.32, 0.32, 0.32];
+    let ring_light = [0.60, 0.60, 0.60];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let dx = (x as f32 + 0.5) - 8.0;
+            let dy = (y as f32 + 0.5) - 8.0;
+            let r = (dx * dx + dy * dy).sqrt();
+            let n = rand_at(x, y, 719);
+            let mut col = if r >= 4.0 && r <= 6.0 {
+                if n > 0.5 { ring_light } else { ring_dark }
+            } else {
+                stone_base
+            };
+            col[0] = (col[0] + (n - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[1] = (col[1] + (n - 0.5) * 0.08).clamp(0.0, 1.0);
+            col[2] = (col[2] + (n - 0.5) * 0.08).clamp(0.0, 1.0);
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
+fn furnace_side() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let stone_base = [0.48, 0.48, 0.48];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let n = rand_at(x, y, 823);
+            let mut col = stone_base;
+            let var = (n - 0.5) * 0.16;
+            col[0] = (col[0] + var).clamp(0.0, 1.0);
+            col[1] = (col[1] + var).clamp(0.0, 1.0);
+            col[2] = (col[2] + var).clamp(0.0, 1.0);
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
+fn furnace_front() -> Texture {
+    let mut base = furnace_side();
+    let dark_opening = [0.12, 0.12, 0.14];
+    let dark_grate = [0.22, 0.22, 0.24];
+    let rim_light = [0.65, 0.65, 0.65];
+    for y in 2..=10 {
+        for x in 3..=12 {
+            let is_border = x == 3 || x == 12 || y == 2 || y == 10;
+            if is_border {
+                base.texels[y * TEX_SIZE + x] = rim_light;
+            } else {
+                let is_grate = (y == 5 || y == 8) || (x % 3 == 0);
+                base.texels[y * TEX_SIZE + x] = if is_grate { dark_grate } else { dark_opening };
+            }
+        }
+    }
+    base
+}
+
+fn furnace_front_lit() -> Texture {
+    let mut base = furnace_side();
+    let fire_core = [1.0, 0.95, 0.40];
+    let fire_mid = [1.0, 0.60, 0.10];
+    let fire_dark = [0.85, 0.25, 0.05];
+    let rim_lit = [0.80, 0.65, 0.40];
+    for y in 2..=10 {
+        for x in 3..=12 {
+            let is_border = x == 3 || x == 12 || y == 2 || y == 10;
+            if is_border {
+                base.texels[y * TEX_SIZE + x] = rim_lit;
+            } else {
+                let n = rand_at(x, y, 991);
+                let dist_y = (10 - y) as f32 / 8.0;
+                let col = if dist_y + n * 0.4 > 0.85 {
+                    fire_dark
+                } else if dist_y + n * 0.4 > 0.45 {
+                    fire_mid
+                } else {
+                    fire_core
+                };
+                base.texels[y * TEX_SIZE + x] = col;
+            }
+        }
+    }
+    base
 }
 
 fn torch() -> Texture {
@@ -1476,6 +1648,13 @@ impl TextureAtlas {
             grass_side_autumn: grass_side_autumn(),
             grass_top_taiga: grass_top_taiga(),
             grass_side_taiga: grass_side_taiga(),
+            chest_top: chest_top(),
+            chest_side: chest_side(),
+            chest_front: chest_front(),
+            furnace_top: furnace_top(),
+            furnace_side: furnace_side(),
+            furnace_front: furnace_front(),
+            furnace_front_lit: furnace_front_lit(),
         }
     }
 
@@ -1547,6 +1726,13 @@ impl TextureAtlas {
             TextureId::GrassSideAutumn => &self.grass_side_autumn,
             TextureId::GrassTopTaiga => &self.grass_top_taiga,
             TextureId::GrassSideTaiga => &self.grass_side_taiga,
+            TextureId::ChestTop => &self.chest_top,
+            TextureId::ChestSide => &self.chest_side,
+            TextureId::ChestFront => &self.chest_front,
+            TextureId::FurnaceTop => &self.furnace_top,
+            TextureId::FurnaceSide => &self.furnace_side,
+            TextureId::FurnaceFront => &self.furnace_front,
+            TextureId::FurnaceFrontLit => &self.furnace_front_lit,
         }
     }
     /// Returns a reference to the texture corresponding to the specified `TextureId`.

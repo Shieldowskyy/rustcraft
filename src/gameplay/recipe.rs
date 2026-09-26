@@ -106,11 +106,36 @@ impl RecipeBook {
             result: ItemStack { block: BlockId::CookedBeef, count: 1 },
         });
 
+        // Chest (3x3 ring: 8 Planks)
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 3,
+            pattern: vec![
+                Some(BlockId::Planks), Some(BlockId::Planks), Some(BlockId::Planks),
+                Some(BlockId::Planks), None,                  Some(BlockId::Planks),
+                Some(BlockId::Planks), Some(BlockId::Planks), Some(BlockId::Planks),
+            ],
+            result: ItemStack { block: BlockId::Chest, count: 1 },
+        });
+
+        // Furnace (3x3 ring: 8 Stone)
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 3,
+            pattern: vec![
+                Some(BlockId::Stone), Some(BlockId::Stone), Some(BlockId::Stone),
+                Some(BlockId::Stone), None,                 Some(BlockId::Stone),
+                Some(BlockId::Stone), Some(BlockId::Stone), Some(BlockId::Stone),
+            ],
+            result: ItemStack { block: BlockId::Furnace, count: 1 },
+        });
+
         // Shovels (1x3: Material over 2 Sticks)
         let shovel_materials = [
             (BlockId::Planks, BlockId::WoodenShovel),
             (BlockId::Stone, BlockId::StoneShovel),
             (BlockId::IronOre, BlockId::IronShovel),
+            (BlockId::IronIngot, BlockId::IronShovel),
         ];
         for (mat, tool) in shovel_materials {
             self.recipes.push(Recipe {
@@ -130,6 +155,7 @@ impl RecipeBook {
             (BlockId::Planks, BlockId::WoodenSword),
             (BlockId::Stone, BlockId::StoneSword),
             (BlockId::IronOre, BlockId::IronSword),
+            (BlockId::IronIngot, BlockId::IronSword),
         ];
         for (mat, tool) in sword_materials {
             self.recipes.push(Recipe {
@@ -149,6 +175,7 @@ impl RecipeBook {
             (BlockId::Planks, BlockId::WoodenPickaxe),
             (BlockId::Stone, BlockId::StonePickaxe),
             (BlockId::IronOre, BlockId::IronPickaxe),
+            (BlockId::IronIngot, BlockId::IronPickaxe),
         ];
         for (mat, tool) in pick_materials {
             self.recipes.push(Recipe {
@@ -168,6 +195,7 @@ impl RecipeBook {
             (BlockId::Planks, BlockId::WoodenAxe),
             (BlockId::Stone, BlockId::StoneAxe),
             (BlockId::IronOre, BlockId::IronAxe),
+            (BlockId::IronIngot, BlockId::IronAxe),
         ];
         for (mat, tool) in axe_materials {
             // Right-facing axe

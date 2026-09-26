@@ -26,7 +26,10 @@ use crate::gameplay::player::{GameMode, Player};
 use crate::gameplay::recipe::RecipeBook;
 use crate::graphics::camera::Camera;
 use crate::graphics::software::Renderer;
-use crate::ui::{InventoryLayout, InventorySlotTarget, VISIBLE_SAVE_ROWS};
+use crate::ui::{
+    draw_chest_ui, draw_furnace_ui, ChestLayout, ChestSlotTarget, FurnaceLayout, FurnaceSlotTarget,
+    InventoryLayout, InventorySlotTarget, VISIBLE_SAVE_ROWS,
+};
 use crate::world::block::{BlockId, Face};
 use crate::world::storage::{delete_save, get_save_metadata, save_current_world, save_path, SaveMetadata};
 use crate::world::World;
@@ -79,6 +82,10 @@ pub enum GameState {
     Paused,
     /// Player inventory & crafting screen.
     Inventory,
+    /// Chest container UI.
+    Chest { pos: IVec3 },
+    /// Furnace container UI.
+    Furnace { pos: IVec3 },
     /// Player death screen with respawn and quit options.
     DeathScreen,
 }
@@ -1913,6 +1920,18 @@ impl RustCraftApp {
                             out.request_release_mouse = true;
                             self.horiz_velocity = Vec3::zero();
                             self.fly_velocity = Vec3::zero();
+                        } else if targeted_block == BlockId::Chest && !is_crouching {
+                            let _ = self.world.get_or_create_chest(hit.block_pos);
+                            self.state = GameState::Chest { pos: hit.block_pos };
+                            out.request_release_mouse = true;
+                            self.horiz_velocity = Vec3::zero();
+                            self.fly_velocity = Vec3::zero();
+                        } else if (targeted_block == BlockId::Furnace || targeted_block == BlockId::FurnaceLit) && !is_crouching {
+                            let _ = self.world.get_or_create_furnace(hit.block_pos);
+                            self.state = GameState::Furnace { pos: hit.block_pos };
+                            out.request_release_mouse = true;
+                            self.horiz_velocity = Vec3::zero();
+                            self.fly_velocity = Vec3::zero();
                         } else {
                             let place_pos = hit.block_pos + hit.normal;
                             let place_id = BlockId::from_u8(selected_block_id);
@@ -2099,6 +2118,7 @@ impl RustCraftApp {
                     }
                 }
 
+                self.world.update_furnaces(dt);
                 self.particles.update(dt);
                 if let Some(i_start) = items_start {
                     cur_profiler.tick_entities_ms = i_start.elapsed().as_secs_f32() * 1000.0;
@@ -2762,6 +2782,228 @@ impl RustCraftApp {
                     mouse_pos,
                 );
             }
+            GameState::Chest { pos } => {
+                let chest_pos = pos;
+                self.world.update_furnaces(dt);
+
+                if input.gp_lb_just_pressed {
+                    self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
+                }
+                if input.gp_rb_just_pressed {
+                    self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
+                }
+
+                if (e_down && !self.prev_e_down)
+                    || (escape_down && !self.prev_escape_down)
+                    || (p_down && !self.prev_p_down)
+                    || input.gp_east_just_pressed
+                    || input.gp_north_just_pressed
+                    || input.gp_start_just_pressed
+                {
+                    self.state = GameState::Playing;
+                    out.request_capture_mouse = true;
+                }
+
+                let layout = ChestLayout::new(self.renderer.width, self.renderer.height);
+                let hovered_target = mouse_pos.and_then(|(mx, my)| {
+                    layout.find_slot_at(mx as i32, my as i32)
+                });
+
+                let click_left = (left_down && !self.prev_left_down) || input.gp_south_just_pressed;
+                let click_right = (!self.prev_right_down && right_down) || input.gp_west_just_pressed;
+
+                if click_left || click_right {
+                    let chest = self.world.get_or_create_chest(chest_pos);
+                    if let Some(target) = hovered_target {
+                        match target {
+                            ChestSlotTarget::Chest(idx) => {
+                                if click_left {
+                                    if input.key_shift {
+                                        if let Some(st) = chest.items[idx].take() {
+                                            let rem = self.player.inventory.add_item(st.block, st.count);
+                                            if rem > 0 {
+                                                chest.items[idx] = Some(ItemStack { block: st.block, count: rem });
+                                            }
+                                        }
+                                    } else {
+                                        Inventory::handle_slot_left_click(&mut chest.items[idx], &mut self.player.inventory.held_item);
+                                    }
+                                } else if click_right {
+                                    Inventory::handle_slot_right_click(&mut chest.items[idx], &mut self.player.inventory.held_item);
+                                }
+                            }
+                            ChestSlotTarget::Main(idx) => {
+                                if click_left {
+                                    if input.key_shift {
+                                        if let Some(st) = self.player.inventory.main[idx].take() {
+                                            let rem = chest.add_item(st.block, st.count);
+                                            if rem > 0 {
+                                                self.player.inventory.main[idx] = Some(ItemStack { block: st.block, count: rem });
+                                            }
+                                        }
+                                    } else {
+                                        Inventory::handle_slot_left_click(&mut self.player.inventory.main[idx], &mut self.player.inventory.held_item);
+                                    }
+                                } else if click_right {
+                                    Inventory::handle_slot_right_click(&mut self.player.inventory.main[idx], &mut self.player.inventory.held_item);
+                                }
+                            }
+                            ChestSlotTarget::Hotbar(idx) => {
+                                if click_left {
+                                    if input.key_shift {
+                                        if let Some(st) = self.player.inventory.hotbar[idx].take() {
+                                            let rem = chest.add_item(st.block, st.count);
+                                            if rem > 0 {
+                                                self.player.inventory.hotbar[idx] = Some(ItemStack { block: st.block, count: rem });
+                                            }
+                                        }
+                                    } else {
+                                        Inventory::handle_slot_left_click(&mut self.player.inventory.hotbar[idx], &mut self.player.inventory.held_item);
+                                    }
+                                } else if click_right {
+                                    Inventory::handle_slot_right_click(&mut self.player.inventory.hotbar[idx], &mut self.player.inventory.held_item);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                #[cfg(not(target_os = "vita"))]
+                self.renderer.render_frame(&mut self.world, &self.camera);
+                #[cfg(target_os = "vita")]
+                {
+                    self.renderer.color_buffer.fill(0x0C0C10);
+                }
+                let chest = self.world.get_or_create_chest(chest_pos);
+                draw_chest_ui(
+                    &mut self.renderer.color_buffer,
+                    self.renderer.width,
+                    self.renderer.height,
+                    chest,
+                    &self.player,
+                    mouse_pos,
+                );
+            }
+            GameState::Furnace { pos } => {
+                let furnace_pos = pos;
+                self.world.update_furnaces(dt);
+
+                if input.gp_lb_just_pressed {
+                    self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
+                }
+                if input.gp_rb_just_pressed {
+                    self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
+                }
+
+                if (e_down && !self.prev_e_down)
+                    || (escape_down && !self.prev_escape_down)
+                    || (p_down && !self.prev_p_down)
+                    || input.gp_east_just_pressed
+                    || input.gp_north_just_pressed
+                    || input.gp_start_just_pressed
+                {
+                    self.state = GameState::Playing;
+                    out.request_capture_mouse = true;
+                }
+
+                let layout = FurnaceLayout::new(self.renderer.width, self.renderer.height);
+                let hovered_target = mouse_pos.and_then(|(mx, my)| {
+                    layout.find_slot_at(mx as i32, my as i32)
+                });
+
+                let click_left = (left_down && !self.prev_left_down) || input.gp_south_just_pressed;
+                let click_right = (!self.prev_right_down && right_down) || input.gp_west_just_pressed;
+
+                if click_left || click_right {
+                    let furnace = self.world.get_or_create_furnace(furnace_pos);
+                    if let Some(target) = hovered_target {
+                        match target {
+                            FurnaceSlotTarget::Input => {
+                                if click_left {
+                                    Inventory::handle_slot_left_click(&mut furnace.input, &mut self.player.inventory.held_item);
+                                } else if click_right {
+                                    Inventory::handle_slot_right_click(&mut furnace.input, &mut self.player.inventory.held_item);
+                                }
+                            }
+                            FurnaceSlotTarget::Fuel => {
+                                if click_left {
+                                    Inventory::handle_slot_left_click(&mut furnace.fuel, &mut self.player.inventory.held_item);
+                                } else if click_right {
+                                    Inventory::handle_slot_right_click(&mut furnace.fuel, &mut self.player.inventory.held_item);
+                                }
+                            }
+                            FurnaceSlotTarget::Output => {
+                                if click_left {
+                                    if let Some(out_stack) = &mut furnace.output {
+                                        if let Some(held) = &mut self.player.inventory.held_item {
+                                            if held.block == out_stack.block && held.count + out_stack.count <= 64 {
+                                                held.count += out_stack.count;
+                                                furnace.output = None;
+                                            }
+                                        } else {
+                                            self.player.inventory.held_item = furnace.output.take();
+                                        }
+                                    }
+                                }
+                            }
+                            FurnaceSlotTarget::Main(idx) => {
+                                if click_left {
+                                    if input.key_shift {
+                                        if let Some(st) = self.player.inventory.main[idx].take() {
+                                            if crate::world::tile_entity::fuel_burn_time(st.block).is_some() && furnace.fuel.is_none() {
+                                                furnace.fuel = Some(st);
+                                            } else if furnace.input.is_none() {
+                                                furnace.input = Some(st);
+                                            } else {
+                                                self.player.inventory.main[idx] = Some(st);
+                                            }
+                                        }
+                                    } else {
+                                        Inventory::handle_slot_left_click(&mut self.player.inventory.main[idx], &mut self.player.inventory.held_item);
+                                    }
+                                } else if click_right {
+                                    Inventory::handle_slot_right_click(&mut self.player.inventory.main[idx], &mut self.player.inventory.held_item);
+                                }
+                            }
+                            FurnaceSlotTarget::Hotbar(idx) => {
+                                if click_left {
+                                    if input.key_shift {
+                                        if let Some(st) = self.player.inventory.hotbar[idx].take() {
+                                            if crate::world::tile_entity::fuel_burn_time(st.block).is_some() && furnace.fuel.is_none() {
+                                                furnace.fuel = Some(st);
+                                            } else if furnace.input.is_none() {
+                                                furnace.input = Some(st);
+                                            } else {
+                                                self.player.inventory.hotbar[idx] = Some(st);
+                                            }
+                                        }
+                                    } else {
+                                        Inventory::handle_slot_left_click(&mut self.player.inventory.hotbar[idx], &mut self.player.inventory.held_item);
+                                    }
+                                } else if click_right {
+                                    Inventory::handle_slot_right_click(&mut self.player.inventory.hotbar[idx], &mut self.player.inventory.held_item);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                #[cfg(not(target_os = "vita"))]
+                self.renderer.render_frame(&mut self.world, &self.camera);
+                #[cfg(target_os = "vita")]
+                {
+                    self.renderer.color_buffer.fill(0x0C0C10);
+                }
+                let furnace = self.world.get_or_create_furnace(furnace_pos);
+                draw_furnace_ui(
+                    &mut self.renderer.color_buffer,
+                    self.renderer.width,
+                    self.renderer.height,
+                    furnace,
+                    &self.player,
+                    mouse_pos,
+                );
+            }
             GameState::DeathScreen => {
                 let mut hovered_idx = self.death_hovered_btn;
                 if let Some((mx, my)) = mouse_pos {
@@ -2901,6 +3143,8 @@ impl RustCraftApp {
             GameState::Playing => "Playing",
             GameState::Paused => "Paused",
             GameState::Inventory => "Inventory",
+            GameState::Chest { .. } => "Chest",
+            GameState::Furnace { .. } => "Furnace",
             GameState::DeathScreen => "Death Screen",
             _ => "Loading",
         }.to_string();

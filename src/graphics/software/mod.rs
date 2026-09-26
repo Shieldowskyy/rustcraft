@@ -8,7 +8,7 @@ use crate::graphics::camera::Camera;
 #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
 use crate::graphics::gpu::VulkanContext;
 use crate::graphics::traits::RenderBackend;
-use crate::world::mesher::{build_chunk_mesh, Triangle, Vertex};
+use crate::world::mesher::{Triangle, Vertex};
 use crate::world::{World, CHUNK_SIZE_X, CHUNK_SIZE_Z};
 
 #[derive(Clone, Copy)]
@@ -84,6 +84,8 @@ pub struct Renderer {
     pub last_triangles_culled: u32,
     pub last_subchunks_rendered: u32,
     pub last_subchunks_culled: u32,
+    pub async_mesher: crate::world::AsyncMesher,
+    pub pending_mesh_keys: HashSet<(i32, i32)>,
 }
 
 impl Renderer {
@@ -130,6 +132,8 @@ impl Renderer {
             last_triangles_culled: 0,
             last_subchunks_rendered: 0,
             last_subchunks_culled: 0,
+            async_mesher: crate::world::AsyncMesher::new(),
+            pending_mesh_keys: HashSet::new(),
         }
     }
 
@@ -510,11 +514,24 @@ impl Renderer {
             self.chunk_spawn_times.entry(*key).or_insert(self.total_time);
         }
 
+        // 1. Drain completed meshes from background threads
+        for (key, mesh) in self.async_mesher.drain_completed() {
+            self.mesh_cache.insert(key, mesh);
+            self.pending_mesh_keys.remove(&key);
+            self.dirty_keys.insert(key);
+        }
+
+        self.pending_mesh_keys.retain(|k| world.chunks.contains_key(k));
+
+        // 2. Submit background meshing jobs for dirty or unmeshed chunks
         let dirty_keys_to_build: Vec<(i32, i32)> = self
             .loaded_keys
             .iter()
             .copied()
             .filter(|key| {
+                if self.pending_mesh_keys.contains(key) {
+                    return false;
+                }
                 world
                     .chunks
                     .get(key)
@@ -522,31 +539,13 @@ impl Renderer {
             })
             .collect();
 
-        if !dirty_keys_to_build.is_empty() {
-            let build_mesh = |&key: &(i32, i32)| {
-                let chunk = world.chunks.get(&key).unwrap();
-                let mesh = build_chunk_mesh(chunk, world);
-                (key, mesh)
-            };
-
-            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
-            let new_meshes: Vec<((i32, i32), Vec<Triangle>)> = dirty_keys_to_build
-                .par_iter()
-                .map(build_mesh)
-                .collect();
-
-            #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
-            let new_meshes: Vec<((i32, i32), Vec<Triangle>)> = dirty_keys_to_build
-                .iter()
-                .map(build_mesh)
-                .collect();
-
-            for (key, mesh) in new_meshes {
-                self.mesh_cache.insert(key, mesh);
-                if let Some(chunk) = world.chunks.get_mut(&key) {
-                    chunk.dirty = false;
-                }
-                self.dirty_keys.insert(key);
+        for key in dirty_keys_to_build {
+            if let Some(chunk) = world.chunks.get_mut(&key) {
+                chunk.dirty = false;
+            }
+            if let Some(job) = world.create_mesh_job(key) {
+                self.pending_mesh_keys.insert(key);
+                self.async_mesher.submit_job(job);
             }
         }
 

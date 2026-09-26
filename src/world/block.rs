@@ -59,6 +59,16 @@ pub enum BlockId {
     Apple,
     /// Open Door
     DoorOpen,
+    /// Storage chest block
+    Chest,
+    /// Smelting furnace block
+    Furnace,
+    /// Burning/lit furnace block
+    FurnaceLit,
+    /// Smelted iron ingot item
+    IronIngot,
+    /// Gold ingot item
+    GoldIngot,
 }
 
 impl BlockId {
@@ -107,6 +117,11 @@ impl BlockId {
             41 => BlockId::CookedBeef,
             42 => BlockId::Apple,
             43 => BlockId::DoorOpen,
+            44 => BlockId::Chest,
+            45 => BlockId::Furnace,
+            46 => BlockId::FurnaceLit,
+            47 => BlockId::IronIngot,
+            48 => BlockId::GoldIngot,
             _ => BlockId::Air,
         }
     }
@@ -157,6 +172,11 @@ impl BlockId {
             BlockId::CookedBeef => 41,
             BlockId::Apple => 42,
             BlockId::DoorOpen => 43,
+            BlockId::Chest => 44,
+            BlockId::Furnace => 45,
+            BlockId::FurnaceLit => 46,
+            BlockId::IronIngot => 47,
+            BlockId::GoldIngot => 48,
         }
     }
 
@@ -183,6 +203,8 @@ impl BlockId {
                 | BlockId::RawBeef
                 | BlockId::CookedBeef
                 | BlockId::Apple
+                | BlockId::IronIngot
+                | BlockId::GoldIngot
         )
     }
 
@@ -212,6 +234,8 @@ impl BlockId {
             | (1u64 << 41) // CookedBeef
             | (1u64 << 42) // Apple
             | (1u64 << 43) // DoorOpen (passable)
+            | (1u64 << 47) // IronIngot
+            | (1u64 << 48) // GoldIngot
         );
         let id = self.to_u8() as u32;
         ((SOLID_MASK >> id) & 1) != 0
@@ -304,22 +328,22 @@ impl BlockId {
         let Some(t) = tool else { return 1.0; };
         match t {
             BlockId::WoodenPickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice) { 2.5 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit) { 2.5 } else { 1.0 }
             }
             BlockId::StonePickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice) { 4.5 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit) { 4.5 } else { 1.0 }
             }
             BlockId::IronPickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice) { 7.0 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit) { 7.0 } else { 1.0 }
             }
             BlockId::WoodenAxe => {
-                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus) { 2.5 } else { 1.0 }
+                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest) { 2.5 } else { 1.0 }
             }
             BlockId::StoneAxe => {
-                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus) { 4.5 } else { 1.0 }
+                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest) { 4.5 } else { 1.0 }
             }
             BlockId::IronAxe => {
-                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus) { 7.0 } else { 1.0 }
+                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest) { 7.0 } else { 1.0 }
             }
             BlockId::WoodenShovel => {
                 if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow) { 2.5 } else { 1.0 }
@@ -358,6 +382,8 @@ impl BlockId {
             BlockId::SnowLeaves => 0.2,
             BlockId::Planks => 1.5,
             BlockId::CraftingTable => 1.5,
+            BlockId::Chest => 2.0,
+            BlockId::Furnace | BlockId::FurnaceLit => 3.5,
             BlockId::Door | BlockId::DoorOpen => 1.5,
             BlockId::Glass => 0.3,
             BlockId::Ice => 0.5,
@@ -440,6 +466,11 @@ impl BlockId {
             BlockId::RawBeef => "surowa wolowina",
             BlockId::CookedBeef => "stek",
             BlockId::Apple => "jablko",
+            BlockId::Chest => "skrzynia",
+            BlockId::Furnace => "piec",
+            BlockId::FurnaceLit => "rozpalony piec",
+            BlockId::IronIngot => "sztabka zelaza",
+            BlockId::GoldIngot => "sztabka zlota",
         }
     }
 
@@ -486,6 +517,12 @@ impl BlockId {
                 Face::Bottom => [0.58, 0.38, 0.18],
                 _ => [0.54, 0.36, 0.18],
             },
+            BlockId::Chest => [0.55, 0.40, 0.20],
+            BlockId::Furnace => [0.52, 0.52, 0.52],
+            BlockId::FurnaceLit => match face {
+                Face::North | Face::South => [0.95, 0.55, 0.15],
+                _ => [0.52, 0.52, 0.52],
+            },
             BlockId::Stick => [0.55, 0.38, 0.18],
             BlockId::Torch => [0.98, 0.72, 0.22],
             BlockId::RawPorkchop => [0.92, 0.55, 0.60],
@@ -493,6 +530,8 @@ impl BlockId {
             BlockId::RawBeef => [0.85, 0.25, 0.25],
             BlockId::CookedBeef => [0.55, 0.30, 0.18],
             BlockId::Apple => [0.90, 0.15, 0.15],
+            BlockId::IronIngot => [0.85, 0.85, 0.88],
+            BlockId::GoldIngot => [0.95, 0.85, 0.25],
             BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword => [0.60, 0.42, 0.22],
             BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword => [0.55, 0.55, 0.55],
             BlockId::IronPickaxe | BlockId::IronAxe | BlockId::IronShovel | BlockId::IronSword => [0.85, 0.85, 0.88],
@@ -543,6 +582,21 @@ impl BlockId {
                 Face::Bottom => TextureId::Planks,
                 Face::North | Face::South => TextureId::CraftingTableFront,
                 Face::East | Face::West => TextureId::CraftingTableSide,
+            },
+            BlockId::Chest => match face {
+                Face::Top | Face::Bottom => TextureId::ChestTop,
+                Face::North | Face::South => TextureId::ChestFront,
+                Face::East | Face::West => TextureId::ChestSide,
+            },
+            BlockId::Furnace => match face {
+                Face::Top | Face::Bottom => TextureId::FurnaceTop,
+                Face::North | Face::South => TextureId::FurnaceFront,
+                Face::East | Face::West => TextureId::FurnaceSide,
+            },
+            BlockId::FurnaceLit => match face {
+                Face::Top | Face::Bottom => TextureId::FurnaceTop,
+                Face::North | Face::South => TextureId::FurnaceFrontLit,
+                Face::East | Face::West => TextureId::FurnaceSide,
             },
             BlockId::Torch => TextureId::Torch,
             _ => TextureId::Planks,

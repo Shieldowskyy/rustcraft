@@ -1,4 +1,5 @@
 pub mod clipboard;
+pub mod container_ui;
 pub mod create_world;
 pub mod draw;
 pub mod hud;
@@ -8,6 +9,7 @@ pub mod save_select;
 pub mod settings_ui;
 
 pub use clipboard::{get_clipboard, set_clipboard};
+pub use container_ui::{draw_chest_ui, draw_furnace_ui, ChestLayout, ChestSlotTarget, FurnaceLayout, FurnaceSlotTarget};
 pub use create_world::{create_world_rects, draw_create_world_menu};
 pub use draw::{
     draw_text_colored_shadowed, draw_text_light_colored_shadowed, draw_text_light_shadowed,
