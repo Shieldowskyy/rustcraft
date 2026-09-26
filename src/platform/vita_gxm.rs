@@ -699,6 +699,36 @@ impl GxmVertex {
     }
 }
 
+/// Compact packed 8-byte vertex format for ultra-fast GPU vertex streaming
+#[repr(C, packed)]
+#[derive(Clone, Copy, Default)]
+pub struct GxmPackedVertex {
+    /// Local subchunk position (0..16 packed into 5 bits each)
+    pub local_pos: u16,
+    /// Texture coordinates (packed 16-bit fixed point)
+    pub u: u16,
+    pub v: u16,
+    /// Ambient occlusion (4 bits), sky light (4 bits), block light (4 bits), face normal (4 bits)
+    pub lighting_ao: u16,
+}
+
+impl GxmPackedVertex {
+    #[inline(always)]
+    pub fn new(lx: u8, ly: u8, lz: u8, u: u16, v: u16, ao: u8, sky_light: u8, block_light: u8, face_idx: u8) -> Self {
+        let local_pos = ((lx as u16 & 0x1F) << 10) | ((ly as u16 & 0x1F) << 5) | (lz as u16 & 0x1F);
+        let lighting_ao = ((ao as u16 & 0xF) << 12)
+            | ((sky_light as u16 & 0xF) << 8)
+            | ((block_light as u16 & 0xF) << 4)
+            | (face_idx as u16 & 0xF);
+        Self {
+            local_pos,
+            u,
+            v,
+            lighting_ao,
+        }
+    }
+}
+
 // ============================================================
 // 5. GPU TEXTURE ATLAS (Linear ABGR8888 Format)
 // ============================================================
@@ -784,6 +814,7 @@ fn build_gpu_texture(atlas: &TextureAtlas) -> (GpuMem, SceGxmTexture) {
         SCE_GXM_MEMORY_ATTRIB_READ,
     ).expect("Failed to allocate atlas texture in CDRAM");
 
+    
     let pixels = mem.ptr as *mut u32;
 
     unsafe {
@@ -2074,26 +2105,14 @@ fn append_clouds(
             let p011 = Vec3::new(x_min, y_top, z_max);
 
             // Top (+Y)
-            if player_pos.y >= y_top {
-                append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p011, p111, p110, p010, TextureId::Snow, 1.0);
-            }
+            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p011, p111, p110, p010, TextureId::Snow, 1.0);
             // Bottom (-Y)
-            if player_pos.y <= y_bottom {
-                append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p000, p100, p101, p001, TextureId::Snow, 0.7);
-            }
+            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p000, p100, p101, p001, TextureId::Snow, 0.7);
             // Sides
-            if player_pos.z <= z_min && !is_cloud(gx, gz - 1) {
-                append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p000, p010, p110, p100, TextureId::Snow, 0.85);
-            }
-            if player_pos.z >= z_max && !is_cloud(gx, gz + 1) {
-                append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p101, p111, p011, p001, TextureId::Snow, 0.85);
-            }
-            if player_pos.x <= x_min && !is_cloud(gx - 1, gz) {
-                append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p001, p011, p010, p000, TextureId::Snow, 0.75);
-            }
-            if player_pos.x >= x_max && !is_cloud(gx + 1, gz) {
-                append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p100, p110, p111, p101, TextureId::Snow, 0.75);
-            }
+            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p000, p010, p110, p100, TextureId::Snow, 0.85);
+            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p101, p111, p011, p001, TextureId::Snow, 0.85);
+            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p001, p011, p010, p000, TextureId::Snow, 0.75);
+            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p100, p110, p111, p101, TextureId::Snow, 0.75);
         }
     }
 }
@@ -2941,6 +2960,56 @@ impl GxmRenderer {
             self.free_slots.push(slot);
             self.chunk_spawn_times.remove(&(cx, cz));
         }
+    }
+
+    #[inline]
+    pub fn is_subchunk_in_frustum(chunk_x: i32, sub_y: usize, chunk_z: i32, mvp: &crate::core::math::Mat4) -> bool {
+        let min_x = (chunk_x * CHUNK_SIZE_X as i32) as f32;
+        let max_x = min_x + CHUNK_SIZE_X as f32;
+        let min_y = (sub_y as i32 * crate::world::SUBCHUNK_SIZE) as f32;
+        let max_y = min_y + crate::world::SUBCHUNK_SIZE as f32;
+        let min_z = (chunk_z * CHUNK_SIZE_Z as i32) as f32;
+        let max_z = min_z + CHUNK_SIZE_Z as f32;
+
+        let corners = [
+            [min_x, min_y, min_z],
+            [max_x, min_y, min_z],
+            [min_x, max_y, min_z],
+            [max_x, max_y, min_z],
+            [min_x, min_y, max_z],
+            [max_x, min_y, max_z],
+            [min_x, max_y, max_z],
+            [max_x, max_y, max_z],
+        ];
+
+        let m = &mvp.m;
+
+        let mut out_left = true;
+        let mut out_right = true;
+        let mut out_bottom = true;
+        let mut out_top = true;
+        let mut out_near = true;
+        let mut out_far = true;
+
+        for corner in &corners {
+            let x = corner[0];
+            let y = corner[1];
+            let z = corner[2];
+
+            let clip_x = m[0] * x + m[4] * y + m[8] * z + m[12];
+            let clip_y = m[1] * x + m[5] * y + m[9] * z + m[13];
+            let clip_z = m[2] * x + m[6] * y + m[10] * z + m[14];
+            let clip_w = m[3] * x + m[7] * y + m[11] * z + m[15];
+
+            if clip_x >= -clip_w { out_left = false; }
+            if clip_x <= clip_w { out_right = false; }
+            if clip_y >= -clip_w { out_bottom = false; }
+            if clip_y <= clip_w { out_top = false; }
+            if clip_z >= 0.0 { out_near = false; }
+            if clip_z <= clip_w { out_far = false; }
+        }
+
+        !(out_left || out_right || out_bottom || out_top || out_near || out_far)
     }
 
     #[inline]

@@ -751,6 +751,53 @@ impl Renderer {
         !(out_x_pos == 8 || out_x_neg == 8 || out_y_pos == 8 || out_y_neg == 8 || out_z_pos == 8 || out_z_neg == 8)
     }
 
+    pub fn subchunk_visible(cx: i32, sub_y: usize, cz: i32, view_proj: &Mat4) -> bool {
+        let min_x = cx as f32 * CHUNK_SIZE_X as f32;
+        let min_y = (sub_y as i32 * crate::world::SUBCHUNK_SIZE) as f32 - 14.0;
+        let min_z = cz as f32 * CHUNK_SIZE_Z as f32;
+        let max_x = min_x + CHUNK_SIZE_X as f32;
+        let max_y = (sub_y as i32 * crate::world::SUBCHUNK_SIZE + crate::world::SUBCHUNK_SIZE) as f32;
+        let max_z = min_z + CHUNK_SIZE_Z as f32;
+
+        let corners = [
+            Vec3::new(min_x, min_y, min_z),
+            Vec3::new(max_x, min_y, min_z),
+            Vec3::new(min_x, max_y, min_z),
+            Vec3::new(max_x, max_y, min_z),
+            Vec3::new(min_x, min_y, max_z),
+            Vec3::new(max_x, min_y, max_z),
+            Vec3::new(min_x, max_y, max_z),
+            Vec3::new(max_x, max_y, max_z),
+        ];
+
+        let mut out_x_pos = 0u8; let mut out_x_neg = 0u8;
+        let mut out_y_pos = 0u8; let mut out_y_neg = 0u8;
+        let mut out_z_pos = 0u8; let mut out_z_neg = 0u8;
+
+        for (i, &corner) in corners.iter().enumerate() {
+            let clip = view_proj.transform_point(corner);
+            if clip[0] > clip[3] { out_x_pos += 1; }
+            if clip[0] < -clip[3] { out_x_neg += 1; }
+            if clip[1] > clip[3] { out_y_pos += 1; }
+            if clip[1] < -clip[3] { out_y_neg += 1; }
+            if clip[2] > clip[3] { out_z_pos += 1; }
+            if clip[2] < -clip[3] { out_z_neg += 1; }
+
+            let remaining = (corners.len() - 1 - i) as u8;
+            let none_can_reach_8 = out_x_pos + remaining < 8
+                && out_x_neg + remaining < 8
+                && out_y_pos + remaining < 8
+                && out_y_neg + remaining < 8
+                && out_z_pos + remaining < 8
+                && out_z_neg + remaining < 8;
+            if none_can_reach_8 {
+                return true;
+            }
+        }
+
+        !(out_x_pos == 8 || out_x_neg == 8 || out_y_pos == 8 || out_y_neg == 8 || out_z_pos == 8 || out_z_neg == 8)
+    }
+
     fn raster_triangle(&mut self, tri: &Triangle, view_proj: &Mat4) {
         self.raster_triangle_tinted(tri, 0.0, view_proj);
     }

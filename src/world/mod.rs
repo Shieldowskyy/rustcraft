@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 pub use block::{BlockId, Face};
 
-pub use mesher::{build_chunk_mesh, Triangle, Vertex};
+pub use mesher::{build_chunk_mesh, build_subchunk_mesh, Triangle, Vertex, NUM_SUBCHUNKS, SUBCHUNK_SIZE};
 pub use storage::{save_current_world, save_path};
 
 use crate::core::math::{IVec3, Vec3};
