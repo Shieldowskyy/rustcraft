@@ -985,6 +985,10 @@ pub enum TextureId {
     FurnaceSide,
     FurnaceFront,
     FurnaceFrontLit,
+    IronBlock,
+    GoldBlock,
+    GoldOre,
+    CoalBlock,
 }
 
 impl TextureId {
@@ -1356,6 +1360,10 @@ pub struct TextureAtlas {
     pub furnace_side: Texture,
     pub furnace_front: Texture,
     pub furnace_front_lit: Texture,
+    pub iron_block: Texture,
+    pub gold_block: Texture,
+    pub gold_ore: Texture,
+    pub coal_block: Texture,
 }
 
 fn chest_top() -> Texture {
@@ -1515,6 +1523,103 @@ fn furnace_front_lit() -> Texture {
     base
 }
 
+fn iron_block() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let base = [0.86, 0.86, 0.88];
+    let highlight = [0.95, 0.95, 0.98];
+    let shadow = [0.70, 0.70, 0.74];
+    let rivet = [0.55, 0.55, 0.60];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let is_top_left = x == 0 || y == 0;
+            let is_bot_right = x == TEX_SIZE - 1 || y == TEX_SIZE - 1;
+            let is_rivet = (x == 2 && y == 2)
+                || (x == TEX_SIZE - 3 && y == 2)
+                || (x == 2 && y == TEX_SIZE - 3)
+                || (x == TEX_SIZE - 3 && y == TEX_SIZE - 3);
+            let n = rand_at(x, y, 771);
+            let mut col = if is_top_left {
+                highlight
+            } else if is_bot_right {
+                shadow
+            } else if is_rivet {
+                rivet
+            } else {
+                base
+            };
+            col[0] = (col[0] + (n - 0.5) * 0.03).clamp(0.0, 1.0);
+            col[1] = (col[1] + (n - 0.5) * 0.03).clamp(0.0, 1.0);
+            col[2] = (col[2] + (n - 0.5) * 0.03).clamp(0.0, 1.0);
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
+fn gold_block() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let base = [0.95, 0.82, 0.22];
+    let highlight = [1.0, 0.95, 0.45];
+    let shadow = [0.78, 0.62, 0.10];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let is_top_left = x == 0 || y == 0 || (x == 2 && y >= 2 && y <= TEX_SIZE - 3) || (y == 2 && x >= 2 && x <= TEX_SIZE - 3);
+            let is_bot_right = x == TEX_SIZE - 1 || y == TEX_SIZE - 1 || (x == TEX_SIZE - 3 && y >= 2 && y <= TEX_SIZE - 3) || (y == TEX_SIZE - 3 && x >= 2 && x <= TEX_SIZE - 3);
+            let n = rand_at(x, y, 882);
+            let mut col = if is_top_left {
+                highlight
+            } else if is_bot_right {
+                shadow
+            } else {
+                base
+            };
+            col[0] = (col[0] + (n - 0.5) * 0.04).clamp(0.0, 1.0);
+            col[1] = (col[1] + (n - 0.5) * 0.04).clamp(0.0, 1.0);
+            col[2] = (col[2] + (n - 0.5) * 0.04).clamp(0.0, 1.0);
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
+fn gold_ore() -> Texture {
+    let mut tex = stone();
+    let gold_color = [0.98, 0.82, 0.20];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let n = rand_at(x, y, 631);
+            if n > 0.75 {
+                tex.texels[y * TEX_SIZE + x] = mix(tex.texels[y * TEX_SIZE + x], gold_color, 0.90);
+            }
+        }
+    }
+    tex
+}
+
+fn coal_block() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let base = [0.12, 0.12, 0.13];
+    let dark = [0.06, 0.06, 0.07];
+    let light = [0.18, 0.18, 0.20];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let n = rand_at(x, y, 993);
+            let mut col = if n > 0.75 {
+                light
+            } else if n < 0.25 {
+                dark
+            } else {
+                base
+            };
+            col[0] = (col[0] + (n - 0.5) * 0.02).clamp(0.0, 1.0);
+            col[1] = (col[1] + (n - 0.5) * 0.02).clamp(0.0, 1.0);
+            col[2] = (col[2] + (n - 0.5) * 0.02).clamp(0.0, 1.0);
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
 fn torch() -> Texture {
     let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
     let wood_dark = [0.42, 0.28, 0.14];
@@ -1655,6 +1760,10 @@ impl TextureAtlas {
             furnace_side: furnace_side(),
             furnace_front: furnace_front(),
             furnace_front_lit: furnace_front_lit(),
+            iron_block: iron_block(),
+            gold_block: gold_block(),
+            gold_ore: gold_ore(),
+            coal_block: coal_block(),
         }
     }
 
@@ -1733,6 +1842,10 @@ impl TextureAtlas {
             TextureId::FurnaceSide => &self.furnace_side,
             TextureId::FurnaceFront => &self.furnace_front,
             TextureId::FurnaceFrontLit => &self.furnace_front_lit,
+            TextureId::IronBlock => &self.iron_block,
+            TextureId::GoldBlock => &self.gold_block,
+            TextureId::GoldOre => &self.gold_ore,
+            TextureId::CoalBlock => &self.coal_block,
         }
     }
     /// Returns a reference to the texture corresponding to the specified `TextureId`.

@@ -130,11 +130,110 @@ impl RecipeBook {
             result: ItemStack { block: BlockId::Furnace, count: 1 },
         });
 
+        // 8x Iron Ounces (3x3 ring: 8 Ounces) -> 1x Iron Ingot
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 3,
+            pattern: vec![
+                Some(BlockId::IronOunce), Some(BlockId::IronOunce), Some(BlockId::IronOunce),
+                Some(BlockId::IronOunce), None,                    Some(BlockId::IronOunce),
+                Some(BlockId::IronOunce), Some(BlockId::IronOunce), Some(BlockId::IronOunce),
+            ],
+            result: ItemStack { block: BlockId::IronIngot, count: 1 },
+        });
+
+        // 1x Iron Ingot (1x1) -> 8x Iron Ounces
+        self.recipes.push(Recipe {
+            width: 1,
+            height: 1,
+            pattern: vec![Some(BlockId::IronIngot)],
+            result: ItemStack { block: BlockId::IronOunce, count: 8 },
+        });
+
+        // 8x Gold Ounces (3x3 ring: 8 Ounces) -> 1x Gold Ingot
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 3,
+            pattern: vec![
+                Some(BlockId::GoldOunce), Some(BlockId::GoldOunce), Some(BlockId::GoldOunce),
+                Some(BlockId::GoldOunce), None,                    Some(BlockId::GoldOunce),
+                Some(BlockId::GoldOunce), Some(BlockId::GoldOunce), Some(BlockId::GoldOunce),
+            ],
+            result: ItemStack { block: BlockId::GoldIngot, count: 1 },
+        });
+
+        // 1x Gold Ingot (1x1) -> 8x Gold Ounces
+        self.recipes.push(Recipe {
+            width: 1,
+            height: 1,
+            pattern: vec![Some(BlockId::GoldIngot)],
+            result: ItemStack { block: BlockId::GoldOunce, count: 8 },
+        });
+
+        // 9x Iron Ingots (3x3 full) -> 1x Iron Block
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 3,
+            pattern: vec![
+                Some(BlockId::IronIngot), Some(BlockId::IronIngot), Some(BlockId::IronIngot),
+                Some(BlockId::IronIngot), Some(BlockId::IronIngot), Some(BlockId::IronIngot),
+                Some(BlockId::IronIngot), Some(BlockId::IronIngot), Some(BlockId::IronIngot),
+            ],
+            result: ItemStack { block: BlockId::IronBlock, count: 1 },
+        });
+
+        // 1x Iron Block (1x1) -> 9x Iron Ingots
+        self.recipes.push(Recipe {
+            width: 1,
+            height: 1,
+            pattern: vec![Some(BlockId::IronBlock)],
+            result: ItemStack { block: BlockId::IronIngot, count: 9 },
+        });
+
+        // 9x Gold Ingots (3x3 full) -> 1x Gold Block
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 3,
+            pattern: vec![
+                Some(BlockId::GoldIngot), Some(BlockId::GoldIngot), Some(BlockId::GoldIngot),
+                Some(BlockId::GoldIngot), Some(BlockId::GoldIngot), Some(BlockId::GoldIngot),
+                Some(BlockId::GoldIngot), Some(BlockId::GoldIngot), Some(BlockId::GoldIngot),
+            ],
+            result: ItemStack { block: BlockId::GoldBlock, count: 1 },
+        });
+
+        // 1x Gold Block (1x1) -> 9x Gold Ingots
+        self.recipes.push(Recipe {
+            width: 1,
+            height: 1,
+            pattern: vec![Some(BlockId::GoldBlock)],
+            result: ItemStack { block: BlockId::GoldIngot, count: 9 },
+        });
+
+        // 9x Coal Ore (3x3 full) -> 1x Coal Block
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 3,
+            pattern: vec![
+                Some(BlockId::CoalOre), Some(BlockId::CoalOre), Some(BlockId::CoalOre),
+                Some(BlockId::CoalOre), Some(BlockId::CoalOre), Some(BlockId::CoalOre),
+                Some(BlockId::CoalOre), Some(BlockId::CoalOre), Some(BlockId::CoalOre),
+            ],
+            result: ItemStack { block: BlockId::CoalBlock, count: 1 },
+        });
+
+        // 1x Coal Block (1x1) -> 9x Coal Ore
+        self.recipes.push(Recipe {
+            width: 1,
+            height: 1,
+            pattern: vec![Some(BlockId::CoalBlock)],
+            result: ItemStack { block: BlockId::CoalOre, count: 9 },
+        });
+
         // Shovels (1x3: Material over 2 Sticks)
         let shovel_materials = [
             (BlockId::Planks, BlockId::WoodenShovel),
             (BlockId::Stone, BlockId::StoneShovel),
-            (BlockId::IronOre, BlockId::IronShovel),
             (BlockId::IronIngot, BlockId::IronShovel),
         ];
         for (mat, tool) in shovel_materials {
@@ -154,7 +253,6 @@ impl RecipeBook {
         let sword_materials = [
             (BlockId::Planks, BlockId::WoodenSword),
             (BlockId::Stone, BlockId::StoneSword),
-            (BlockId::IronOre, BlockId::IronSword),
             (BlockId::IronIngot, BlockId::IronSword),
         ];
         for (mat, tool) in sword_materials {
@@ -174,7 +272,6 @@ impl RecipeBook {
         let pick_materials = [
             (BlockId::Planks, BlockId::WoodenPickaxe),
             (BlockId::Stone, BlockId::StonePickaxe),
-            (BlockId::IronOre, BlockId::IronPickaxe),
             (BlockId::IronIngot, BlockId::IronPickaxe),
         ];
         for (mat, tool) in pick_materials {
@@ -194,7 +291,6 @@ impl RecipeBook {
         let axe_materials = [
             (BlockId::Planks, BlockId::WoodenAxe),
             (BlockId::Stone, BlockId::StoneAxe),
-            (BlockId::IronOre, BlockId::IronAxe),
             (BlockId::IronIngot, BlockId::IronAxe),
         ];
         for (mat, tool) in axe_materials {
@@ -372,8 +468,8 @@ mod tests {
         let book = RecipeBook::new();
         // Iron Sword
         let sword_grid = [
-            None, Some(ItemStack { block: BlockId::IronOre, count: 1 }), None,
-            None, Some(ItemStack { block: BlockId::IronOre, count: 1 }), None,
+            None, Some(ItemStack { block: BlockId::IronIngot, count: 1 }), None,
+            None, Some(ItemStack { block: BlockId::IronIngot, count: 1 }), None,
             None, Some(ItemStack { block: BlockId::Stick, count: 1 }), None,
         ];
         assert_eq!(
@@ -401,5 +497,123 @@ mod tests {
         grid[2] = Some(ItemStack { block: BlockId::Stick, count: 1 });
         let result = book.match_grid(&grid, 2, 2);
         assert_eq!(result, Some(ItemStack { block: BlockId::Torch, count: 4 }));
+    }
+
+    #[test]
+    fn test_ounces_to_ingots_and_reverse() {
+        let book = RecipeBook::new();
+        // 8 ounces in hollow 3x3 ring -> 1 ingot
+        let iron_ring = [
+            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
+            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
+            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
+            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
+            None,
+            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
+            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
+            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
+            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&iron_ring, 3, 3),
+            Some(ItemStack { block: BlockId::IronIngot, count: 1 })
+        );
+
+        // 1 ingot -> 8 ounces (1x1 in 2x2 or 3x3)
+        let ingot_grid = [
+            Some(ItemStack { block: BlockId::IronIngot, count: 1 }), None,
+            None, None,
+        ];
+        assert_eq!(
+            book.match_grid(&ingot_grid, 2, 2),
+            Some(ItemStack { block: BlockId::IronOunce, count: 8 })
+        );
+
+        // Gold ring -> gold ingot
+        let gold_ring = [
+            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
+            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
+            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
+            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
+            None,
+            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
+            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
+            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
+            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&gold_ring, 3, 3),
+            Some(ItemStack { block: BlockId::GoldIngot, count: 1 })
+        );
+
+        // 1 gold ingot -> 8 gold ounces
+        let gold_ingot_grid = [
+            Some(ItemStack { block: BlockId::GoldIngot, count: 1 }), None,
+            None, None,
+        ];
+        assert_eq!(
+            book.match_grid(&gold_ingot_grid, 2, 2),
+            Some(ItemStack { block: BlockId::GoldOunce, count: 8 })
+        );
+    }
+
+    #[test]
+    fn test_ingots_to_blocks_and_reverse() {
+        let book = RecipeBook::new();
+        // 9 ingots -> 1 block
+        let block_grid = [
+            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
+            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
+            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
+            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
+            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
+            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
+            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
+            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
+            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&block_grid, 3, 3),
+            Some(ItemStack { block: BlockId::IronBlock, count: 1 })
+        );
+
+        // 1 block -> 9 ingots
+        let decraft_block = [
+            Some(ItemStack { block: BlockId::IronBlock, count: 1 }), None,
+            None, None,
+        ];
+        assert_eq!(
+            book.match_grid(&decraft_block, 2, 2),
+            Some(ItemStack { block: BlockId::IronIngot, count: 9 })
+        );
+    }
+
+    #[test]
+    fn test_coal_block_and_reverse() {
+        let book = RecipeBook::new();
+        let coal_grid = [
+            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
+            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
+            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
+            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
+            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
+            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
+            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
+            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
+            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&coal_grid, 3, 3),
+            Some(ItemStack { block: BlockId::CoalBlock, count: 1 })
+        );
+
+        let decraft_coal = [
+            Some(ItemStack { block: BlockId::CoalBlock, count: 1 }), None,
+            None, None,
+        ];
+        assert_eq!(
+            book.match_grid(&decraft_coal, 2, 2),
+            Some(ItemStack { block: BlockId::CoalOre, count: 9 })
+        );
     }
 }

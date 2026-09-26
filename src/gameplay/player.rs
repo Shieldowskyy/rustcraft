@@ -76,7 +76,7 @@ impl Player {
             return false;
         }
         if self.gamemode == GameMode::Creative {
-            return true;
+            return false;
         }
         self.hunger < self.max_hunger
     }
@@ -126,6 +126,12 @@ mod tests {
         player.eat(BlockId::Apple);
         assert_eq!(player.hunger, 20.0);
         assert!(!player.can_eat(BlockId::Apple));
+
+        let mut creative_player = Player::new();
+        creative_player.gamemode = GameMode::Creative;
+        creative_player.hunger = 10.0;
+        assert!(!creative_player.can_eat(BlockId::CookedBeef));
+        assert!(!creative_player.can_eat(BlockId::Apple));
     }
 }
 

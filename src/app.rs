@@ -2620,6 +2620,8 @@ impl RustCraftApp {
                 }
             }
             GameState::Inventory => {
+                self.world.update_furnaces(dt);
+
                 if input.gp_lb_just_pressed {
                     self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
                 }

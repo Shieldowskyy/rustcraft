@@ -7,6 +7,7 @@ pub const SMELT_DURATION: f32 = 10.0;
 /// Returns the fuel burn time in seconds for a given block or item.
 pub fn fuel_burn_time(block: BlockId) -> Option<f32> {
     match block {
+        BlockId::CoalBlock => Some(720.0),
         BlockId::CoalOre => Some(80.0),
         BlockId::Wood => Some(15.0),
         BlockId::Planks => Some(15.0),
@@ -32,7 +33,8 @@ pub fn smelting_result(input: BlockId) -> Option<BlockId> {
         BlockId::RawPorkchop => Some(BlockId::CookedPorkchop),
         BlockId::RawBeef => Some(BlockId::CookedBeef),
         BlockId::Sand => Some(BlockId::Glass),
-        BlockId::IronOre => Some(BlockId::IronIngot),
+        BlockId::IronOre => Some(BlockId::IronOunce),
+        BlockId::GoldOre => Some(BlockId::GoldOunce),
         BlockId::Wood => Some(BlockId::CoalOre),
         BlockId::Stone => Some(BlockId::Stone),
         _ => None,
@@ -182,11 +184,6 @@ impl FurnaceData {
             false
         };
 
-        // Advance or extinguish burning fuel
-        if self.burn_time_remaining > 0.0 {
-            self.burn_time_remaining = (self.burn_time_remaining - dt).max(0.0);
-        }
-
         // If not burning but we have smeltable items, attempt to consume fuel
         if self.burn_time_remaining <= 0.0 && can_smelt {
             if let Some(fuel_stack) = &mut self.fuel {
@@ -198,6 +195,14 @@ impl FurnaceData {
                         self.fuel = None;
                     }
                 }
+            }
+        }
+
+        // Advance or extinguish burning fuel
+        if self.burn_time_remaining > 0.0 {
+            self.burn_time_remaining = (self.burn_time_remaining - dt).max(0.0);
+            if self.burn_time_remaining == 0.0 {
+                self.burn_time_total = 0.0;
             }
         }
 
@@ -260,6 +265,19 @@ mod tests {
         furnace.tick(10.0); // cook second porkchop
         assert_eq!(furnace.output, Some(ItemStack { block: BlockId::CookedPorkchop, count: 2 }));
         assert_eq!(furnace.input, None);
+
+        // Fuel continues to burn down even when input is empty (nothing being smelted)
+        assert!(furnace.is_burning());
+        assert_eq!(furnace.burn_time_remaining, 60.0); // 80 - 5 - 5 - 10 = 60
+
+        furnace.tick(30.0);
+        assert!(furnace.is_burning());
+        assert_eq!(furnace.burn_time_remaining, 30.0);
+
+        let went_out = furnace.tick(30.0);
+        assert!(went_out);
+        assert!(!furnace.is_burning());
+        assert_eq!(furnace.burn_time_remaining, 0.0);
     }
 
     #[test]
@@ -267,7 +285,8 @@ mod tests {
         assert_eq!(smelting_result(BlockId::RawPorkchop), Some(BlockId::CookedPorkchop));
         assert_eq!(smelting_result(BlockId::RawBeef), Some(BlockId::CookedBeef));
         assert_eq!(smelting_result(BlockId::Sand), Some(BlockId::Glass));
-        assert_eq!(smelting_result(BlockId::IronOre), Some(BlockId::IronIngot));
+        assert_eq!(smelting_result(BlockId::IronOre), Some(BlockId::IronOunce));
+        assert_eq!(smelting_result(BlockId::GoldOre), Some(BlockId::GoldOunce));
         assert_eq!(smelting_result(BlockId::Wood), Some(BlockId::CoalOre));
         assert_eq!(smelting_result(BlockId::Stone), Some(BlockId::Stone));
         assert_eq!(smelting_result(BlockId::Air), None);
@@ -286,6 +305,7 @@ mod tests {
     #[test]
     fn test_fuel_burn_times() {
         assert_eq!(fuel_burn_time(BlockId::CoalOre), Some(80.0));
+        assert_eq!(fuel_burn_time(BlockId::CoalBlock), Some(720.0));
         assert_eq!(fuel_burn_time(BlockId::Wood), Some(15.0));
         assert_eq!(fuel_burn_time(BlockId::Planks), Some(15.0));
         assert_eq!(fuel_burn_time(BlockId::Chest), Some(15.0));

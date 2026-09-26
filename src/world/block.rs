@@ -69,6 +69,18 @@ pub enum BlockId {
     IronIngot,
     /// Gold ingot item
     GoldIngot,
+    /// Iron ounce / nugget (smelted from 1 iron ore, 8 craft 1 iron ingot)
+    IronOunce,
+    /// Solid block of iron (crafted from 9 iron ingots)
+    IronBlock,
+    /// Gold ounce / nugget (smelted from 1 gold ore, 8 craft 1 gold ingot)
+    GoldOunce,
+    /// Solid block of gold (crafted from 9 gold ingots)
+    GoldBlock,
+    /// Gold ore block
+    GoldOre,
+    /// Solid block of coal (crafted from 9 coal ore)
+    CoalBlock,
 }
 
 impl BlockId {
@@ -122,6 +134,12 @@ impl BlockId {
             46 => BlockId::FurnaceLit,
             47 => BlockId::IronIngot,
             48 => BlockId::GoldIngot,
+            49 => BlockId::IronOunce,
+            50 => BlockId::IronBlock,
+            51 => BlockId::GoldOunce,
+            52 => BlockId::GoldBlock,
+            53 => BlockId::GoldOre,
+            54 => BlockId::CoalBlock,
             _ => BlockId::Air,
         }
     }
@@ -177,6 +195,12 @@ impl BlockId {
             BlockId::FurnaceLit => 46,
             BlockId::IronIngot => 47,
             BlockId::GoldIngot => 48,
+            BlockId::IronOunce => 49,
+            BlockId::IronBlock => 50,
+            BlockId::GoldOunce => 51,
+            BlockId::GoldBlock => 52,
+            BlockId::GoldOre => 53,
+            BlockId::CoalBlock => 54,
         }
     }
 
@@ -205,6 +229,8 @@ impl BlockId {
                 | BlockId::Apple
                 | BlockId::IronIngot
                 | BlockId::GoldIngot
+                | BlockId::IronOunce
+                | BlockId::GoldOunce
         )
     }
 
@@ -236,6 +262,8 @@ impl BlockId {
             | (1u64 << 43) // DoorOpen (passable)
             | (1u64 << 47) // IronIngot
             | (1u64 << 48) // GoldIngot
+            | (1u64 << 49) // IronOunce
+            | (1u64 << 51) // GoldOunce
         );
         let id = self.to_u8() as u32;
         ((SOLID_MASK >> id) & 1) != 0
@@ -328,13 +356,13 @@ impl BlockId {
         let Some(t) = tool else { return 1.0; };
         match t {
             BlockId::WoodenPickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit) { 2.5 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::GoldOre | BlockId::CoalBlock) { 2.5 } else { 1.0 }
             }
             BlockId::StonePickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit) { 4.5 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::GoldOre | BlockId::CoalBlock) { 4.5 } else { 1.0 }
             }
             BlockId::IronPickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit) { 7.0 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::GoldOre | BlockId::CoalBlock) { 7.0 } else { 1.0 }
             }
             BlockId::WoodenAxe => {
                 if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest) { 2.5 } else { 1.0 }
@@ -377,6 +405,10 @@ impl BlockId {
             BlockId::Cactus => 0.4,
             BlockId::CoalOre => 1.5,
             BlockId::IronOre => 1.5,
+            BlockId::GoldOre => 3.0,
+            BlockId::IronBlock => 5.0,
+            BlockId::GoldBlock => 3.0,
+            BlockId::CoalBlock => 5.0,
             BlockId::Bedrock => f32::INFINITY,
             BlockId::Lava => 0.0,
             BlockId::SnowLeaves => 0.2,
@@ -471,6 +503,12 @@ impl BlockId {
             BlockId::FurnaceLit => "rozpalony piec",
             BlockId::IronIngot => "sztabka zelaza",
             BlockId::GoldIngot => "sztabka zlota",
+            BlockId::IronOunce => "uncja zelaza",
+            BlockId::IronBlock => "blok zelaza",
+            BlockId::GoldOunce => "uncja zlota",
+            BlockId::GoldBlock => "blok zlota",
+            BlockId::GoldOre => "ruda zlota",
+            BlockId::CoalBlock => "blok wegla",
         }
     }
 
@@ -501,6 +539,10 @@ impl BlockId {
             },
             BlockId::CoalOre => [0.48, 0.48, 0.48],
             BlockId::IronOre => [0.60, 0.55, 0.50],
+            BlockId::GoldOre => [0.58, 0.55, 0.48],
+            BlockId::IronBlock => [0.88, 0.88, 0.90],
+            BlockId::GoldBlock => [0.96, 0.85, 0.22],
+            BlockId::CoalBlock => [0.15, 0.15, 0.15],
             BlockId::Bedrock => [0.22, 0.22, 0.22],
             BlockId::Lava => [0.95, 0.42, 0.05],
             BlockId::SnowLeaves => [0.55, 0.72, 0.80],
@@ -532,6 +574,8 @@ impl BlockId {
             BlockId::Apple => [0.90, 0.15, 0.15],
             BlockId::IronIngot => [0.85, 0.85, 0.88],
             BlockId::GoldIngot => [0.95, 0.85, 0.25],
+            BlockId::IronOunce => [0.82, 0.82, 0.85],
+            BlockId::GoldOunce => [0.95, 0.85, 0.25],
             BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword => [0.60, 0.42, 0.22],
             BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword => [0.55, 0.55, 0.55],
             BlockId::IronPickaxe | BlockId::IronAxe | BlockId::IronShovel | BlockId::IronSword => [0.85, 0.85, 0.88],
@@ -566,6 +610,10 @@ impl BlockId {
             },
             BlockId::CoalOre => TextureId::CoalOre,
             BlockId::IronOre => TextureId::IronOre,
+            BlockId::GoldOre => TextureId::GoldOre,
+            BlockId::IronBlock => TextureId::IronBlock,
+            BlockId::GoldBlock => TextureId::GoldBlock,
+            BlockId::CoalBlock => TextureId::CoalBlock,
             BlockId::Bedrock => TextureId::Bedrock,
             BlockId::Lava => TextureId::Lava,
             BlockId::SnowLeaves => TextureId::SnowLeaves,

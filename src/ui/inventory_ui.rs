@@ -39,7 +39,11 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::Snow,
             BlockId::Cactus,
             BlockId::CoalOre,
+            BlockId::CoalBlock,
             BlockId::IronOre,
+            BlockId::IronBlock,
+            BlockId::GoldOre,
+            BlockId::GoldBlock,
             BlockId::Bedrock,
             BlockId::Planks,
             BlockId::Chest,
@@ -64,7 +68,9 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::IronSword,
             BlockId::Stick,
             BlockId::Torch,
+            BlockId::IronOunce,
             BlockId::IronIngot,
+            BlockId::GoldOunce,
             BlockId::GoldIngot,
             BlockId::RawPorkchop,
             BlockId::CookedPorkchop,
@@ -93,7 +99,11 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::Snow,
             BlockId::Cactus,
             BlockId::CoalOre,
+            BlockId::CoalBlock,
             BlockId::IronOre,
+            BlockId::IronBlock,
+            BlockId::GoldOre,
+            BlockId::GoldBlock,
             BlockId::Water,
             BlockId::Bedrock,
             BlockId::Lava,
@@ -105,7 +115,9 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::Glass,
             BlockId::Ice,
             BlockId::Torch,
+            BlockId::IronOunce,
             BlockId::IronIngot,
+            BlockId::GoldOunce,
             BlockId::GoldIngot,
             BlockId::RawPorkchop,
             BlockId::CookedPorkchop,
@@ -1219,7 +1231,7 @@ mod tests {
         assert!(tab1.contains(&BlockId::Tnt));
 
         let tab2 = creative_tab_blocks(2);
-        assert_eq!(tab2.len(), 47);
+        assert_eq!(tab2.len(), 53);
         assert!(tab2.contains(&BlockId::Grass));
         assert!(tab2.contains(&BlockId::Torch));
         assert!(tab2.contains(&BlockId::IronSword));
@@ -1227,6 +1239,11 @@ mod tests {
         assert!(tab2.contains(&BlockId::CookedBeef));
         assert!(tab2.contains(&BlockId::Chest));
         assert!(tab2.contains(&BlockId::Furnace));
+        assert!(tab2.contains(&BlockId::IronOunce));
+        assert!(tab2.contains(&BlockId::IronBlock));
+        assert!(tab2.contains(&BlockId::GoldOre));
+        assert!(tab2.contains(&BlockId::GoldBlock));
+        assert!(tab2.contains(&BlockId::CoalBlock));
     }
 
     #[test]

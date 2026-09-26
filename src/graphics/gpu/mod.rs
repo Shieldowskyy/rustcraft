@@ -1107,6 +1107,10 @@ impl VulkanContext {
             TextureId::FurnaceSide => 70,
             TextureId::FurnaceFront => 71,
             TextureId::FurnaceFrontLit => 72,
+            TextureId::IronBlock => 73,
+            TextureId::GoldBlock => 74,
+            TextureId::GoldOre => 75,
+            TextureId::CoalBlock => 76,
         }
     }
 
@@ -1185,6 +1189,10 @@ impl VulkanContext {
             70 => TextureId::FurnaceSide,
             71 => TextureId::FurnaceFront,
             72 => TextureId::FurnaceFrontLit,
+            73 => TextureId::IronBlock,
+            74 => TextureId::GoldBlock,
+            75 => TextureId::GoldOre,
+            76 => TextureId::CoalBlock,
             _ => TextureId::CraftingTableFront,
         }
     }
