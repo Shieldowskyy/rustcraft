@@ -754,6 +754,8 @@ pub const ALL_TEXTURES: &[TextureId] = &[
     TextureId::GrassTopCherry, TextureId::GrassSideCherry,
     TextureId::GrassTopAutumn, TextureId::GrassSideAutumn,
     TextureId::GrassTopTaiga, TextureId::GrassSideTaiga,
+    TextureId::ChestTop, TextureId::ChestSide, TextureId::ChestFront,
+    TextureId::FurnaceTop, TextureId::FurnaceSide, TextureId::FurnaceFront, TextureId::FurnaceFrontLit,
 ];
 
 unsafe fn populate_atlas(pixels: *mut u32, atlas: &TextureAtlas) {
@@ -910,6 +912,13 @@ pub fn atlas_uv(tex_id: TextureId) -> (f32, f32, f32, f32) {
         TextureId::GrassSideAutumn => 63,
         TextureId::GrassTopTaiga => 64,
         TextureId::GrassSideTaiga => 65,
+        TextureId::ChestTop => 66,
+        TextureId::ChestSide => 67,
+        TextureId::ChestFront => 68,
+        TextureId::FurnaceTop => 69,
+        TextureId::FurnaceSide => 70,
+        TextureId::FurnaceFront => 71,
+        TextureId::FurnaceFrontLit => 72,
     };
     const TILE_NORM: f32 = 1.0 / ATLAS_TILES_PER_ROW as f32;
     let col = tile_idx % ATLAS_TILES_PER_ROW;
@@ -2947,7 +2956,7 @@ impl GxmRenderer {
                         let r = (pixel >> 16) & 0xFF;
                         let g = (pixel >> 8) & 0xFF;
                         let b = pixel & 0xFF;
-                        *dst_ptr.add(px) = (0xFF << 24) | (b << 16) | (g << 8) | r;
+                        *dst_ptr.add(x) = (0xFF << 24) | (b << 16) | (g << 8) | r;
                     }
                     x += 1;
                 }
