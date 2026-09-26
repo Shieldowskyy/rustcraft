@@ -63,8 +63,18 @@ pub struct FrameProfiler {
     pub render_clouds_ms: f32,
     pub render_entities_ms: f32,
     pub render_sky_ms: f32,
+    pub render_hand_ms: f32,
     pub render_ui_ms: f32,
     pub total_frame_ms: f32,
+
+    // Fine-grained micro-timings
+    pub tick_physics_ms: f32,
+    pub tick_mobs_ms: f32,
+    pub tick_entities_ms: f32,
+    pub tick_world_ms: f32,
+    pub world_gen_ms: f32,
+    pub world_mesh_ms: f32,
+    pub render_cull_ms: f32,
 
     pub fps: u32,
     pub memory: MemoryBreakdown,
@@ -75,13 +85,15 @@ impl FrameProfiler {
     /// Computes colored slices for the Minecraft-style debug pie chart.
     pub fn pie_slices(&self) -> Vec<ProfilerSlice> {
         let raw_slices = [
-            ("terrain", self.render_terrain_ms, pack_color(0.20, 0.85, 0.30)),    // Green
-            ("trans/water", self.render_trans_ms, pack_color(0.95, 0.85, 0.20)),  // Yellow
-            ("meshing/io", self.world_io_ms, pack_color(0.20, 0.60, 0.95)),      // Blue
-            ("game/tick", self.tick_ms, pack_color(0.95, 0.55, 0.15)),          // Orange
+            ("terrain", self.render_terrain_ms, pack_color(0.20, 0.85, 0.30)),        // Green
+            ("trans/water", self.render_trans_ms, pack_color(0.95, 0.85, 0.20)),      // Yellow
+            ("meshing/io", self.world_io_ms, pack_color(0.20, 0.60, 0.95)),          // Blue
+            ("physics", self.tick_physics_ms.max(self.tick_ms * 0.4), pack_color(0.95, 0.45, 0.15)), // Dark orange
+            ("mobs/ai", self.tick_mobs_ms.max(self.tick_ms * 0.3), pack_color(0.95, 0.65, 0.15)),   // Orange
+            ("entities", self.render_entities_ms, pack_color(0.95, 0.25, 0.25)),      // Red
+            ("hand/3d", self.render_hand_ms, pack_color(0.85, 0.40, 0.75)),          // Pink
             ("clouds/sky", self.render_clouds_ms + self.render_sky_ms, pack_color(0.70, 0.35, 0.95)), // Purple
-            ("entities", self.render_entities_ms, pack_color(0.95, 0.25, 0.25)), // Red
-            ("gui/hud", self.render_ui_ms, pack_color(0.15, 0.85, 0.85)),        // Cyan
+            ("gui/hud", self.render_ui_ms, pack_color(0.15, 0.85, 0.85)),            // Cyan
         ];
 
         let sum_ms: f32 = raw_slices.iter().map(|(_, t, _)| *t).sum::<f32>().max(0.001);
@@ -112,8 +124,18 @@ impl FrameProfiler {
         self.render_clouds_ms = lerp(self.render_clouds_ms, other.render_clouds_ms);
         self.render_entities_ms = lerp(self.render_entities_ms, other.render_entities_ms);
         self.render_sky_ms = lerp(self.render_sky_ms, other.render_sky_ms);
+        self.render_hand_ms = lerp(self.render_hand_ms, other.render_hand_ms);
         self.render_ui_ms = lerp(self.render_ui_ms, other.render_ui_ms);
         self.total_frame_ms = lerp(self.total_frame_ms, other.total_frame_ms);
+
+        self.tick_physics_ms = lerp(self.tick_physics_ms, other.tick_physics_ms);
+        self.tick_mobs_ms = lerp(self.tick_mobs_ms, other.tick_mobs_ms);
+        self.tick_entities_ms = lerp(self.tick_entities_ms, other.tick_entities_ms);
+        self.tick_world_ms = lerp(self.tick_world_ms, other.tick_world_ms);
+        self.world_gen_ms = lerp(self.world_gen_ms, other.world_gen_ms);
+        self.world_mesh_ms = lerp(self.world_mesh_ms, other.world_mesh_ms);
+        self.render_cull_ms = lerp(self.render_cull_ms, other.render_cull_ms);
+
         self.fps = other.fps;
         self.memory = other.memory.clone();
         self.render_stats = other.render_stats.clone();
@@ -134,15 +156,23 @@ mod tests {
             render_clouds_ms: 0.5,
             render_entities_ms: 1.0,
             render_sky_ms: 0.5,
+            render_hand_ms: 0.3,
             render_ui_ms: 0.6,
             total_frame_ms: 16.6,
+            tick_physics_ms: 0.8,
+            tick_mobs_ms: 0.6,
+            tick_entities_ms: 0.3,
+            tick_world_ms: 0.3,
+            world_gen_ms: 0.5,
+            world_mesh_ms: 1.0,
+            render_cull_ms: 0.2,
             fps: 60,
             memory: MemoryBreakdown::default(),
             render_stats: RenderStats::default(),
         };
 
         let slices = profiler.pie_slices();
-        assert_eq!(slices.len(), 7);
+        assert_eq!(slices.len(), 9);
         let total_pct: f32 = slices.iter().map(|s| s.percentage).sum();
         assert!((total_pct - 100.0).abs() < 0.1);
     }

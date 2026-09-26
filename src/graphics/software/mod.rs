@@ -295,7 +295,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_tab_rects(&self) -> [(i32, i32, i32, i32); 2] {
+    pub fn settings_tab_rects(&self) -> [(i32, i32, i32, i32); 3] {
         crate::ui::settings_tab_rects(self.width, self.height)
     }
 
@@ -307,6 +307,11 @@ impl Renderer {
     #[inline(always)]
     pub fn settings_controls_rects(&self) -> [(i32, i32, i32, i32); 6] {
         crate::ui::settings_controls_rects(self.width, self.height)
+    }
+
+    #[inline(always)]
+    pub fn settings_debug_rects(&self) -> [(i32, i32, i32, i32); 5] {
+        crate::ui::settings_debug_rects(self.width, self.height)
     }
 
     #[inline(always)]
@@ -380,6 +385,7 @@ impl Renderer {
         active_tab: usize,
         hovered_tab: Option<usize>,
         hovered: Option<usize>,
+        server_ip: &str,
     ) {
         crate::ui::draw_settings_menu(
             &mut self.color_buffer,
@@ -389,6 +395,7 @@ impl Renderer {
             active_tab,
             hovered_tab,
             hovered,
+            server_ip,
         );
     }
 

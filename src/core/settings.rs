@@ -180,6 +180,10 @@ pub struct GameSettings {
     pub invert_y: bool,
     /// Invert Z / horizontal (yaw) camera axis.
     pub invert_z: bool,
+    /// Remote HTTP profiler server enabled (default: false).
+    pub profiler_server: bool,
+    /// HTTP port for the profiler server (default: 8080).
+    pub profiler_server_port: u16,
 }
 
 impl Default for GameSettings {
@@ -213,6 +217,8 @@ impl Default for GameSettings {
             jump_mode: JumpMode::Normal,
             invert_y: false,
             invert_z: false,
+            profiler_server: false,
+            profiler_server_port: 8080,
         }
     }
 }
@@ -290,6 +296,12 @@ impl GameSettings {
 
                 let invert_y = bytes.get(29).copied().unwrap_or(0) != 0;
                 let invert_z = bytes.get(30).copied().unwrap_or(0) != 0;
+                let profiler_server = bytes.get(31).copied().unwrap_or(0) != 0;
+                let profiler_server_port = if bytes.len() >= 34 {
+                    u16::from_le_bytes(bytes[32..34].try_into().unwrap_or([144, 31]))
+                } else {
+                    8080
+                };
 
                 crate::core::i18n::set_language(language);
 
@@ -312,6 +324,8 @@ impl GameSettings {
                     jump_mode,
                     invert_y,
                     invert_z,
+                    profiler_server,
+                    profiler_server_port,
                 };
             }
         }
@@ -326,7 +340,7 @@ impl GameSettings {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let mut bytes = Vec::with_capacity(32);
+        let mut bytes = Vec::with_capacity(36);
         bytes.extend_from_slice(b"RCST");
         bytes.extend_from_slice(&self.render_distance.to_le_bytes());
         bytes.push(if self.clouds { 1 } else { 0 });
@@ -364,8 +378,30 @@ impl GameSettings {
         });
         bytes.push(if self.invert_y { 1 } else { 0 });
         bytes.push(if self.invert_z { 1 } else { 0 });
+        bytes.push(if self.profiler_server { 1 } else { 0 });
+        bytes.extend_from_slice(&self.profiler_server_port.to_le_bytes());
 
         std::fs::write(&path, bytes).map_err(|e| e.to_string())
+    }
+
+    pub const PORT_PRESETS: [u16; 4] = [8080, 8088, 9000, 3000];
+
+    pub fn toggle_profiler_server(&mut self) {
+        self.profiler_server = !self.profiler_server;
+    }
+
+    pub fn cycle_profiler_server_port(&mut self, forward: bool) {
+        let idx = Self::PORT_PRESETS
+            .iter()
+            .position(|&p| p == self.profiler_server_port)
+            .unwrap_or(0);
+        let len = Self::PORT_PRESETS.len();
+        let next_idx = if forward {
+            (idx + 1) % len
+        } else {
+            (idx + len - 1) % len
+        };
+        self.profiler_server_port = Self::PORT_PRESETS[next_idx];
     }
 
     fn settings_path() -> PathBuf {
@@ -524,5 +560,24 @@ mod tests {
 
         settings.toggle_invert_z();
         assert!(settings.invert_z);
+    }
+
+    #[test]
+    fn test_profiler_server_settings() {
+        let mut settings = GameSettings::default();
+        assert!(!settings.profiler_server);
+        assert_eq!(settings.profiler_server_port, 8080);
+
+        settings.toggle_profiler_server();
+        assert!(settings.profiler_server);
+
+        settings.cycle_profiler_server_port(true);
+        assert_eq!(settings.profiler_server_port, 8088);
+
+        settings.cycle_profiler_server_port(false);
+        assert_eq!(settings.profiler_server_port, 8080);
+
+        settings.cycle_profiler_server_port(false);
+        assert_eq!(settings.profiler_server_port, 3000);
     }
 }

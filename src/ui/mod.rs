@@ -23,7 +23,7 @@ pub use inventory_ui::{draw_inventory_screen, draw_item_icon, InventoryLayout, I
 pub use menu::{draw_main_menu, draw_rustcraft_logo, main_menu_button_rects};
 pub use save_select::{draw_save_select_menu, save_bottom_button_rects, save_card_rects, MAX_SAVE_SLOTS, VISIBLE_SAVE_ROWS};
 pub use settings_ui::{
-    draw_settings_menu, settings_controls_rects, settings_graphics_rects, settings_option_rects,
-    settings_tab_rects,
+    draw_settings_menu, settings_controls_rects, settings_debug_rects, settings_graphics_rects,
+    settings_option_rects, settings_tab_rects,
 };
 
