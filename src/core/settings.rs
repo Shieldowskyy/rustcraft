@@ -3,7 +3,143 @@
 use std::path::PathBuf;
 use crate::core::i18n::Language;
 
-/// Persistent game options and performance preferences.
+/// Leaf transparency distance and visual accuracy presets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum LeafQuality {
+    /// Opaque fast leaf texture (no cutout, maximum performance)
+    Fast,
+    /// Transparent leaf cutout within 16m (~1 chunk)
+    Near,
+    /// Transparent leaf cutout within 32m (~2 chunks)
+    Medium,
+    /// Transparent leaf cutout within 64m (~4 chunks)
+    Far,
+    /// Transparent leaf cutout everywhere
+    #[default]
+    Fancy,
+}
+
+impl LeafQuality {
+    pub const ALL: [LeafQuality; 5] = [
+        LeafQuality::Fast,
+        LeafQuality::Near,
+        LeafQuality::Medium,
+        LeafQuality::Far,
+        LeafQuality::Fancy,
+    ];
+
+    pub fn cycle(&mut self, forward: bool) {
+        let idx = Self::ALL.iter().position(|q| q == self).unwrap_or(4);
+        let next = if forward {
+            (idx + 1) % Self::ALL.len()
+        } else if idx == 0 {
+            Self::ALL.len() - 1
+        } else {
+            idx - 1
+        };
+        *self = Self::ALL[next];
+    }
+
+    pub fn translation_key(&self) -> &'static str {
+        match self {
+            LeafQuality::Fast => "settings.leaf_fast",
+            LeafQuality::Near => "settings.leaf_near",
+            LeafQuality::Medium => "settings.leaf_medium",
+            LeafQuality::Far => "settings.leaf_far",
+            LeafQuality::Fancy => "settings.leaf_fancy",
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_fancy(&self) -> bool {
+        *self != LeafQuality::Fast
+    }
+
+    #[inline(always)]
+    pub fn max_distance_sq(&self) -> f32 {
+        match self {
+            LeafQuality::Fast => 0.0,
+            LeafQuality::Near => 16.0 * 16.0,
+            LeafQuality::Medium => 32.0 * 32.0,
+            LeafQuality::Far => 64.0 * 64.0,
+            LeafQuality::Fancy => f32::INFINITY,
+        }
+    }
+}
+
+/// Sprint button behavior mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum SprintMode {
+    #[default]
+    Hold,
+    Toggle,
+}
+
+impl SprintMode {
+    pub fn cycle(&mut self) {
+        *self = match self {
+            SprintMode::Hold => SprintMode::Toggle,
+            SprintMode::Toggle => SprintMode::Hold,
+        };
+    }
+
+    pub fn translation_key(&self) -> &'static str {
+        match self {
+            SprintMode::Hold => "settings.mode_hold",
+            SprintMode::Toggle => "settings.mode_toggle",
+        }
+    }
+}
+
+/// Sneak / crouch button behavior mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum SneakMode {
+    #[default]
+    Hold,
+    Toggle,
+}
+
+impl SneakMode {
+    pub fn cycle(&mut self) {
+        *self = match self {
+            SneakMode::Hold => SneakMode::Toggle,
+            SneakMode::Toggle => SneakMode::Hold,
+        };
+    }
+
+    pub fn translation_key(&self) -> &'static str {
+        match self {
+            SneakMode::Hold => "settings.mode_hold",
+            SneakMode::Toggle => "settings.mode_toggle",
+        }
+    }
+}
+
+/// Jump behavior mode (standard jump vs auto-stepping blocks).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum JumpMode {
+    #[default]
+    Normal,
+    AutoJump,
+}
+
+impl JumpMode {
+    pub fn cycle(&mut self) {
+        *self = match self {
+            JumpMode::Normal => JumpMode::AutoJump,
+            JumpMode::AutoJump => JumpMode::Normal,
+        };
+    }
+
+    pub fn translation_key(&self) -> &'static str {
+        match self {
+            JumpMode::Normal => "settings.mode_normal",
+            JumpMode::AutoJump => "settings.mode_autojump",
+        }
+    }
+}
+
+/// Persistent game options, graphics preferences, and controls.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GameSettings {
     /// Active interface language.
@@ -12,6 +148,8 @@ pub struct GameSettings {
     pub render_distance: i32,
     /// Transparent/fancy leaf rendering vs solid/fast leaves (default: true).
     pub fancy_leaves: bool,
+    /// Leaf transparency distance and quality setting.
+    pub leaf_quality: LeafQuality,
     /// Distance fog blending enabled (default: true).
     pub fog: bool,
     /// Volumetric clouds enabled (default: true).
@@ -30,6 +168,18 @@ pub struct GameSettings {
     pub msaa: u32,
     /// Frame rate cap: 25, 30, 40, 60, 75, 90, 120, 144, 165, 0 (0 = uncapped; default: 30 on Vita, 0 on PC).
     pub fps_limit: u32,
+
+    // Controls options
+    /// Sprint trigger mode: Hold vs Toggle.
+    pub sprint_mode: SprintMode,
+    /// Sneak/crouch trigger mode: Hold vs Toggle.
+    pub sneak_mode: SneakMode,
+    /// Jump behavior mode: Normal vs AutoJump.
+    pub jump_mode: JumpMode,
+    /// Invert Y (vertical pitch) camera axis.
+    pub invert_y: bool,
+    /// Invert Z / horizontal (yaw) camera axis.
+    pub invert_z: bool,
 }
 
 impl Default for GameSettings {
@@ -48,6 +198,7 @@ impl Default for GameSettings {
             language: Language::English,
             render_distance: 6,
             fancy_leaves: true,
+            leaf_quality: LeafQuality::Fancy,
             fog: true,
             clouds: true,
             particles: true,
@@ -57,6 +208,11 @@ impl Default for GameSettings {
             debug_overlay: true,
             msaa: default_msaa,
             fps_limit: default_fps_limit,
+            sprint_mode: SprintMode::Hold,
+            sneak_mode: SneakMode::Hold,
+            jump_mode: JumpMode::Normal,
+            invert_y: false,
+            invert_z: false,
         }
     }
 }
@@ -108,12 +264,40 @@ impl GameSettings {
                     _ => Language::English,
                 };
 
+                let leaf_quality = match bytes.get(25).copied() {
+                    Some(0) => LeafQuality::Fast,
+                    Some(1) => LeafQuality::Near,
+                    Some(2) => LeafQuality::Medium,
+                    Some(3) => LeafQuality::Far,
+                    Some(4) => LeafQuality::Fancy,
+                    _ => if fancy_leaves { LeafQuality::Fancy } else { LeafQuality::Fast },
+                };
+
+                let sprint_mode = match bytes.get(26).copied().unwrap_or(0) {
+                    1 => SprintMode::Toggle,
+                    _ => SprintMode::Hold,
+                };
+
+                let sneak_mode = match bytes.get(27).copied().unwrap_or(0) {
+                    1 => SneakMode::Toggle,
+                    _ => SneakMode::Hold,
+                };
+
+                let jump_mode = match bytes.get(28).copied().unwrap_or(0) {
+                    1 => JumpMode::AutoJump,
+                    _ => JumpMode::Normal,
+                };
+
+                let invert_y = bytes.get(29).copied().unwrap_or(0) != 0;
+                let invert_z = bytes.get(30).copied().unwrap_or(0) != 0;
+
                 crate::core::i18n::set_language(language);
 
                 return Self {
                     language,
                     render_distance,
-                    fancy_leaves,
+                    fancy_leaves: leaf_quality.is_fancy(),
+                    leaf_quality,
                     fog,
                     clouds,
                     particles,
@@ -123,6 +307,11 @@ impl GameSettings {
                     debug_overlay,
                     msaa,
                     fps_limit,
+                    sprint_mode,
+                    sneak_mode,
+                    jump_mode,
+                    invert_y,
+                    invert_z,
                 };
             }
         }
@@ -137,7 +326,7 @@ impl GameSettings {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let mut bytes = Vec::with_capacity(25);
+        let mut bytes = Vec::with_capacity(32);
         bytes.extend_from_slice(b"RCST");
         bytes.extend_from_slice(&self.render_distance.to_le_bytes());
         bytes.push(if self.clouds { 1 } else { 0 });
@@ -147,13 +336,35 @@ impl GameSettings {
         bytes.push(if self.chunk_anim { 1 } else { 0 });
         bytes.push(if self.particles { 1 } else { 0 });
         bytes.push(if self.debug_overlay { 1 } else { 0 });
-        bytes.push(if self.fancy_leaves { 1 } else { 0 });
+        bytes.push(if self.leaf_quality.is_fancy() { 1 } else { 0 });
         bytes.push(self.msaa as u8);
         bytes.extend_from_slice(&self.fps_limit.to_le_bytes());
         bytes.push(match self.language {
             Language::Polish => 1,
             Language::English => 0,
         });
+        bytes.push(match self.leaf_quality {
+            LeafQuality::Fast => 0,
+            LeafQuality::Near => 1,
+            LeafQuality::Medium => 2,
+            LeafQuality::Far => 3,
+            LeafQuality::Fancy => 4,
+        });
+        bytes.push(match self.sprint_mode {
+            SprintMode::Hold => 0,
+            SprintMode::Toggle => 1,
+        });
+        bytes.push(match self.sneak_mode {
+            SneakMode::Hold => 0,
+            SneakMode::Toggle => 1,
+        });
+        bytes.push(match self.jump_mode {
+            JumpMode::Normal => 0,
+            JumpMode::AutoJump => 1,
+        });
+        bytes.push(if self.invert_y { 1 } else { 0 });
+        bytes.push(if self.invert_z { 1 } else { 0 });
+
         std::fs::write(&path, bytes).map_err(|e| e.to_string())
     }
 
@@ -186,6 +397,11 @@ impl GameSettings {
             idx - 1
         };
         self.render_distance = CHOICES[next_idx];
+    }
+
+    pub fn cycle_leaf_quality(&mut self, forward: bool) {
+        self.leaf_quality.cycle(forward);
+        self.fancy_leaves = self.leaf_quality.is_fancy();
     }
 
     pub fn cycle_fov(&mut self, forward: bool) {
@@ -224,5 +440,89 @@ impl GameSettings {
             idx - 1
         };
         self.fps_limit = Self::FPS_LIMIT_PRESETS[next_idx];
+    }
+
+    pub fn cycle_sprint_mode(&mut self) {
+        self.sprint_mode.cycle();
+    }
+
+    pub fn cycle_sneak_mode(&mut self) {
+        self.sneak_mode.cycle();
+    }
+
+    pub fn cycle_jump_mode(&mut self) {
+        self.jump_mode.cycle();
+    }
+
+    pub fn toggle_invert_y(&mut self) {
+        self.invert_y = !self.invert_y;
+    }
+
+    pub fn toggle_invert_z(&mut self) {
+        self.invert_z = !self.invert_z;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_leaf_quality_cycling_and_distances() {
+        let mut quality = LeafQuality::Fancy;
+        assert_eq!(quality.max_distance_sq(), f32::INFINITY);
+        assert!(quality.is_fancy());
+
+        quality.cycle(true);
+        assert_eq!(quality, LeafQuality::Fast);
+        assert_eq!(quality.max_distance_sq(), 0.0);
+        assert!(!quality.is_fancy());
+
+        quality.cycle(true);
+        assert_eq!(quality, LeafQuality::Near);
+        assert_eq!(quality.max_distance_sq(), 256.0); // 16^2
+
+        quality.cycle(true);
+        assert_eq!(quality, LeafQuality::Medium);
+        assert_eq!(quality.max_distance_sq(), 1024.0); // 32^2
+
+        quality.cycle(true);
+        assert_eq!(quality, LeafQuality::Far);
+        assert_eq!(quality.max_distance_sq(), 4096.0); // 64^2
+
+        quality.cycle(false);
+        assert_eq!(quality, LeafQuality::Medium);
+    }
+
+    #[test]
+    fn test_control_modes_cycling() {
+        let mut sprint = SprintMode::Hold;
+        sprint.cycle();
+        assert_eq!(sprint, SprintMode::Toggle);
+        sprint.cycle();
+        assert_eq!(sprint, SprintMode::Hold);
+
+        let mut sneak = SneakMode::Hold;
+        sneak.cycle();
+        assert_eq!(sneak, SneakMode::Toggle);
+
+        let mut jump = JumpMode::Normal;
+        jump.cycle();
+        assert_eq!(jump, JumpMode::AutoJump);
+        jump.cycle();
+        assert_eq!(jump, JumpMode::Normal);
+    }
+
+    #[test]
+    fn test_invert_axes_toggle() {
+        let mut settings = GameSettings::default();
+        assert!(!settings.invert_y);
+        assert!(!settings.invert_z);
+
+        settings.toggle_invert_y();
+        assert!(settings.invert_y);
+
+        settings.toggle_invert_z();
+        assert!(settings.invert_z);
     }
 }

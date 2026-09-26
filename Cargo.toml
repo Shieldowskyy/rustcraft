@@ -12,6 +12,10 @@ path = "src/lib.rs"
 name = "rustcraft"
 path = "src/main.rs"
 
+[features]
+default = []
+profiler = []
+
 [dependencies]
 bytemuck = { version = "1.16", features = ["derive"] }
 getrandom = { version = "=0.2.15", features = ["js"] }
@@ -49,11 +53,11 @@ windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "W
 x11-dl = "2.21"
 
 [profile.release]
-opt-level = "s"      # Optimize for binary size (or "z")
-lto = true           # Full Link Time Optimization for smaller binary footprint
-codegen-units = 1    # Single codegen unit for maximum size optimization and dead code elimination
-panic = "abort"      # Abort on panic to remove stack unwinding code, saving space
-strip = false        # Keep symbols for Vita elf conversion and relocation tools (-q)
+opt-level = 3          # Maximum runtime execution performance
+lto = "thin"           # Multi-threaded ThinLTO parallelized across CPU cores
+codegen-units = 16     # Multi-threaded code generation for fast builds
+panic = "abort"        # Abort on panic to remove unwinding overhead
+strip = false          # Keep symbols for elf conversions and debugging tools
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false

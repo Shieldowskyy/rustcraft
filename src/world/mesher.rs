@@ -237,177 +237,6 @@ impl<'a> ChunkNeighborCache<'a> {
 pub const SUBCHUNK_SIZE: i32 = 16;
 pub const NUM_SUBCHUNKS: usize = (CHUNK_SIZE_Y / SUBCHUNK_SIZE) as usize; // 4
 
-#[derive(Clone, Copy, PartialEq)]
-struct FaceCell {
-    texture: TextureId,
-    ao: [u8; 4],
-    sky_light: u8,
-    block_light: u8,
-    is_trans: bool,
-}
-
-#[inline]
-fn determine_texture(
-    block: BlockId,
-    face: Face,
-    wx: i32, wy: i32, wz: i32,
-    lx: i32, lz: i32,
-    cache: &ChunkNeighborCache,
-) -> TextureId {
-    if block == BlockId::Door {
-        let below = cache.sample_block(lx, wy - 1, lz);
-        if below == BlockId::Door {
-            TextureId::DoorTop
-        } else {
-            TextureId::Door
-        }
-    } else if block == BlockId::Grass {
-        let (biome, _) = get_biome_at(wx, wz, cache.world.seed);
-        match face {
-            Face::Top => match biome {
-                Biome::Swamp => TextureId::GrassTopSwamp,
-                Biome::Savanna | Biome::Desert => TextureId::GrassTopSavanna,
-                Biome::CherryGrove => TextureId::GrassTopCherry,
-                Biome::AutumnForest => TextureId::GrassTopAutumn,
-                Biome::SnowyTaiga | Biome::Mountain => TextureId::GrassTopTaiga,
-                _ => TextureId::GrassTop,
-            },
-            Face::Bottom => TextureId::Dirt,
-            _ => match biome {
-                Biome::Swamp => TextureId::GrassSideSwamp,
-                Biome::Savanna | Biome::Desert => TextureId::GrassSideSavanna,
-                Biome::CherryGrove => TextureId::GrassSideCherry,
-                Biome::AutumnForest => TextureId::GrassSideAutumn,
-                Biome::SnowyTaiga | Biome::Mountain => TextureId::GrassSideTaiga,
-                _ => TextureId::GrassSide,
-            },
-        }
-    } else if block == BlockId::Leaves {
-        let (biome, _) = get_biome_at(wx, wz, cache.world.seed);
-        match biome {
-            Biome::Swamp => TextureId::LeavesSwamp,
-            Biome::Savanna | Biome::Desert => TextureId::LeavesSavanna,
-            Biome::CherryGrove => TextureId::CherryLeaves,
-            Biome::AutumnForest => TextureId::AutumnLeaves,
-            Biome::SnowyTaiga => TextureId::SnowLeaves,
-            _ => TextureId::Leaves,
-        }
-    } else {
-        block.texture_id(face)
-    }
-}
-
-#[inline]
-fn compute_face_ao(
-    face: Face,
-    lx: i32, wy: i32, lz: i32,
-    cache: &ChunkNeighborCache,
-) -> [f32; 4] {
-    let s = |dx: i32, dy: i32, dz: i32| cache.solid_at(lx + dx, wy + dy, lz + dz);
-    match face {
-        Face::Top => [
-            vertex_ao(s(-1,1,0), s(0,1,-1), s(-1,1,-1)),
-            vertex_ao(s(-1,1,0), s(0,1, 1), s(-1,1, 1)),
-            vertex_ao(s( 1,1,0), s(0,1, 1), s( 1,1, 1)),
-            vertex_ao(s( 1,1,0), s(0,1,-1), s( 1,1,-1)),
-        ],
-        Face::Bottom => [
-            vertex_ao(s(-1,-1,0), s(0,-1, 1), s(-1,-1, 1)),
-            vertex_ao(s(-1,-1,0), s(0,-1,-1), s(-1,-1,-1)),
-            vertex_ao(s( 1,-1,0), s(0,-1,-1), s( 1,-1,-1)),
-            vertex_ao(s( 1,-1,0), s(0,-1, 1), s( 1,-1, 1)),
-        ],
-        Face::North => [
-            vertex_ao(s( 1,0,-1), s(0,-1,-1), s( 1,-1,-1)),
-            vertex_ao(s(-1,0,-1), s(0,-1,-1), s(-1,-1,-1)),
-            vertex_ao(s(-1,0,-1), s(0, 1,-1), s(-1, 1,-1)),
-            vertex_ao(s( 1,0,-1), s(0, 1,-1), s( 1, 1,-1)),
-        ],
-        Face::South => [
-            vertex_ao(s(-1,0,1), s(0,-1,1), s(-1,-1,1)),
-            vertex_ao(s( 1,0,1), s(0,-1,1), s( 1,-1,1)),
-            vertex_ao(s( 1,0,1), s(0, 1,1), s( 1, 1,1)),
-            vertex_ao(s(-1,0,1), s(0, 1,1), s(-1, 1,1)),
-        ],
-        Face::East => [
-            vertex_ao(s(1,0, 1), s(1,-1,0), s(1,-1, 1)),
-            vertex_ao(s(1,0,-1), s(1,-1,0), s(1,-1,-1)),
-            vertex_ao(s(1,0,-1), s(1, 1,0), s(1, 1,-1)),
-            vertex_ao(s(1,0, 1), s(1, 1,0), s(1, 1, 1)),
-        ],
-        Face::West => [
-            vertex_ao(s(-1,0,-1), s(-1,-1,0), s(-1,-1,-1)),
-            vertex_ao(s(-1,0, 1), s(-1,-1,0), s(-1,-1, 1)),
-            vertex_ao(s(-1,0, 1), s(-1, 1,0), s(-1, 1, 1)),
-            vertex_ao(s(-1,0,-1), s(-1, 1,0), s(-1, 1,-1)),
-        ],
-    }
-}
-
-fn emit_greedy_quad(
-    solid_tris: &mut Vec<Triangle>,
-    trans_tris: &mut Vec<Triangle>,
-    wx: f32, wy: f32, wz: f32,
-    w: f32, h: f32,
-    face: Face,
-    cell: &FaceCell,
-) {
-    let shade = face.shade();
-    let ao_a = cell.ao[0] as f32 / 100.0;
-    let ao_b = cell.ao[1] as f32 / 100.0;
-    let ao_c = cell.ao[2] as f32 / 100.0;
-    let ao_d = cell.ao[3] as f32 / 100.0;
-    let sky = cell.sky_light as f32 / 100.0;
-    let block_l = cell.block_light as f32 / 100.0;
-
-    let (p_a, uv_a, p_b, uv_b, p_c, uv_c, p_d, uv_d) = match face {
-        Face::Top => (
-            Vec3::new(wx,     wy + 1.0, wz),     (0.0, w),
-            Vec3::new(wx,     wy + 1.0, wz + h), (h,   w),
-            Vec3::new(wx + w, wy + 1.0, wz + h), (h,   0.0),
-            Vec3::new(wx + w, wy + 1.0, wz),     (0.0, 0.0),
-        ),
-        Face::Bottom => (
-            Vec3::new(wx,     wy, wz + h), (0.0, w),
-            Vec3::new(wx,     wy, wz),     (h,   w),
-            Vec3::new(wx + w, wy, wz),     (h,   0.0),
-            Vec3::new(wx + w, wy, wz + h), (0.0, 0.0),
-        ),
-        Face::North => (
-            Vec3::new(wx + w, wy,     wz), (0.0, h),
-            Vec3::new(wx,     wy,     wz), (w,   h),
-            Vec3::new(wx,     wy + h, wz), (w,   0.0),
-            Vec3::new(wx + w, wy + h, wz), (0.0, 0.0),
-        ),
-        Face::South => (
-            Vec3::new(wx,     wy,     wz + 1.0), (0.0, h),
-            Vec3::new(wx + w, wy,     wz + 1.0), (w,   h),
-            Vec3::new(wx + w, wy + h, wz + 1.0), (w,   0.0),
-            Vec3::new(wx,     wy + h, wz + 1.0), (0.0, 0.0),
-        ),
-        Face::West => (
-            Vec3::new(wx, wy,     wz),     (0.0, h),
-            Vec3::new(wx, wy,     wz + w), (w,   h),
-            Vec3::new(wx, wy + h, wz + w), (w,   0.0),
-            Vec3::new(wx, wy + h, wz),     (0.0, 0.0),
-        ),
-        Face::East => (
-            Vec3::new(wx + 1.0, wy,     wz + w), (0.0, h),
-            Vec3::new(wx + 1.0, wy,     wz),     (w,   h),
-            Vec3::new(wx + 1.0, wy + h, wz),     (w,   0.0),
-            Vec3::new(wx + 1.0, wy + h, wz + w), (0.0, 0.0),
-        ),
-    };
-
-    let va = Vertex { pos: p_a, uv: uv_a, ao: shade * ao_a, sky_light: sky, block_light: block_l };
-    let vb = Vertex { pos: p_b, uv: uv_b, ao: shade * ao_b, sky_light: sky, block_light: block_l };
-    let vc = Vertex { pos: p_c, uv: uv_c, ao: shade * ao_c, sky_light: sky, block_light: block_l };
-    let vd = Vertex { pos: p_d, uv: uv_d, ao: shade * ao_d, sky_light: sky, block_light: block_l };
-
-    let target = if cell.is_trans { trans_tris } else { solid_tris };
-    target.push(Triangle { v0: va, v1: vb, v2: vc, texture: cell.texture });
-    target.push(Triangle { v0: va, v1: vc, v2: vd, texture: cell.texture });
-}
 
 pub fn build_subchunk_mesh_internal(
     chunk: &Chunk,
@@ -415,7 +244,7 @@ pub fn build_subchunk_mesh_internal(
     sub_y: usize,
     cache: &ChunkNeighborCache,
 ) -> (Vec<Triangle>, Vec<Triangle>) {
-    let mut solid_tris = Vec::with_capacity(512);
+    let mut solid_tris = Vec::with_capacity(768);
     let mut trans_tris = Vec::with_capacity(128);
 
     let base_x = cache.base_x;
@@ -425,330 +254,6 @@ pub fn build_subchunk_mesh_internal(
     let y_start = (sub_y as i32) * SUBCHUNK_SIZE;
     let y_end = y_start + SUBCHUNK_SIZE;
 
-    // 1. Top & Bottom Greedy Meshing (slicing along Y)
-    for ly in y_start..y_end {
-        let wy = ly;
-        for face in [Face::Top, Face::Bottom] {
-            if face == Face::Bottom && wy == 0 {
-                continue;
-            }
-            let n = face.normal();
-            let mut mask = [[None; CHUNK_SIZE_Z as usize]; CHUNK_SIZE_X as usize];
-
-            for lx in 0..CHUNK_SIZE_X {
-                for lz in 0..CHUNK_SIZE_Z {
-                    let block_u8 = blocks[((lx << 10) | (ly << 4) | lz) as usize];
-                    if block_u8 == 0 {
-                        continue;
-                    }
-                    let block = BlockId::from_u8(block_u8);
-                    let wx = base_x + lx;
-                    let wz = base_z + lz;
-
-                    if matches!(block, BlockId::Torch | BlockId::Door | BlockId::DoorOpen) {
-                        continue;
-                    }
-
-                    let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
-                    let is_trans = matches!(block, BlockId::Water | BlockId::Glass);
-                    let neighbor = cache.sample_block(lx + n.x, ly + n.y, lz + n.z);
-
-                    if is_fluid {
-                        let visible = match face {
-                            Face::Top => neighbor != block,
-                            Face::Bottom => wy > 0 && neighbor != block && (neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)),
-                            _ => false,
-                        };
-                        if visible {
-                            if is_trans {
-                                emit_face(&mut trans_tris, wx, wy, wz, face, block, cache);
-                            } else {
-                                emit_face(&mut solid_tris, wx, wy, wz, face, block, cache);
-                            }
-                        }
-                        continue;
-                    }
-
-                    let visible = neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block);
-                    if visible {
-                        let tex = determine_texture(block, face, wx, wy, wz, lx, lz, cache);
-                        let aos = compute_face_ao(face, lx, wy, lz, cache);
-                        let sky = (cache.sample_sky_light(lx + n.x, wy + n.y, lz + n.z) * 100.0) as u8;
-                        let block_l = (cache.sample_block_light(wx as f32 + 0.5 + n.x as f32 * 0.5, wy as f32 + 0.5 + n.y as f32 * 0.5, wz as f32 + 0.5 + n.z as f32 * 0.5) * 100.0) as u8;
-
-                        mask[lx as usize][lz as usize] = Some(FaceCell {
-                            texture: tex,
-                            ao: [(aos[0] * 100.0) as u8, (aos[1] * 100.0) as u8, (aos[2] * 100.0) as u8, (aos[3] * 100.0) as u8],
-                            sky_light: sky,
-                            block_light: block_l,
-                            is_trans,
-                        });
-                    }
-                }
-            }
-
-            // Greedy merge rectangles on (lx, lz)
-            for lz in 0..CHUNK_SIZE_Z as usize {
-                for lx in 0..CHUNK_SIZE_X as usize {
-                    if let Some(cell) = mask[lx][lz] {
-                        let mut w = 1;
-                        while lx + w < CHUNK_SIZE_X as usize && mask[lx + w][lz] == Some(cell) {
-                            w += 1;
-                        }
-                        let mut h = 1;
-                        'outer_h: while lz + h < CHUNK_SIZE_Z as usize {
-                            for dx in 0..w {
-                                if mask[lx + dx][lz + h] != Some(cell) {
-                                    break 'outer_h;
-                                }
-                            }
-                            h += 1;
-                        }
-                        for dz in 0..h {
-                            for dx in 0..w {
-                                mask[lx + dx][lz + dz] = None;
-                            }
-                        }
-                        emit_greedy_quad(
-                            &mut solid_tris,
-                            &mut trans_tris,
-                            (base_x + lx as i32) as f32,
-                            wy as f32,
-                            (base_z + lz as i32) as f32,
-                            w as f32,
-                            h as f32,
-                            face,
-                            &cell,
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    // 2. North & South Greedy Meshing (slicing along Z)
-    for lz in 0..CHUNK_SIZE_Z {
-        let wz = base_z + lz;
-        for face in [Face::North, Face::South] {
-            let n = face.normal();
-            let mut mask = [[None; SUBCHUNK_SIZE as usize]; CHUNK_SIZE_X as usize];
-
-            for lx in 0..CHUNK_SIZE_X {
-                for dy in 0..SUBCHUNK_SIZE {
-                    let ly = y_start + dy;
-                    let wy = ly;
-                    let block_u8 = blocks[((lx << 10) | (ly << 4) | lz) as usize];
-                    if block_u8 == 0 {
-                        continue;
-                    }
-                    let block = BlockId::from_u8(block_u8);
-                    let wx = base_x + lx;
-
-                    if matches!(block, BlockId::Torch | BlockId::Door | BlockId::DoorOpen) {
-                        continue;
-                    }
-
-                    let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
-                    let is_trans = matches!(block, BlockId::Water | BlockId::Glass);
-                    let neighbor = cache.sample_block(lx + n.x, ly + n.y, lz + n.z);
-
-                    if is_fluid {
-                        let neighbor_loaded = match face {
-                            Face::South => lz < CHUNK_SIZE_Z - 1 || cache.south_blocks.is_some(),
-                            Face::North => lz > 0 || cache.north_blocks.is_some(),
-                            _ => true,
-                        };
-                        let visible = neighbor_loaded && if neighbor != block {
-                            neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)
-                        } else {
-                            let above_neighbor = cache.sample_block(lx + n.x, ly + 1, lz + n.z);
-                            if above_neighbor != block {
-                                let my_lvl = world.fluid_level(IVec3::new(wx, wy, wz));
-                                let neighbor_lvl = world.fluid_level(IVec3::new(wx + n.x, wy, wz + n.z));
-                                my_lvl > neighbor_lvl
-                            } else {
-                                false
-                            }
-                        };
-                        if visible {
-                            if is_trans {
-                                emit_face(&mut trans_tris, wx, wy, wz, face, block, cache);
-                            } else {
-                                emit_face(&mut solid_tris, wx, wy, wz, face, block, cache);
-                            }
-                        }
-                        continue;
-                    }
-
-                    let visible = neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block);
-                    if visible {
-                        let tex = determine_texture(block, face, wx, wy, wz, lx, lz, cache);
-                        let aos = compute_face_ao(face, lx, wy, lz, cache);
-                        let sky = (cache.sample_sky_light(lx + n.x, wy + n.y, lz + n.z) * 100.0) as u8;
-                        let block_l = (cache.sample_block_light(wx as f32 + 0.5 + n.x as f32 * 0.5, wy as f32 + 0.5 + n.y as f32 * 0.5, wz as f32 + 0.5 + n.z as f32 * 0.5) * 100.0) as u8;
-
-                        mask[lx as usize][dy as usize] = Some(FaceCell {
-                            texture: tex,
-                            ao: [(aos[0] * 100.0) as u8, (aos[1] * 100.0) as u8, (aos[2] * 100.0) as u8, (aos[3] * 100.0) as u8],
-                            sky_light: sky,
-                            block_light: block_l,
-                            is_trans,
-                        });
-                    }
-                }
-            }
-
-            // Greedy merge rectangles on (lx, dy)
-            for dy in 0..SUBCHUNK_SIZE as usize {
-                for lx in 0..CHUNK_SIZE_X as usize {
-                    if let Some(cell) = mask[lx][dy] {
-                        let mut w = 1;
-                        while lx + w < CHUNK_SIZE_X as usize && mask[lx + w][dy] == Some(cell) {
-                            w += 1;
-                        }
-                        let mut h = 1;
-                        'outer_h: while dy + h < SUBCHUNK_SIZE as usize {
-                            for dx in 0..w {
-                                if mask[lx + dx][dy + h] != Some(cell) {
-                                    break 'outer_h;
-                                }
-                            }
-                            h += 1;
-                        }
-                        for dh in 0..h {
-                            for dx in 0..w {
-                                mask[lx + dx][dy + dh] = None;
-                            }
-                        }
-                        emit_greedy_quad(
-                            &mut solid_tris,
-                            &mut trans_tris,
-                            (base_x + lx as i32) as f32,
-                            (y_start + dy as i32) as f32,
-                            wz as f32,
-                            w as f32,
-                            h as f32,
-                            face,
-                            &cell,
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    // 3. West & East Greedy Meshing (slicing along X)
-    for lx in 0..CHUNK_SIZE_X {
-        let wx = base_x + lx;
-        for face in [Face::West, Face::East] {
-            let n = face.normal();
-            let mut mask = [[None; SUBCHUNK_SIZE as usize]; CHUNK_SIZE_Z as usize];
-
-            for lz in 0..CHUNK_SIZE_Z {
-                for dy in 0..SUBCHUNK_SIZE {
-                    let ly = y_start + dy;
-                    let wy = ly;
-                    let block_u8 = blocks[((lx << 10) | (ly << 4) | lz) as usize];
-                    if block_u8 == 0 {
-                        continue;
-                    }
-                    let block = BlockId::from_u8(block_u8);
-                    let wz = base_z + lz;
-
-                    if matches!(block, BlockId::Torch | BlockId::Door | BlockId::DoorOpen) {
-                        continue;
-                    }
-
-                    let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
-                    let is_trans = matches!(block, BlockId::Water | BlockId::Glass);
-                    let neighbor = cache.sample_block(lx + n.x, ly + n.y, lz + n.z);
-
-                    if is_fluid {
-                        let neighbor_loaded = match face {
-                            Face::East => lx < CHUNK_SIZE_X - 1 || cache.east_blocks.is_some(),
-                            Face::West => lx > 0 || cache.west_blocks.is_some(),
-                            _ => true,
-                        };
-                        let visible = neighbor_loaded && if neighbor != block {
-                            neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)
-                        } else {
-                            let above_neighbor = cache.sample_block(lx + n.x, ly + 1, lz + n.z);
-                            if above_neighbor != block {
-                                let my_lvl = world.fluid_level(IVec3::new(wx, wy, wz));
-                                let neighbor_lvl = world.fluid_level(IVec3::new(wx + n.x, wy, wz + n.z));
-                                my_lvl > neighbor_lvl
-                            } else {
-                                false
-                            }
-                        };
-                        if visible {
-                            if is_trans {
-                                emit_face(&mut trans_tris, wx, wy, wz, face, block, cache);
-                            } else {
-                                emit_face(&mut solid_tris, wx, wy, wz, face, block, cache);
-                            }
-                        }
-                        continue;
-                    }
-
-                    let visible = neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block);
-                    if visible {
-                        let tex = determine_texture(block, face, wx, wy, wz, lx, lz, cache);
-                        let aos = compute_face_ao(face, lx, wy, lz, cache);
-                        let sky = (cache.sample_sky_light(lx + n.x, wy + n.y, lz + n.z) * 100.0) as u8;
-                        let block_l = (cache.sample_block_light(wx as f32 + 0.5 + n.x as f32 * 0.5, wy as f32 + 0.5 + n.y as f32 * 0.5, wz as f32 + 0.5 + n.z as f32 * 0.5) * 100.0) as u8;
-
-                        mask[lz as usize][dy as usize] = Some(FaceCell {
-                            texture: tex,
-                            ao: [(aos[0] * 100.0) as u8, (aos[1] * 100.0) as u8, (aos[2] * 100.0) as u8, (aos[3] * 100.0) as u8],
-                            sky_light: sky,
-                            block_light: block_l,
-                            is_trans,
-                        });
-                    }
-                }
-            }
-
-            // Greedy merge rectangles on (lz, dy)
-            for dy in 0..SUBCHUNK_SIZE as usize {
-                for lz in 0..CHUNK_SIZE_Z as usize {
-                    if let Some(cell) = mask[lz][dy] {
-                        let mut w = 1;
-                        while lz + w < CHUNK_SIZE_Z as usize && mask[lz + w][dy] == Some(cell) {
-                            w += 1;
-                        }
-                        let mut h = 1;
-                        'outer_h: while dy + h < SUBCHUNK_SIZE as usize {
-                            for dz in 0..w {
-                                if mask[lz + dz][dy + h] != Some(cell) {
-                                    break 'outer_h;
-                                }
-                            }
-                            h += 1;
-                        }
-                        for dh in 0..h {
-                            for dz in 0..w {
-                                mask[lz + dz][dy + dh] = None;
-                            }
-                        }
-                        emit_greedy_quad(
-                            &mut solid_tris,
-                            &mut trans_tris,
-                            wx as f32,
-                            (y_start + dy as i32) as f32,
-                            (base_z + lz as i32) as f32,
-                            w as f32,
-                            h as f32,
-                            face,
-                            &cell,
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    // 4. Special non-merged objects (Torches and Doors)
     for lx in 0..CHUNK_SIZE_X {
         for ly in y_start..y_end {
             for lz in 0..CHUNK_SIZE_Z {
@@ -763,10 +268,71 @@ pub fn build_subchunk_mesh_internal(
 
                 if block == BlockId::Torch {
                     emit_torch(&mut solid_tris, wx, wy, wz, cache);
-                } else if block == BlockId::Door {
+                    continue;
+                }
+                if block == BlockId::Door {
                     emit_door(&mut solid_tris, wx, wy, wz, false, cache);
-                } else if block == BlockId::DoorOpen {
+                    continue;
+                }
+                if block == BlockId::DoorOpen {
                     emit_door(&mut solid_tris, wx, wy, wz, true, cache);
+                    continue;
+                }
+
+                let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
+                let is_trans = matches!(block, BlockId::Water | BlockId::Glass);
+
+                for face in Face::ALL {
+                    let n = face.normal();
+                    let neighbor = cache.sample_block(lx + n.x, ly + n.y, lz + n.z);
+
+                    let visible = if is_fluid {
+                        let neighbor_loaded = match face {
+                            Face::East => lx < CHUNK_SIZE_X - 1 || cache.east_blocks.is_some(),
+                            Face::West => lx > 0 || cache.west_blocks.is_some(),
+                            Face::South => lz < CHUNK_SIZE_Z - 1 || cache.south_blocks.is_some(),
+                            Face::North => lz > 0 || cache.north_blocks.is_some(),
+                            Face::Top | Face::Bottom => true,
+                        };
+
+                        if !neighbor_loaded {
+                            false
+                        } else {
+                            match face {
+                                Face::Top => neighbor != block,
+                                Face::Bottom => wy > 0 && neighbor != block && (neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)),
+                                _ => {
+                                    if neighbor != block {
+                                        neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)
+                                    } else {
+                                        let above_neighbor = cache.sample_block(lx + n.x, ly + 1, lz + n.z);
+                                        if above_neighbor != block {
+                                            let my_lvl = world.fluid_level(IVec3::new(wx, wy, wz));
+                                            let neighbor_lvl = world.fluid_level(IVec3::new(wx + n.x, wy, wz + n.z));
+                                            my_lvl > neighbor_lvl
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        if face == Face::Bottom && wy == 0 {
+                            false
+                        } else {
+                            neighbor == BlockId::Air
+                            || (neighbor.is_transparent() && neighbor != block)
+                        }
+                    };
+
+                    if visible {
+                        if is_trans {
+                            emit_face(&mut trans_tris, wx, wy, wz, face, block, cache);
+                        } else {
+                            emit_face(&mut solid_tris, wx, wy, wz, face, block, cache);
+                        }
+                    }
                 }
             }
         }
@@ -786,8 +352,8 @@ pub fn build_subchunk_mesh(chunk: &Chunk, world: &World, sub_y: usize) -> Vec<Tr
 }
 
 pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
-    let mut solid_tris = Vec::with_capacity(2048);
-    let mut trans_tris = Vec::with_capacity(256);
+    let mut solid_tris = Vec::with_capacity(3072);
+    let mut trans_tris = Vec::with_capacity(512);
     let cache = ChunkNeighborCache::new(chunk, world);
 
     for sub_y in 0..NUM_SUBCHUNKS {
@@ -1211,7 +777,7 @@ mod tests {
     }
 
     #[test]
-    fn test_greedy_meshing_merges_coplanar_quads() {
+    fn test_subchunk_mesh_building() {
         let mut world = World::new();
         let mut chunk = Chunk {
             cx: 0,
@@ -1220,23 +786,27 @@ mod tests {
             dirty: false,
         };
 
-        // Create a 4x4 flat stone floor at y=20
-        for lx in 0..4 {
-            for lz in 0..4 {
-                chunk.set_local(lx, 20, lz, BlockId::Stone);
-            }
-        }
+        // Create a stone at y=5 (subchunk 0) and at y=20 (subchunk 1)
+        chunk.set_local(2, 5, 2, BlockId::Stone);
+        chunk.set_local(2, 20, 2, BlockId::Stone);
 
         world.chunks.insert((0, 0), chunk);
-        let mesh = build_chunk_mesh(world.chunks.get(&(0, 0)).unwrap(), &world);
+        let c = world.chunks.get(&(0, 0)).unwrap();
 
-        // Top face of a 4x4 area with uniform AO & light:
-        // Without greedy meshing, it would be 4 * 4 * 2 = 32 triangles.
-        // With greedy meshing, the top face is merged into exactly 2 triangles!
-        let top_faces: Vec<_> = mesh.iter().filter(|tri| {
-            tri.v0.pos.y == 21.0 && tri.v1.pos.y == 21.0 && tri.v2.pos.y == 21.0
-        }).collect();
+        let sub0 = build_subchunk_mesh(c, &world, 0);
+        let sub1 = build_subchunk_mesh(c, &world, 1);
+        let sub2 = build_subchunk_mesh(c, &world, 2);
 
-        assert_eq!(top_faces.len(), 2, "Greedy meshing should merge 4x4 top faces into 2 triangles (1 quad)");
+        assert!(!sub0.is_empty(), "Subchunk 0 (y 0..16) should contain faces for block at y=5");
+        assert!(!sub1.is_empty(), "Subchunk 1 (y 16..32) should contain faces for block at y=20");
+        assert!(sub2.is_empty(), "Subchunk 2 (y 32..48) should be empty");
+
+        // Verify that all triangles have standard 1:1 UVs within [0.0, 1.0] to prevent texture stretching
+        for tri in sub0.iter().chain(sub1.iter()) {
+            for v in [&tri.v0, &tri.v1, &tri.v2] {
+                assert!(v.uv.0 >= 0.0 && v.uv.0 <= 1.0, "UV X coordinate out of 1:1 range: {}", v.uv.0);
+                assert!(v.uv.1 >= 0.0 && v.uv.1 <= 1.0, "UV Y coordinate out of 1:1 range: {}", v.uv.1);
+            }
+        }
     }
 }

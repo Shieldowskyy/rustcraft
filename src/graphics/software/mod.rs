@@ -79,6 +79,11 @@ pub struct Renderer {
     pub render_distance: i32,
     pub current_daylight: f32,
     pub current_fog_color: [f32; 3],
+    pub last_draw_calls: u32,
+    pub last_triangles_rendered: u32,
+    pub last_triangles_culled: u32,
+    pub last_subchunks_rendered: u32,
+    pub last_subchunks_culled: u32,
 }
 
 impl Renderer {
@@ -120,7 +125,28 @@ impl Renderer {
             render_distance: 6,
             current_daylight: 1.0,
             current_fog_color: [0.75, 0.85, 1.0],
+            last_draw_calls: 0,
+            last_triangles_rendered: 0,
+            last_triangles_culled: 0,
+            last_subchunks_rendered: 0,
+            last_subchunks_culled: 0,
         }
+    }
+
+    #[inline(always)]
+    pub fn mesh_cache_triangles_count(&self) -> usize {
+        self.mesh_cache.values().map(|v| v.len()).sum()
+    }
+
+    #[inline(always)]
+    pub fn last_render_telemetry(&self) -> (u32, u32, u32, u32, u32) {
+        (
+            self.last_draw_calls,
+            self.last_triangles_rendered,
+            self.last_triangles_culled,
+            self.last_subchunks_rendered,
+            self.last_subchunks_culled,
+        )
     }
 
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
@@ -136,6 +162,35 @@ impl Renderer {
         "software"
     }
 
+    pub fn renderer_info(&self) -> (String, String, String) {
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        if let Some(vk) = &self.vulkan {
+            let (name, driver, ver) = vk.gpu_info();
+            return (ver.to_string(), name.to_string(), driver.to_string());
+        }
+
+        #[cfg(target_os = "vita")]
+        return (
+            "Software Rasterizer".to_string(),
+            "Sony PlayStation Vita (ARM Cortex-A9)".to_string(),
+            "Vita G40 / CDRAM".to_string(),
+        );
+
+        #[cfg(target_arch = "wasm32")]
+        return (
+            "Software Rasterizer".to_string(),
+            "WebAssembly / HTML5 Canvas".to_string(),
+            "Canvas 2D Context".to_string(),
+        );
+
+        #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
+        (
+            "Software Rasterizer".to_string(),
+            "CPU Multi-threaded SIMD".to_string(),
+            format!("Rayon ({} threads)", rayon::current_num_threads()),
+        )
+    }
+
     pub fn pixel_buffer(&self) -> &[u32] {
         &self.color_buffer
     }
@@ -146,6 +201,10 @@ impl Renderer {
         self.height = height;
         self.color_buffer.resize(width * height, 0);
         self.depth_buffer.resize(width * height, f32::INFINITY);
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        if let Some(vk) = self.vulkan.as_mut() {
+            vk.resize(width, height);
+        }
     }
 
     pub fn update_textures(&mut self, fancy_leaves: bool) {
@@ -236,8 +295,23 @@ impl Renderer {
     }
 
     #[inline(always)]
+    pub fn settings_tab_rects(&self) -> [(i32, i32, i32, i32); 2] {
+        crate::ui::settings_tab_rects(self.width, self.height)
+    }
+
+    #[inline(always)]
+    pub fn settings_graphics_rects(&self) -> [(i32, i32, i32, i32); 13] {
+        crate::ui::settings_graphics_rects(self.width, self.height)
+    }
+
+    #[inline(always)]
+    pub fn settings_controls_rects(&self) -> [(i32, i32, i32, i32); 6] {
+        crate::ui::settings_controls_rects(self.width, self.height)
+    }
+
+    #[inline(always)]
     pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 13] {
-        crate::ui::settings_option_rects(self.width, self.height)
+        crate::ui::settings_graphics_rects(self.width, self.height)
     }
 
     #[inline(always)]
@@ -303,6 +377,8 @@ impl Renderer {
     pub fn draw_settings_menu(
         &mut self,
         settings: &crate::core::settings::GameSettings,
+        active_tab: usize,
+        hovered_tab: Option<usize>,
         hovered: Option<usize>,
     ) {
         crate::ui::draw_settings_menu(
@@ -310,6 +386,8 @@ impl Renderer {
             self.width,
             self.height,
             settings,
+            active_tab,
+            hovered_tab,
             hovered,
         );
     }
@@ -364,6 +442,22 @@ impl Renderer {
 
     pub fn draw_debug_panel(&mut self, lines: &[String]) {
         crate::ui::draw_debug_panel(&mut self.color_buffer, self.width, self.height, lines);
+    }
+
+    pub fn draw_advanced_debug_overlay(
+        &mut self,
+        left_lines: &[String],
+        right_lines: &[String],
+        profiler: &crate::core::profiler::FrameProfiler,
+    ) {
+        crate::ui::draw_advanced_debug_overlay(
+            &mut self.color_buffer,
+            self.width,
+            self.height,
+            left_lines,
+            right_lines,
+            profiler,
+        );
     }
 
     #[inline(always)]
@@ -486,6 +580,15 @@ impl Renderer {
                 &mut self.color_buffer,
                 &mut self.depth_buffer,
             );
+
+            self.last_draw_calls = self.visible_keys.len() as u32;
+            let total_mesh_tris: usize = self.loaded_keys.iter().filter_map(|k| self.mesh_cache.get(k)).map(|v| v.len()).sum();
+            let visible_mesh_tris: usize = self.visible_keys.iter().filter_map(|k| self.mesh_cache.get(k)).map(|v| v.len()).sum();
+            self.last_triangles_rendered = visible_mesh_tris as u32;
+            self.last_triangles_culled = total_mesh_tris.saturating_sub(visible_mesh_tris) as u32;
+            self.last_subchunks_rendered = (self.visible_keys.len() * crate::world::mesher::NUM_SUBCHUNKS) as u32;
+            self.last_subchunks_culled = (self.loaded_keys.len().saturating_sub(self.visible_keys.len()) * crate::world::mesher::NUM_SUBCHUNKS) as u32;
+
             return;
         }
 
@@ -625,6 +728,13 @@ impl Renderer {
             self.opaque_tris_buf = opaque_chunks.into_iter().flatten().collect();
             self.transparent_tris_buf = transparent_chunks.into_iter().flatten().collect();
         }
+
+        self.last_draw_calls = visible.len() as u32;
+        self.last_triangles_rendered = (self.opaque_tris_buf.len() + self.transparent_tris_buf.len()) as u32;
+        let total_mesh_tris: usize = self.loaded_keys.iter().filter_map(|k| self.mesh_cache.get(k)).map(|v| v.len()).sum();
+        self.last_triangles_culled = total_mesh_tris.saturating_sub(self.last_triangles_rendered as usize) as u32;
+        self.last_subchunks_rendered = (visible.len() * crate::world::mesher::NUM_SUBCHUNKS) as u32;
+        self.last_subchunks_culled = (self.loaded_keys.len().saturating_sub(visible.len()) * crate::world::mesher::NUM_SUBCHUNKS) as u32;
 
         let textures = &self.textures;
         let opaque_slice = self.opaque_tris_buf.as_slice();

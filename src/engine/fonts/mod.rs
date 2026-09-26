@@ -3,8 +3,10 @@
 //! Provides abstract bitmap font interfaces, font identifiers, registry helpers,
 //! and built-in typography for rendering text across all supported platforms.
 
+pub mod rustcraft_light;
 pub mod rustcraft_regular;
 
+pub use rustcraft_light::RustcraftLight;
 pub use rustcraft_regular::{RustcraftRegular, GLYPH_H, GLYPH_W};
 
 /// Common interface for modular engine bitmap fonts.
@@ -38,15 +40,19 @@ pub trait BitmapFont: Send + Sync {
 pub enum FontId {
     /// Default compact 3x5 bitmap font.
     RustcraftRegular,
+    /// Slender, open 3x5 font optimized for profiler telemetry and diagnostics.
+    RustcraftLight,
 }
 
 static RUSTCRAFT_REGULAR_INSTANCE: RustcraftRegular = RustcraftRegular;
+static RUSTCRAFT_LIGHT_INSTANCE: RustcraftLight = RustcraftLight;
 
 /// Returns a static reference to the font identified by `id`.
 #[inline]
 pub fn get_font(id: FontId) -> &'static dyn BitmapFont {
     match id {
         FontId::RustcraftRegular => &RUSTCRAFT_REGULAR_INSTANCE,
+        FontId::RustcraftLight => &RUSTCRAFT_LIGHT_INSTANCE,
     }
 }
 
@@ -58,7 +64,7 @@ pub fn default_font() -> &'static dyn BitmapFont {
 
 /// Returns a list of names of all available fonts in the engine.
 pub fn list_fonts() -> &'static [&'static str] {
-    &["RustcraftRegular"]
+    &["RustcraftRegular", "RustcraftLight"]
 }
 
 #[cfg(test)]
@@ -76,7 +82,13 @@ mod tests {
         // 5 chars * 3 px + 4 spacing * 1 = 19
         assert_eq!(width, 19);
 
+        let light = get_font(FontId::RustcraftLight);
+        assert_eq!(light.name(), "RustcraftLight");
+        assert_eq!(light.glyph_width(), 3);
+        assert_eq!(light.glyph_height(), 5);
+        assert_eq!(light.measure("FPS: 60", 1, 1), 7 * 3 + 6 * 1);
+
         let list = list_fonts();
-        assert_eq!(list, &["RustcraftRegular"]);
+        assert_eq!(list, &["RustcraftRegular", "RustcraftLight"]);
     }
 }

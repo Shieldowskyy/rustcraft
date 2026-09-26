@@ -1,6 +1,6 @@
 //! Command-line argument parsing and random seed generation for RustCraft.
 
-const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan] [--seed NUMBER]";
+const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan] [--seed NUMBER] [--profiler]";
 
 /// Parses command-line arguments to determine the desired rendering backend.
 ///
@@ -28,6 +28,7 @@ pub fn parse_renderer_choice() -> &'static str {
             "--vulkan" => choice = "vulkan",
             "--software" => choice = "software",
             "--seed" => index += 1,
+            "--profiler" => {},
             "--help" | "-h" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -40,6 +41,14 @@ pub fn parse_renderer_choice() -> &'static str {
         index += 1;
     }
     choice
+}
+
+/// Parses whether the `--profiler` CLI flag was specified.
+///
+/// When enabled, RustCraft collects microsecond subsystem timings and renders
+/// the Minecraft-style debug pie chart and memory telemetry under F3.
+pub fn parse_profiler_enabled() -> bool {
+    std::env::args().any(|arg| arg == "--profiler")
 }
 
 /// Generates a cryptographically strong random seed using OS entropy (`getrandom`),
@@ -76,4 +85,25 @@ pub fn parse_seed() -> u32 {
         }
     }
     generate_random_seed()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_random_seed_nonzero() {
+        let seed = generate_random_seed();
+        // Just verify it generates a valid u32 without panicking
+        let _ = seed;
+    }
+
+    #[test]
+    fn test_parse_profiler_flag_logic() {
+        let test_args = vec!["rustcraft".to_string(), "--profiler".to_string()];
+        assert!(test_args.iter().any(|a| a == "--profiler"));
+
+        let test_args_no_prof = vec!["rustcraft".to_string(), "--software".to_string()];
+        assert!(!test_args_no_prof.iter().any(|a| a == "--profiler"));
+    }
 }

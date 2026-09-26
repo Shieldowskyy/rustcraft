@@ -1,8 +1,15 @@
 [build]
 jobs = 8
 
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
 [target.armv7-sony-vita-newlibeabihf]
 rustflags = [
     "-C", "target-cpu=cortex-a9",
     "-C", "link-arg=-Wl,--defsym=__sce_headroom=0x10000",
+    "-C", "codegen-units=1",
+    "-C", "lto=fat",
+    "-C", "opt-level=s",
 ]

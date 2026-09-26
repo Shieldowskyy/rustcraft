@@ -26,7 +26,7 @@ pub mod fonts;
 pub use platform::{PlatformBackend, PlatformConfig};
 pub use registry::{BlockProperties, BlockRegistry};
 pub use module::{EngineModule, ModuleContext, ModuleManager};
-pub use fonts::{BitmapFont, FontId, RustcraftRegular, default_font, get_font, list_fonts};
+pub use fonts::{BitmapFont, FontId, RustcraftLight, RustcraftRegular, default_font, get_font, list_fonts};
 pub use crate::graphics::traits::RenderBackend;
 
 /// Core application lifecycle interface.

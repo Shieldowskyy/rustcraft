@@ -54,6 +54,9 @@ pub struct VulkanContext {
     depth_readback: wgpu::Buffer,
     width: u32,
     height: u32,
+    gpu_name: String,
+    driver_info: String,
+    backend_version: String,
 }
 
 struct GpuChunk {
@@ -248,6 +251,21 @@ impl VulkanContext {
             force_fallback_adapter: false,
         }))
         .ok_or_else(|| "no Vulkan adapter found supporting rendering".to_owned())?;
+
+        let adapter_info = adapter.get_info();
+        let gpu_name = adapter_info.name.clone();
+        let driver_info = if !adapter_info.driver_info.is_empty() {
+            if !adapter_info.driver.is_empty() && !adapter_info.driver_info.contains(&adapter_info.driver) {
+                format!("{} {}", adapter_info.driver, adapter_info.driver_info)
+            } else {
+                adapter_info.driver_info.clone()
+            }
+        } else if !adapter_info.driver.is_empty() {
+            adapter_info.driver.clone()
+        } else {
+            "Vulkan Driver".to_string()
+        };
+        let backend_version = "Vulkan 1.3".to_string();
 
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
@@ -458,7 +476,55 @@ impl VulkanContext {
             depth_readback,
             width: width as u32,
             height: height as u32,
+            gpu_name,
+            driver_info,
+            backend_version,
         })
+    }
+
+    #[inline(always)]
+    pub fn gpu_info(&self) -> (&str, &str, &str) {
+        (&self.gpu_name, &self.driver_info, &self.backend_version)
+    }
+
+    /// Resizes GPU offscreen render targets, depth buffer and compute post-processing bindings.
+    pub fn resize(&mut self, width: usize, height: usize) {
+        if width == 0 || height == 0 || (self.width == width as u32 && self.height == height as u32) {
+            return;
+        }
+        self.width = width as u32;
+        self.height = height as u32;
+
+        let (target_view, depth_view, color_ssbo, depth_ssbo, readback, depth_readback) =
+            Self::create_targets(&self.device, self.width, self.height);
+
+        let post_bind_layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("RustCraft compute bind layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
+                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Depth, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
+                wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None },
+                wgpu::BindGroupLayoutEntry { binding: 3, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None },
+            ],
+        });
+
+        self.post_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("RustCraft compute bind group"),
+            layout: &post_bind_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&target_view) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&depth_view) },
+                wgpu::BindGroupEntry { binding: 2, resource: color_ssbo.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: depth_ssbo.as_entire_binding() },
+            ],
+        });
+
+        self.target_view = target_view;
+        self.depth_view = depth_view;
+        self.color_ssbo = color_ssbo;
+        self.depth_ssbo = depth_ssbo;
+        self.readback = readback;
+        self.depth_readback = depth_readback;
     }
 
     #[allow(clippy::too_many_arguments)]

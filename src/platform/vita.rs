@@ -544,6 +544,11 @@ pub fn run_vita_app() {
     // 3. Initialize game engine (logic + voxel world)
     let seed = unsafe { sceKernelGetProcessTimeWide() } as u32;
     let mut app = RustCraftApp::new(960, 544, "software", seed);
+    #[cfg(feature = "profiler")]
+    {
+        app.profiler_enabled = true;
+        app.settings.debug_overlay = true;
+    }
 
     crate::vita_log!("Initializing GxmRenderer...");
 

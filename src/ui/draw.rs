@@ -120,6 +120,41 @@ pub fn draw_text_colored_shadowed(buffer: &mut [u32], buf_w: usize, buf_h: usize
     });
 }
 
+pub fn draw_text_light_shadowed(buffer: &mut [u32], buf_w: usize, buf_h: usize, text: &str, x: i32, y: i32, scale: i32, spacing: i32) {
+    let shadow = pack_color(0.06, 0.06, 0.06);
+    let fg = pack_color(0.96, 0.96, 0.96);
+    let w = buf_w as i32;
+    let h = buf_h as i32;
+
+    font::draw_text_light(text, x + 1, y + 1, scale, spacing, |px, py| {
+        if px >= 0 && py >= 0 && px < w && py < h {
+            buffer[(py as usize) * buf_w + (px as usize)] = shadow;
+        }
+    });
+    font::draw_text_light(text, x, y, scale, spacing, |px, py| {
+        if px >= 0 && py >= 0 && px < w && py < h {
+            buffer[(py as usize) * buf_w + (px as usize)] = fg;
+        }
+    });
+}
+
+pub fn draw_text_light_colored_shadowed(buffer: &mut [u32], buf_w: usize, buf_h: usize, text: &str, x: i32, y: i32, scale: i32, spacing: i32, fg_color: u32) {
+    let shadow = pack_color(0.06, 0.06, 0.06);
+    let w = buf_w as i32;
+    let h = buf_h as i32;
+
+    font::draw_text_light(text, x + 1, y + 1, scale, spacing, |px, py| {
+        if px >= 0 && py >= 0 && px < w && py < h {
+            buffer[(py as usize) * buf_w + (px as usize)] = shadow;
+        }
+    });
+    font::draw_text_light(text, x, y, scale, spacing, |px, py| {
+        if px >= 0 && py >= 0 && px < w && py < h {
+            buffer[(py as usize) * buf_w + (px as usize)] = fg_color;
+        }
+    });
+}
+
 pub fn draw_cursor_pointer(buffer: &mut [u32], buf_w: usize, buf_h: usize, x: i32, y: i32) {
     let cursor_pixels: [(i32, i32, u32); 26] = [
         (0, 0, 0xFFFFFFFF),

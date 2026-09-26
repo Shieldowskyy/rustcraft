@@ -6,7 +6,7 @@ use std::time::Instant;
 #[cfg(not(target_os = "vita"))]
 use rustcraft::app::{InputState, RustCraftApp, HEIGHT, WIDTH};
 #[cfg(not(target_os = "vita"))]
-use rustcraft::cli::{parse_renderer_choice, parse_seed};
+use rustcraft::cli::{parse_profiler_enabled, parse_renderer_choice, parse_seed};
 #[cfg(not(target_os = "vita"))]
 use rustcraft::platform::gamepad::GamepadManager;
 #[cfg(not(target_os = "vita"))]
@@ -22,6 +22,7 @@ fn main() {
 fn main() {
     let renderer_choice = parse_renderer_choice();
     let seed = parse_seed();
+    let profiler_enabled = parse_profiler_enabled();
 
     #[cfg(target_os = "linux")]
     if std::env::var_os("DISPLAY").is_some() {
@@ -40,6 +41,7 @@ fn main() {
     .expect("Failed to create native desktop window");
 
     let mut app = RustCraftApp::new(WIDTH, HEIGHT, renderer_choice, seed);
+    app.profiler_enabled = profiler_enabled;
     let mut gamepad_mgr = GamepadManager::new();
 
     mouse_capture::maximize_window(&window);

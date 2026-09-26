@@ -24,12 +24,29 @@ TITLE_ID="RUSTCRAFT"
 TITLE_NAME="RustCraft"
 VPK_NAME="RustCraft.vpk"
 
+CARGO_FEATURES=""
+for arg in "$@"; do
+    case "$arg" in
+        --profiler)
+            CARGO_FEATURES="--features profiler"
+            echo "⚡ Performance profiler enabled by default in Vita build."
+            ;;
+        --help|-h)
+            echo "Usage: ./build_vita.sh [--profiler]"
+            echo "  --profiler    Enable advanced Minecraft-style F3 profiler & telemetry by default on Vita"
+            exit 0
+            ;;
+        *)
+            ;;
+    esac
+done
+
 echo "=== Building RustCraft for PlayStation Vita ($TARGET) ==="
 
 # 1. Compile Rust to ELF with built-in standard library
 echo "Compiling Rust project for target $TARGET..."
 export RUSTFLAGS="-C target-cpu=cortex-a9 -C link-arg=-Wl,--defsym=__sce_headroom=0x10000"
-RUSTC_BOOTSTRAP=1 cargo build --target "$TARGET" -Z build-std=std,panic_abort --release
+RUSTC_BOOTSTRAP=1 cargo build --target "$TARGET" -Z build-std=std,panic_abort --release $CARGO_FEATURES
 
 TARGET_ELF="target/$TARGET/release/rustcraft.elf"
 if [ ! -f "$TARGET_ELF" ]; then

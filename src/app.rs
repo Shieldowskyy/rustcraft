@@ -11,6 +11,7 @@ use std::thread;
 
 use crate::cli::generate_random_seed;
 use crate::core::math::{IVec3, Mat4, Vec3};
+use crate::core::profiler::{FrameProfiler, MemoryBreakdown};
 use crate::core::settings::GameSettings;
 use crate::gameplay::inventory::{Inventory, ItemStack};
 use crate::gameplay::item::ItemEntity;
@@ -212,6 +213,9 @@ pub struct RustCraftApp {
     pub lava_damage_timer: f32,
     pub drown_damage_timer: f32,
     pub debug_lines: Vec<String>,
+    pub debug_right_lines: Vec<String>,
+    pub profiler: FrameProfiler,
+    pub profiler_enabled: bool,
     pub debug_timer: f32,
     pub cpu_time_ms: f32,
     pub gpu_triangles: u32,
@@ -225,7 +229,10 @@ pub struct RustCraftApp {
     pub save_card_rects: [(i32, i32, i32, i32); VISIBLE_SAVE_ROWS],
     pub save_btn_rects: [(i32, i32, i32, i32); 4],
     pub create_world_rects: [(i32, i32, i32, i32); 6],
+    pub settings_tab: usize,
+    pub settings_tab_rects: [(i32, i32, i32, i32); 2],
     pub settings_rects: [(i32, i32, i32, i32); 13],
+    pub settings_controls_rects: [(i32, i32, i32, i32); 6],
     pub pause_menu_rects: [(i32, i32, i32, i32); 5],
     pub death_screen_rects: [(i32, i32, i32, i32); 2],
     pub create_world_name: String,
@@ -240,6 +247,10 @@ pub struct RustCraftApp {
     pub fps_display: u32,
     pub frozen_frame: Option<Vec<u32>>,
     pub right_drag_visited: Vec<crate::ui::inventory_ui::InventorySlotTarget>,
+
+    // Controls toggle states
+    pub sprint_toggled: bool,
+    pub crouch_toggled: bool,
 
     // Previous input state for edge detection
     prev_left_down: bool,
@@ -265,6 +276,10 @@ pub struct RustCraftApp {
     prev_c_down: bool,
     prev_v_down: bool,
     prev_x_down: bool,
+    prev_sprint_btn: bool,
+    prev_sneak_btn: bool,
+    prev_l1_btn: bool,
+    prev_r1_btn: bool,
     prev_key_digits: [bool; 10],
 }
 
@@ -296,7 +311,9 @@ impl RustCraftApp {
         let save_card_rects = renderer.save_card_rects();
         let save_btn_rects = renderer.save_bottom_button_rects();
         let create_world_rects = renderer.create_world_rects();
-        let settings_rects = renderer.settings_option_rects();
+        let settings_tab_rects = renderer.settings_tab_rects();
+        let settings_rects = renderer.settings_graphics_rects();
+        let settings_controls_rects = renderer.settings_controls_rects();
         let pause_menu_rects = renderer.pause_menu_button_rects();
         let death_screen_rects = renderer.death_screen_button_rects();
 
@@ -326,6 +343,7 @@ impl RustCraftApp {
             save_select_slot: 1,
             save_select_scroll: 0,
             save_metadata_cache,
+            settings_tab: 0,
             settings_hovered_opt: Some(0),
             menu_hovered_btn: Some(0),
             pause_hovered_btn: Some(0),
@@ -347,17 +365,11 @@ impl RustCraftApp {
             damage_tilt_dir: 1.0,
             lava_damage_timer: 0.45,
             drown_damage_timer: 0.0,
-            debug_lines: vec![
-                String::with_capacity(64),
-                String::with_capacity(64),
-                String::with_capacity(64),
-                String::with_capacity(64),
-                String::with_capacity(64),
-                String::with_capacity(64),
-                String::with_capacity(64),
-                String::with_capacity(64),
-            ],
-            debug_timer: 0.25,
+            debug_lines: (0..10).map(|_| String::with_capacity(96)).collect(),
+            debug_right_lines: (0..14).map(|_| String::with_capacity(96)).collect(),
+            profiler: FrameProfiler::default(),
+            profiler_enabled: cfg!(feature = "profiler"),
+            debug_timer: 0.15,
             cpu_time_ms: 16.6,
             gpu_triangles: 0,
             cdram_mb: 0.0,
@@ -370,7 +382,9 @@ impl RustCraftApp {
             save_card_rects,
             save_btn_rects,
             create_world_rects,
+            settings_tab_rects,
             settings_rects,
+            settings_controls_rects,
             pause_menu_rects,
             death_screen_rects,
             create_world_name: String::new(),
@@ -385,6 +399,9 @@ impl RustCraftApp {
             fps_display: 60,
             frozen_frame: None,
             right_drag_visited: Vec::new(),
+
+            sprint_toggled: false,
+            crouch_toggled: false,
 
             prev_left_down: false,
             prev_right_down: false,
@@ -409,6 +426,10 @@ impl RustCraftApp {
             prev_c_down: false,
             prev_v_down: false,
             prev_x_down: false,
+            prev_sprint_btn: false,
+            prev_sneak_btn: false,
+            prev_l1_btn: false,
+            prev_r1_btn: false,
             prev_key_digits: [false; 10],
         }
     }
@@ -921,37 +942,85 @@ impl RustCraftApp {
                 }
             }
             GameState::Settings(prev) => {
+                let mut hovered_tab = None;
                 let mut hovered_opt = self.settings_hovered_opt;
+
                 if let Some((mx, my)) = mouse_pos {
                     let px = mx as i32;
                     let py = my as i32;
-                    for (i, &(bx, by, bw, bh)) in self.settings_rects.iter().enumerate() {
+
+                    for (t_idx, &(bx, by, bw, bh)) in self.settings_tab_rects.iter().enumerate() {
                         if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                            hovered_opt = Some(i);
-                            self.settings_hovered_opt = Some(i);
+                            hovered_tab = Some(t_idx);
                             break;
+                        }
+                    }
+
+                    if hovered_tab.is_none() {
+                        if self.settings_tab == 0 {
+                            for (i, &(bx, by, bw, bh)) in self.settings_rects.iter().enumerate() {
+                                if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                                    hovered_opt = Some(i);
+                                    self.settings_hovered_opt = Some(i);
+                                    break;
+                                }
+                            }
+                        } else {
+                            for (i, &(bx, by, bw, bh)) in self.settings_controls_rects.iter().enumerate() {
+                                if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                                    hovered_opt = Some(i);
+                                    self.settings_hovered_opt = Some(i);
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
 
+                // Tab switching via keyboard (Tab / 1 / 2) or Gamepad LB / RB
+                let tab_key_just = (tab_down && !self.prev_tab_down)
+                    || (input.key_digits[1] && !self.prev_key_digits[1])
+                    || (input.key_digits[2] && !self.prev_key_digits[2]);
+                let gp_l1_just = input.gp_btn_lb && !self.prev_l1_btn;
+                let gp_r1_just = input.gp_btn_rb && !self.prev_r1_btn;
+                self.prev_l1_btn = input.gp_btn_lb;
+                self.prev_r1_btn = input.gp_btn_rb;
+
+                if tab_key_just || gp_l1_just || gp_r1_just {
+                    self.settings_tab = if self.settings_tab == 0 { 1 } else { 0 };
+                    self.settings_hovered_opt = Some(0);
+                    hovered_opt = Some(0);
+                }
+
+                let max_opts = if self.settings_tab == 0 { 13 } else { 6 };
+
                 if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
                     let next = match self.settings_hovered_opt {
-                        Some(0) | None => 12,
-                        Some(i) => i - 1,
+                        Some(0) | None => max_opts - 1,
+                        Some(i) => (i + max_opts - 1) % max_opts,
                     };
                     self.settings_hovered_opt = Some(next);
                     hovered_opt = Some(next);
                 }
                 if input.gp_dpad_down_just_pressed || (down_arrow_down && !self.prev_down_arrow_down) {
                     let next = match self.settings_hovered_opt {
-                        Some(12) | None => 0,
-                        Some(i) => i + 1,
+                        Some(i) => (i + 1) % max_opts,
+                        None => 0,
                     };
                     self.settings_hovered_opt = Some(next);
                     hovered_opt = Some(next);
                 }
 
-                let click_opt = if (left_down && !self.prev_left_down) || input.gp_south_just_pressed || (enter_down && !self.prev_enter_down) {
+                let left_click_just = left_down && !self.prev_left_down;
+                if let Some(t_idx) = hovered_tab {
+                    if left_click_just {
+                        self.settings_tab = t_idx;
+                        self.settings_hovered_opt = Some(0);
+                        hovered_opt = Some(0);
+                    }
+                }
+
+                let click_opt = if (left_click_just && hovered_tab.is_none()) || input.gp_south_just_pressed || (enter_down && !self.prev_enter_down) {
                     hovered_opt
                 } else {
                     None
@@ -960,75 +1029,9 @@ impl RustCraftApp {
                 let left_key_just = left_arrow_down && !self.prev_left_arrow_down;
                 let right_key_just = right_arrow_down && !self.prev_right_arrow_down;
 
-                if let Some(opt_idx) = click_opt {
-                    match opt_idx {
-                        0 => {
-                            self.settings.cycle_language(true);
-                            crate::core::i18n::set_language(self.settings.language);
-                        }
-                        1 => {
-                            self.settings.cycle_render_distance(true);
-                            self.renderer.render_distance = self.settings.render_distance;
-                            self.world.purge_distant_chunks(self.camera.position, self.settings.render_distance);
-                            self.renderer.clear_mesh_cache();
-                        }
-                        2 => {
-                            self.settings.fancy_leaves = !self.settings.fancy_leaves;
-                            self.renderer.update_textures(self.settings.fancy_leaves);
-                            self.world.mark_all_chunks_dirty();
-                            self.renderer.clear_mesh_cache();
-                        }
-                        3 => self.settings.fog = !self.settings.fog,
-                        4 => self.settings.clouds = !self.settings.clouds,
-                        5 => self.settings.particles = !self.settings.particles,
-                        6 => self.settings.chunk_anim = !self.settings.chunk_anim,
-                        7 => self.settings.cycle_fov(true),
-                        8 => self.settings.cycle_msaa(true),
-                        9 => self.settings.cycle_fps_limit(true),
-                        10 => self.settings.underwater_fx = !self.settings.underwater_fx,
-                        11 => self.settings.debug_overlay = !self.settings.debug_overlay,
-                        12 => {
-                            let _ = self.settings.save();
-                            self.state = match prev {
-                                PreviousMenu::MainMenu => GameState::MainMenu,
-                                PreviousMenu::Paused => GameState::Paused,
-                            };
-                        }
-                        _ => {}
-                    }
-                } else if input.gp_dpad_left_just_pressed || left_key_just {
-                    if let Some(opt_idx) = hovered_opt {
-                        match opt_idx {
-                            0 => {
-                                self.settings.cycle_language(false);
-                                crate::core::i18n::set_language(self.settings.language);
-                            }
-                            1 => {
-                                self.settings.cycle_render_distance(false);
-                                self.renderer.render_distance = self.settings.render_distance;
-                                self.world.purge_distant_chunks(self.camera.position, self.settings.render_distance);
-                                self.renderer.clear_mesh_cache();
-                            }
-                            2 => {
-                                self.settings.fancy_leaves = !self.settings.fancy_leaves;
-                                self.renderer.update_textures(self.settings.fancy_leaves);
-                                self.world.mark_all_chunks_dirty();
-                                self.renderer.clear_mesh_cache();
-                            }
-                            3 => self.settings.fog = !self.settings.fog,
-                            4 => self.settings.clouds = !self.settings.clouds,
-                            5 => self.settings.particles = !self.settings.particles,
-                            6 => self.settings.chunk_anim = !self.settings.chunk_anim,
-                            7 => self.settings.cycle_fov(false),
-                            8 => self.settings.cycle_msaa(false),
-                            9 => self.settings.cycle_fps_limit(false),
-                            10 => self.settings.underwater_fx = !self.settings.underwater_fx,
-                            11 => self.settings.debug_overlay = !self.settings.debug_overlay,
-                            _ => {}
-                        }
-                    }
-                } else if input.gp_dpad_right_just_pressed || right_key_just {
-                    if let Some(opt_idx) = hovered_opt {
+                if self.settings_tab == 0 {
+                    // GRAPHICS TAB
+                    if let Some(opt_idx) = click_opt {
                         match opt_idx {
                             0 => {
                                 self.settings.cycle_language(true);
@@ -1041,7 +1044,7 @@ impl RustCraftApp {
                                 self.renderer.clear_mesh_cache();
                             }
                             2 => {
-                                self.settings.fancy_leaves = !self.settings.fancy_leaves;
+                                self.settings.cycle_leaf_quality(true);
                                 self.renderer.update_textures(self.settings.fancy_leaves);
                                 self.world.mark_all_chunks_dirty();
                                 self.renderer.clear_mesh_cache();
@@ -1055,7 +1058,106 @@ impl RustCraftApp {
                             9 => self.settings.cycle_fps_limit(true),
                             10 => self.settings.underwater_fx = !self.settings.underwater_fx,
                             11 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                            12 => {
+                                let _ = self.settings.save();
+                                self.state = match prev {
+                                    PreviousMenu::MainMenu => GameState::MainMenu,
+                                    PreviousMenu::Paused => GameState::Paused,
+                                };
+                            }
                             _ => {}
+                        }
+                    } else if input.gp_dpad_left_just_pressed || left_key_just {
+                        if let Some(opt_idx) = hovered_opt {
+                            match opt_idx {
+                                0 => {
+                                    self.settings.cycle_language(false);
+                                    crate::core::i18n::set_language(self.settings.language);
+                                }
+                                1 => {
+                                    self.settings.cycle_render_distance(false);
+                                    self.renderer.render_distance = self.settings.render_distance;
+                                    self.world.purge_distant_chunks(self.camera.position, self.settings.render_distance);
+                                    self.renderer.clear_mesh_cache();
+                                }
+                                2 => {
+                                    self.settings.cycle_leaf_quality(false);
+                                    self.renderer.update_textures(self.settings.fancy_leaves);
+                                    self.world.mark_all_chunks_dirty();
+                                    self.renderer.clear_mesh_cache();
+                                }
+                                3 => self.settings.fog = !self.settings.fog,
+                                4 => self.settings.clouds = !self.settings.clouds,
+                                5 => self.settings.particles = !self.settings.particles,
+                                6 => self.settings.chunk_anim = !self.settings.chunk_anim,
+                                7 => self.settings.cycle_fov(false),
+                                8 => self.settings.cycle_msaa(false),
+                                9 => self.settings.cycle_fps_limit(false),
+                                10 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                                11 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                                _ => {}
+                            }
+                        }
+                    } else if input.gp_dpad_right_just_pressed || right_key_just {
+                        if let Some(opt_idx) = hovered_opt {
+                            match opt_idx {
+                                0 => {
+                                    self.settings.cycle_language(true);
+                                    crate::core::i18n::set_language(self.settings.language);
+                                }
+                                1 => {
+                                    self.settings.cycle_render_distance(true);
+                                    self.renderer.render_distance = self.settings.render_distance;
+                                    self.world.purge_distant_chunks(self.camera.position, self.settings.render_distance);
+                                    self.renderer.clear_mesh_cache();
+                                }
+                                2 => {
+                                    self.settings.cycle_leaf_quality(true);
+                                    self.renderer.update_textures(self.settings.fancy_leaves);
+                                    self.world.mark_all_chunks_dirty();
+                                    self.renderer.clear_mesh_cache();
+                                }
+                                3 => self.settings.fog = !self.settings.fog,
+                                4 => self.settings.clouds = !self.settings.clouds,
+                                5 => self.settings.particles = !self.settings.particles,
+                                6 => self.settings.chunk_anim = !self.settings.chunk_anim,
+                                7 => self.settings.cycle_fov(true),
+                                8 => self.settings.cycle_msaa(true),
+                                9 => self.settings.cycle_fps_limit(true),
+                                10 => self.settings.underwater_fx = !self.settings.underwater_fx,
+                                11 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                                _ => {}
+                            }
+                        }
+                    }
+                } else {
+                    // CONTROLS TAB
+                    if let Some(opt_idx) = click_opt {
+                        match opt_idx {
+                            0 => self.settings.cycle_sprint_mode(),
+                            1 => self.settings.cycle_sneak_mode(),
+                            2 => self.settings.cycle_jump_mode(),
+                            3 => self.settings.toggle_invert_y(),
+                            4 => self.settings.toggle_invert_z(),
+                            5 => {
+                                let _ = self.settings.save();
+                                self.state = match prev {
+                                    PreviousMenu::MainMenu => GameState::MainMenu,
+                                    PreviousMenu::Paused => GameState::Paused,
+                                };
+                            }
+                            _ => {}
+                        }
+                    } else if input.gp_dpad_left_just_pressed || left_key_just || input.gp_dpad_right_just_pressed || right_key_just {
+                        if let Some(opt_idx) = hovered_opt {
+                            match opt_idx {
+                                0 => self.settings.cycle_sprint_mode(),
+                                1 => self.settings.cycle_sneak_mode(),
+                                2 => self.settings.cycle_jump_mode(),
+                                3 => self.settings.toggle_invert_y(),
+                                4 => self.settings.toggle_invert_z(),
+                                _ => {}
+                            }
                         }
                     }
                 }
@@ -1077,7 +1179,7 @@ impl RustCraftApp {
                         self.renderer.color_buffer.fill(0x0C0C10);
                     }
                 }
-                self.renderer.draw_settings_menu(&self.settings, hovered_opt);
+                self.renderer.draw_settings_menu(&self.settings, self.settings_tab, hovered_tab, hovered_opt);
             }
             #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
             GameState::Loading(ref rx) => {
@@ -1134,16 +1236,22 @@ impl RustCraftApp {
                     out.request_capture_mouse = true;
                 }
 
+                let look_x_dir = if self.settings.invert_z { -1.0 } else { 1.0 };
+                let look_y_dir = if self.settings.invert_y { -1.0 } else { 1.0 };
+
                 if input.is_mouse_captured {
-                    self.camera.rotate(input.mouse_dx * 0.0025, -input.mouse_dy * 0.0025);
+                    self.camera.rotate(
+                        input.mouse_dx * 0.0025 * look_x_dir,
+                        -input.mouse_dy * 0.0025 * look_y_dir,
+                    );
                 }
 
                 let gp_look_speed_x = 3.2;
                 let gp_look_speed_y = 2.8;
                 if input.gp_right_stick_x.abs() > 0.0 || input.gp_right_stick_y.abs() > 0.0 {
                     self.camera.rotate(
-                        input.gp_right_stick_x * gp_look_speed_x * dt,
-                        input.gp_right_stick_y * gp_look_speed_y * dt,
+                        input.gp_right_stick_x * gp_look_speed_x * dt * look_x_dir,
+                        input.gp_right_stick_y * gp_look_speed_y * dt * look_y_dir,
                     );
                 }
 
@@ -1178,8 +1286,19 @@ impl RustCraftApp {
                     };
                 }
 
-                let is_crouching = !self.fly_mode
-                    && ((input.is_mouse_captured && (input.key_shift || input.key_c)) || input.gp_btn_east);
+                let sneak_btn_down = (input.is_mouse_captured && (input.key_shift || input.key_c)) || input.gp_btn_east;
+                let sneak_just_pressed = sneak_btn_down && !self.prev_sneak_btn;
+                self.prev_sneak_btn = sneak_btn_down;
+
+                if self.settings.sneak_mode == crate::core::settings::SneakMode::Toggle {
+                    if sneak_just_pressed {
+                        self.crouch_toggled = !self.crouch_toggled;
+                    }
+                } else {
+                    self.crouch_toggled = sneak_btn_down;
+                }
+
+                let is_crouching = !self.fly_mode && self.crouch_toggled;
 
                 let target_eye = if is_crouching { CROUCH_EYE_OFFSET } else { STANDING_EYE_OFFSET };
                 let target_h = if is_crouching { CROUCH_HEIGHT } else { STANDING_HEIGHT };
@@ -1193,9 +1312,24 @@ impl RustCraftApp {
                 }
 
                 let can_sprint = self.player.gamemode == GameMode::Creative || self.player.hunger > 6.0;
+                let sprint_btn_down = (input.is_mouse_captured && input.key_ctrl) || input.gp_btn_l3 || input.gp_left_stick_y > 0.85;
+                let sprint_just_pressed = sprint_btn_down && !self.prev_sprint_btn;
+                self.prev_sprint_btn = sprint_btn_down;
+
+                if self.settings.sprint_mode == crate::core::settings::SprintMode::Toggle {
+                    if sprint_just_pressed && can_sprint && !is_crouching {
+                        self.sprint_toggled = !self.sprint_toggled;
+                    }
+                    if !can_sprint || is_crouching || wish_dir.length_sq() <= 0.01 {
+                        self.sprint_toggled = false;
+                    }
+                } else {
+                    self.sprint_toggled = sprint_btn_down;
+                }
+
                 let is_sprinting = !is_crouching
                     && can_sprint
-                    && ((input.is_mouse_captured && input.key_ctrl) || input.gp_btn_l3 || input.gp_left_stick_y > 0.85)
+                    && self.sprint_toggled
                     && wish_dir.length_sq() > 0.01;
 
                 let target_fov_deg = if is_sprinting {
@@ -1289,7 +1423,30 @@ impl RustCraftApp {
                             self.vertical_velocity = -TERMINAL_VELOCITY;
                         }
 
-                        if ((input.key_space && input.is_mouse_captured) || input.gp_btn_south) && self.on_ground {
+                        let mut should_jump = ((input.key_space && input.is_mouse_captured) || input.gp_btn_south) && self.on_ground;
+
+                        // Auto-jump logic
+                        if !should_jump && self.settings.jump_mode == crate::core::settings::JumpMode::AutoJump && self.on_ground && wish_dir.length_sq() > 0.01 {
+                            let check_dir = wish_dir.normalized();
+                            let feet_y = self.camera.position.y - self.current_eye_offset;
+                            let feet_pos = Vec3::new(self.camera.position.x, feet_y, self.camera.position.z);
+                            let probe_dist = 0.65;
+                            let step_ahead = check_dir * probe_dist;
+
+                            let probe_feet = (feet_pos + step_ahead + Vec3::new(0.0, 0.2, 0.0)).floor_to_ivec();
+                            let probe_head = (feet_pos + step_ahead + Vec3::new(0.0, 1.2, 0.0)).floor_to_ivec();
+                            let probe_above = (feet_pos + Vec3::new(0.0, 2.0, 0.0)).floor_to_ivec();
+
+                            let block_feet = self.world.get_block(probe_feet);
+                            let block_head = self.world.get_block(probe_head);
+                            let block_above = self.world.get_block(probe_above);
+
+                            if block_feet.is_solid() && !block_head.is_solid() && !block_above.is_solid() {
+                                should_jump = true;
+                            }
+                        }
+
+                        if should_jump {
                             self.vertical_velocity = JUMP_SPEED;
                             if is_sprinting && wish_dir.length_sq() > 0.01 {
                                 self.horiz_velocity = self.horiz_velocity + wish_dir * SPRINT_JUMP_BOOST;
@@ -1663,8 +1820,16 @@ impl RustCraftApp {
                 }
             }
 
+                let collect_profiling = self.profiler_enabled && self.settings.debug_overlay;
+                let frame_start_time = if collect_profiling { Some(std::time::Instant::now()) } else { None };
+                let mut cur_profiler = FrameProfiler::default();
+
+                let tick_start_time = if collect_profiling { Some(std::time::Instant::now()) } else { None };
                 self.world.advance_time(dt);
+                let world_update_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
                 self.world.update(self.camera.position, self.settings.render_distance);
+                let world_io_dur = world_update_start.map(|t| t.elapsed()).unwrap_or_default();
+
                 let hand_speed = if self.fly_mode {
                     self.fly_velocity.length()
                 } else {
@@ -1788,6 +1953,10 @@ impl RustCraftApp {
                 }
 
                 self.particles.update(dt);
+                if let Some(t_start) = tick_start_time {
+                    cur_profiler.tick_ms = t_start.elapsed().saturating_sub(world_io_dur).as_secs_f32() * 1000.0;
+                    cur_profiler.world_io_ms = world_io_dur.as_secs_f32() * 1000.0;
+                }
 
                 let aspect = self.width as f32 / self.height as f32;
 
@@ -1810,9 +1979,14 @@ impl RustCraftApp {
                 let view_proj = self.proj_matrix.mul(&self.camera.view_matrix_with_tilt(shake_offset, roll));
                 #[cfg(not(target_os = "vita"))]
                 {
+                    let render_terrain_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
                     self.renderer.fog_enabled = self.settings.fog;
                     self.renderer.render_frame(&mut self.world, &self.camera);
+                    if let Some(t_start) = render_terrain_start {
+                        cur_profiler.render_terrain_ms = t_start.elapsed().as_secs_f32() * 1000.0;
+                    }
 
+                    let render_entities_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
                     let is_occluded = self.world.is_view_fully_occluded(self.camera.position, self.camera.yaw, self.camera.pitch);
 
                     if !is_occluded {
@@ -1825,7 +1999,11 @@ impl RustCraftApp {
                         }
 
                         if self.settings.clouds {
+                            let clouds_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
                             self.renderer.draw_clouds(self.camera.position, &view_proj, self.total_time);
+                            if let Some(c_start) = clouds_start {
+                                cur_profiler.render_clouds_ms = c_start.elapsed().as_secs_f32() * 1000.0;
+                            }
                         }
 
                         for item in &self.items {
@@ -1878,6 +2056,9 @@ impl RustCraftApp {
                     if self.player.gamemode == GameMode::Survival && self.player.health <= 2.0 && self.player.health > 0.0 {
                         self.renderer.draw_low_health_vignette(self.total_time);
                     }
+                    if let Some(e_start) = render_entities_start {
+                        cur_profiler.render_entities_ms = e_start.elapsed().as_secs_f32() * 1000.0;
+                    }
                 }
 
                 #[cfg(target_os = "vita")]
@@ -1885,6 +2066,7 @@ impl RustCraftApp {
                     self.renderer.color_buffer.fill(0);
                 }
 
+                let render_ui_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
                 self.renderer.draw_crosshair();
                 self.renderer.draw_break_progress(self.break_progress);
                 #[cfg(not(target_os = "vita"))]
@@ -1894,10 +2076,65 @@ impl RustCraftApp {
                     self.renderer.draw_hand_3d(&self.camera, &view_proj, hand_block, self.walk_phase, hand_speed, self.hand_animation);
                 }
                 self.renderer.draw_hotbar(&self.player);
+                if let Some(u_start) = render_ui_start {
+                    cur_profiler.render_ui_ms = u_start.elapsed().as_secs_f32() * 1000.0;
+                }
+
+                if collect_profiling {
+                    if let Some(f_start) = frame_start_time {
+                        cur_profiler.total_frame_ms = f_start.elapsed().as_secs_f32() * 1000.0;
+                    }
+                    cur_profiler.fps = (1.0 / dt.max(0.001)).round() as u32;
+
+                    let (draw_calls, tris_rendered, tris_culled, subchunks_rendered, subchunks_culled) = self.renderer.last_render_telemetry();
+                    #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
+                    let raster_threads = rayon::current_num_threads();
+                    #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+                    let raster_threads = 1;
+
+                    let (renderer_name, gpu_device, driver_info) = self.renderer.renderer_info();
+                    cur_profiler.render_stats = crate::core::profiler::RenderStats {
+                        pipeline_name: self.renderer.backend_name(),
+                        renderer_name,
+                        gpu_device,
+                        driver_info,
+                        draw_calls,
+                        subchunks_rendered,
+                        subchunks_culled_frustum: subchunks_culled,
+                        subchunks_culled_occlusion: 0,
+                        subchunks_empty_skipped: 0,
+                        triangles_rendered: tris_rendered,
+                        triangles_culled: tris_culled,
+                        raster_threads,
+                    };
+
+                    let chunk_count = self.world.chunks.len();
+                    let chunk_voxels_bytes = chunk_count * 16 * 16 * 128;
+                    let mesh_tris = self.renderer.mesh_cache_triangles_count();
+                    let mesh_cache_bytes = mesh_tris * std::mem::size_of::<crate::world::Triangle>();
+                    let textures_and_fonts_bytes = 256 * 256 * 4 + 256 * 1024;
+                    let framebuffers_bytes = (self.width * self.height * 4) * 2;
+                    let entities_bytes = self.mob_manager.mobs.len() * 256 + self.items.len() * 128 + self.particles.particles.len() * 64;
+                    let ui_and_misc_bytes = 256 * 1024;
+                    let total_ram_bytes = chunk_voxels_bytes + mesh_cache_bytes + textures_and_fonts_bytes + framebuffers_bytes + entities_bytes + ui_and_misc_bytes;
+
+                    cur_profiler.memory = MemoryBreakdown {
+                        total_ram_bytes,
+                        chunk_voxels_bytes,
+                        mesh_cache_bytes,
+                        textures_and_fonts_bytes,
+                        framebuffers_bytes,
+                        entities_bytes,
+                        ui_and_misc_bytes,
+                        cdram_bytes: 0,
+                    };
+
+                    self.profiler.smooth_update(&cur_profiler, 0.15);
+                }
 
                 if self.settings.debug_overlay {
                     self.debug_timer += dt;
-                    if self.debug_timer >= 0.25 {
+                    if self.debug_timer >= 0.15 {
                         self.debug_timer = 0.0;
                         self.cpu_time_ms = dt * 1000.0;
                         self.fps_display = (1.0 / dt.max(0.001)).round() as u32;
@@ -1912,47 +2149,28 @@ impl RustCraftApp {
                             "WALK"
                         };
 
-                        // Line 0: FPS & CPU Time
-                        self.debug_lines[0].clear();
-                        let _ = write!(&mut self.debug_lines[0], "FPS: {} ({:.1}MS) | CPU: {:.1}MS", self.fps_display, dt * 1000.0, self.cpu_time_ms);
-
-                        // Line 1: GPU Triangles & Chunks
-                        self.debug_lines[1].clear();
-                        #[cfg(target_os = "vita")]
-                        let _ = write!(&mut self.debug_lines[1], "GPU: {:.1}K TRI | CHUNKS: {}/{}", self.gpu_triangles as f32 / 1000.0, self.chunk_slots_info.0, self.chunk_slots_info.1);
-                        #[cfg(not(target_os = "vita"))]
-                        let _ = write!(&mut self.debug_lines[1], "CHUNKS: {}", self.world.chunks.len());
-
-                        // Line 2: RAM / VRAM Allocations
-                        self.debug_lines[2].clear();
-                        #[cfg(target_os = "vita")]
-                        let _ = write!(&mut self.debug_lines[2], "RAM: {:.1}MB | CDRAM: {:.1}MB", self.ram_mb, self.cdram_mb);
-                        #[cfg(not(target_os = "vita"))]
-                        let _ = write!(&mut self.debug_lines[2], "RAM (EST): ~{:.1}MB", (self.world.chunks.len() * 32 * 32 * 128) as f32 / (1024.0 * 1024.0));
-
-                        // Line 3: Position
-                        self.debug_lines[3].clear();
-                        let _ = write!(&mut self.debug_lines[3], "POS: X:{:.1} Y:{:.1} Z:{:.1}", self.camera.position.x, self.camera.position.y, self.camera.position.z);
-
-                        // Line 4: Selected or Targeted Block
-                        self.debug_lines[4].clear();
-                        let sel_name = BlockId::from_u8(self.renderer.selected_block()).name().to_uppercase();
-                        if let Some(target) = self.break_target {
-                            let target_block = self.world.get_block(target);
-                            let _ = write!(&mut self.debug_lines[4], "TARGET: {} X:{} Y:{} Z:{}", target_block.name().to_uppercase(), target.x, target.y, target.z);
+                        let yaw_deg = (self.camera.yaw.to_degrees() % 360.0 + 360.0) % 360.0;
+                        let pitch_deg = self.camera.pitch.to_degrees();
+                        let (facing_str, axis_str) = if yaw_deg >= 45.0 && yaw_deg < 135.0 {
+                            ("East", "+X")
+                        } else if yaw_deg >= 135.0 && yaw_deg < 225.0 {
+                            ("South", "+Z")
+                        } else if yaw_deg >= 225.0 && yaw_deg < 315.0 {
+                            ("West", "-X")
                         } else {
-                            let _ = write!(&mut self.debug_lines[4], "BLOCK: {}", sel_name);
-                        }
+                            ("North", "-Z")
+                        };
 
-                        // Line 5: Entities & Gamemode
-                        self.debug_lines[5].clear();
-                        let _ = write!(&mut self.debug_lines[5], "MOBS: {} | ENTITIES: {} | MODE: {}", self.mob_manager.mobs.len(), self.particles.particles.len(), mode_str);
+                        let px = self.camera.position.x;
+                        let py = self.camera.position.y;
+                        let pz = self.camera.position.z;
+                        let bpos = self.camera.position.floor_to_ivec();
+                        let cx = bpos.x.div_euclid(16);
+                        let cz = bpos.z.div_euclid(16);
+                        let in_cx = bpos.x.rem_euclid(16);
+                        let in_cz = bpos.z.rem_euclid(16);
 
-                        // Line 6: Biome
-                        self.debug_lines[6].clear();
-                        let px = self.camera.position.x as i32;
-                        let pz = self.camera.position.z as i32;
-                        let biome = self.world.biome_name_at(px, pz);
+                        let biome = self.world.biome_name_at(bpos.x, bpos.z);
                         let biome_key = match biome {
                             "MOUNTAINS" => "biome.mountains",
                             "SNOW" => "biome.snow",
@@ -1963,37 +2181,106 @@ impl RustCraftApp {
                             "FOREST" => "biome.forest",
                             _ => "biome.plains",
                         };
-                        let _ = write!(&mut self.debug_lines[6], "BIOME: {}", crate::core::i18n::t(biome_key));
 
-                        // Line 7: Time of Day & Light Level
-                        self.debug_lines[7].clear();
                         let time_hrs = (self.world.day_fraction() * 24.0 + 6.0) % 24.0;
                         let hours = time_hrs.floor() as u32;
                         let minutes = (time_hrs.fract() * 60.0) as u32;
-                        let time_key = if time_hrs >= 5.0 && time_hrs < 7.0 {
-                            "time.dawn"
-                        } else if time_hrs >= 7.0 && time_hrs < 12.0 {
-                            "time.morning"
-                        } else if time_hrs >= 12.0 && time_hrs < 14.0 {
-                            "time.noon"
-                        } else if time_hrs >= 14.0 && time_hrs < 18.0 {
-                            "time.afternoon"
-                        } else if time_hrs >= 18.0 && time_hrs < 21.0 {
-                            "time.dusk"
+
+                        // Left Lines
+                        let (ren_name, _, _) = self.renderer.renderer_info();
+                        self.debug_lines[0].clear();
+                        let _ = write!(&mut self.debug_lines[0], "RustCraft 0.1.0 (release)");
+
+                        self.debug_lines[1].clear();
+                        let _ = write!(&mut self.debug_lines[1], "FPS: {} ({:.1}ms) | Renderer: {} ({} thr)", self.fps_display, dt * 1000.0, ren_name, self.profiler.render_stats.raster_threads);
+
+                        self.debug_lines[2].clear();
+                        let _ = write!(&mut self.debug_lines[2], "Chunks: {} loaded | Subchunks: {} ren, {} cul", self.world.chunks.len(), self.profiler.render_stats.subchunks_rendered, self.profiler.render_stats.subchunks_culled_frustum);
+
+                        self.debug_lines[3].clear();
+                        let _ = write!(&mut self.debug_lines[3], "XYZ: {:.3} / {:.3} / {:.3}", px, py, pz);
+
+                        self.debug_lines[4].clear();
+                        let _ = write!(&mut self.debug_lines[4], "Block: {} {} {} [{} {} in chunk {}, {}]", bpos.x, bpos.y, bpos.z, in_cx, in_cz, cx, cz);
+
+                        self.debug_lines[5].clear();
+                        let _ = write!(&mut self.debug_lines[5], "Facing: {} ({}) (Yaw: {:.1} / Pitch: {:.1})", facing_str, axis_str, yaw_deg, pitch_deg);
+
+                        self.debug_lines[6].clear();
+                        let _ = write!(&mut self.debug_lines[6], "Biome: {} | Light: {:.0}% ({:02}:{:02})", crate::core::i18n::t(biome_key), self.world.sunlight_factor() * 100.0, hours, minutes);
+
+                        self.debug_lines[7].clear();
+                        if let Some(target) = self.break_target {
+                            let target_block = self.world.get_block(target);
+                            let _ = write!(&mut self.debug_lines[7], "Target: {} [{}, {}, {}]", target_block.name().to_uppercase(), target.x, target.y, target.z);
                         } else {
-                            "time.night"
-                        };
-                        let _ = write!(
-                            &mut self.debug_lines[7],
-                            "TIME: {} ({:02}:{:02}) | LIGHT: {:.0}%",
-                            crate::core::i18n::t(time_key),
-                            hours,
-                            minutes,
-                            self.world.sunlight_factor() * 100.0
-                        );
+                            let sel_name = BlockId::from_u8(self.renderer.selected_block()).name().to_uppercase();
+                            let _ = write!(&mut self.debug_lines[7], "Holding: {}", sel_name);
+                        }
+
+                        self.debug_lines[8].clear();
+                        let _ = write!(&mut self.debug_lines[8], "Entities: {} mobs, {} drops, {} fx | Mode: {}", self.mob_manager.mobs.len(), self.items.len(), self.particles.particles.len(), mode_str);
+
+                        // Right Lines (Memory breakdown & Render telemetry)
+                        if self.profiler_enabled {
+                            while self.debug_right_lines.len() < 14 {
+                                self.debug_right_lines.push(String::with_capacity(96));
+                            }
+                            let mem = &self.profiler.memory;
+                            let stats = &self.profiler.render_stats;
+                            let mesh_tris = self.renderer.mesh_cache_triangles_count();
+                            self.debug_right_lines[0].clear();
+                            #[cfg(target_os = "vita")]
+                            let _ = write!(&mut self.debug_right_lines[0], "Platform: Sony PlayStation Vita (ARM Cortex-A9)");
+                            #[cfg(not(target_os = "vita"))]
+                            let _ = write!(&mut self.debug_right_lines[0], "Engine: Rust 1.85 (x86_64)");
+
+                            self.debug_right_lines[1].clear();
+                            let _ = write!(&mut self.debug_right_lines[1], "Renderer: {}", stats.renderer_name);
+
+                            self.debug_right_lines[2].clear();
+                            let _ = write!(&mut self.debug_right_lines[2], "GPU: {}", stats.gpu_device);
+
+                            self.debug_right_lines[3].clear();
+                            let _ = write!(&mut self.debug_right_lines[3], "Driver: {}", stats.driver_info);
+
+                            self.debug_right_lines[4].clear();
+                            let _ = write!(&mut self.debug_right_lines[4], "RAM (EST): ~{:.2} MB", MemoryBreakdown::to_mb(mem.total_ram_bytes));
+
+                            self.debug_right_lines[5].clear();
+                            let _ = write!(&mut self.debug_right_lines[5], " - Chunk Voxels: {:.2} MB ({} ch)", MemoryBreakdown::to_mb(mem.chunk_voxels_bytes), self.world.chunks.len());
+
+                            self.debug_right_lines[6].clear();
+                            let _ = write!(&mut self.debug_right_lines[6], " - Mesh Cache:   {:.2} MB ({} tris)", MemoryBreakdown::to_mb(mem.mesh_cache_bytes), mesh_tris);
+
+                            self.debug_right_lines[7].clear();
+                            let _ = write!(&mut self.debug_right_lines[7], " - Framebuffers: {:.2} MB (Color+Depth)", MemoryBreakdown::to_mb(mem.framebuffers_bytes));
+
+                            self.debug_right_lines[8].clear();
+                            let _ = write!(&mut self.debug_right_lines[8], " - Textures/Font:{:.2} MB (256x256 RGBA)", MemoryBreakdown::to_mb(mem.textures_and_fonts_bytes));
+
+                            self.debug_right_lines[9].clear();
+                            let _ = write!(&mut self.debug_right_lines[9], " - Entities/Misc:{:.1} KB", MemoryBreakdown::to_kb(mem.entities_bytes + mem.ui_and_misc_bytes));
+
+                            self.debug_right_lines[10].clear();
+                            let _ = write!(&mut self.debug_right_lines[10], "Display: {}x{} ({})", self.width, self.height, stats.pipeline_name);
+
+                            self.debug_right_lines[11].clear();
+                            let _ = write!(&mut self.debug_right_lines[11], "Draw Calls: {}", stats.draw_calls);
+
+                            self.debug_right_lines[12].clear();
+                            let _ = write!(&mut self.debug_right_lines[12], "Triangles: {} ren / {} cul", stats.triangles_rendered, stats.triangles_culled);
+
+                            self.debug_right_lines[13].clear();
+                            let _ = write!(&mut self.debug_right_lines[13], "Subchunks: {} ren / {} cul", stats.subchunks_rendered, stats.subchunks_culled_frustum);
+                        }
                     }
 
-                    self.renderer.draw_debug_panel(&self.debug_lines);
+                    if self.profiler_enabled {
+                        self.renderer.draw_advanced_debug_overlay(&self.debug_lines, &self.debug_right_lines, &self.profiler);
+                    } else {
+                        self.renderer.draw_debug_panel(&self.debug_lines);
+                    }
                 }
 
                 if !input.is_mouse_captured {
@@ -2431,6 +2718,30 @@ impl RustCraftApp {
 
         out
     }
+
+    /// Resizes internal framebuffers, camera aspect projection, and UI interactive hitboxes.
+    pub fn resize(&mut self, width: usize, height: usize) {
+        if width == 0 || height == 0 || (self.width == width && self.height == height) {
+            return;
+        }
+        self.width = width;
+        self.height = height;
+        self.renderer.resize(width, height);
+
+        self.main_menu_rects = self.renderer.main_menu_button_rects();
+        self.save_card_rects = self.renderer.save_card_rects();
+        self.save_btn_rects = self.renderer.save_bottom_button_rects();
+        self.create_world_rects = self.renderer.create_world_rects();
+        self.settings_tab_rects = self.renderer.settings_tab_rects();
+        self.settings_rects = self.renderer.settings_graphics_rects();
+        self.settings_controls_rects = self.renderer.settings_controls_rects();
+        self.pause_menu_rects = self.renderer.pause_menu_button_rects();
+        self.death_screen_rects = self.renderer.death_screen_button_rects();
+
+        let aspect = width as f32 / height as f32;
+        self.last_aspect = aspect;
+        self.proj_matrix = self.camera.projection_matrix(aspect);
+    }
 }
 
 impl crate::engine::EngineApp for RustCraftApp {
@@ -2443,9 +2754,7 @@ impl crate::engine::EngineApp for RustCraftApp {
     }
 
     fn resize(&mut self, width: usize, height: usize) {
-        self.width = width;
-        self.height = height;
-        self.renderer.resize(width, height);
+        self.resize(width, height);
     }
 
     fn pixel_buffer(&self) -> &[u32] {

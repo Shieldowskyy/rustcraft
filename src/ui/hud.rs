@@ -1,7 +1,8 @@
 use crate::gameplay::player::{GameMode, Player};
 use crate::graphics::font;
 use crate::ui::draw::{
-    draw_text_colored_shadowed, draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color, set_px,
+    draw_text_colored_shadowed, draw_text_light_colored_shadowed, draw_text_light_shadowed,
+    draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color, set_px,
 };
 
 pub fn draw_crosshair(buffer: &mut [u32], width: usize, height: usize) {
@@ -320,25 +321,165 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
     }
 }
 
+/// Draws a rasterized circular debug pie chart with colored slices.
+pub fn draw_pie_chart(
+    buffer: &mut [u32],
+    width: usize,
+    height: usize,
+    cx: i32,
+    cy: i32,
+    radius: i32,
+    slices: &[crate::core::profiler::ProfilerSlice],
+) {
+    if slices.is_empty() || radius <= 0 {
+        return;
+    }
+
+    let r_sq = radius * radius;
+    let r_inner_sq = (radius - 1) * (radius - 1);
+    let border_color = pack_color(0.9, 0.9, 0.95);
+
+    let mut angles = Vec::with_capacity(slices.len() + 1);
+    let mut current_angle = -std::f32::consts::FRAC_PI_2;
+    angles.push(current_angle);
+
+    for s in slices {
+        current_angle += (s.percentage / 100.0) * std::f32::consts::TAU;
+        angles.push(current_angle);
+    }
+
+    let min_x = (cx - radius).max(0);
+    let max_x = (cx + radius).min(width as i32 - 1);
+    let min_y = (cy - radius).max(0);
+    let max_y = (cy + radius).min(height as i32 - 1);
+
+    for y in min_y..=max_y {
+        let dy = (y - cy) as f32;
+        let dy_sq = (y - cy) * (y - cy);
+        for x in min_x..=max_x {
+            let dx = (x - cx) as f32;
+            let dist_sq = (x - cx) * (x - cx) + dy_sq;
+            if dist_sq <= r_sq {
+                if dist_sq >= r_inner_sq {
+                    set_px(buffer, width, height, x, y, border_color);
+                } else {
+                    let mut angle = dy.atan2(dx);
+                    if angle < -std::f32::consts::FRAC_PI_2 {
+                        angle += std::f32::consts::TAU;
+                    }
+
+                    let mut color = slices[0].color;
+                    for (i, s) in slices.iter().enumerate() {
+                        let a_start = angles[i];
+                        let a_end = angles[i + 1];
+                        if angle >= a_start && (angle <= a_end || i == slices.len() - 1) {
+                            color = s.color;
+                            break;
+                        }
+                    }
+                    set_px(buffer, width, height, x, y, color);
+                }
+            }
+        }
+    }
+}
+
+/// Draws the comprehensive F3 debug overlay including left stats, right memory/renderer telemetry, and bottom-right pie chart.
+pub fn draw_advanced_debug_overlay(
+    buffer: &mut [u32],
+    width: usize,
+    height: usize,
+    left_lines: &[String],
+    right_lines: &[String],
+    profiler: &crate::core::profiler::FrameProfiler,
+) {
+    let scale = 1;
+    let line_h = (font::GLYPH_H as i32) * scale + 3;
+    let padding = 5;
+
+    // 1. Left System & Coordinates Panel
+    if !left_lines.is_empty() {
+        let max_w = left_lines
+            .iter()
+            .map(|l| font::measure_text_light(l, scale, 1))
+            .max()
+            .unwrap_or(0);
+        let panel_w = max_w + padding * 2;
+        let panel_h = left_lines.len() as i32 * line_h + padding * 2 - 2;
+
+        fill_rect_alpha(buffer, width, height, 4, 4, panel_w, panel_h, pack_color(0.0, 0.0, 0.0), 0.60);
+
+        for (i, line) in left_lines.iter().enumerate() {
+            let ty = 4 + padding + i as i32 * line_h;
+            draw_text_light_shadowed(buffer, width, height, line, 4 + padding, ty, scale, 1);
+        }
+    }
+
+    // 2. Right Memory Allocation & Detailed Renderer Pipeline Panel
+    if !right_lines.is_empty() {
+        let max_w = right_lines
+            .iter()
+            .map(|l| font::measure_text_light(l, scale, 1))
+            .max()
+            .unwrap_or(0);
+        let panel_w = max_w + padding * 2;
+        let panel_h = right_lines.len() as i32 * line_h + padding * 2 - 2;
+        let rx = width as i32 - panel_w - 4;
+
+        fill_rect_alpha(buffer, width, height, rx, 4, panel_w, panel_h, pack_color(0.0, 0.0, 0.0), 0.60);
+
+        for (i, line) in right_lines.iter().enumerate() {
+            let ty = 4 + padding + i as i32 * line_h;
+            draw_text_light_shadowed(buffer, width, height, line, rx + padding, ty, scale, 1);
+        }
+    }
+
+    // 3. Bottom-Right Minecraft-style Debug Pie Chart & Profiler Legend
+    let slices = profiler.pie_slices();
+    let pie_r = 34;
+    let pie_cx = width as i32 - pie_r - 10;
+    let pie_cy = height as i32 - pie_r - 12;
+
+    let pie_panel_w = 310;
+    let pie_panel_h = (slices.len() as i32 * 12) + 26;
+    let pie_panel_x = width as i32 - pie_panel_w - 4;
+    let pie_panel_y = height as i32 - pie_panel_h - 4;
+
+    fill_rect_alpha(buffer, width, height, pie_panel_x, pie_panel_y, pie_panel_w, pie_panel_h, pack_color(0.0, 0.0, 0.0), 0.70);
+
+    let prof_title = "DEBUG PROFILER (root.gameRenderer.level)";
+    draw_text_light_colored_shadowed(buffer, width, height, prof_title, pie_panel_x + 6, pie_panel_y + 4, 1, 1, pack_color(0.95, 0.85, 0.35));
+
+    draw_pie_chart(buffer, width, height, pie_cx, pie_cy, pie_r, &slices);
+
+    let mut leg_y = pie_panel_y + 18;
+    for s in &slices {
+        fill_rect(buffer, width, height, pie_panel_x + 6, leg_y + 2, 6, 6, s.color);
+        let leg_txt = format!("{:<11} {:>4.1}% {:>4.2}ms", s.name, s.percentage, s.time_ms);
+        draw_text_light_shadowed(buffer, width, height, &leg_txt, pie_panel_x + 16, leg_y, 1, 1);
+        leg_y += 12;
+    }
+}
+
 pub fn draw_debug_panel(buffer: &mut [u32], width: usize, height: usize, lines: &[String]) {
-    let scale = 2;
-    let line_h = (font::GLYPH_H as i32) * scale + 4;
+    let scale = 1;
+    let line_h = (font::GLYPH_H as i32) * scale + 3;
     let padding = 6;
 
     let max_w = lines
         .iter()
-        .map(|l| font::measure_text(l, scale, 1))
+        .map(|l| font::measure_text_light(l, scale, 1))
         .max()
         .unwrap_or(0);
 
     let panel_w = max_w + padding * 2;
     let panel_h = lines.len() as i32 * line_h + padding * 2 - 4;
 
-    fill_rect_alpha(buffer, width, height, 6, 6, panel_w, panel_h, pack_color(0.0, 0.0, 0.0), 0.4);
+    fill_rect_alpha(buffer, width, height, 6, 6, panel_w, panel_h, pack_color(0.0, 0.0, 0.0), 0.5);
 
     for (i, line) in lines.iter().enumerate() {
         let ty = 6 + padding + i as i32 * line_h;
-        draw_text_shadowed(buffer, width, height, line, 6 + padding, ty, scale, 1);
+        draw_text_light_shadowed(buffer, width, height, line, 6 + padding, ty, scale, 1);
     }
 }
 
