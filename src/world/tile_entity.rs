@@ -12,7 +12,8 @@ pub fn fuel_burn_time(block: BlockId) -> Option<f32> {
         BlockId::Planks => Some(15.0),
         BlockId::CraftingTable => Some(15.0),
         BlockId::Chest => Some(15.0),
-        BlockId::WoodenPickaxe
+        BlockId::Door
+        | BlockId::WoodenPickaxe
         | BlockId::WoodenAxe
         | BlockId::WoodenShovel
         | BlockId::WoodenSword => Some(10.0),
@@ -280,5 +281,19 @@ mod tests {
 
         let rem = chest.add_item(BlockId::Torch, 10);
         assert_eq!(rem, 0); // Stacked or placed into free slot
+    }
+
+    #[test]
+    fn test_fuel_burn_times() {
+        assert_eq!(fuel_burn_time(BlockId::CoalOre), Some(80.0));
+        assert_eq!(fuel_burn_time(BlockId::Wood), Some(15.0));
+        assert_eq!(fuel_burn_time(BlockId::Planks), Some(15.0));
+        assert_eq!(fuel_burn_time(BlockId::Chest), Some(15.0));
+        assert_eq!(fuel_burn_time(BlockId::Door), Some(10.0));
+        assert_eq!(fuel_burn_time(BlockId::WoodenPickaxe), Some(10.0));
+        assert_eq!(fuel_burn_time(BlockId::Stick), Some(5.0));
+        assert_eq!(fuel_burn_time(BlockId::Leaves), Some(2.0));
+        assert_eq!(fuel_burn_time(BlockId::Stone), None);
+        assert_eq!(fuel_burn_time(BlockId::Dirt), None);
     }
 }
