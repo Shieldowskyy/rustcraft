@@ -25,7 +25,7 @@ jobs:
           usesh: true
           pkgng: true
           prepare: |
-            pkg install -y rust libX11 libXcursor libXrandr libXi libXinerama libXext libXfixes alsa-lib pkgconf
+            pkg install -y rust libX11 libXcursor libXrandr libXi libXinerama libXext libXfixes alsa-lib pkgconf libudev-devd
           run: |
             cargo build --release
             strip --strip-all target/release/rustcraft || true

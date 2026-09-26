@@ -56,7 +56,7 @@ RustCraft separates core engine capabilities from gameplay logic, providing huma
 
 ### Desktop & Embedded Linux (x86_64, ARM64, ARMv7, ARMv6, FreeBSD)
 * **Rust**: stable toolchain 1.75+ (`rustup` recommended: https://rustup.rs).
-* **Linux / FreeBSD**: X11 development headers (`libx11-dev` on Debian/Ubuntu, `xorgproto` on FreeBSD).
+* **Linux / FreeBSD**: X11 development headers (`libx11-dev` on Debian/Ubuntu, `xorgproto` & `libudev-devd` on FreeBSD).
 * **Windows / macOS**: No external C libraries required (`minifb` uses native OS windowing APIs).
 * **Vulkan (Optional)**: Vulkan loader and GPU with graphic queue support.
 
