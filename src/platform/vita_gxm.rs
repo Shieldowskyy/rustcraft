@@ -996,6 +996,12 @@ pub struct GxmRenderer {
     pub chunk_spawn_times: HashMap<(i32, i32), f32>,
     free_slots: Vec<usize>,
     slot_index_counts: [u32; GxmRenderer::MAX_CHUNK_SLOTS],
+
+    pub last_draw_calls: u32,
+    pub last_triangles_rendered: u32,
+    pub last_triangles_culled: u32,
+    pub last_subchunks_rendered: u32,
+    pub last_subchunks_culled: u32,
 }
 
 unsafe impl Send for GxmRenderer {}
@@ -1462,6 +1468,11 @@ impl GxmRenderer {
             chunk_spawn_times: HashMap::new(),
             free_slots,
             slot_index_counts: [0; Self::MAX_CHUNK_SLOTS],
+            last_draw_calls: 0,
+            last_triangles_rendered: 0,
+            last_triangles_culled: 0,
+            last_subchunks_rendered: 0,
+            last_subchunks_culled: 0,
         }
     }
 
@@ -1617,6 +1628,10 @@ impl GxmRenderer {
 
             // 2. Render GPU chunks with mesh upload rate limit per frame (eliminates micro-stutter)
             let mut tri_count: u32 = 0;
+            let mut tri_culled: u32 = 0;
+            let mut draw_calls: u32 = 1; // 1 for clear triangle
+            let mut subchunks_rendered: u32 = 0;
+            let mut subchunks_culled: u32 = 0;
             let mut uploads_this_frame = 0;
             const MAX_UPLOADS_PER_FRAME: usize = 2;
             let mut last_had_offset = false;
@@ -1640,6 +1655,7 @@ impl GxmRenderer {
 
                 // If player is directly facing a solid wall (100% occlusion), render only the local chunk
                 if is_occluded && (dx != 0 || dz != 0) {
+                    subchunks_culled += 4;
                     continue;
                 }
 
@@ -1682,79 +1698,86 @@ impl GxmRenderer {
 
                     if let Some(s) = slot_idx {
                         let idx_count = self.slot_index_counts[s];
-                        if idx_count > 0 && Self::is_chunk_in_frustum(cx, cz, &mvp) {
-                            let spawn_time = self.chunk_spawn_times.get(&key).copied().unwrap_or(0.0);
-                            let elapsed = total_time - spawn_time;
-                            let y_offset = if chunk_anim && elapsed >= 0.0 && elapsed < 0.35 {
-                                let t = (elapsed / 0.35).clamp(0.0, 1.0);
-                                let ease = 1.0 - (1.0 - t).powi(3);
-                                (1.0 - ease) * -14.0
+                        if idx_count > 0 {
+                            if Self::is_chunk_in_frustum(cx, cz, &mvp) {
+                                let spawn_time = self.chunk_spawn_times.get(&key).copied().unwrap_or(0.0);
+                                let elapsed = total_time - spawn_time;
+                                let y_offset = if chunk_anim && elapsed >= 0.0 && elapsed < 0.35 {
+                                    let t = (elapsed / 0.35).clamp(0.0, 1.0);
+                                    let ease = 1.0 - (1.0 - t).powi(3);
+                                    (1.0 - ease) * -14.0
+                                } else {
+                                    0.0
+                                };
+
+                                if y_offset != 0.0 {
+                                    let chunk_mvp = mvp.mul(&crate::core::math::Mat4::translation(0.0, y_offset, 0.0));
+                                    let mut chunk_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
+                                    sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut chunk_uniform_buf);
+                                    if !self.param_mvp.is_null() && !chunk_uniform_buf.is_null() {
+                                        sceGxmSetUniformDataF(
+                                            chunk_uniform_buf,
+                                            self.param_mvp,
+                                            0,
+                                            16,
+                                            chunk_mvp.m.as_ptr(),
+                                        );
+                                    }
+                                    if !self.param_fog.is_null() && !chunk_uniform_buf.is_null() {
+                                        let max_fog = if fog_enabled { (render_distance as f32 * 16.0).max(32.0) } else { -1.0 };
+                                        let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
+                                        sceGxmSetUniformDataF(
+                                            chunk_uniform_buf,
+                                            self.param_fog,
+                                            0,
+                                            4,
+                                            fog_data.as_ptr(),
+                                        );
+                                    }
+                                    last_had_offset = true;
+                                } else if last_had_offset {
+                                    let mut chunk_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
+                                    sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut chunk_uniform_buf);
+                                    if !self.param_mvp.is_null() && !chunk_uniform_buf.is_null() {
+                                        sceGxmSetUniformDataF(
+                                            chunk_uniform_buf,
+                                            self.param_mvp,
+                                            0,
+                                            16,
+                                            mvp.m.as_ptr(),
+                                        );
+                                    }
+                                    if !self.param_fog.is_null() && !chunk_uniform_buf.is_null() {
+                                        let max_fog = if fog_enabled { (render_distance as f32 * 16.0).max(32.0) } else { -1.0 };
+                                        let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
+                                        sceGxmSetUniformDataF(
+                                            chunk_uniform_buf,
+                                            self.param_fog,
+                                            0,
+                                            4,
+                                            fog_data.as_ptr(),
+                                        );
+                                    }
+                                    last_had_offset = false;
+                                }
+
+                                let chunk_vb = vb_base.add(s * Self::MAX_VERTS_PER_SLOT);
+                                let chunk_ib = ib_base.add(s * Self::MAX_INDICES_PER_SLOT);
+                                sceGxmSetVertexStream(self.context, 0, chunk_vb as *const core::ffi::c_void);
+                                sceGxmDraw(
+                                    self.context,
+                                    SCE_GXM_PRIMITIVE_TRIANGLES,
+                                    SCE_GXM_INDEX_FORMAT_U16,
+                                    chunk_ib as *const core::ffi::c_void,
+                                    idx_count,
+                                );
+                                tri_count += idx_count / 3;
+                                draw_calls += 1;
+                                subchunks_rendered += 4;
                             } else {
-                                0.0
-                            };
-
-                            if y_offset != 0.0 {
-                                let chunk_mvp = mvp.mul(&crate::core::math::Mat4::translation(0.0, y_offset, 0.0));
-                                let mut chunk_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
-                                sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut chunk_uniform_buf);
-                                if !self.param_mvp.is_null() && !chunk_uniform_buf.is_null() {
-                                    sceGxmSetUniformDataF(
-                                        chunk_uniform_buf,
-                                        self.param_mvp,
-                                        0,
-                                        16,
-                                        chunk_mvp.m.as_ptr(),
-                                    );
-                                }
-                                if !self.param_fog.is_null() && !chunk_uniform_buf.is_null() {
-                                    let max_fog = if fog_enabled { (render_distance as f32 * 16.0).max(32.0) } else { -1.0 };
-                                    let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
-                                    sceGxmSetUniformDataF(
-                                        chunk_uniform_buf,
-                                        self.param_fog,
-                                        0,
-                                        4,
-                                        fog_data.as_ptr(),
-                                    );
-                                }
-                                last_had_offset = true;
-                            } else if last_had_offset {
-                                let mut chunk_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
-                                sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut chunk_uniform_buf);
-                                if !self.param_mvp.is_null() && !chunk_uniform_buf.is_null() {
-                                    sceGxmSetUniformDataF(
-                                        chunk_uniform_buf,
-                                        self.param_mvp,
-                                        0,
-                                        16,
-                                        mvp.m.as_ptr(),
-                                    );
-                                }
-                                if !self.param_fog.is_null() && !chunk_uniform_buf.is_null() {
-                                    let max_fog = if fog_enabled { (render_distance as f32 * 16.0).max(32.0) } else { -1.0 };
-                                    let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
-                                    sceGxmSetUniformDataF(
-                                        chunk_uniform_buf,
-                                        self.param_fog,
-                                        0,
-                                        4,
-                                        fog_data.as_ptr(),
-                                    );
-                                }
-                                last_had_offset = false;
+                                subchunks_culled += 4;
+                                tri_culled += idx_count / 3;
                             }
-
-                            let chunk_vb = vb_base.add(s * Self::MAX_VERTS_PER_SLOT);
-                            let chunk_ib = ib_base.add(s * Self::MAX_INDICES_PER_SLOT);
-                            sceGxmSetVertexStream(self.context, 0, chunk_vb as *const core::ffi::c_void);
-                            sceGxmDraw(
-                                self.context,
-                                SCE_GXM_PRIMITIVE_TRIANGLES,
-                                SCE_GXM_INDEX_FORMAT_U16,
-                                chunk_ib as *const core::ffi::c_void,
-                                idx_count,
-                            );
-                            tri_count += idx_count / 3;
                         }
                     }
                 }
@@ -1831,6 +1854,8 @@ impl GxmRenderer {
                         self.crack_ib_mem.ptr,
                         36,
                     );
+                    draw_calls += 1;
+                    tri_count += 12;
                 }
             }
 
@@ -1960,7 +1985,14 @@ impl GxmRenderer {
                     ent_i_count as u32,
                 );
                 tri_count += ent_i_count as u32 / 3;
+                draw_calls += 1;
             }
+
+            self.last_draw_calls = draw_calls;
+            self.last_triangles_rendered = tri_count;
+            self.last_triangles_culled = tri_culled;
+            self.last_subchunks_rendered = subchunks_rendered;
+            self.last_subchunks_culled = subchunks_culled;
 
             sceGxmEndScene(self.context, core::ptr::null(), core::ptr::null());
 
@@ -3093,6 +3125,17 @@ impl GxmRenderer {
         let cdram = 3 * (VITA_WIDTH * VITA_HEIGHT * 4) as usize + (VITA_WIDTH * VITA_HEIGHT * 4) as usize; // Framebuffers + Depth
         let ram = Self::VB_SIZE + Self::IB_SIZE + 256 * 256 * 4 + Self::MAX_ENTITY_VERTS * core::mem::size_of::<GxmVertex>() + Self::MAX_ENTITY_INDICES * 2;
         (used_slots, Self::MAX_CHUNK_SLOTS, cdram, ram)
+    }
+
+    /// Returns last frame telemetry: `(draw_calls, tris_rendered, tris_culled, subchunks_rendered, subchunks_culled)`.
+    pub fn last_render_telemetry(&self) -> (u32, u32, u32, u32, u32) {
+        (
+            self.last_draw_calls,
+            self.last_triangles_rendered,
+            self.last_triangles_culled,
+            self.last_subchunks_rendered,
+            self.last_subchunks_culled,
+        )
     }
 }
 

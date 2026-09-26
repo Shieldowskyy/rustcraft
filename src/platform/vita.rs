@@ -618,6 +618,13 @@ pub fn run_vita_app() {
             app.chunk_slots_info = (slots_used, max_slots);
             app.cdram_mb = cdram as f32 / (1024.0 * 1024.0);
             app.ram_mb = ram as f32 / (1024.0 * 1024.0);
+
+            let (draw_calls, tris_rendered, tris_culled, subchunks_rendered, subchunks_culled) = gxm.last_render_telemetry();
+            app.renderer.last_draw_calls = draw_calls;
+            app.renderer.last_triangles_rendered = tris_rendered;
+            app.renderer.last_triangles_culled = tris_culled;
+            app.renderer.last_subchunks_rendered = subchunks_rendered;
+            app.renderer.last_subchunks_culled = subchunks_culled;
         } else {
             gxm.present_2d_buffer(app.renderer.pixel_buffer(), app.width, app.height);
         }

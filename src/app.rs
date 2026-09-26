@@ -2286,14 +2286,26 @@ impl RustCraftApp {
                     };
 
                     let chunk_count = self.world.chunks.len();
+                    #[cfg(target_os = "vita")]
+                    let chunk_voxels_bytes = chunk_count * 16 * 16 * 64;
+                    #[cfg(not(target_os = "vita"))]
                     let chunk_voxels_bytes = chunk_count * 16 * 16 * 128;
-                    let mesh_tris = self.renderer.mesh_cache_triangles_count();
-                    let mesh_cache_bytes = mesh_tris * std::mem::size_of::<crate::world::Triangle>();
+
+                    #[cfg(target_os = "vita")]
+                    let mesh_cache_bytes = self.chunk_slots_info.0 * 64 * 1024;
+                    #[cfg(not(target_os = "vita"))]
+                    let mesh_cache_bytes = self.renderer.mesh_cache_triangles_count() * std::mem::size_of::<crate::world::Triangle>();
+
                     let textures_and_fonts_bytes = 256 * 256 * 4 + 256 * 1024;
                     let framebuffers_bytes = (self.width * self.height * 4) * 2;
                     let entities_bytes = self.mob_manager.mobs.len() * 256 + self.items.len() * 128 + self.particles.particles.len() * 64;
                     let ui_and_misc_bytes = 256 * 1024;
                     let total_ram_bytes = chunk_voxels_bytes + mesh_cache_bytes + textures_and_fonts_bytes + framebuffers_bytes + entities_bytes + ui_and_misc_bytes;
+
+                    #[cfg(target_os = "vita")]
+                    let cdram_bytes = (self.cdram_mb * 1024.0 * 1024.0) as usize;
+                    #[cfg(not(target_os = "vita"))]
+                    let cdram_bytes = 0;
 
                     cur_profiler.memory = MemoryBreakdown {
                         total_ram_bytes,
@@ -2303,7 +2315,7 @@ impl RustCraftApp {
                         framebuffers_bytes,
                         entities_bytes,
                         ui_and_misc_bytes,
-                        cdram_bytes: 0,
+                        cdram_bytes,
                     };
 
                     self.profiler.smooth_update(&cur_profiler, 0.15);

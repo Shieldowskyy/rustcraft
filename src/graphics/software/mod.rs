@@ -161,8 +161,11 @@ impl Renderer {
     }
 
     pub fn backend_name(&self) -> &'static str {
+        #[cfg(target_os = "vita")]
+        return "vita_gxm";
         #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
         if self.vulkan.is_some() { return "vulkan"; }
+        #[cfg(not(target_os = "vita"))]
         "software"
     }
 
@@ -175,9 +178,9 @@ impl Renderer {
 
         #[cfg(target_os = "vita")]
         return (
-            "Software Rasterizer".to_string(),
-            "Sony PlayStation Vita (ARM Cortex-A9)".to_string(),
-            "Vita G40 / CDRAM".to_string(),
+            "Hardware GXM (Shader Patcher)".to_string(),
+            "Sony PlayStation Vita (SGX543MP4+)".to_string(),
+            "SCE GXM / CDRAM Triple Buffer".to_string(),
         );
 
         #[cfg(target_arch = "wasm32")]
