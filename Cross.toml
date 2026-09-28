@@ -27,14 +27,26 @@ passthrough = [
     "PKG_CONFIG_ALLOW_CROSS=1",
 ]
 
+# RPi Zero W (ARMv6).
+# Uses a newer image (glibc >= 2.25, needed by the sysroot's libudev) and pulls
+# armhf packages from ports.ubuntu.com, since archive.ubuntu.com only hosts
+# amd64/i386. Instead of patching the image's existing apt sources, we move them
+# aside and write one explicit deb822 file:
+#   amd64 -> archive.ubuntu.com, armhf -> ports.ubuntu.com
+# This avoids "configured multiple times" warnings and missing armhf indexes.
 [target.arm-unknown-linux-gnueabihf]
 image = "ghcr.io/cross-rs/arm-unknown-linux-gnueabihf:main"
 pre-build = [
-    "sed -i 's/^deb http/deb [arch=amd64] http/' /etc/apt/sources.list || true",
-    "for f in /etc/apt/sources.list.d/*.sources; do [ -f \"$f\" ] && sed -i '/^Types:/a Architectures: amd64' \"$f\"; done || true",
     "dpkg --add-architecture armhf",
-    ". /etc/os-release && echo \"deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports $VERSION_CODENAME main universe\" > /etc/apt/sources.list.d/armhf.list",
-    ". /etc/os-release && echo \"deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports $VERSION_CODENAME-updates main universe\" >> /etc/apt/sources.list.d/armhf.list",
+    "mkdir -p /etc/apt/disabled",
+    "mv /etc/apt/sources.list /etc/apt/disabled/ 2>/dev/null || true",
+    "mv /etc/apt/sources.list.d/* /etc/apt/disabled/ 2>/dev/null || true",
+    # amd64 block: host packages (compiler, pkg-config, ...)
+    ". /etc/os-release && printf 'Types: deb\\nURIs: http://archive.ubuntu.com/ubuntu\\nSuites: %s %s-updates %s-security\\nComponents: main universe\\nArchitectures: amd64\\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\\n\\n' \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" > /etc/apt/sources.list.d/cross.sources",
+    # armhf block: target libraries (libudev, alsa, x11)
+    ". /etc/os-release && printf 'Types: deb\\nURIs: http://ports.ubuntu.com/ubuntu-ports\\nSuites: %s %s-updates %s-security\\nComponents: main universe\\nArchitectures: armhf\\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\\n' \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" \"$VERSION_CODENAME\" >> /etc/apt/sources.list.d/cross.sources",
+    # print the result so it shows up in the CI log for debugging
+    "cat /etc/apt/sources.list.d/cross.sources",
     "apt-get update",
     "apt-get install --assume-yes libudev-dev:armhf libasound2-dev:armhf libx11-dev:armhf",
 ]
