@@ -3,7 +3,7 @@
 static INTERNAL_CLIPBOARD: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
 pub fn get_clipboard() -> String {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     {
         if let Ok(out) = std::process::Command::new("wl-paste").output() {
             if out.status.success() {
@@ -72,7 +72,7 @@ pub fn set_clipboard(text: &str) {
         *g = text.to_string();
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     {
         use std::io::Write;
         let copied = if let Ok(mut child) = std::process::Command::new("wl-copy")

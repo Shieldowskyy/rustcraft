@@ -6,7 +6,7 @@ set -e
 # Target: x86_64-unknown-freebsd
 # ============================================================================
 
-export PATH="$HOME/.cargo/bin:$PATH"
+export PATH="$HOME/.cargo/bin:/usr/local/bin:$PATH"
 
 TARGET="x86_64-unknown-freebsd"
 BINARY_NAME="rustcraft"
@@ -16,6 +16,10 @@ BINARY_PATH="target/${TARGET}/release/${BINARY_NAME}"
 OS=$(uname -s)
 if [ "$OS" = "FreeBSD" ]; then
     echo "=== Detected native FreeBSD host ($OS $(uname -m)) ==="
+    export PATH="/usr/local/bin:$HOME/.cargo/bin:$PATH"
+    export PKG_CONFIG_PATH="/usr/local/libdata/pkgconfig:/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+    export LIBRARY_PATH="/usr/local/lib:${LIBRARY_PATH:-}"
+    export RUSTFLAGS="-L /usr/local/lib -C link-arg=-Wl,-rpath,/usr/local/lib ${RUSTFLAGS:-}"
     cargo build --release
     NATIVE_BIN="target/release/${BINARY_NAME}"
     if [ -f "$NATIVE_BIN" ]; then
@@ -37,20 +41,28 @@ if command -v rustup &> /dev/null; then
     fi
 fi
 
-# Detect cross-linker
+# Detect cross-linker or containerized cross tool
+USE_CROSS_TOOL=0
 if command -v x86_64-unknown-freebsd-gcc &> /dev/null; then
     export CARGO_TARGET_X86_64_UNKNOWN_FREEBSD_LINKER="x86_64-unknown-freebsd-gcc"
 elif command -v zig &> /dev/null; then
     export CARGO_TARGET_X86_64_UNKNOWN_FREEBSD_LINKER="zig cc -target x86_64-freebsd"
-elif command -v clang &> /dev/null; then
-    export CARGO_TARGET_X86_64_UNKNOWN_FREEBSD_LINKER="clang"
-    export RUSTFLAGS="-C link-arg=--target=x86_64-unknown-freebsd"
+elif command -v cross &> /dev/null; then
+    echo "==> Using 'cross' (containerized cross-compilation) for $TARGET..."
+    USE_CROSS_TOOL=1
 else
     echo "==> Note: Cross-compiler for FreeBSD not detected in PATH."
-    echo "    To cross-compile from Linux, you can install 'zig' (zero-config C cross-compiler) or freebsd cross-gcc."
+    echo "    To cross-compile from Linux, you can install 'zig' (zero-config C cross-compiler), 'cross', or freebsd cross-gcc."
 fi
 
-cargo build --release --target "$TARGET"
+export PKG_CONFIG_ALLOW_CROSS=1
+export RUSTFLAGS="-L /usr/local/lib -C link-arg=-Wl,-rpath,/usr/local/lib ${RUSTFLAGS:-}"
+
+if [ "$USE_CROSS_TOOL" -eq 1 ]; then
+    cross build --release --target "$TARGET"
+else
+    cargo build --release --target "$TARGET"
+fi
 
 if [ -f "$BINARY_PATH" ]; then
     echo "--------------------------------------------------"

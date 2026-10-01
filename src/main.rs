@@ -24,7 +24,7 @@ fn main() {
     let seed = parse_seed();
     let profiler_enabled = parse_profiler_enabled();
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     if std::env::var_os("DISPLAY").is_some() {
         std::env::remove_var("WAYLAND_DISPLAY");
     }
