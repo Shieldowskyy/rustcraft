@@ -24,6 +24,14 @@ fn main() {
 fn main() {
     let log_enabled = parse_log_enabled();
     init_logger(log_enabled);
+
+    if rustcraft::cli::parse_server_mode() {
+        let port = rustcraft::cli::parse_server_port();
+        let seed = parse_seed();
+        rustcraft::net::run_dedicated_server(port, seed);
+        return;
+    }
+
     let renderer_choice = parse_renderer_choice();
     let seed = parse_seed();
     let profiler_enabled = parse_profiler_enabled();

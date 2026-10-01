@@ -1,6 +1,6 @@
 //! Command-line argument parsing and random seed generation for RustCraft.
 
-const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan] [--seed NUMBER] [--profiler] [-log]";
+const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan] [--seed NUMBER] [--profiler] [-log] [--server] [--port PORT]";
 
 /// Parses command-line arguments to determine the desired rendering backend.
 ///
@@ -30,6 +30,8 @@ pub fn parse_renderer_choice() -> &'static str {
             "--seed" => index += 1,
             "--profiler" => {},
             "-log" | "--log" => {},
+            "--server" => {},
+            "--port" => index += 1,
             "--help" | "-h" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -57,6 +59,27 @@ pub fn parse_profiler_enabled() -> bool {
 /// When enabled, RustCraft prints full debug telemetry and event logs to stdout.
 pub fn parse_log_enabled() -> bool {
     std::env::args().any(|arg| arg == "-log" || arg == "--log")
+}
+
+/// Parses whether the `--server` CLI flag was specified to run a dedicated multiplayer server.
+pub fn parse_server_mode() -> bool {
+    std::env::args().any(|arg| arg == "--server")
+}
+
+/// Parses the optional `--port <PORT>` CLI flag for the dedicated multiplayer server,
+/// defaulting to 26656.
+pub fn parse_server_port() -> u16 {
+    let args: Vec<String> = std::env::args().collect();
+    for i in 1..args.len() {
+        if args[i] == "--port" {
+            if let Some(val) = args.get(i + 1) {
+                if let Ok(port) = val.parse::<u16>() {
+                    return port;
+                }
+            }
+        }
+    }
+    crate::net::DEFAULT_SERVER_PORT
 }
 
 /// Generates a cryptographically strong random seed using OS entropy (`getrandom`),

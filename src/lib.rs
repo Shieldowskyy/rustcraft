@@ -4,6 +4,7 @@ pub mod core;
 pub mod engine;
 pub mod gameplay;
 pub mod graphics;
+pub mod net;
 pub mod platform;
 pub mod ui;
 pub mod world;

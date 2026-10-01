@@ -195,17 +195,17 @@ mod tests {
 
     #[test]
     fn test_i18n_translation_and_formatting() {
-        assert_eq!(translate_lang(Language::English, "menu.play"), "PLAY GAME");
+        assert_eq!(translate_lang(Language::English, "menu.play"), "SINGLEPLAYER");
         assert_eq!(translate_lang(Language::English, "settings.on"), "ON");
-        assert_eq!(translate_lang(Language::Polish, "menu.play"), "GRAJ");
+        assert_eq!(translate_lang(Language::Polish, "menu.play"), "GRA JEDNOOSOBOWA");
         assert_eq!(translate_lang(Language::Polish, "settings.on"), "WLACZONE");
 
         set_language(Language::English);
-        assert_eq!(t("menu.play"), "PLAY GAME");
+        assert_eq!(t("menu.play"), "SINGLEPLAYER");
         assert_eq!(t_fmt("save_select.min_ago", &["5"]), "5 min ago");
 
         set_language(Language::Polish);
-        assert_eq!(t("menu.play"), "GRAJ");
+        assert_eq!(t("menu.play"), "GRA JEDNOOSOBOWA");
         assert_eq!(t_fmt("save_select.min_ago", &["5"]), "5 min temu");
 
         // Restore default English

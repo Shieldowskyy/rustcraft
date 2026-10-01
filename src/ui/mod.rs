@@ -5,10 +5,14 @@ pub mod draw;
 pub mod hud;
 pub mod inventory_ui;
 pub mod menu;
+pub mod multiplayer_menu;
+pub mod player_list_ui;
 pub mod save_select;
 pub mod settings_ui;
 
 pub use clipboard::{get_clipboard, set_clipboard};
+pub use multiplayer_menu::{draw_multiplayer_menu, multiplayer_menu_rects};
+pub use player_list_ui::draw_player_list_tab;
 pub use container_ui::{draw_chest_ui, draw_furnace_ui, ChestLayout, ChestSlotTarget, FurnaceLayout, FurnaceSlotTarget};
 pub use create_world::{create_world_rects, draw_create_world_menu};
 pub use draw::{

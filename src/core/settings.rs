@@ -140,7 +140,7 @@ impl JumpMode {
 }
 
 /// Persistent game options, graphics preferences, and controls.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct GameSettings {
     /// Active interface language.
     pub language: Language,
@@ -184,6 +184,8 @@ pub struct GameSettings {
     pub profiler_server: bool,
     /// HTTP port for the profiler server (default: 8080).
     pub profiler_server_port: u16,
+    /// Player display nickname for multiplayer (default: 2 words + 3 digits).
+    pub nickname: String,
 }
 
 impl Default for GameSettings {
@@ -219,6 +221,7 @@ impl Default for GameSettings {
             invert_z: false,
             profiler_server: false,
             profiler_server_port: 8080,
+            nickname: generate_default_nickname(),
         }
     }
 }
@@ -303,6 +306,18 @@ impl GameSettings {
                     8080
                 };
 
+                let nickname = if bytes.len() >= 35 {
+                    let nick_len = bytes[34] as usize;
+                    if bytes.len() >= 35 + nick_len && nick_len > 0 {
+                        String::from_utf8(bytes[35..35 + nick_len].to_vec())
+                            .unwrap_or_else(|_| generate_default_nickname())
+                    } else {
+                        generate_default_nickname()
+                    }
+                } else {
+                    generate_default_nickname()
+                };
+
                 crate::core::i18n::set_language(language);
 
                 return Self {
@@ -326,6 +341,7 @@ impl GameSettings {
                     invert_z,
                     profiler_server,
                     profiler_server_port,
+                    nickname,
                 };
             }
         }
@@ -340,7 +356,7 @@ impl GameSettings {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let mut bytes = Vec::with_capacity(36);
+        let mut bytes = Vec::with_capacity(64);
         bytes.extend_from_slice(b"RCST");
         bytes.extend_from_slice(&self.render_distance.to_le_bytes());
         bytes.push(if self.clouds { 1 } else { 0 });
@@ -380,6 +396,11 @@ impl GameSettings {
         bytes.push(if self.invert_z { 1 } else { 0 });
         bytes.push(if self.profiler_server { 1 } else { 0 });
         bytes.extend_from_slice(&self.profiler_server_port.to_le_bytes());
+
+        let nick_bytes = self.nickname.as_bytes();
+        let nick_len = nick_bytes.len().min(32) as u8;
+        bytes.push(nick_len);
+        bytes.extend_from_slice(&nick_bytes[..nick_len as usize]);
 
         std::fs::write(&path, bytes).map_err(|e| e.to_string())
     }
@@ -497,6 +518,27 @@ impl GameSettings {
     pub fn toggle_invert_z(&mut self) {
         self.invert_z = !self.invert_z;
     }
+}
+
+/// Generates a default player nickname in the format of 2 random words and 3 digits.
+pub fn generate_default_nickname() -> String {
+    const ADJECTIVES: &[&str] = &[
+        "Swift", "Brave", "Silent", "Iron", "Golden", "Wild", "Frost", "Shadow",
+        "Storm", "Thunder", "Dark", "Bright", "Crimson", "Emerald", "Mystic",
+        "Cosmic", "Solar", "Lunar", "Ancient", "Epic", "Noble", "Blazing",
+        "Silver", "Mighty", "Quick", "Clever", "Pixel", "Crafty", "Diamond",
+    ];
+    const NOUNS: &[&str] = &[
+        "Miner", "Crafter", "Knight", "Hunter", "Wolf", "Falcon", "Bear", "Builder",
+        "Explorer", "Warrior", "Ranger", "Voyager", "Runner", "Golem", "Striker",
+        "Wizard", "Nomad", "Pioneer", "Champion", "Seeker", "Fox", "Hawk",
+        "Panda", "Tiger", "Badger", "Dragon", "Scout", "Pilot",
+    ];
+    let seed = crate::cli::generate_random_seed();
+    let adj = ADJECTIVES[(seed as usize) % ADJECTIVES.len()];
+    let noun = NOUNS[((seed >> 8) as usize) % NOUNS.len()];
+    let num = 100 + ((seed >> 16) % 900);
+    format!("{}{}{}", adj, noun, num)
 }
 
 #[cfg(test)]

@@ -289,8 +289,61 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn main_menu_button_rects(&self) -> [(i32, i32, i32, i32); 3] {
+    pub fn main_menu_button_rects(&self) -> [(i32, i32, i32, i32); 4] {
         crate::ui::main_menu_button_rects(self.width, self.height)
+    }
+
+    #[inline(always)]
+    pub fn main_menu_nickname_rect(&self) -> (i32, i32, i32, i32) {
+        crate::ui::menu::main_menu_nickname_rect(self.width, self.height)
+    }
+
+    #[inline(always)]
+    pub fn multiplayer_menu_rects(&self) -> [(i32, i32, i32, i32); 5] {
+        crate::ui::multiplayer_menu_rects(self.width, self.height)
+    }
+
+    pub fn draw_main_menu(&mut self, hovered: Option<usize>, nickname: &str, nick_hovered: bool) {
+        crate::ui::draw_main_menu(&mut self.color_buffer, self.width, self.height, hovered, nickname, nick_hovered);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_multiplayer_menu(
+        &mut self,
+        nickname: &str,
+        server_addr: &str,
+        focused_field: usize,
+        hovered_idx: Option<usize>,
+        status_msg: Option<&str>,
+        is_connecting: bool,
+    ) {
+        crate::ui::draw_multiplayer_menu(
+            &mut self.color_buffer,
+            self.width,
+            self.height,
+            nickname,
+            server_addr,
+            focused_field,
+            hovered_idx,
+            status_msg,
+            is_connecting,
+        );
+    }
+
+    pub fn draw_player_list_tab(
+        &mut self,
+        players: &[crate::net::PlayerInfo],
+        local_nickname: &str,
+        is_multiplayer: bool,
+    ) {
+        crate::ui::draw_player_list_tab(
+            &mut self.color_buffer,
+            self.width,
+            self.height,
+            players,
+            local_nickname,
+            is_multiplayer,
+        );
     }
 
     #[inline(always)]
@@ -338,9 +391,6 @@ impl Renderer {
         crate::ui::pause_menu_button_rects(self.width, self.height)
     }
 
-    pub fn draw_main_menu(&mut self, hovered: Option<usize>) {
-        crate::ui::draw_main_menu(&mut self.color_buffer, self.width, self.height, hovered);
-    }
 
     pub fn draw_save_select_menu(
         &mut self,
@@ -1620,6 +1670,142 @@ impl Renderer {
                     };
                     self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
                 }
+            }
+        }
+    }
+
+    pub fn draw_remote_player(&mut self, player: &crate::net::RemotePlayer, camera: &Camera, view_proj: &Mat4) {
+        let base_pos = player.pos;
+        let yaw = player.yaw;
+        let leg_swing = player.walk_phase.sin() * 0.65;
+        let camera_pos = camera.position;
+
+        // Head
+        let head_box = MobBox {
+            center: Vec3::new(0.0, 1.62, 0.0),
+            size: Vec3::new(0.48, 0.48, 0.48),
+            yaw,
+            pitch: player.pitch,
+            roll: 0.0,
+            origin: base_pos,
+            tex_top: TextureId::Planks,
+            tex_bottom: TextureId::Planks,
+            tex_side: TextureId::Planks,
+            tex_front: TextureId::Planks,
+        };
+        self.draw_mob_box(&head_box, 0.0, camera_pos, view_proj);
+
+        // Torso / Body
+        let body_box = MobBox {
+            center: Vec3::new(0.0, 1.05, 0.0),
+            size: Vec3::new(0.48, 0.66, 0.28),
+            yaw,
+            pitch: 0.0,
+            roll: 0.0,
+            origin: base_pos,
+            tex_top: TextureId::WoodSide,
+            tex_bottom: TextureId::WoodSide,
+            tex_side: TextureId::WoodSide,
+            tex_front: TextureId::WoodSide,
+        };
+        self.draw_mob_box(&body_box, 0.0, camera_pos, view_proj);
+
+        // Left arm
+        let left_arm_origin = base_pos + Vec3::new(-0.38 * yaw.cos(), 1.35, -0.38 * yaw.sin());
+        let left_arm = MobBox {
+            center: Vec3::new(0.0, -0.32, 0.0),
+            size: Vec3::new(0.24, 0.64, 0.24),
+            yaw,
+            pitch: -leg_swing,
+            roll: 0.0,
+            origin: left_arm_origin,
+            tex_top: TextureId::Planks,
+            tex_bottom: TextureId::Planks,
+            tex_side: TextureId::Planks,
+            tex_front: TextureId::Planks,
+        };
+        self.draw_mob_box(&left_arm, 0.0, camera_pos, view_proj);
+
+        // Right arm
+        let right_arm_origin = base_pos + Vec3::new(0.38 * yaw.cos(), 1.35, 0.38 * yaw.sin());
+        let right_arm = MobBox {
+            center: Vec3::new(0.0, -0.32, 0.0),
+            size: Vec3::new(0.24, 0.64, 0.24),
+            yaw,
+            pitch: leg_swing,
+            roll: 0.0,
+            origin: right_arm_origin,
+            tex_top: TextureId::Planks,
+            tex_bottom: TextureId::Planks,
+            tex_side: TextureId::Planks,
+            tex_front: TextureId::Planks,
+        };
+        self.draw_mob_box(&right_arm, 0.0, camera_pos, view_proj);
+
+        // Left leg
+        let left_leg_origin = base_pos + Vec3::new(-0.14 * yaw.cos(), 0.72, -0.14 * yaw.sin());
+        let left_leg = MobBox {
+            center: Vec3::new(0.0, -0.36, 0.0),
+            size: Vec3::new(0.24, 0.72, 0.24),
+            yaw,
+            pitch: leg_swing,
+            roll: 0.0,
+            origin: left_leg_origin,
+            tex_top: TextureId::WoodSide,
+            tex_bottom: TextureId::WoodSide,
+            tex_side: TextureId::WoodSide,
+            tex_front: TextureId::WoodSide,
+        };
+        self.draw_mob_box(&left_leg, 0.0, camera_pos, view_proj);
+
+        // Right leg
+        let right_leg_origin = base_pos + Vec3::new(0.14 * yaw.cos(), 0.72, 0.14 * yaw.sin());
+        let right_leg = MobBox {
+            center: Vec3::new(0.0, -0.36, 0.0),
+            size: Vec3::new(0.24, 0.72, 0.24),
+            yaw,
+            pitch: -leg_swing,
+            roll: 0.0,
+            origin: right_leg_origin,
+            tex_top: TextureId::WoodSide,
+            tex_bottom: TextureId::WoodSide,
+            tex_side: TextureId::WoodSide,
+            tex_front: TextureId::WoodSide,
+        };
+        self.draw_mob_box(&right_leg, 0.0, camera_pos, view_proj);
+
+        // Floating nametag above player head
+        let tag_pos = base_pos + Vec3::new(0.0, 2.05, 0.0);
+        let clip = view_proj.transform_point(tag_pos);
+        if clip[3] > 0.2 {
+            let ndc_x = clip[0] / clip[3];
+            let ndc_y = clip[1] / clip[3];
+            if ndc_x >= -1.1 && ndc_x <= 1.1 && ndc_y >= -1.1 && ndc_y <= 1.1 {
+                let sx = ((ndc_x * 0.5 + 0.5) * self.width as f32) as i32;
+                let sy = (((1.0 - (ndc_y * 0.5 + 0.5))) * self.height as f32) as i32;
+                let ntw = crate::graphics::font::measure_text(&player.nickname, 1, 1);
+                crate::ui::draw::fill_rect_alpha(
+                    &mut self.color_buffer,
+                    self.width,
+                    self.height,
+                    sx - ntw / 2 - 4,
+                    sy - 10,
+                    ntw + 8,
+                    14,
+                    crate::ui::draw::pack_color(0.0, 0.0, 0.0),
+                    0.6,
+                );
+                crate::ui::draw::draw_text_colored_shadowed(
+                    &mut self.color_buffer,
+                    self.width,
+                    self.height,
+                    &player.nickname,
+                    sx - ntw / 2,
+                    sy - 8,
+                    1,
+                    1,
+                    crate::ui::draw::pack_color(1.0, 1.0, 1.0),
+                );
             }
         }
     }

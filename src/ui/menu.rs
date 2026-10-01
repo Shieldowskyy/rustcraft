@@ -1,20 +1,33 @@
-//! Main menu screen, voxel logo rendering, and button hitboxes.
+//! Main menu screen, voxel logo rendering, nickname box, and button hitboxes.
 
 use crate::graphics::font;
 use crate::ui::draw::{draw_text_colored_shadowed, draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color};
 
-/// Calculates layout rectangles for the 3 main menu buttons `[(x, y, width, height); 3]`.
-pub fn main_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 3] {
+/// Calculates layout rectangles for the 4 main menu buttons `[(x, y, width, height); 4]`.
+/// 0: Singleplayer
+/// 1: Multiplayer
+/// 2: Settings
+/// 3: Quit
+pub fn main_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 4] {
     let btn_w = 380;
-    let btn_h = 44;
-    let spacing = 16;
+    let btn_h = 40;
+    let spacing = 10;
     let cx = width as i32 / 2;
-    let start_y = height as i32 / 2 + 10;
+    let start_y = height as i32 / 2 - 15;
     [
         (cx - btn_w / 2, start_y, btn_w, btn_h),
         (cx - btn_w / 2, start_y + btn_h + spacing, btn_w, btn_h),
         (cx - btn_w / 2, start_y + (btn_h + spacing) * 2, btn_w, btn_h),
+        (cx - btn_w / 2, start_y + (btn_h + spacing) * 3, btn_w, btn_h),
     ]
+}
+
+/// Bounding rectangle for the clickable nickname display badge.
+pub fn main_menu_nickname_rect(width: usize, height: usize) -> (i32, i32, i32, i32) {
+    let btn_w = 380;
+    let cx = width as i32 / 2;
+    let start_y = height as i32 / 2 - 15;
+    (cx - btn_w / 2, start_y - 38, btn_w, 28)
 }
 
 /// Draws the procedural pixel-art voxel logo on the main menu.
@@ -35,29 +48,47 @@ pub fn draw_rustcraft_logo(buffer: &mut [u32], width: usize, height: usize, cx: 
     }
 }
 
-/// Renders the title screen, animated logo, menu choices, and platform controls guide.
+/// Renders the title screen, animated logo, nickname badge, menu choices, and platform controls guide.
 pub fn draw_main_menu(
     buffer: &mut [u32],
     width: usize,
     height: usize,
     hovered_idx: Option<usize>,
+    nickname: &str,
+    nick_hovered: bool,
 ) {
     let cx = width as i32 / 2;
     // Clear screen to prevent ghost frames from other menus
     fill_rect(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.06, 0.07, 0.09));
-    fill_rect_alpha(buffer, width, height, cx - 240, 30, 480, 465, pack_color(0.02, 0.03, 0.05), 0.75);
-    draw_rustcraft_logo(buffer, width, height, cx, 65);
+    fill_rect_alpha(buffer, width, height, cx - 240, 25, 480, 480, pack_color(0.02, 0.03, 0.05), 0.75);
+    draw_rustcraft_logo(buffer, width, height, cx, 60);
 
     let title = "RUSTCRAFT";
     let title_w = font::measure_text(title, 4, 3);
-    draw_text_colored_shadowed(buffer, width, height, title, cx - title_w / 2, 135, 4, 3, pack_color(0.95, 0.85, 0.42));
+    draw_text_colored_shadowed(buffer, width, height, title, cx - title_w / 2, 125, 4, 3, pack_color(0.95, 0.85, 0.42));
 
     let subtitle = "VOXEL ENGINE";
     let subtitle_w = font::measure_text(subtitle, 2, 2);
-    draw_text_colored_shadowed(buffer, width, height, subtitle, cx - subtitle_w / 2, 185, 2, 2, pack_color(0.7, 0.75, 0.85));
+    draw_text_colored_shadowed(buffer, width, height, subtitle, cx - subtitle_w / 2, 172, 2, 2, pack_color(0.7, 0.75, 0.85));
+
+    // Nickname badge box
+    let (nx, ny, nw, nh) = main_menu_nickname_rect(width, height);
+    let nick_bg = if nick_hovered { pack_color(0.18, 0.24, 0.35) } else { pack_color(0.10, 0.12, 0.16) };
+    let nick_border = if nick_hovered { pack_color(0.4, 0.65, 0.95) } else { pack_color(0.25, 0.30, 0.40) };
+    fill_rect(buffer, width, height, nx, ny, nw, nh, nick_bg);
+    fill_rect(buffer, width, height, nx, ny, nw, 1, nick_border);
+    fill_rect(buffer, width, height, nx, ny, 1, nh, nick_border);
+    fill_rect(buffer, width, height, nx, ny + nh - 1, nw, 1, nick_border);
+    fill_rect(buffer, width, height, nx + nw - 1, ny, 1, nh, nick_border);
+
+    let nick_text = crate::core::i18n::t_fmt("menu.nickname", &[nickname]);
+    let ntw = font::measure_text(&nick_text, 1, 1);
+    let n_col = if nick_hovered { pack_color(1.0, 0.95, 0.4) } else { pack_color(0.85, 0.90, 1.0) };
+    draw_text_colored_shadowed(buffer, width, height, &nick_text, cx - ntw / 2, ny + 8, 1, 1, n_col);
 
     let buttons = [
         crate::core::i18n::t("menu.play"),
+        crate::core::i18n::t("menu.multiplayer"),
         crate::core::i18n::t("menu.settings"),
         crate::core::i18n::t("menu.quit"),
     ];
@@ -87,6 +118,5 @@ pub fn draw_main_menu(
 
     let footer = crate::core::i18n::t("menu.controls");
     let fw = font::measure_text(footer, 1, 1);
-    draw_text_colored_shadowed(buffer, width, height, footer, cx - fw / 2, 460, 1, 1, pack_color(0.6, 0.65, 0.75));
+    draw_text_colored_shadowed(buffer, width, height, footer, cx - fw / 2, 470, 1, 1, pack_color(0.6, 0.65, 0.75));
 }
-

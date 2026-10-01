@@ -89,6 +89,13 @@ pub enum GameState {
     Furnace { pos: IVec3 },
     /// Player death screen with respawn and quit options.
     DeathScreen,
+    /// Multiplayer server address / connection screen.
+    MultiplayerMenu,
+    /// Actively connecting to a multiplayer server.
+    MultiplayerConnecting {
+        server_addr: String,
+        start_time: std::time::Instant,
+    },
 }
 
 /// Unified input snapshot passed into `RustCraftApp::update_and_render`.
@@ -240,7 +247,16 @@ pub struct RustCraftApp {
     pub last_fov: f32,
     pub last_aspect: f32,
     pub proj_matrix: Mat4,
-    pub main_menu_rects: [(i32, i32, i32, i32); 3],
+    pub main_menu_rects: [(i32, i32, i32, i32); 4],
+    pub main_menu_nick_rect: (i32, i32, i32, i32),
+    pub multiplayer_menu_rects: [(i32, i32, i32, i32); 5],
+    pub multiplayer_server_addr: String,
+    pub multiplayer_focus: usize,
+    pub multiplayer_status: Option<String>,
+    pub multiplayer_is_connecting: bool,
+    pub main_menu_nick_hovered: bool,
+    pub net_client: Option<crate::net::NetworkClient>,
+    pub is_multiplayer: bool,
     pub save_card_rects: [(i32, i32, i32, i32); VISIBLE_SAVE_ROWS],
     pub save_btn_rects: [(i32, i32, i32, i32); 4],
     pub create_world_rects: [(i32, i32, i32, i32); 6],
@@ -332,6 +348,8 @@ impl RustCraftApp {
         player.gamemode = GameMode::Survival;
 
         let main_menu_rects = renderer.main_menu_button_rects();
+        let main_menu_nick_rect = renderer.main_menu_nickname_rect();
+        let multiplayer_menu_rects = renderer.multiplayer_menu_rects();
         let save_card_rects = renderer.save_card_rects();
         let save_btn_rects = renderer.save_bottom_button_rects();
         let create_world_rects = renderer.create_world_rects();
@@ -410,6 +428,15 @@ impl RustCraftApp {
             last_aspect: aspect,
             proj_matrix,
             main_menu_rects,
+            main_menu_nick_rect,
+            multiplayer_menu_rects,
+            multiplayer_server_addr: "127.0.0.1:26656".to_string(),
+            multiplayer_focus: 0,
+            multiplayer_status: None,
+            multiplayer_is_connecting: false,
+            main_menu_nick_hovered: false,
+            net_client: None,
+            is_multiplayer: false,
             save_card_rects,
             save_btn_rects,
             create_world_rects,
@@ -535,9 +562,14 @@ impl RustCraftApp {
         match self.state {
             GameState::MainMenu => {
                 let mut hovered_idx = self.menu_hovered_btn;
+                self.main_menu_nick_hovered = false;
                 if let Some((mx, my)) = mouse_pos {
                     let px = mx as i32;
                     let py = my as i32;
+                    let (nx, ny, nw, nh) = self.main_menu_nick_rect;
+                    if px >= nx && px < nx + nw && py >= ny && py < ny + nh {
+                        self.main_menu_nick_hovered = true;
+                    }
                     for (i, &(bx, by, bw, bh)) in self.main_menu_rects.iter().enumerate() {
                         if px >= bx && px < bx + bw && py >= by && py < by + bh {
                             hovered_idx = Some(i);
@@ -549,7 +581,7 @@ impl RustCraftApp {
 
                 if input.gp_dpad_up_just_pressed || input.gp_menu_up || (up_arrow_down && !self.prev_up_arrow_down) {
                     let next = match self.menu_hovered_btn {
-                        Some(0) | None => 2,
+                        Some(0) | None => 3,
                         Some(i) => i - 1,
                     };
                     self.menu_hovered_btn = Some(next);
@@ -557,7 +589,7 @@ impl RustCraftApp {
                 }
                 if input.gp_dpad_down_just_pressed || input.gp_menu_down || (down_arrow_down && !self.prev_down_arrow_down) {
                     let next = match self.menu_hovered_btn {
-                        Some(2) | None => 0,
+                        Some(3) | None => 0,
                         Some(i) => i + 1,
                     };
                     self.menu_hovered_btn = Some(next);
@@ -570,22 +602,189 @@ impl RustCraftApp {
                     None
                 };
 
-                if (enter_down && !self.prev_enter_down) || click_button == Some(0) {
+                let click_nick = (left_down && !self.prev_left_down && self.main_menu_nick_hovered)
+                    || (n_down && !self.prev_n_down);
+                if click_nick {
+                    self.settings.nickname = crate::core::settings::generate_default_nickname();
+                    let _ = self.settings.save();
+                    crate::log_info!("SETTINGS", "Nickname randomized to {}", self.settings.nickname);
+                }
+
+                if (enter_down && !self.prev_enter_down && (hovered_idx == Some(0) || hovered_idx.is_none())) || click_button == Some(0) {
                     self.state = GameState::SaveSelect;
                     self.save_select_slot = self.save_slot;
                     self.save_select_scroll = ((self.save_slot as usize - 1).saturating_sub(1))
                         .min(MAX_SAVE_SLOTS as usize - VISIBLE_SAVE_ROWS);
                     crate::log_info!("MENU", "Opened Save Selection menu from Main Menu");
-                } else if click_button == Some(1) {
+                } else if click_button == Some(1) || (enter_down && !self.prev_enter_down && hovered_idx == Some(1)) {
+                    self.state = GameState::MultiplayerMenu;
+                    self.multiplayer_status = None;
+                    self.multiplayer_is_connecting = false;
+                    crate::log_info!("MENU", "Opened Multiplayer menu from Main Menu");
+                } else if click_button == Some(2) || (enter_down && !self.prev_enter_down && hovered_idx == Some(2)) {
                     self.state = GameState::Settings(PreviousMenu::MainMenu);
                     self.settings_hovered_opt = Some(0);
                     crate::log_info!("MENU", "Opened Settings menu from Main Menu");
-                } else if (q_down && !self.prev_q_down) || click_button == Some(2) || input.gp_east_just_pressed {
+                } else if (q_down && !self.prev_q_down) || click_button == Some(3) || input.gp_east_just_pressed || (enter_down && !self.prev_enter_down && hovered_idx == Some(3)) {
                     out.quit_requested = true;
                     crate::log_info!("STATE", "Quit requested from Main Menu");
                 }
 
-                self.renderer.draw_main_menu(hovered_idx);
+                self.renderer.draw_main_menu(hovered_idx, &self.settings.nickname, self.main_menu_nick_hovered);
+            }
+            GameState::MultiplayerMenu => {
+                let rects = self.multiplayer_menu_rects;
+                let mut hovered_idx = None;
+                if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    for (i, &(bx, by, bw, bh)) in rects.iter().enumerate() {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            hovered_idx = Some(i);
+                            break;
+                        }
+                    }
+                }
+
+                let click = (left_down && !self.prev_left_down) || input.gp_south_just_pressed;
+                if click {
+                    if let Some(idx) = hovered_idx {
+                        match idx {
+                            0 => self.multiplayer_focus = 0,
+                            1 => {
+                                self.settings.nickname = crate::core::settings::generate_default_nickname();
+                                let _ = self.settings.save();
+                                crate::log_info!("SETTINGS", "Nickname randomized to {}", self.settings.nickname);
+                            }
+                            2 => self.multiplayer_focus = 1,
+                            3 => {
+                                self.start_multiplayer_connect();
+                            }
+                            4 => {
+                                let _ = self.settings.save();
+                                self.state = GameState::MainMenu;
+                                crate::log_info!("MENU", "Returned to Main Menu from Multiplayer menu");
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                if (tab_down && !self.prev_tab_down) || (up_arrow_down && !self.prev_up_arrow_down) || (down_arrow_down && !self.prev_down_arrow_down) {
+                    self.multiplayer_focus = 1 - self.multiplayer_focus;
+                }
+                if (escape_down && !self.prev_escape_down) || (q_down && !self.prev_q_down) || input.gp_east_just_pressed {
+                    let _ = self.settings.save();
+                    self.state = GameState::MainMenu;
+                    crate::log_info!("MENU", "Returned to Main Menu from Multiplayer menu");
+                }
+                if enter_down && !self.prev_enter_down {
+                    self.start_multiplayer_connect();
+                }
+
+                if backspace_down && !self.prev_backspace_down {
+                    if self.multiplayer_focus == 0 {
+                        self.settings.nickname.pop();
+                    } else {
+                        self.multiplayer_server_addr.pop();
+                    }
+                }
+                for &ch in &input.typed_chars {
+                    if !ch.is_control() {
+                        if self.multiplayer_focus == 0 {
+                            if self.settings.nickname.len() < 24 && (ch.is_alphanumeric() || ch == '_' || ch == '-') {
+                                self.settings.nickname.push(ch);
+                            }
+                        } else {
+                            if self.multiplayer_server_addr.len() < 48 && (ch.is_ascii() && !ch.is_whitespace()) {
+                                self.multiplayer_server_addr.push(ch);
+                            }
+                        }
+                    }
+                }
+
+                self.renderer.draw_multiplayer_menu(
+                    &self.settings.nickname,
+                    &self.multiplayer_server_addr,
+                    self.multiplayer_focus,
+                    hovered_idx,
+                    self.multiplayer_status.as_deref(),
+                    self.multiplayer_is_connecting,
+                );
+            }
+            GameState::MultiplayerConnecting { .. } => {
+                let (server_addr, start_time) = match &self.state {
+                    GameState::MultiplayerConnecting { server_addr, start_time } => (server_addr.clone(), *start_time),
+                    _ => unreachable!(),
+                };
+                if start_time.elapsed() > std::time::Duration::from_secs(6) {
+                    self.multiplayer_status = Some("Connection timed out (no response from server)".to_string());
+                    self.multiplayer_is_connecting = false;
+                    self.net_client = None;
+                    self.state = GameState::MultiplayerMenu;
+                    crate::log_warn!("NETWORK", "Connection to {} timed out", server_addr);
+                } else if let Some(client) = &mut self.net_client {
+                    let events = client.update(dt);
+                    let mut connected_result = None;
+                    let mut disconnected_err = None;
+
+                    for ev in events {
+                        match ev {
+                            crate::net::NetworkEvent::Connected {
+                                player_id,
+                                seed,
+                                spawn_x,
+                                spawn_y,
+                                spawn_z,
+                                time_of_day,
+                                modified_blocks,
+                            } => {
+                                connected_result = Some((player_id, seed, spawn_x, spawn_y, spawn_z, time_of_day, modified_blocks));
+                            }
+                            crate::net::NetworkEvent::Disconnected { reason } => {
+                                disconnected_err = Some(reason);
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    if let Some((player_id, seed, spawn_x, spawn_y, spawn_z, time_of_day, modified_blocks)) = connected_result {
+                        crate::log_info!(
+                            "NETWORK",
+                            "Connected! Assigned Player ID: {}, World Seed: {}, Spawn: ({:.1}, {:.1}, {:.1})",
+                            player_id, seed, spawn_x, spawn_y, spawn_z
+                        );
+                        self.seed = seed;
+                        self.world = World::new_with_seed(seed);
+                        self.world.player_position = Vec3::new(spawn_x, spawn_y, spawn_z);
+                        self.camera.position = Vec3::new(spawn_x, spawn_y, spawn_z);
+                        self.world.time_of_day = time_of_day;
+                        for (bx, by, bz, blk) in modified_blocks {
+                            self.world.set_block(IVec3::new(bx, by, bz), BlockId::from_u8(blk));
+                        }
+                        self.player.reset(GameMode::Survival);
+                        self.is_multiplayer = true;
+                        self.multiplayer_is_connecting = false;
+                        self.multiplayer_status = None;
+                        self.chat.add_message(format!("[Server] Connected to multiplayer server as {}", self.settings.nickname), crate::ui::pack_color(1.0, 1.0, 0.4));
+                        self.state = GameState::Playing;
+                        out.request_capture_mouse = true;
+                    } else if let Some(err) = disconnected_err {
+                        self.multiplayer_status = Some(err);
+                        self.multiplayer_is_connecting = false;
+                        self.net_client = None;
+                        self.state = GameState::MultiplayerMenu;
+                    }
+                }
+
+                self.renderer.draw_multiplayer_menu(
+                    &self.settings.nickname,
+                    &self.multiplayer_server_addr,
+                    self.multiplayer_focus,
+                    None,
+                    Some("Connecting to server..."),
+                    true,
+                );
             }
             GameState::SaveSelect => {
                 if input.scroll_delta > 0.0 || input.gp_lb_just_pressed {
@@ -1509,7 +1708,7 @@ impl RustCraftApp {
             }
             #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
             GameState::Loading(ref rx) => {
-                self.renderer.draw_main_menu(None);
+                self.renderer.draw_main_menu(None, &self.settings.nickname, false);
 
                 if let Ok(result) = rx.try_recv() {
                     match result {
@@ -1537,11 +1736,53 @@ impl RustCraftApp {
             }
             #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
             GameState::Loading => {
-                self.renderer.draw_main_menu(None);
+                self.renderer.draw_main_menu(None, &self.settings.nickname, false);
                 self.state = GameState::Playing;
             }
             GameState::Playing => {
                 self.chat.update(dt);
+
+                if let Some(client) = &mut self.net_client {
+                    if client.last_move_sent.elapsed() >= std::time::Duration::from_millis(50) {
+                        client.send_position(
+                            self.camera.position,
+                            self.camera.yaw,
+                            self.camera.pitch,
+                            self.crouch_toggled,
+                            self.sprint_toggled,
+                        );
+                        client.last_move_sent = std::time::Instant::now();
+                    }
+                    let events = client.update(dt);
+                    let mut should_disconnect = None;
+                    for ev in events {
+                        match ev {
+                            crate::net::NetworkEvent::BlockChanged { x, y, z, block } => {
+                                self.world.set_block(IVec3::new(x, y, z), BlockId::from_u8(block));
+                            }
+                            crate::net::NetworkEvent::ChatMessage { sender, text, is_system: _ } => {
+                                self.chat.add_message(format!("<{}> {}", sender, text), crate::ui::pack_color(1.0, 1.0, 1.0));
+                            }
+                            crate::net::NetworkEvent::TimeSync { time_of_day } => {
+                                self.world.time_of_day = time_of_day;
+                            }
+                            crate::net::NetworkEvent::Teleport { x, y, z } => {
+                                self.camera.position = Vec3::new(x, y, z);
+                            }
+                            crate::net::NetworkEvent::Disconnected { reason } => {
+                                should_disconnect = Some(reason);
+                            }
+                            _ => {}
+                        }
+                    }
+                    if let Some(reason) = should_disconnect {
+                        crate::log_info!("NETWORK", "Disconnected from server: {}", reason);
+                        self.is_multiplayer = false;
+                        self.net_client = None;
+                        self.state = GameState::MainMenu;
+                        out.request_release_mouse = true;
+                    }
+                }
 
                 self.telemetry_timer += dt;
                 if self.telemetry_timer >= 5.0 {
@@ -1609,8 +1850,12 @@ impl RustCraftApp {
                                         crate::log_info!("WORLD", "Cleared mesh cache following chunk reload command");
                                     }
                                 } else {
-                                    crate::log_info!("CHAT", "<Player> {}", text);
-                                    self.chat.add_player_chat("Player", &text);
+                                    crate::log_info!("CHAT", "<{}> {}", self.settings.nickname, text);
+                                    if let Some(client) = &mut self.net_client {
+                                        client.send_chat(&text);
+                                    } else {
+                                        self.chat.add_player_chat(&self.settings.nickname, &text);
+                                    }
                                 }
                             }
                         }
@@ -2139,6 +2384,9 @@ impl RustCraftApp {
                                 };
 
                                 self.world.set_block(target, BlockId::Air);
+                                if let Some(client) = &mut self.net_client {
+                                    client.send_block_change(target.x, target.y, target.z, 0);
+                                }
                                 crate::log_info!("WORLD", "Block broken: {:?} at ({}, {}, {})", broken_block, target.x, target.y, target.z);
 
                                 if self.player.gamemode == GameMode::Survival {
@@ -2325,6 +2573,10 @@ impl RustCraftApp {
                                     {
                                         self.world.set_block(place_pos, BlockId::Door);
                                         self.world.set_block(top_pos, BlockId::Door);
+                                        if let Some(client) = &mut self.net_client {
+                                            client.send_block_change(place_pos.x, place_pos.y, place_pos.z, BlockId::Door.to_u8());
+                                            client.send_block_change(top_pos.x, top_pos.y, top_pos.z, BlockId::Door.to_u8());
+                                        }
                                         crate::log_info!("WORLD", "Placed door at ({}, {}, {})", place_pos.x, place_pos.y, place_pos.z);
                                         if self.player.gamemode == GameMode::Survival {
                                             if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
@@ -2335,6 +2587,9 @@ impl RustCraftApp {
                                     }
                                 } else if !block_intersects_player(place_pos, self.camera.position, self.current_eye_offset, self.current_player_height) {
                                     self.world.set_block(place_pos, place_id);
+                                    if let Some(client) = &mut self.net_client {
+                                        client.send_block_change(place_pos.x, place_pos.y, place_pos.z, place_id.to_u8());
+                                    }
                                     crate::log_info!("WORLD", "Placed block {:?} at ({}, {}, {})", place_id, place_pos.x, place_pos.y, place_pos.z);
                                     if self.player.gamemode == GameMode::Survival {
                                         if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
@@ -2555,6 +2810,12 @@ impl RustCraftApp {
                             self.renderer.draw_mob(mob, &self.camera, &view_proj);
                         }
 
+                        if let Some(client) = &self.net_client {
+                            for rp in client.remote_players.values() {
+                                self.renderer.draw_remote_player(rp, &self.camera, &view_proj);
+                            }
+                        }
+
                         for tnt in &self.world.primed_tnts {
                             self.renderer.draw_tnt_cube(tnt.pos, tnt.fuse, &self.camera, &view_proj);
                         }
@@ -2645,6 +2906,15 @@ impl RustCraftApp {
                 }
                 self.renderer.draw_hotbar(&self.player);
                 self.chat.draw(&mut self.renderer.color_buffer, self.width, self.height);
+
+                if input.key_tab {
+                    let p_list = if let Some(client) = &self.net_client {
+                        &client.player_list[..]
+                    } else {
+                        &[]
+                    };
+                    self.renderer.draw_player_list_tab(p_list, &self.settings.nickname, self.net_client.is_some());
+                }
                 if let Some(u_start) = render_ui_start {
                     cur_profiler.render_ui_ms = u_start.elapsed().as_secs_f32() * 1000.0;
                 }
@@ -2936,14 +3206,30 @@ impl RustCraftApp {
                             crate::log_info!("PLAYER", "Flight mode toggled to: {}", self.fly_mode);
                         }
                         3 => {
-                            let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
-                            self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
+                            if self.is_multiplayer {
+                                if let Some(client) = &mut self.net_client {
+                                    client.disconnect();
+                                }
+                                self.net_client = None;
+                                self.is_multiplayer = false;
+                            } else {
+                                let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
+                                self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
+                            }
                             self.state = GameState::MainMenu;
                             out.request_release_mouse = true;
-                            crate::log_info!("STATE", "Saved and returned to Main Menu from pause menu");
+                            crate::log_info!("STATE", "Returned to Main Menu from pause menu");
                         }
                         4 => {
-                            let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
+                            if self.is_multiplayer {
+                                if let Some(client) = &mut self.net_client {
+                                    client.disconnect();
+                                }
+                                self.net_client = None;
+                                self.is_multiplayer = false;
+                            } else {
+                                let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
+                            }
                             out.quit_requested = true;
                             crate::log_info!("STATE", "Saved and quitting game from pause menu");
                         }
@@ -3690,6 +3976,8 @@ impl RustCraftApp {
                     GameState::Chest { .. } => "Chest",
                     GameState::Furnace { .. } => "Furnace",
                     GameState::DeathScreen => "Death Screen",
+                    GameState::MultiplayerMenu => "Multiplayer Menu",
+                    GameState::MultiplayerConnecting { .. } => "Multiplayer Connecting",
                 };
                 let now_ms = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -3736,6 +4024,8 @@ impl RustCraftApp {
             GameState::Chest { .. } => "Chest",
             GameState::Furnace { .. } => "Furnace",
             GameState::DeathScreen => "Death Screen",
+            GameState::MultiplayerMenu => "Multiplayer Menu",
+            GameState::MultiplayerConnecting { .. } => "Multiplayer Connecting",
             _ => "Loading",
         }.to_string();
 
@@ -3821,6 +4111,36 @@ impl RustCraftApp {
         }
     }
 
+    pub fn start_multiplayer_connect(&mut self) {
+        self.multiplayer_status = Some("Connecting to server...".to_string());
+        self.multiplayer_is_connecting = true;
+        match crate::net::NetworkClient::connect(&self.multiplayer_server_addr, &self.settings.nickname) {
+            Ok(client) => {
+                let _ = self.settings.save();
+                self.net_client = Some(client);
+                self.state = GameState::MultiplayerConnecting {
+                    server_addr: self.multiplayer_server_addr.clone(),
+                    start_time: std::time::Instant::now(),
+                };
+                crate::log_info!(
+                    "NETWORK",
+                    "Connecting to {} as '{}'...",
+                    self.multiplayer_server_addr,
+                    self.settings.nickname
+                );
+            }
+            Err(err) => {
+                self.multiplayer_status = Some(err);
+                self.multiplayer_is_connecting = false;
+                crate::log_warn!(
+                    "NETWORK",
+                    "Connection failed: {}",
+                    self.multiplayer_status.as_ref().unwrap()
+                );
+            }
+        }
+    }
+
     /// Resizes internal framebuffers, camera aspect projection, and UI interactive hitboxes.
     pub fn resize(&mut self, width: usize, height: usize) {
         if width == 0 || height == 0 || (self.width == width && self.height == height) {
@@ -3831,6 +4151,8 @@ impl RustCraftApp {
         self.renderer.resize(width, height);
 
         self.main_menu_rects = self.renderer.main_menu_button_rects();
+        self.main_menu_nick_rect = self.renderer.main_menu_nickname_rect();
+        self.multiplayer_menu_rects = self.renderer.multiplayer_menu_rects();
         self.save_card_rects = self.renderer.save_card_rects();
         self.save_btn_rects = self.renderer.save_bottom_button_rects();
         self.create_world_rects = self.renderer.create_world_rects();
