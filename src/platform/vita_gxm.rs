@@ -2726,7 +2726,6 @@ fn append_mob(
             }
         }
     }
-    }
 }
 
 fn append_tnt(
