@@ -200,6 +200,8 @@ impl WebGame {
             key_del,
             key_backspace: false,
             key_tab: false,
+            key_t: false,
+            key_slash: false,
             key_digits: [
                 key_digit_1,
                 key_digit_2,

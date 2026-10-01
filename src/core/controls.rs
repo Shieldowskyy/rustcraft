@@ -3,7 +3,7 @@
 
 use crate::app::InputState;
 
-pub const ACTION_COUNT: usize = 17;
+pub const ACTION_COUNT: usize = 19;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
@@ -24,6 +24,8 @@ pub enum Action {
     UsePlace = 14,
     HotbarPrev = 15,
     HotbarNext = 16,
+    OpenChat = 17,
+    OpenCommand = 18,
 }
 
 impl Action {
@@ -45,6 +47,8 @@ impl Action {
         Action::UsePlace,
         Action::HotbarPrev,
         Action::HotbarNext,
+        Action::OpenChat,
+        Action::OpenCommand,
     ];
 
     pub fn as_str(&self) -> &'static str {
@@ -66,6 +70,8 @@ impl Action {
             Action::UsePlace => "use_place",
             Action::HotbarPrev => "hotbar_prev",
             Action::HotbarNext => "hotbar_next",
+            Action::OpenChat => "open_chat",
+            Action::OpenCommand => "open_command",
         }
     }
 
@@ -89,6 +95,8 @@ impl Action {
             "use_place" | "use" | "place" => Some(Action::UsePlace),
             "hotbar_prev" | "prev_slot" => Some(Action::HotbarPrev),
             "hotbar_next" | "next_slot" => Some(Action::HotbarNext),
+            "open_chat" | "chat" => Some(Action::OpenChat),
+            "open_command" | "command" | "slash" => Some(Action::OpenCommand),
             _ => None,
         }
     }
@@ -107,6 +115,7 @@ pub enum KeyCode {
     Enter, Up, Down, Left, Right,
     N, Delete, Backspace, Tab,
     Key1, Key2, Key3, Key4, Key5, Key6, Key7, Key8, Key9, Key0,
+    T, Slash,
 }
 
 impl KeyCode {
@@ -150,6 +159,8 @@ impl KeyCode {
             "8" | "key8" => Some(KeyCode::Key8),
             "9" | "key9" => Some(KeyCode::Key9),
             "0" | "key0" => Some(KeyCode::Key0),
+            "t" => Some(KeyCode::T),
+            "slash" | "/" => Some(KeyCode::Slash),
             _ => None,
         }
     }
@@ -194,6 +205,8 @@ impl KeyCode {
             KeyCode::Key8 => input.key_digits[8],
             KeyCode::Key9 => input.key_digits[9],
             KeyCode::Key0 => input.key_digits[0],
+            KeyCode::T => input.key_t,
+            KeyCode::Slash => input.key_slash,
         }
     }
 }
@@ -424,6 +437,16 @@ impl ControlsConfig {
             keys: vec![],
             gamepad: vec![GamepadInput::RB],
             mouse: vec![MouseInput::WheelUp],
+        };
+        bindings[Action::OpenChat.index()] = ActionBinding {
+            keys: vec![KeyCode::T],
+            gamepad: vec![],
+            mouse: vec![],
+        };
+        bindings[Action::OpenCommand.index()] = ActionBinding {
+            keys: vec![KeyCode::Slash],
+            gamepad: vec![],
+            mouse: vec![],
         };
 
         Self { bindings }
@@ -846,6 +869,8 @@ mod tests {
             key_del: false,
             key_backspace: false,
             key_tab: false,
+            key_t: false,
+            key_slash: false,
             key_digits: [false; 10],
             typed_chars: Vec::new(),
             gp_left_stick_x: -0.95, // Player strafing hard left

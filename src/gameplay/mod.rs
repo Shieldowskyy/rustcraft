@@ -1,3 +1,4 @@
+pub mod chat;
 pub mod inventory;
 pub mod item;
 pub mod mob;
@@ -6,6 +7,7 @@ pub mod physics;
 pub mod player;
 pub mod recipe;
 
+pub use chat::{ChatAction, ChatMessage, ChatState, CommandContext};
 pub use inventory::{Inventory, ItemStack};
 pub use item::ItemEntity;
 pub use mob::{Mob, MobKind, MobManager};

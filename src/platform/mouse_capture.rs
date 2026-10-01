@@ -55,32 +55,49 @@ mod x11_capture {
         }
 
         pub fn set_captured(&mut self, captured: bool) {
-            if captured == self.grabbed {
-                return;
-            }
             unsafe {
                 if captured {
-                    (self.lib.XDefineCursor)(self.display, self.window, self.blank_cursor);
-                    (self.lib.XGrabPointer)(
+                    (self.lib.XSetInputFocus)(
                         self.display,
                         self.window,
-                        xlib::True,
-                        (xlib::ButtonPressMask | xlib::ButtonReleaseMask | xlib::PointerMotionMask)
-                            as u32,
-                        xlib::GrabModeAsync,
-                        xlib::GrabModeAsync,
-                        self.window,
-                        self.blank_cursor,
+                        xlib::RevertToParent,
                         xlib::CurrentTime,
                     );
-                    self.warp_to_center();
-                } else {
+                    if !self.grabbed {
+                        (self.lib.XDefineCursor)(self.display, self.window, self.blank_cursor);
+                        (self.lib.XGrabPointer)(
+                            self.display,
+                            self.window,
+                            xlib::True,
+                            (xlib::ButtonPressMask | xlib::ButtonReleaseMask | xlib::PointerMotionMask)
+                                as u32,
+                            xlib::GrabModeAsync,
+                            xlib::GrabModeAsync,
+                            self.window,
+                            self.blank_cursor,
+                            xlib::CurrentTime,
+                        );
+                        self.warp_to_center();
+                    }
+                } else if self.grabbed {
                     (self.lib.XUngrabPointer)(self.display, xlib::CurrentTime);
                     (self.lib.XUndefineCursor)(self.display, self.window);
                 }
                 (self.lib.XFlush)(self.display);
             }
             self.grabbed = captured;
+        }
+
+        pub fn focus(&self) {
+            unsafe {
+                (self.lib.XSetInputFocus)(
+                    self.display,
+                    self.window,
+                    xlib::RevertToParent,
+                    xlib::CurrentTime,
+                );
+                (self.lib.XFlush)(self.display);
+            }
         }
 
         #[allow(dead_code)]
@@ -434,6 +451,15 @@ impl MouseCapture {
 
     pub fn is_captured(&self) -> bool {
         self.captured
+    }
+
+    pub fn focus(&self) {
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        {
+            if let Some(inner) = &self.inner {
+                inner.focus();
+            }
+        }
     }
 
     pub fn resize(&mut self, width: i32, height: i32) {

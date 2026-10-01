@@ -66,5 +66,14 @@
   "hotbar_next": {
     "mouse": ["WheelUp"],
     "gamepad": ["RB"]
+  },
+  "open_chat": {
+    "keys": ["T"],
+    "gamepad": []
+  },
+  "open_command": {
+    "keys": ["Slash"],
+    "gamepad": []
   }
 }
+

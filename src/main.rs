@@ -6,7 +6,9 @@ use std::time::Instant;
 #[cfg(not(target_os = "vita"))]
 use rustcraft::app::{InputState, RustCraftApp, HEIGHT, WIDTH};
 #[cfg(not(target_os = "vita"))]
-use rustcraft::cli::{parse_profiler_enabled, parse_renderer_choice, parse_seed};
+use rustcraft::cli::{parse_log_enabled, parse_profiler_enabled, parse_renderer_choice, parse_seed};
+#[cfg(not(target_os = "vita"))]
+use rustcraft::core::init_logger;
 #[cfg(not(target_os = "vita"))]
 use rustcraft::platform::gamepad::GamepadManager;
 #[cfg(not(target_os = "vita"))]
@@ -20,9 +22,13 @@ fn main() {
 
 #[cfg(not(target_os = "vita"))]
 fn main() {
+    let log_enabled = parse_log_enabled();
+    init_logger(log_enabled);
     let renderer_choice = parse_renderer_choice();
     let seed = parse_seed();
     let profiler_enabled = parse_profiler_enabled();
+
+    rustcraft::log_info!("MAIN", "Starting RustCraft (renderer: {}, seed: {}, profiler: {})", renderer_choice, seed, profiler_enabled);
 
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     if std::env::var_os("DISPLAY").is_some() {
@@ -39,6 +45,8 @@ fn main() {
         },
     )
     .expect("Failed to create native desktop window");
+
+    rustcraft::log_info!("WINDOW", "Desktop window created ({}x{})", WIDTH, HEIGHT);
 
     let mut app = RustCraftApp::new(WIDTH, HEIGHT, renderer_choice, seed);
     app.profiler_enabled = profiler_enabled;
@@ -72,6 +80,8 @@ fn main() {
     println!("  LMB             - Mine block / Attack / UI Click");
     println!("  RMB             - Place block / Interact");
     println!("  Scroll / 1-9    - Hotbar slot selection");
+    println!("  T               - Open chat");
+    println!("  /               - Open command prompt");
     println!("  Q               - Drop item / Back in menu");
     println!("Controls (Controller / Gamepad):");
     println!("  Left Stick      - Movement");
@@ -99,6 +109,7 @@ fn main() {
 
         let cur_size = window.get_size();
         if cur_size != win_size {
+            rustcraft::log_debug!("WINDOW", "Window resized from {}x{} to {}x{}", win_size.0, win_size.1, cur_size.0, cur_size.1);
             win_size = cur_size;
             mouse_capture.resize(win_size.0 as i32, win_size.1 as i32);
         }
@@ -172,8 +183,27 @@ fn main() {
                     Key::Key8 => typed_chars.push(if is_shift { '*' } else { '8' }),
                     Key::Key9 => typed_chars.push(if is_shift { '(' } else { '9' }),
                     Key::Space => typed_chars.push(' '),
-                    Key::Minus => typed_chars.push(if is_shift { '_' } else { '-' }),
-                    Key::Period => typed_chars.push('.'),
+                    Key::Minus | Key::NumPadMinus => typed_chars.push(if is_shift { '_' } else { '-' }),
+                    Key::Period | Key::NumPadDot => typed_chars.push('.'),
+                    Key::Slash | Key::NumPadSlash => typed_chars.push(if is_shift { '?' } else { '/' }),
+                    Key::Semicolon => typed_chars.push(if is_shift { ':' } else { ';' }),
+                    Key::Equal | Key::NumPadPlus => typed_chars.push(if is_shift { '+' } else { '=' }),
+                    Key::Comma => typed_chars.push(if is_shift { '<' } else { ',' }),
+                    Key::Apostrophe => typed_chars.push(if is_shift { '"' } else { '\'' }),
+                    Key::Backslash => typed_chars.push(if is_shift { '|' } else { '\\' }),
+                    Key::LeftBracket => typed_chars.push(if is_shift { '{' } else { '[' }),
+                    Key::RightBracket => typed_chars.push(if is_shift { '}' } else { ']' }),
+                    Key::Backquote => typed_chars.push(if is_shift { '~' } else { '`' }),
+                    Key::NumPad0 => typed_chars.push('0'),
+                    Key::NumPad1 => typed_chars.push('1'),
+                    Key::NumPad2 => typed_chars.push('2'),
+                    Key::NumPad3 => typed_chars.push('3'),
+                    Key::NumPad4 => typed_chars.push('4'),
+                    Key::NumPad5 => typed_chars.push('5'),
+                    Key::NumPad6 => typed_chars.push('6'),
+                    Key::NumPad7 => typed_chars.push('7'),
+                    Key::NumPad8 => typed_chars.push('8'),
+                    Key::NumPad9 => typed_chars.push('9'),
                     _ => {}
                 }
             }
@@ -214,6 +244,8 @@ fn main() {
             key_del: window.is_key_down(Key::Delete),
             key_backspace: window.is_key_down(Key::Backspace),
             key_tab: window.is_key_down(Key::Tab),
+            key_t: window.is_key_down(Key::T),
+            key_slash: window.is_key_down(Key::Slash) || window.is_key_down(Key::NumPadSlash),
             key_digits: [
                 window.is_key_down(Key::Key1),
                 window.is_key_down(Key::Key2),
@@ -274,12 +306,12 @@ fn main() {
 
         let out = app.update_and_render(dt, &input);
 
-        if out.request_capture_mouse && !mouse_capture.is_captured() {
+        if out.request_capture_mouse {
             mouse_capture.set_captured(true);
+            mouse_capture.focus();
             window.set_cursor_visibility(false);
             last_mouse = None;
-        }
-        if out.request_release_mouse && mouse_capture.is_captured() {
+        } else if out.request_release_mouse && mouse_capture.is_captured() {
             mouse_capture.set_captured(false);
             window.set_cursor_visibility(true);
         }
@@ -308,4 +340,6 @@ fn main() {
             last_title = out.title;
         }
     }
+
+    rustcraft::log_info!("MAIN", "RustCraft window closed, exiting cleanly");
 }

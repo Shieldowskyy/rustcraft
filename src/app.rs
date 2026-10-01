@@ -128,6 +128,8 @@ pub struct InputState {
     pub key_del: bool,
     pub key_backspace: bool,
     pub key_tab: bool,
+    pub key_t: bool,
+    pub key_slash: bool,
     pub key_digits: [bool; 10],
     pub typed_chars: Vec<char>,
 
@@ -297,6 +299,9 @@ pub struct RustCraftApp {
     prev_l1_btn: bool,
     prev_r1_btn: bool,
     prev_key_digits: [bool; 10],
+    pub chat: crate::gameplay::chat::ChatState,
+    prev_t_down: bool,
+    prev_slash_down: bool,
     pub controls: ControlsManager,
 }
 
@@ -349,7 +354,7 @@ impl RustCraftApp {
             get_save_metadata(index as u8 + 1)
         });
 
-        Self {
+        let app = Self {
             width,
             height,
             renderer,
@@ -459,8 +464,13 @@ impl RustCraftApp {
             prev_l1_btn: false,
             prev_r1_btn: false,
             prev_key_digits: [false; 10],
+            chat: crate::gameplay::chat::ChatState::new(),
+            prev_t_down: false,
+            prev_slash_down: false,
             controls: ControlsManager::new(),
-        }
+        };
+        crate::log_info!("INIT", "RustCraftApp initialized ({}x{}, renderer: {}, seed: {})", width, height, renderer_choice, seed);
+        app
     }
 
     pub fn pixel_buffer(&self) -> &[u32] {
@@ -515,6 +525,8 @@ impl RustCraftApp {
         let right_arrow_down = input.key_right;
         let up_arrow_down = input.key_up;
         let down_arrow_down = input.key_down;
+        let t_down = input.key_t;
+        let slash_down = input.key_slash;
 
 
         match self.state {
@@ -1368,39 +1380,96 @@ impl RustCraftApp {
                 self.state = GameState::Playing;
             }
             GameState::Playing => {
-                if self.controls.is_just_pressed(Action::Save) {
+                self.chat.update(dt);
+
+                let open_chat_requested = (input.key_t && !self.prev_t_down) || self.controls.is_just_pressed(Action::OpenChat);
+                let open_cmd_requested = (input.key_slash && !self.prev_slash_down) || self.controls.is_just_pressed(Action::OpenCommand);
+
+                if !self.chat.is_open {
+                    if open_cmd_requested {
+                        self.chat.open("/");
+                        self.horiz_velocity = Vec3::zero();
+                        self.fly_velocity = Vec3::zero();
+                        crate::log_debug!("CHAT", "Opened command prompt");
+                    } else if open_chat_requested {
+                        self.chat.open("");
+                        self.horiz_velocity = Vec3::zero();
+                        self.fly_velocity = Vec3::zero();
+                        crate::log_debug!("CHAT", "Opened chat prompt");
+                    }
+                } else {
+                    if let Some(action) = self.chat.handle_input(input) {
+                        match action {
+                            crate::gameplay::chat::ChatAction::Close => {
+                                out.request_capture_mouse = true;
+                                crate::log_debug!("CHAT", "Closed chat prompt");
+                            }
+                            crate::gameplay::chat::ChatAction::Execute(text) => {
+                                out.request_capture_mouse = true;
+                                let mut ctx = crate::gameplay::chat::CommandContext {
+                                    player: &mut self.player,
+                                    camera: &mut self.camera,
+                                    world: &mut self.world,
+                                    mob_manager: &mut self.mob_manager,
+                                    items: &mut self.items,
+                                    particles: &mut self.particles,
+                                    is_flying: &mut self.fly_mode,
+                                    fly_velocity: &mut self.fly_velocity,
+                                    horiz_velocity: &mut self.horiz_velocity,
+                                };
+                                if text.starts_with('/') {
+                                    crate::log_info!("COMMAND", "Executing: {}", text);
+                                    self.chat.execute_command(&text, &mut ctx);
+                                } else {
+                                    crate::log_info!("CHAT", "<Player> {}", text);
+                                    self.chat.add_player_chat("Player", &text);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !self.chat.is_open && self.controls.is_just_pressed(Action::Save) {
                     let path = save_path(self.save_slot);
                     match save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref()) {
-                        Ok(()) => println!("Saved world to {path}"),
-                        Err(error) => eprintln!("{error}"),
+                        Ok(()) => {
+                            println!("Saved world to {path}");
+                            crate::log_info!("SAVE", "World successfully saved to slot {} ({})", self.save_slot, path);
+                        }
+                        Err(error) => {
+                            eprintln!("{error}");
+                            crate::log_error!("SAVE", "Failed to save world: {}", error);
+                        }
                     }
                     self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                 }
-                if self.controls.is_just_pressed(Action::Pause) {
+                if !self.chat.is_open && self.controls.is_just_pressed(Action::Pause) {
                     self.last_clean_thumbnail = Some(crate::world::storage::capture_thumbnail(self.renderer.pixel_buffer(), self.width, self.height));
                     self.state = GameState::Paused;
                     out.request_release_mouse = true;
                     self.horiz_velocity = Vec3::zero();
                     self.fly_velocity = Vec3::zero();
+                    crate::log_debug!("STATE", "Game paused");
                 }
 
-                if self.controls.is_just_pressed(Action::Inventory) {
+                if !self.chat.is_open && self.controls.is_just_pressed(Action::Inventory) {
                     self.crafting_table_open = false;
                     self.state = GameState::Inventory;
                     out.request_release_mouse = true;
                     self.horiz_velocity = Vec3::zero();
                     self.fly_velocity = Vec3::zero();
+                    crate::log_debug!("STATE", "Opened inventory");
                 }
 
                 let any_click = left_down || right_down;
-                if any_click && !input.is_mouse_captured {
+                if any_click && !input.is_mouse_captured && !self.chat.is_open {
                     out.request_capture_mouse = true;
                 }
 
                 let look_x_dir = if self.settings.invert_z { -1.0 } else { 1.0 };
                 let look_y_dir = if self.settings.invert_y { -1.0 } else { 1.0 };
 
-                if input.is_mouse_captured {
+                if input.is_mouse_captured && !self.chat.is_open {
                     self.camera.rotate(
                         input.mouse_dx * 0.0025 * look_x_dir,
                         -input.mouse_dy * 0.0025 * look_y_dir,
@@ -1409,7 +1478,7 @@ impl RustCraftApp {
 
                 let gp_look_speed_x = 3.2;
                 let gp_look_speed_y = 2.8;
-                if input.gp_right_stick_x.abs() > 0.0 || input.gp_right_stick_y.abs() > 0.0 {
+                if (input.gp_right_stick_x.abs() > 0.0 || input.gp_right_stick_y.abs() > 0.0) && !self.chat.is_open {
                     self.camera.rotate(
                         input.gp_right_stick_x * gp_look_speed_x * dt * look_x_dir,
                         input.gp_right_stick_y * gp_look_speed_y * dt * look_y_dir,
@@ -1420,33 +1489,37 @@ impl RustCraftApp {
                 let right = self.camera.right_flat();
                 let mut wish_dir = Vec3::zero();
 
-                if self.controls.is_active(Action::MoveForward) { wish_dir = wish_dir + forward; }
-                if self.controls.is_active(Action::MoveBackward) { wish_dir = wish_dir - forward; }
-                if self.controls.is_active(Action::StrafeLeft) { wish_dir = wish_dir - right; }
-                if self.controls.is_active(Action::StrafeRight) { wish_dir = wish_dir + right; }
-                if input.gp_left_stick_y.abs() > 0.0 || input.gp_left_stick_x.abs() > 0.0 {
-                    wish_dir = wish_dir + forward * input.gp_left_stick_y + right * input.gp_left_stick_x;
-                }
-                if wish_dir.length_sq() > 0.0001 {
-                    wish_dir = wish_dir.normalized();
+                if !self.chat.is_open {
+                    if self.controls.is_active(Action::MoveForward) { wish_dir = wish_dir + forward; }
+                    if self.controls.is_active(Action::MoveBackward) { wish_dir = wish_dir - forward; }
+                    if self.controls.is_active(Action::StrafeLeft) { wish_dir = wish_dir - right; }
+                    if self.controls.is_active(Action::StrafeRight) { wish_dir = wish_dir + right; }
+                    if input.gp_left_stick_y.abs() > 0.0 || input.gp_left_stick_x.abs() > 0.0 {
+                        wish_dir = wish_dir + forward * input.gp_left_stick_y + right * input.gp_left_stick_x;
+                    }
+                    if wish_dir.length_sq() > 0.0001 {
+                        wish_dir = wish_dir.normalized();
+                    }
                 }
 
-                if self.controls.is_just_pressed(Action::ToggleFly) {
+                if !self.chat.is_open && self.controls.is_just_pressed(Action::ToggleFly) {
                     self.fly_mode = !self.fly_mode;
                     self.horiz_velocity = Vec3::zero();
                     self.fly_velocity = Vec3::zero();
+                    crate::log_debug!("PLAYER", "Flight mode: {}", self.fly_mode);
                 }
 
-                if self.controls.is_just_pressed(Action::ToggleGamemode) {
+                if !self.chat.is_open && self.controls.is_just_pressed(Action::ToggleGamemode) {
                     self.player.gamemode = if self.player.gamemode == GameMode::Survival {
                         GameMode::Creative
                     } else {
                         GameMode::Survival
                     };
+                    crate::log_info!("PLAYER", "Gamemode changed to {:?}", self.player.gamemode);
                 }
 
-                let sneak_btn_down = self.controls.is_active(Action::Sneak);
-                let sneak_just_pressed = self.controls.is_just_pressed(Action::Sneak);
+                let sneak_btn_down = !self.chat.is_open && self.controls.is_active(Action::Sneak);
+                let sneak_just_pressed = !self.chat.is_open && self.controls.is_just_pressed(Action::Sneak);
                 self.prev_sneak_btn = sneak_btn_down;
 
                 if self.settings.sneak_mode == crate::core::settings::SneakMode::Toggle {
@@ -1471,8 +1544,8 @@ impl RustCraftApp {
                 }
 
                 let can_sprint = self.player.gamemode == GameMode::Creative || self.player.hunger > 6.0;
-                let sprint_btn_down = self.controls.is_active(Action::Sprint) || input.gp_left_stick_y > 0.85;
-                let sprint_just_pressed = self.controls.is_just_pressed(Action::Sprint) || (input.gp_left_stick_y > 0.85 && !self.prev_sprint_btn);
+                let sprint_btn_down = !self.chat.is_open && (self.controls.is_active(Action::Sprint) || input.gp_left_stick_y > 0.85);
+                let sprint_just_pressed = !self.chat.is_open && (self.controls.is_just_pressed(Action::Sprint) || (input.gp_left_stick_y > 0.85 && !self.prev_sprint_btn));
                 self.prev_sprint_btn = sprint_btn_down;
 
                 if self.settings.sprint_mode == crate::core::settings::SprintMode::Toggle {
@@ -1512,17 +1585,17 @@ impl RustCraftApp {
 
                 if self.fly_mode {
                     let mut move_dir = wish_dir;
-                    if self.controls.is_active(Action::Jump) {
+                    if !self.chat.is_open && self.controls.is_active(Action::Jump) {
                         move_dir.y += 1.0;
                     }
-                    if self.controls.is_active(Action::Sneak) {
+                    if !self.chat.is_open && self.controls.is_active(Action::Sneak) {
                         move_dir.y -= 1.0;
                     }
                     if move_dir.length_sq() > 0.0001 {
                         move_dir = move_dir.normalized();
                     }
 
-                    let fly_fast = self.controls.is_active(Action::Sprint);
+                    let fly_fast = !self.chat.is_open && self.controls.is_active(Action::Sprint);
                     let fly_mult = if fly_fast { 2.0 } else { 1.0 };
                     let target_fly = move_dir * (FLY_SPEED * fly_mult);
                     let fly_damping = 14.0;
@@ -1565,7 +1638,7 @@ impl RustCraftApp {
                         if self.vertical_velocity < -1.8 {
                             self.vertical_velocity = -1.8;
                         }
-                        if self.controls.is_active(Action::Jump) {
+                        if !self.chat.is_open && self.controls.is_active(Action::Jump) {
                             self.vertical_velocity = 2.2;
                         }
                     } else if in_water {
@@ -1573,7 +1646,7 @@ impl RustCraftApp {
                         if self.vertical_velocity < -2.5 {
                             self.vertical_velocity = -2.5;
                         }
-                        if self.controls.is_active(Action::Jump) {
+                        if !self.chat.is_open && self.controls.is_active(Action::Jump) {
                             self.vertical_velocity = 3.2;
                         }
                     } else {
@@ -1582,7 +1655,7 @@ impl RustCraftApp {
                             self.vertical_velocity = -TERMINAL_VELOCITY;
                         }
 
-                        let mut should_jump = self.controls.is_active(Action::Jump) && self.on_ground;
+                        let mut should_jump = !self.chat.is_open && self.controls.is_active(Action::Jump) && self.on_ground;
 
                         // Auto-jump logic
                         if !should_jump && self.settings.jump_mode == crate::core::settings::JumpMode::AutoJump && self.on_ground && wish_dir.length_sq() > 0.01 {
@@ -1771,16 +1844,18 @@ impl RustCraftApp {
                     self.vertical_velocity = self.vertical_velocity.min(0.0);
                 }
 
-                if input.scroll_delta < 0.0 || self.controls.is_just_pressed(Action::HotbarPrev) {
-                    self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
-                }
-                if input.scroll_delta > 0.0 || self.controls.is_just_pressed(Action::HotbarNext) {
-                    self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
-                }
+                if !self.chat.is_open {
+                    if input.scroll_delta < 0.0 || self.controls.is_just_pressed(Action::HotbarPrev) {
+                        self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
+                    }
+                    if input.scroll_delta > 0.0 || self.controls.is_just_pressed(Action::HotbarNext) {
+                        self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
+                    }
 
-                for i in 0..10 {
-                    if input.key_digits[i] {
-                        self.player.selected_hotbar_slot = i as u8;
+                    for i in 0..10 {
+                        if input.key_digits[i] {
+                            self.player.selected_hotbar_slot = i as u8;
+                        }
                     }
                 }
 
@@ -1790,8 +1865,8 @@ impl RustCraftApp {
                 }
                 self.renderer.set_selected_block(selected_block_id);
 
-                let interact_left = self.controls.is_active(Action::AttackBreak);
-                let interact_left_just = self.controls.is_just_pressed(Action::AttackBreak);
+                let interact_left = !self.chat.is_open && self.controls.is_active(Action::AttackBreak);
+                let interact_left_just = !self.chat.is_open && self.controls.is_just_pressed(Action::AttackBreak);
 
                 if interact_left {
                     if self.hand_animation < 0.1 {
@@ -1951,7 +2026,7 @@ impl RustCraftApp {
                     self.break_progress = 0.0;
                 }
 
-                let interact_right = self.controls.is_just_pressed(Action::UsePlace);
+                let interact_right = !self.chat.is_open && self.controls.is_just_pressed(Action::UsePlace);
                 if interact_right {
                     let held_food = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
                     let mut ate_food = false;
@@ -2155,7 +2230,7 @@ impl RustCraftApp {
                     self.fly_velocity = Vec3::zero();
                 }
 
-                if self.controls.is_just_pressed(Action::DropItem) {
+                if !self.chat.is_open && self.controls.is_just_pressed(Action::DropItem) {
                     if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
                         self.items.push(ItemEntity::new(
                             self.camera.position + self.camera.forward() * 0.5,
@@ -2348,6 +2423,7 @@ impl RustCraftApp {
                     }
                 }
                 self.renderer.draw_hotbar(&self.player);
+                self.chat.draw(&mut self.renderer.color_buffer, self.width, self.height);
                 if let Some(u_start) = render_ui_start {
                     cur_profiler.render_ui_ms = u_start.elapsed().as_secs_f32() * 1000.0;
                 }
@@ -2572,7 +2648,7 @@ impl RustCraftApp {
                     }
                 }
 
-                if !input.is_mouse_captured {
+                if !input.is_mouse_captured && !self.chat.is_open {
                     self.renderer.draw_capture_prompt(true);
                 }
 
@@ -3341,6 +3417,8 @@ impl RustCraftApp {
         self.prev_v_down = v_down;
         self.prev_x_down = x_down;
         self.prev_key_digits = input.key_digits;
+        self.prev_t_down = t_down;
+        self.prev_slash_down = slash_down;
 
         out.title = format!(
             "RustCraft [{} renderer] - {} FPS - block: {}{}{}",

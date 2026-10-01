@@ -454,6 +454,8 @@ impl VitaInputTracker {
             key_del: btn_circle,
             key_backspace: btn_circle,
             key_tab: false,
+            key_t: false,
+            key_slash: false,
             key_digits: [
                 false, false, false, false, false, false, false, false, false, false,
             ],

@@ -1,6 +1,6 @@
 //! Command-line argument parsing and random seed generation for RustCraft.
 
-const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan] [--seed NUMBER] [--profiler]";
+const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan] [--seed NUMBER] [--profiler] [-log]";
 
 /// Parses command-line arguments to determine the desired rendering backend.
 ///
@@ -29,6 +29,7 @@ pub fn parse_renderer_choice() -> &'static str {
             "--software" => choice = "software",
             "--seed" => index += 1,
             "--profiler" => {},
+            "-log" | "--log" => {},
             "--help" | "-h" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -49,6 +50,13 @@ pub fn parse_renderer_choice() -> &'static str {
 /// the Minecraft-style debug pie chart and memory telemetry under F3.
 pub fn parse_profiler_enabled() -> bool {
     std::env::args().any(|arg| arg == "--profiler")
+}
+
+/// Parses whether the `-log` or `--log` CLI flag was specified.
+///
+/// When enabled, RustCraft prints full debug telemetry and event logs to stdout.
+pub fn parse_log_enabled() -> bool {
+    std::env::args().any(|arg| arg == "-log" || arg == "--log")
 }
 
 /// Generates a cryptographically strong random seed using OS entropy (`getrandom`),
