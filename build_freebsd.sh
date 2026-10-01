@@ -6,7 +6,7 @@ set -e
 # Target: x86_64-unknown-freebsd
 # ============================================================================
 
-export PATH="$HOME/.cargo/bin:/usr/local/bin:$PATH"
+export PATH="$HOME/.cargo/bin:/usr/local/bin:${PATH:-/usr/bin:/bin}"
 
 TARGET="x86_64-unknown-freebsd"
 BINARY_NAME="rustcraft"
@@ -16,7 +16,7 @@ BINARY_PATH="target/${TARGET}/release/${BINARY_NAME}"
 OS=$(uname -s)
 if [ "$OS" = "FreeBSD" ]; then
     echo "=== Detected native FreeBSD host ($OS $(uname -m)) ==="
-    export PATH="/usr/local/bin:$HOME/.cargo/bin:$PATH"
+    export PATH="/usr/local/bin:$HOME/.cargo/bin:${PATH:-/usr/bin:/bin}"
     export PKG_CONFIG_PATH="/usr/local/libdata/pkgconfig:/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
     export LIBRARY_PATH="/usr/local/lib:${LIBRARY_PATH:-}"
     export RUSTFLAGS="-L /usr/local/lib -C link-arg=-Wl,-rpath,/usr/local/lib ${RUSTFLAGS:-}"
