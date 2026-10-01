@@ -37,6 +37,7 @@ pub struct CommandContext<'a> {
     pub is_flying: &'a mut bool,
     pub fly_velocity: &'a mut Vec3,
     pub horiz_velocity: &'a mut Vec3,
+    pub reload_chunks_requested: &'a mut bool,
 }
 
 pub struct ChatState {
@@ -415,6 +416,7 @@ impl ChatState {
                 self.add_info("/kill - Kill the player");
                 self.add_info("/clear [chat] - Clear inventory or chat");
                 self.add_info("/seed - Display world generation seed");
+                self.add_info("/reloadchunks - Reload chunks and rebuild mesh cache");
                 self.add_info("/fly - Toggle flight mode");
                 self.add_info("/difficulty <peaceful|easy|normal|hard>");
             }
@@ -617,6 +619,13 @@ impl ChatState {
                     self.add_info("Flight mode: DISABLED");
                 }
                 crate::log_debug!("Command", "Flight mode set to {}", *ctx.is_flying);
+            }
+
+            "reload" | "reloadchunks" => {
+                ctx.world.mark_all_chunks_dirty();
+                *ctx.reload_chunks_requested = true;
+                self.add_success("Reloading all chunks and rebuilding mesh cache...");
+                crate::log_info!("WORLD", "Chunk reload triggered via chat command");
             }
 
             "weather" => {

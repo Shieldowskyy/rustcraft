@@ -935,6 +935,7 @@ impl World {
     }
 
     pub fn new_with_seed(seed: u32) -> Self {
+        crate::log_info!("WORLD", "Initializing world with seed {}", seed);
         #[cfg(not(target_arch = "wasm32"))]
         let (chunk_req_tx, chunk_res_rx) = {
             let (req_tx, req_rx) = std::sync::mpsc::channel::<(i32, i32, u32)>();
@@ -952,6 +953,7 @@ impl World {
                         .clamp(2, 6)
                 }
             };
+            crate::log_debug!("WORLD", "Spawned {} asynchronous chunk generation worker threads", num_threads);
 
             for i in 0..num_threads {
                 let req_rx_clone = std::sync::Arc::clone(&req_rx);
@@ -981,6 +983,7 @@ impl World {
                             };
                             match job {
                                 Some((cx, cz, chunk_seed)) => {
+                                    crate::log_debug!("CHUNK", "Worker generating chunk ({}, {}) [seed={}]", cx, cz, chunk_seed);
                                     let chunk = Chunk::generate(cx, cz, chunk_seed);
                                     if res_tx_clone.send(chunk).is_err() {
                                         break;
@@ -998,9 +1001,11 @@ impl World {
         let spawn_pos = Self::find_spawn_position(seed);
         let spawn_cx = (spawn_pos.x.floor() as i32) >> 4;
         let spawn_cz = (spawn_pos.z.floor() as i32) >> 4;
+        crate::log_info!("WORLD", "Spawn point found at ({:.1}, {:.1}, {:.1}) [chunk ({}, {})]", spawn_pos.x, spawn_pos.y, spawn_pos.z, spawn_cx, spawn_cz);
 
         let mut chunks = HashMap::new();
         // Light pregeneration of initial spawn area (2-chunk radius -> 5x5 = 25 chunks)
+        crate::log_info!("WORLD", "Pregenerating initial 5x5 spawn chunks around ({}, {})", spawn_cx, spawn_cz);
         for dz in -2..=2 {
             for dx in -2..=2 {
                 let cx = spawn_cx + dx;
@@ -1009,6 +1014,7 @@ impl World {
                 chunks.insert((cx, cz), chunk);
             }
         }
+        crate::log_info!("WORLD", "Pregeneration completed ({} chunks loaded in memory)", chunks.len());
 
         World {
             name: "New World".to_string(),
@@ -1037,6 +1043,11 @@ impl World {
     }
 
     pub const DAY_DURATION: f32 = 480.0;
+
+    #[inline]
+    pub fn pending_chunks_count(&self) -> usize {
+        self.pending_chunks.len()
+    }
 
     #[inline]
     pub fn advance_time(&mut self, dt: f32) {
@@ -1112,6 +1123,7 @@ impl World {
     }
 
     pub fn save(&self, path: &str) -> Result<(), String> {
+        crate::log_info!("SAVE", "Serializing world '{}' (seed: {}, mode: {:?}, chunks: {}, chests: {}, furnaces: {}) to '{}'", self.name, self.seed, self.gamemode, self.chunks.len(), self.chests.len(), self.furnaces.len(), path);
         let mut bytes = Vec::with_capacity(32 + self.chunks.len() * 4);
         bytes.extend_from_slice(b"RUSTCRAFT6");
         bytes.extend_from_slice(&self.seed.to_le_bytes());
@@ -1212,6 +1224,7 @@ impl World {
     }
 
     pub fn load(path: &str) -> Result<Self, String> {
+        crate::log_info!("SAVE", "Loading world from file '{}'...", path);
         let bytes = std::fs::read(path).map_err(|error| format!("failed to read world file: {error}"))?;
         let mut cursor = 0usize;
         let format = read_bytes(&bytes, &mut cursor, 10)?;
@@ -1391,6 +1404,7 @@ impl World {
                 }
             }
         }
+        crate::log_info!("SAVE", "Successfully loaded world '{}' (seed: {}, mode: {:?}, chunks: {}, chests: {}, furnaces: {})", world.name, world.seed, world.gamemode, world.chunks.len(), world.chests.len(), world.furnaces.len());
         Ok(world)
     }
 
@@ -1748,6 +1762,7 @@ impl World {
                     let ddz = cz - pcz;
                     if ddx * ddx + ddz * ddz <= unload_dist_sq {
                         self.chunks.insert((cx, cz), chunk);
+                        crate::log_debug!("CHUNK", "Integrated chunk ({}, {}) into active world (loaded: {})", cx, cz, self.chunks.len());
                         if let Some(n) = self.chunks.get_mut(&(cx + 1, cz)) { n.dirty = true; }
                         if let Some(n) = self.chunks.get_mut(&(cx - 1, cz)) { n.dirty = true; }
                         if let Some(n) = self.chunks.get_mut(&(cx, cz + 1)) { n.dirty = true; }
@@ -1780,6 +1795,7 @@ impl World {
         }
 
         if !missing_chunks.is_empty() {
+            crate::log_debug!("CHUNK", "Requesting generation for {} missing chunks around player chunk ({}, {}) [view_dist={}]", missing_chunks.len(), pcx, pcz, view_distance);
             // Sort missing chunks so the closest chunks to the player generate first
             missing_chunks.sort_unstable_by_key(|&(cx, cz)| {
                 let dx = cx - pcx;
@@ -1818,6 +1834,7 @@ impl World {
             self.last_stream_chunk = None;
         }
 
+        let count_before = self.chunks.len();
         self.chunks.retain(|&(cx, cz), _| {
             let ddx = cx - pcx;
             let ddz = cz - pcz;
@@ -1828,12 +1845,16 @@ impl World {
             let ddz = cz - pcz;
             ddx * ddx + ddz * ddz <= unload_dist_sq
         });
+        if self.chunks.len() < count_before {
+            crate::log_debug!("CHUNK", "Unloaded {} distant chunks (remaining active: {})", count_before - self.chunks.len(), self.chunks.len());
+        }
     }
 
     pub fn mark_all_chunks_dirty(&mut self) {
         for chunk in self.chunks.values_mut() {
             chunk.dirty = true;
         }
+        crate::log_info!("WORLD", "Marked all {} chunks dirty for mesh regeneration", self.chunks.len());
     }
 
     pub fn purge_distant_chunks(&mut self, player_pos: Vec3, view_distance: i32) {
@@ -1842,6 +1863,7 @@ impl World {
         let pcz = (player_pos.z.floor() as i32) >> 4;
         let unload_dist = view_distance + 2;
         let unload_dist_sq = unload_dist * unload_dist;
+        let before_count = self.chunks.len();
 
         self.chunks.retain(|&(cx, cz), _| {
             let ddx = cx - pcx;
@@ -1860,6 +1882,7 @@ impl World {
 
         self.last_stream_chunk = None;
         self.last_stream_dist = None;
+        crate::log_info!("CHUNK", "Purged distant chunks: {} -> {} active (view distance: {} chunks)", before_count, self.chunks.len(), view_distance);
     }
 
     #[inline]

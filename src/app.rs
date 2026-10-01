@@ -118,6 +118,7 @@ pub struct InputState {
     pub key_q: bool,
     pub key_g: bool,
     pub key_m: bool,
+    pub key_f3: bool,
     pub key_f5: bool,
     pub key_enter: bool,
     pub key_up: bool,
@@ -265,6 +266,7 @@ pub struct RustCraftApp {
     pub right_drag_visited: Vec<crate::ui::inventory_ui::InventorySlotTarget>,
     pub profiler_frame_count: u64,
     pub profiler_copied_timer: f32,
+    pub telemetry_timer: f32,
 
     // Controls toggle states
     pub sprint_toggled: bool,
@@ -432,6 +434,7 @@ impl RustCraftApp {
             right_drag_visited: Vec::new(),
             profiler_frame_count: 0,
             profiler_copied_timer: 0.0,
+            telemetry_timer: 0.0,
 
             sprint_toggled: false,
             crouch_toggled: false,
@@ -572,11 +575,14 @@ impl RustCraftApp {
                     self.save_select_slot = self.save_slot;
                     self.save_select_scroll = ((self.save_slot as usize - 1).saturating_sub(1))
                         .min(MAX_SAVE_SLOTS as usize - VISIBLE_SAVE_ROWS);
+                    crate::log_info!("MENU", "Opened Save Selection menu from Main Menu");
                 } else if click_button == Some(1) {
                     self.state = GameState::Settings(PreviousMenu::MainMenu);
                     self.settings_hovered_opt = Some(0);
+                    crate::log_info!("MENU", "Opened Settings menu from Main Menu");
                 } else if (q_down && !self.prev_q_down) || click_button == Some(2) || input.gp_east_just_pressed {
                     out.quit_requested = true;
+                    crate::log_info!("STATE", "Quit requested from Main Menu");
                 }
 
                 self.renderer.draw_main_menu(hovered_idx);
@@ -675,6 +681,7 @@ impl RustCraftApp {
                     let meta = &self.save_metadata_cache[self.save_slot as usize - 1];
                     if meta.exists {
                         let path = save_path(self.save_slot);
+                        crate::log_info!("MENU", "Selected existing world in slot {} ('{}', seed: {}) to load", self.save_slot, meta.name, meta.seed);
                         #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
                         {
                             let (tx, rx) = mpsc::channel();
@@ -725,6 +732,7 @@ impl RustCraftApp {
                         self.create_world_focus = 0;
                         self.create_world_selected = false;
                         self.state = GameState::CreateWorld;
+                        crate::log_info!("MENU", "Opened Create World menu for empty slot {}", self.create_world_slot);
                     }
                 } else if new_action {
                     // Open world creation menu for selected slot
@@ -735,11 +743,14 @@ impl RustCraftApp {
                     self.create_world_focus = 0;
                     self.create_world_selected = false;
                     self.state = GameState::CreateWorld;
+                    crate::log_info!("MENU", "Opened Create World menu for slot {}", self.create_world_slot);
                 } else if delete_action {
+                    crate::log_info!("MENU", "Requested deletion of save slot {}", self.save_select_slot);
                     let _ = delete_save(self.save_select_slot);
                     self.save_metadata_cache[self.save_select_slot as usize - 1] = get_save_metadata(self.save_select_slot);
                 } else if back_action {
                     self.state = GameState::MainMenu;
+                    crate::log_info!("MENU", "Returned to Main Menu from Save Selection");
                 }
 
                 if matches!(self.state, GameState::SaveSelect) {
@@ -921,13 +932,16 @@ impl RustCraftApp {
                 if do_rand_seed {
                     self.create_world_seed = format!("{}", generate_random_seed());
                     self.create_world_selected = false;
+                    crate::log_debug!("MENU", "Generated random seed for new world: {}", self.create_world_seed);
                 } else if do_toggle_mode {
                     self.create_world_gamemode = match self.create_world_gamemode {
                         GameMode::Survival => GameMode::Creative,
                         GameMode::Creative => GameMode::Survival,
                     };
+                    crate::log_debug!("MENU", "Toggled world creation mode to {:?}", self.create_world_gamemode);
                 } else if do_cancel {
                     self.state = GameState::SaveSelect;
+                    crate::log_info!("MENU", "Cancelled world creation, returning to Save Selection");
                 } else if do_create {
                     let seed = if self.create_world_seed.trim().is_empty() {
                         generate_random_seed()
@@ -951,6 +965,7 @@ impl RustCraftApp {
                     self.save_slot = self.create_world_slot;
                     self.seed = seed;
                     self.player.reset(gamemode);
+                    crate::log_info!("MENU", "Creating new world '{}' (seed: {}, mode: {:?}) in slot {}", name, seed, gamemode, self.save_slot);
 
                     #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
                     {
@@ -1044,6 +1059,7 @@ impl RustCraftApp {
                 self.prev_l1_btn = input.gp_btn_lb;
                 self.prev_r1_btn = input.gp_btn_rb;
 
+                let prev_tab = self.settings_tab;
                 if input.key_digits[1] && !self.prev_key_digits[1] {
                     self.settings_tab = 0;
                     self.settings_hovered_opt = Some(0);
@@ -1097,6 +1113,9 @@ impl RustCraftApp {
                         hovered_opt = Some(0);
                     }
                 }
+                if self.settings_tab != prev_tab {
+                    crate::log_debug!("SETTINGS", "Switched to tab {} ({})", self.settings_tab, match self.settings_tab { 0 => "Graphics", 1 => "Controls", _ => "Debug" });
+                }
 
                 let click_opt = if (left_click_just && hovered_tab.is_none()) || input.gp_south_just_pressed || (enter_down && !self.prev_enter_down) {
                     hovered_opt
@@ -1114,30 +1133,61 @@ impl RustCraftApp {
                             0 => {
                                 self.settings.cycle_language(true);
                                 crate::core::i18n::set_language(self.settings.language);
+                                crate::log_info!("SETTINGS", "Language changed to {:?}", self.settings.language);
                             }
                             1 => {
                                 self.settings.cycle_render_distance(true);
                                 self.renderer.render_distance = self.settings.render_distance;
                                 self.world.purge_distant_chunks(self.camera.position, self.settings.render_distance);
                                 self.renderer.clear_mesh_cache();
+                                crate::log_info!("SETTINGS", "Render distance changed to {} chunks", self.settings.render_distance);
                             }
                             2 => {
                                 self.settings.cycle_leaf_quality(true);
                                 self.renderer.update_textures(self.settings.fancy_leaves);
                                 self.world.mark_all_chunks_dirty();
                                 self.renderer.clear_mesh_cache();
+                                crate::log_info!("SETTINGS", "Fancy leaves changed to {}", self.settings.fancy_leaves);
                             }
-                            3 => self.settings.fog = !self.settings.fog,
-                            4 => self.settings.clouds = !self.settings.clouds,
-                            5 => self.settings.particles = !self.settings.particles,
-                            6 => self.settings.chunk_anim = !self.settings.chunk_anim,
-                            7 => self.settings.cycle_fov(true),
-                            8 => self.settings.cycle_msaa(true),
-                            9 => self.settings.cycle_fps_limit(true),
-                            10 => self.settings.underwater_fx = !self.settings.underwater_fx,
-                            11 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                            3 => {
+                                self.settings.fog = !self.settings.fog;
+                                crate::log_info!("SETTINGS", "Fog toggled to {}", self.settings.fog);
+                            }
+                            4 => {
+                                self.settings.clouds = !self.settings.clouds;
+                                crate::log_info!("SETTINGS", "Clouds toggled to {}", self.settings.clouds);
+                            }
+                            5 => {
+                                self.settings.particles = !self.settings.particles;
+                                crate::log_info!("SETTINGS", "Particles toggled to {}", self.settings.particles);
+                            }
+                            6 => {
+                                self.settings.chunk_anim = !self.settings.chunk_anim;
+                                crate::log_info!("SETTINGS", "Chunk animation toggled to {}", self.settings.chunk_anim);
+                            }
+                            7 => {
+                                self.settings.cycle_fov(true);
+                                crate::log_info!("SETTINGS", "FOV changed to {} deg", self.settings.fov_deg);
+                            }
+                            8 => {
+                                self.settings.cycle_msaa(true);
+                                crate::log_info!("SETTINGS", "MSAA changed to {}", self.settings.msaa);
+                            }
+                            9 => {
+                                self.settings.cycle_fps_limit(true);
+                                crate::log_info!("SETTINGS", "FPS limit changed to {}", self.settings.fps_limit);
+                            }
+                            10 => {
+                                self.settings.underwater_fx = !self.settings.underwater_fx;
+                                crate::log_info!("SETTINGS", "Underwater FX toggled to {}", self.settings.underwater_fx);
+                            }
+                            11 => {
+                                self.settings.debug_overlay = !self.settings.debug_overlay;
+                                crate::log_info!("SETTINGS", "Debug overlay toggled to {}", self.settings.debug_overlay);
+                            }
                             12 => {
                                 let _ = self.settings.save();
+                                crate::log_info!("SETTINGS", "Saved settings and returned to {:?}", prev);
                                 self.state = match prev {
                                     PreviousMenu::MainMenu => GameState::MainMenu,
                                     PreviousMenu::Paused => GameState::Paused,
@@ -1151,28 +1201,58 @@ impl RustCraftApp {
                                 0 => {
                                     self.settings.cycle_language(false);
                                     crate::core::i18n::set_language(self.settings.language);
+                                    crate::log_info!("SETTINGS", "Language changed to {:?}", self.settings.language);
                                 }
                                 1 => {
                                     self.settings.cycle_render_distance(false);
                                     self.renderer.render_distance = self.settings.render_distance;
                                     self.world.purge_distant_chunks(self.camera.position, self.settings.render_distance);
                                     self.renderer.clear_mesh_cache();
+                                    crate::log_info!("SETTINGS", "Render distance changed to {} chunks", self.settings.render_distance);
                                 }
                                 2 => {
                                     self.settings.cycle_leaf_quality(false);
                                     self.renderer.update_textures(self.settings.fancy_leaves);
                                     self.world.mark_all_chunks_dirty();
                                     self.renderer.clear_mesh_cache();
+                                    crate::log_info!("SETTINGS", "Fancy leaves changed to {}", self.settings.fancy_leaves);
                                 }
-                                3 => self.settings.fog = !self.settings.fog,
-                                4 => self.settings.clouds = !self.settings.clouds,
-                                5 => self.settings.particles = !self.settings.particles,
-                                6 => self.settings.chunk_anim = !self.settings.chunk_anim,
-                                7 => self.settings.cycle_fov(false),
-                                8 => self.settings.cycle_msaa(false),
-                                9 => self.settings.cycle_fps_limit(false),
-                                10 => self.settings.underwater_fx = !self.settings.underwater_fx,
-                                11 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                                3 => {
+                                    self.settings.fog = !self.settings.fog;
+                                    crate::log_info!("SETTINGS", "Fog toggled to {}", self.settings.fog);
+                                }
+                                4 => {
+                                    self.settings.clouds = !self.settings.clouds;
+                                    crate::log_info!("SETTINGS", "Clouds toggled to {}", self.settings.clouds);
+                                }
+                                5 => {
+                                    self.settings.particles = !self.settings.particles;
+                                    crate::log_info!("SETTINGS", "Particles toggled to {}", self.settings.particles);
+                                }
+                                6 => {
+                                    self.settings.chunk_anim = !self.settings.chunk_anim;
+                                    crate::log_info!("SETTINGS", "Chunk animation toggled to {}", self.settings.chunk_anim);
+                                }
+                                7 => {
+                                    self.settings.cycle_fov(false);
+                                    crate::log_info!("SETTINGS", "FOV changed to {} deg", self.settings.fov_deg);
+                                }
+                                8 => {
+                                    self.settings.cycle_msaa(false);
+                                    crate::log_info!("SETTINGS", "MSAA changed to {}", self.settings.msaa);
+                                }
+                                9 => {
+                                    self.settings.cycle_fps_limit(false);
+                                    crate::log_info!("SETTINGS", "FPS limit changed to {}", self.settings.fps_limit);
+                                }
+                                10 => {
+                                    self.settings.underwater_fx = !self.settings.underwater_fx;
+                                    crate::log_info!("SETTINGS", "Underwater FX toggled to {}", self.settings.underwater_fx);
+                                }
+                                11 => {
+                                    self.settings.debug_overlay = !self.settings.debug_overlay;
+                                    crate::log_info!("SETTINGS", "Debug overlay toggled to {}", self.settings.debug_overlay);
+                                }
                                 _ => {}
                             }
                         }
@@ -1182,28 +1262,58 @@ impl RustCraftApp {
                                 0 => {
                                     self.settings.cycle_language(true);
                                     crate::core::i18n::set_language(self.settings.language);
+                                    crate::log_info!("SETTINGS", "Language changed to {:?}", self.settings.language);
                                 }
                                 1 => {
                                     self.settings.cycle_render_distance(true);
                                     self.renderer.render_distance = self.settings.render_distance;
                                     self.world.purge_distant_chunks(self.camera.position, self.settings.render_distance);
                                     self.renderer.clear_mesh_cache();
+                                    crate::log_info!("SETTINGS", "Render distance changed to {} chunks", self.settings.render_distance);
                                 }
                                 2 => {
                                     self.settings.cycle_leaf_quality(true);
                                     self.renderer.update_textures(self.settings.fancy_leaves);
                                     self.world.mark_all_chunks_dirty();
                                     self.renderer.clear_mesh_cache();
+                                    crate::log_info!("SETTINGS", "Fancy leaves changed to {}", self.settings.fancy_leaves);
                                 }
-                                3 => self.settings.fog = !self.settings.fog,
-                                4 => self.settings.clouds = !self.settings.clouds,
-                                5 => self.settings.particles = !self.settings.particles,
-                                6 => self.settings.chunk_anim = !self.settings.chunk_anim,
-                                7 => self.settings.cycle_fov(true),
-                                8 => self.settings.cycle_msaa(true),
-                                9 => self.settings.cycle_fps_limit(true),
-                                10 => self.settings.underwater_fx = !self.settings.underwater_fx,
-                                11 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                                3 => {
+                                    self.settings.fog = !self.settings.fog;
+                                    crate::log_info!("SETTINGS", "Fog toggled to {}", self.settings.fog);
+                                }
+                                4 => {
+                                    self.settings.clouds = !self.settings.clouds;
+                                    crate::log_info!("SETTINGS", "Clouds toggled to {}", self.settings.clouds);
+                                }
+                                5 => {
+                                    self.settings.particles = !self.settings.particles;
+                                    crate::log_info!("SETTINGS", "Particles toggled to {}", self.settings.particles);
+                                }
+                                6 => {
+                                    self.settings.chunk_anim = !self.settings.chunk_anim;
+                                    crate::log_info!("SETTINGS", "Chunk animation toggled to {}", self.settings.chunk_anim);
+                                }
+                                7 => {
+                                    self.settings.cycle_fov(true);
+                                    crate::log_info!("SETTINGS", "FOV changed to {} deg", self.settings.fov_deg);
+                                }
+                                8 => {
+                                    self.settings.cycle_msaa(true);
+                                    crate::log_info!("SETTINGS", "MSAA changed to {}", self.settings.msaa);
+                                }
+                                9 => {
+                                    self.settings.cycle_fps_limit(true);
+                                    crate::log_info!("SETTINGS", "FPS limit changed to {}", self.settings.fps_limit);
+                                }
+                                10 => {
+                                    self.settings.underwater_fx = !self.settings.underwater_fx;
+                                    crate::log_info!("SETTINGS", "Underwater FX toggled to {}", self.settings.underwater_fx);
+                                }
+                                11 => {
+                                    self.settings.debug_overlay = !self.settings.debug_overlay;
+                                    crate::log_info!("SETTINGS", "Debug overlay toggled to {}", self.settings.debug_overlay);
+                                }
                                 _ => {}
                             }
                         }
@@ -1212,13 +1322,29 @@ impl RustCraftApp {
                     // CONTROLS TAB
                     if let Some(opt_idx) = click_opt {
                         match opt_idx {
-                            0 => self.settings.cycle_sprint_mode(),
-                            1 => self.settings.cycle_sneak_mode(),
-                            2 => self.settings.cycle_jump_mode(),
-                            3 => self.settings.toggle_invert_y(),
-                            4 => self.settings.toggle_invert_z(),
+                            0 => {
+                                self.settings.cycle_sprint_mode();
+                                crate::log_info!("SETTINGS", "Sprint mode changed to {:?}", self.settings.sprint_mode);
+                            }
+                            1 => {
+                                self.settings.cycle_sneak_mode();
+                                crate::log_info!("SETTINGS", "Sneak mode changed to {:?}", self.settings.sneak_mode);
+                            }
+                            2 => {
+                                self.settings.cycle_jump_mode();
+                                crate::log_info!("SETTINGS", "Jump mode changed to {:?}", self.settings.jump_mode);
+                            }
+                            3 => {
+                                self.settings.toggle_invert_y();
+                                crate::log_info!("SETTINGS", "Invert Y changed to {}", self.settings.invert_y);
+                            }
+                            4 => {
+                                self.settings.toggle_invert_z();
+                                crate::log_info!("SETTINGS", "Invert Z changed to {}", self.settings.invert_z);
+                            }
                             5 => {
                                 let _ = self.settings.save();
+                                crate::log_info!("SETTINGS", "Saved settings and returned to {:?}", prev);
                                 self.state = match prev {
                                     PreviousMenu::MainMenu => GameState::MainMenu,
                                     PreviousMenu::Paused => GameState::Paused,
@@ -1229,11 +1355,26 @@ impl RustCraftApp {
                     } else if input.gp_dpad_left_just_pressed || left_key_just || input.gp_dpad_right_just_pressed || right_key_just {
                         if let Some(opt_idx) = hovered_opt {
                             match opt_idx {
-                                0 => self.settings.cycle_sprint_mode(),
-                                1 => self.settings.cycle_sneak_mode(),
-                                2 => self.settings.cycle_jump_mode(),
-                                3 => self.settings.toggle_invert_y(),
-                                4 => self.settings.toggle_invert_z(),
+                                0 => {
+                                    self.settings.cycle_sprint_mode();
+                                    crate::log_info!("SETTINGS", "Sprint mode changed to {:?}", self.settings.sprint_mode);
+                                }
+                                1 => {
+                                    self.settings.cycle_sneak_mode();
+                                    crate::log_info!("SETTINGS", "Sneak mode changed to {:?}", self.settings.sneak_mode);
+                                }
+                                2 => {
+                                    self.settings.cycle_jump_mode();
+                                    crate::log_info!("SETTINGS", "Jump mode changed to {:?}", self.settings.jump_mode);
+                                }
+                                3 => {
+                                    self.settings.toggle_invert_y();
+                                    crate::log_info!("SETTINGS", "Invert Y changed to {}", self.settings.invert_y);
+                                }
+                                4 => {
+                                    self.settings.toggle_invert_z();
+                                    crate::log_info!("SETTINGS", "Invert Z changed to {}", self.settings.invert_z);
+                                }
                                 _ => {}
                             }
                         }
@@ -1244,6 +1385,7 @@ impl RustCraftApp {
                         match opt_idx {
                             0 => {
                                 self.settings.toggle_profiler_server();
+                                crate::log_info!("SETTINGS", "Profiler server toggled: {}", self.settings.profiler_server);
                                 if self.settings.profiler_server {
                                     self.profiler_server = crate::core::profiler_server::ProfilerServer::start(self.settings.profiler_server_port).ok();
                                 } else if let Some(mut s) = self.profiler_server.take() {
@@ -1256,10 +1398,12 @@ impl RustCraftApp {
                                     let url = format!("http://{}:{}", server_ip, self.settings.profiler_server_port);
                                     crate::ui::clipboard::set_clipboard(&url);
                                     self.profiler_copied_timer = 2.5;
+                                    crate::log_info!("SETTINGS", "Copied profiler server URL: {}", url);
                                 }
                             }
                             2 => {
                                 self.settings.cycle_profiler_server_port(true);
+                                crate::log_info!("SETTINGS", "Profiler server port changed to {}", self.settings.profiler_server_port);
                                 if self.settings.profiler_server {
                                     if let Some(mut s) = self.profiler_server.take() {
                                         s.stop();
@@ -1267,9 +1411,13 @@ impl RustCraftApp {
                                     self.profiler_server = crate::core::profiler_server::ProfilerServer::start(self.settings.profiler_server_port).ok();
                                 }
                             }
-                            3 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                            3 => {
+                                self.settings.debug_overlay = !self.settings.debug_overlay;
+                                crate::log_info!("SETTINGS", "Debug overlay toggled to {}", self.settings.debug_overlay);
+                            }
                             4 => {
                                 let _ = self.settings.save();
+                                crate::log_info!("SETTINGS", "Saved settings and returned to {:?}", prev);
                                 self.state = match prev {
                                     PreviousMenu::MainMenu => GameState::MainMenu,
                                     PreviousMenu::Paused => GameState::Paused,
@@ -1282,6 +1430,7 @@ impl RustCraftApp {
                             match opt_idx {
                                 0 => {
                                     self.settings.toggle_profiler_server();
+                                    crate::log_info!("SETTINGS", "Profiler server toggled: {}", self.settings.profiler_server);
                                     if self.settings.profiler_server {
                                         self.profiler_server = crate::core::profiler_server::ProfilerServer::start(self.settings.profiler_server_port).ok();
                                     } else if let Some(mut s) = self.profiler_server.take() {
@@ -1290,6 +1439,7 @@ impl RustCraftApp {
                                 }
                                 2 => {
                                     self.settings.cycle_profiler_server_port(false);
+                                    crate::log_info!("SETTINGS", "Profiler server port changed to {}", self.settings.profiler_server_port);
                                     if self.settings.profiler_server {
                                         if let Some(mut s) = self.profiler_server.take() {
                                             s.stop();
@@ -1297,7 +1447,10 @@ impl RustCraftApp {
                                         self.profiler_server = crate::core::profiler_server::ProfilerServer::start(self.settings.profiler_server_port).ok();
                                     }
                                 }
-                                3 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                                3 => {
+                                    self.settings.debug_overlay = !self.settings.debug_overlay;
+                                    crate::log_info!("SETTINGS", "Debug overlay toggled to {}", self.settings.debug_overlay);
+                                }
                                 _ => {}
                             }
                         }
@@ -1306,6 +1459,7 @@ impl RustCraftApp {
                             match opt_idx {
                                 0 => {
                                     self.settings.toggle_profiler_server();
+                                    crate::log_info!("SETTINGS", "Profiler server toggled: {}", self.settings.profiler_server);
                                     if self.settings.profiler_server {
                                         self.profiler_server = crate::core::profiler_server::ProfilerServer::start(self.settings.profiler_server_port).ok();
                                     } else if let Some(mut s) = self.profiler_server.take() {
@@ -1314,6 +1468,7 @@ impl RustCraftApp {
                                 }
                                 2 => {
                                     self.settings.cycle_profiler_server_port(true);
+                                    crate::log_info!("SETTINGS", "Profiler server port changed to {}", self.settings.profiler_server_port);
                                     if self.settings.profiler_server {
                                         if let Some(mut s) = self.profiler_server.take() {
                                             s.stop();
@@ -1321,7 +1476,10 @@ impl RustCraftApp {
                                         self.profiler_server = crate::core::profiler_server::ProfilerServer::start(self.settings.profiler_server_port).ok();
                                     }
                                 }
-                                3 => self.settings.debug_overlay = !self.settings.debug_overlay,
+                                3 => {
+                                    self.settings.debug_overlay = !self.settings.debug_overlay;
+                                    crate::log_info!("SETTINGS", "Debug overlay toggled to {}", self.settings.debug_overlay);
+                                }
                                 _ => {}
                             }
                         }
@@ -1330,6 +1488,7 @@ impl RustCraftApp {
 
                 if (escape_down && !self.prev_escape_down) || (p_down && !self.prev_p_down) || input.gp_east_just_pressed {
                     let _ = self.settings.save();
+                    crate::log_info!("SETTINGS", "Saved settings and returned to {:?}", prev);
                     self.state = match prev {
                         PreviousMenu::MainMenu => GameState::MainMenu,
                         PreviousMenu::Paused => GameState::Paused,
@@ -1366,9 +1525,11 @@ impl RustCraftApp {
                             self.camera = Camera::new(start_pos);
                             self.mob_manager = MobManager::new();
                             self.state = GameState::Playing;
+                            crate::log_info!("STATE", "Entered world '{}' (seed: {}, mode: {:?}) at position ({:.1}, {:.1}, {:.1})", self.world.name, self.world.seed, self.player.gamemode, start_pos.x, start_pos.y, start_pos.z);
                         }
                         WorldLoadResult::Error(e) => {
                             eprintln!("Failed to load world: {e}");
+                            crate::log_error!("STATE", "Failed to load world: {}, returning to Main Menu", e);
                             self.state = GameState::MainMenu;
                         }
                     }
@@ -1381,6 +1542,27 @@ impl RustCraftApp {
             }
             GameState::Playing => {
                 self.chat.update(dt);
+
+                self.telemetry_timer += dt;
+                if self.telemetry_timer >= 5.0 {
+                    self.telemetry_timer = 0.0;
+                    crate::log_debug!(
+                        "TELEMETRY",
+                        "FPS: {} | Pos: ({:.1}, {:.1}, {:.1}) | Chunks: {} (pending: {}) | Mobs: {} | Items: {} | HP: {:.1}/{:.1} | Hunger: {:.1}/{:.1}",
+                        self.fps_display,
+                        self.camera.position.x,
+                        self.camera.position.y,
+                        self.camera.position.z,
+                        self.world.chunks.len(),
+                        self.world.pending_chunks_count(),
+                        self.mob_manager.mobs.len(),
+                        self.items.len(),
+                        self.player.health,
+                        self.player.max_health,
+                        self.player.hunger,
+                        self.player.max_hunger,
+                    );
+                }
 
                 let open_chat_requested = (input.key_t && !self.prev_t_down) || self.controls.is_just_pressed(Action::OpenChat);
                 let open_cmd_requested = (input.key_slash && !self.prev_slash_down) || self.controls.is_just_pressed(Action::OpenCommand);
@@ -1406,6 +1588,7 @@ impl RustCraftApp {
                             }
                             crate::gameplay::chat::ChatAction::Execute(text) => {
                                 out.request_capture_mouse = true;
+                                let mut chunks_reloaded = false;
                                 let mut ctx = crate::gameplay::chat::CommandContext {
                                     player: &mut self.player,
                                     camera: &mut self.camera,
@@ -1416,10 +1599,15 @@ impl RustCraftApp {
                                     is_flying: &mut self.fly_mode,
                                     fly_velocity: &mut self.fly_velocity,
                                     horiz_velocity: &mut self.horiz_velocity,
+                                    reload_chunks_requested: &mut chunks_reloaded,
                                 };
                                 if text.starts_with('/') {
                                     crate::log_info!("COMMAND", "Executing: {}", text);
                                     self.chat.execute_command(&text, &mut ctx);
+                                    if chunks_reloaded {
+                                        self.renderer.clear_mesh_cache();
+                                        crate::log_info!("WORLD", "Cleared mesh cache following chunk reload command");
+                                    }
                                 } else {
                                     crate::log_info!("CHAT", "<Player> {}", text);
                                     self.chat.add_player_chat("Player", &text);
@@ -1427,6 +1615,13 @@ impl RustCraftApp {
                             }
                         }
                     }
+                }
+
+                // F3+A: Reload all chunks shortcut
+                if input.key_f3 && input.key_a && !self.prev_a_down && !self.chat.is_open {
+                    self.world.mark_all_chunks_dirty();
+                    self.renderer.clear_mesh_cache();
+                    crate::log_info!("WORLD", "Reloaded all chunks via F3+A (chunk count: {})", self.world.chunks.len());
                 }
 
                 if !self.chat.is_open && self.controls.is_just_pressed(Action::Save) {
@@ -1449,7 +1644,7 @@ impl RustCraftApp {
                     out.request_release_mouse = true;
                     self.horiz_velocity = Vec3::zero();
                     self.fly_velocity = Vec3::zero();
-                    crate::log_debug!("STATE", "Game paused");
+                    crate::log_info!("STATE", "Game paused (opened pause menu)");
                 }
 
                 if !self.chat.is_open && self.controls.is_just_pressed(Action::Inventory) {
@@ -1458,7 +1653,7 @@ impl RustCraftApp {
                     out.request_release_mouse = true;
                     self.horiz_velocity = Vec3::zero();
                     self.fly_velocity = Vec3::zero();
-                    crate::log_debug!("STATE", "Opened inventory");
+                    crate::log_info!("MENU", "Opened player inventory (crafting table: false)");
                 }
 
                 let any_click = left_down || right_down;
@@ -1715,6 +1910,7 @@ impl RustCraftApp {
                                 self.damage_tilt_timer = 0.4;
                                 self.damage_tilt_dir = 1.0;
                                 self.particles.spawn_lava_burn(feet_pos);
+                                crate::log_info!("PLAYER", "Player took 4.0 lava damage (health: {:.1}/{:.1})", self.player.health, self.player.max_health);
                             }
                         }
                     } else if !in_lava {
@@ -1738,6 +1934,7 @@ impl RustCraftApp {
                                         self.damage_tilt_timer = 0.4;
                                         self.damage_tilt_dir = 1.0;
                                         self.particles.spawn_drown_bubbles(self.camera.position);
+                                        crate::log_info!("PLAYER", "Player took 2.0 drowning damage (health: {:.1}/{:.1})", self.player.health, self.player.max_health);
                                     }
                                 }
                             } else {
@@ -1786,6 +1983,7 @@ impl RustCraftApp {
                                 if self.player.take_damage(1.0) {
                                     self.damage_tilt_timer = 0.4;
                                     self.damage_tilt_dir = 1.0;
+                                    crate::log_info!("PLAYER", "Player took 1.0 starvation damage (health: {:.1}/{:.1})", self.player.health, self.player.max_health);
                                 }
                             }
                         } else {
@@ -1810,6 +2008,7 @@ impl RustCraftApp {
                             if self.player.take_damage(damage) {
                                 self.damage_tilt_timer = 0.4;
                                 self.damage_tilt_dir = 1.0;
+                                crate::log_info!("PLAYER", "Player took {:.1} fall damage (health: {:.1}/{:.1})", damage, self.player.health, self.player.max_health);
                             }
                         }
                         self.player.fall_distance = 0.0;
@@ -1820,6 +2019,7 @@ impl RustCraftApp {
                         self.death_hovered_btn = Some(0);
                         self.horiz_velocity = Vec3::zero();
                         self.fly_velocity = Vec3::zero();
+                        crate::log_info!("PLAYER", "Player died! Transitioning to death screen");
                     }
                 }
 
@@ -1833,6 +2033,7 @@ impl RustCraftApp {
                 if self.camera.position.y < -32.0 {
                     if self.player.take_damage(20.0) {
                         self.damage_tilt_timer = 0.4;
+                        crate::log_info!("PLAYER", "Player took 20.0 void damage at y={:.1} (health: {:.1}/{:.1})", self.camera.position.y, self.player.health, self.player.max_health);
                     }
                     if !self.player.is_dead() {
                         self.camera.position.y = 80.0;
@@ -1884,6 +2085,7 @@ impl RustCraftApp {
                             self.particles.spawn_mob_hit(hit_pos);
                             self.break_target = None;
                             self.break_progress = 0.0;
+                            crate::log_info!("COMBAT", "Player attacked mob {:?} dealing {:.1} damage (remaining HP: {:.1})", mob.kind, dmg, mob.health);
                         }
                     }
 
@@ -1895,6 +2097,7 @@ impl RustCraftApp {
                             self.world.prime_tnt(target);
                             self.break_target = None;
                             self.break_progress = 0.0;
+                            crate::log_info!("WORLD", "TNT primed at ({}, {}, {})", target.x, target.y, target.z);
                         } else {
                             if self.break_target != Some(target) {
                                 self.break_target = Some(target);
@@ -1936,6 +2139,7 @@ impl RustCraftApp {
                                 };
 
                                 self.world.set_block(target, BlockId::Air);
+                                crate::log_info!("WORLD", "Block broken: {:?} at ({}, {}, {})", broken_block, target.x, target.y, target.z);
 
                                 if self.player.gamemode == GameMode::Survival {
                                     self.player.exhaustion += 0.025;
@@ -2038,6 +2242,7 @@ impl RustCraftApp {
                                 let color = food_id.face_color(Face::Top);
                                 let mouth_pos = self.camera.position + self.camera.forward() * 0.4 - Vec3::new(0.0, 0.2, 0.0);
                                 self.particles.spawn_block_break(mouth_pos - Vec3::new(0.5, 0.5, 0.5), color);
+                                crate::log_info!("PLAYER", "Player consumed {:?} (health: {:.1}/{:.1}, hunger: {:.1}/{:.1})", food_id, self.player.health, self.player.max_health, self.player.hunger, self.player.max_hunger);
                                 if self.player.gamemode == GameMode::Survival {
                                     if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
                                         stack.count -= 1;
@@ -2064,24 +2269,28 @@ impl RustCraftApp {
                                 self.world.set_block(below, new_block);
                             }
                             self.hand_animation = 1.0;
+                            crate::log_info!("WORLD", "Toggled door at ({}, {}, {}) to {:?}", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z, new_block);
                         } else if targeted_block == BlockId::CraftingTable && !is_crouching {
                             self.crafting_table_open = true;
                             self.state = GameState::Inventory;
                             out.request_release_mouse = true;
                             self.horiz_velocity = Vec3::zero();
                             self.fly_velocity = Vec3::zero();
+                            crate::log_info!("MENU", "Opened crafting table at ({}, {}, {})", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
                         } else if targeted_block == BlockId::Chest && !is_crouching {
                             let _ = self.world.get_or_create_chest(hit.block_pos);
                             self.state = GameState::Chest { pos: hit.block_pos };
                             out.request_release_mouse = true;
                             self.horiz_velocity = Vec3::zero();
                             self.fly_velocity = Vec3::zero();
+                            crate::log_info!("MENU", "Opened chest container at ({}, {}, {})", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
                         } else if (targeted_block == BlockId::Furnace || targeted_block == BlockId::FurnaceLit) && !is_crouching {
                             let _ = self.world.get_or_create_furnace(hit.block_pos);
                             self.state = GameState::Furnace { pos: hit.block_pos };
                             out.request_release_mouse = true;
                             self.horiz_velocity = Vec3::zero();
                             self.fly_velocity = Vec3::zero();
+                            crate::log_info!("MENU", "Opened furnace container at ({}, {}, {})", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
                         } else if let Some(mob_kind) = BlockId::from_u8(selected_block_id).spawn_mob_kind() {
                             let spawn_pos = Vec3::new(
                                 hit.block_pos.x as f32 + 0.5 + hit.normal.x as f32 * 0.5,
@@ -2091,6 +2300,7 @@ impl RustCraftApp {
                             self.mob_manager.spawn_mob(mob_kind, spawn_pos);
                             self.particles.spawn_mob_hit(spawn_pos);
                             self.hand_animation = 1.0;
+                            crate::log_info!("WORLD", "Spawned mob {:?} via egg at ({:.1}, {:.1}, {:.1})", mob_kind, spawn_pos.x, spawn_pos.y, spawn_pos.z);
                             if self.player.gamemode == GameMode::Survival {
                                 if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
                                     stack.count -= 1;
@@ -2115,6 +2325,7 @@ impl RustCraftApp {
                                     {
                                         self.world.set_block(place_pos, BlockId::Door);
                                         self.world.set_block(top_pos, BlockId::Door);
+                                        crate::log_info!("WORLD", "Placed door at ({}, {}, {})", place_pos.x, place_pos.y, place_pos.z);
                                         if self.player.gamemode == GameMode::Survival {
                                             if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
                                                 stack.count -= 1;
@@ -2124,6 +2335,7 @@ impl RustCraftApp {
                                     }
                                 } else if !block_intersects_player(place_pos, self.camera.position, self.current_eye_offset, self.current_player_height) {
                                     self.world.set_block(place_pos, place_id);
+                                    crate::log_info!("WORLD", "Placed block {:?} at ({}, {}, {})", place_id, place_pos.x, place_pos.y, place_pos.z);
                                     if self.player.gamemode == GameMode::Survival {
                                         if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
                                             stack.count -= 1;
@@ -2199,6 +2411,7 @@ impl RustCraftApp {
                             if self.player.take_damage(2.0) {
                                 self.damage_tilt_timer = 0.4;
                                 self.damage_tilt_dir = if mob.pos.x > self.camera.position.x { -1.0 } else { 1.0 };
+                                crate::log_info!("PLAYER", "Player took 2.0 damage from {:?} (health: {:.1}/{:.1})", mob.kind, self.player.health, self.player.max_health);
                             }
                         }
                     }
@@ -2207,6 +2420,7 @@ impl RustCraftApp {
                     self.particles.spawn_mob_death_poof(poof_pos);
                 }
                 for drop in self.mob_manager.dying_drops.drain(..) {
+                    crate::log_info!("COMBAT", "Mob killed, dropped {}x {:?}", drop.count, drop.block);
                     let rx = ((self.mob_manager.mobs.len() as f32 * 17.0).sin()) * 1.5;
                     let rz = ((self.mob_manager.mobs.len() as f32 * 23.0).cos()) * 1.5;
                     self.items.push(ItemEntity::new(
@@ -2228,10 +2442,12 @@ impl RustCraftApp {
                     self.death_hovered_btn = Some(0);
                     self.horiz_velocity = Vec3::zero();
                     self.fly_velocity = Vec3::zero();
+                    crate::log_info!("PLAYER", "Player died! Transitioning to death screen");
                 }
 
                 if !self.chat.is_open && self.controls.is_just_pressed(Action::DropItem) {
                     if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                        crate::log_info!("INVENTORY", "Player dropped 1x {:?}", stack.block);
                         self.items.push(ItemEntity::new(
                             self.camera.position + self.camera.forward() * 0.5,
                             self.camera.forward() * 5.0,
@@ -2262,6 +2478,10 @@ impl RustCraftApp {
                     let dist_sq = (self.items[i].position - player_center).length_sq();
                     if self.items[i].pickup_delay <= 0.0 && dist_sq < 3.24 {
                         let remaining = self.player.inventory.add_item(self.items[i].block, self.items[i].count);
+                        let picked_up = self.items[i].count - remaining;
+                        if picked_up > 0 {
+                            crate::log_info!("INVENTORY", "Player picked up {}x {:?}", picked_up, self.items[i].block);
+                        }
                         if remaining == 0 {
                             self.items.remove(i);
                             continue;
@@ -2281,6 +2501,7 @@ impl RustCraftApp {
                         if self.player.take_damage(dmg) {
                             self.damage_tilt_timer = 0.4;
                             self.damage_tilt_dir = if exp_pos.x > self.camera.position.x { -1.0 } else { 1.0 };
+                            crate::log_info!("PLAYER", "Player took {:.1} explosion damage (health: {:.1}/{:.1})", dmg, self.player.health, self.player.max_health);
                         }
                     }
                 }
@@ -2703,23 +2924,28 @@ impl RustCraftApp {
                         0 => {
                             self.state = GameState::Playing;
                             out.request_capture_mouse = true;
+                            crate::log_info!("STATE", "Game resumed from pause menu");
                         }
                         1 => {
                             self.state = GameState::Settings(PreviousMenu::Paused);
                             self.settings_hovered_opt = Some(0);
+                            crate::log_info!("MENU", "Opened Settings from pause menu");
                         }
                         2 => {
                             self.fly_mode = !self.fly_mode;
+                            crate::log_info!("PLAYER", "Flight mode toggled to: {}", self.fly_mode);
                         }
                         3 => {
                             let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                             self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                             self.state = GameState::MainMenu;
                             out.request_release_mouse = true;
+                            crate::log_info!("STATE", "Saved and returned to Main Menu from pause menu");
                         }
                         4 => {
                             let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                             out.quit_requested = true;
+                            crate::log_info!("STATE", "Saved and quitting game from pause menu");
                         }
                         _ => {}
                     }
@@ -2728,19 +2954,23 @@ impl RustCraftApp {
                 if self.controls.is_just_pressed(Action::Pause) || input.gp_east_just_pressed {
                     self.state = GameState::Playing;
                     out.request_capture_mouse = true;
+                    crate::log_info!("STATE", "Game resumed via pause shortcut");
                 }
                 if self.controls.is_just_pressed(Action::ToggleFly) {
                     self.fly_mode = !self.fly_mode;
+                    crate::log_info!("PLAYER", "Flight mode toggled to: {}", self.fly_mode);
                 }
                 if q_down && !self.prev_q_down {
                     let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                     out.quit_requested = true;
+                    crate::log_info!("STATE", "Saved and quitting game via shortcut");
                 }
                 if m_down && !self.prev_m_down {
                     let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                     self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                     self.state = GameState::MainMenu;
                     out.request_release_mouse = true;
+                    crate::log_info!("STATE", "Saved and returned to Main Menu via shortcut");
                 }
 
                 self.renderer.fog_enabled = self.settings.fog;
@@ -2780,6 +3010,7 @@ impl RustCraftApp {
                     self.crafting_table_open = false;
                     self.state = GameState::Playing;
                     out.request_capture_mouse = true;
+                    crate::log_info!("MENU", "Closed inventory screen, returning to Playing");
                 }
 
                 let layout = InventoryLayout::new(self.renderer.width, self.renderer.height, self.crafting_table_open);
@@ -2933,6 +3164,7 @@ impl RustCraftApp {
                                         Some(h) => h.block == res.block && h.count + res.count <= 64,
                                     };
                                     if can_take {
+                                        crate::log_info!("CRAFTING", "Crafted {}x {:?}", res.count, res.block);
                                         if let Some(h) = &mut self.player.inventory.held_item {
                                             h.count += res.count;
                                         } else {
@@ -2982,6 +3214,7 @@ impl RustCraftApp {
                     if self.player.gamemode == GameMode::Creative {
                         self.player.inventory.held_item = None;
                     }
+                    crate::log_info!("MENU", "Closed chest container, returning to Playing");
                     self.state = GameState::Playing;
                     out.request_capture_mouse = true;
                 }
@@ -3103,6 +3336,7 @@ impl RustCraftApp {
                     if self.player.gamemode == GameMode::Creative {
                         self.player.inventory.held_item = None;
                     }
+                    crate::log_info!("MENU", "Closed furnace container, returning to Playing");
                     self.state = GameState::Playing;
                     out.request_capture_mouse = true;
                 }
@@ -3357,6 +3591,7 @@ impl RustCraftApp {
                             self.player.invulnerability_timer = 3.0;
                             self.player.has_landed = false;
                             self.damage_tilt_timer = 0.0;
+                            crate::log_info!("PLAYER", "Player respawned at ({:.1}, {:.1}, {:.1})", self.camera.position.x, self.camera.position.y, self.camera.position.z);
                             self.state = GameState::Playing;
                             out.request_capture_mouse = true;
                         }
@@ -3365,6 +3600,7 @@ impl RustCraftApp {
                             self.camera.position = self.world.player_position;
                             let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                             self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
+                            crate::log_info!("STATE", "Player chose Title Screen from Death Screen, game saved");
                             self.state = GameState::MainMenu;
                             out.request_release_mouse = true;
                         }
@@ -3377,6 +3613,7 @@ impl RustCraftApp {
                     self.camera.position = self.world.player_position;
                     let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                     self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
+                    crate::log_info!("STATE", "Quit to Main Menu from Death Screen via shortcut, game saved");
                     self.state = GameState::MainMenu;
                     out.request_release_mouse = true;
                 }

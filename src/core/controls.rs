@@ -859,6 +859,7 @@ mod tests {
             key_q: false,
             key_g: false,
             key_m: false,
+            key_f3: false,
             key_f5: false,
             key_enter: false,
             key_up: false,

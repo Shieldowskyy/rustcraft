@@ -286,8 +286,11 @@ pub fn delete_save(slot: u8) -> Result<(), String> {
     let path = save_path(slot);
     let p = std::path::Path::new(&path);
     if p.exists() {
-        std::fs::remove_file(p).map_err(|e| e.to_string())
+        std::fs::remove_file(p).map_err(|e| e.to_string())?;
+        crate::log_info!("SAVE", "Deleted save file in slot {} ({})", slot, path);
+        Ok(())
     } else {
+        crate::log_info!("SAVE", "No existing save file in slot {} ({}) to delete", slot, path);
         Ok(())
     }
 }
@@ -300,11 +303,13 @@ pub fn save_current_world(
     slot: u8,
     thumbnail: Option<&[u32]>,
 ) -> Result<(), String> {
+    crate::log_info!("SAVE", "Saving current world state to slot {} ('{}', mode: {:?}, pos: {:.1}, {:.1}, {:.1})", slot, world.name, player.gamemode, camera.position.x, camera.position.y, camera.position.z);
     world.player_position = camera.position;
     world.gamemode = player.gamemode;
     world.saved_player = Some(player.save_state());
     if let Some(thumb) = thumbnail {
         save_thumbnail(slot, thumb);
+        crate::log_debug!("SAVE", "Saved world thumbnail image for slot {}", slot);
     }
     let path = save_path(slot);
     world.save(&path)

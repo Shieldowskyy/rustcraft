@@ -234,6 +234,7 @@ fn main() {
             key_q: window.is_key_down(Key::Q),
             key_g: window.is_key_down(Key::G),
             key_m: window.is_key_down(Key::M),
+            key_f3: window.is_key_down(Key::F3),
             key_f5: window.is_key_down(Key::F5),
             key_enter: window.is_key_down(Key::Enter),
             key_up: window.is_key_down(Key::Up),

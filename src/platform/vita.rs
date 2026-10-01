@@ -444,6 +444,7 @@ impl VitaInputTracker {
             key_q: btn_square,
             key_g: false,
             key_m: false,
+            key_f3: false,
             key_f5: just_pressed(SCE_CTRL_SQUARE),
             key_enter: just_pressed(SCE_CTRL_CROSS),
             key_up: dpad_up,

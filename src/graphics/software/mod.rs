@@ -223,6 +223,7 @@ impl Renderer {
     }
 
     pub fn clear_mesh_cache(&mut self) {
+        let count = self.mesh_cache.len();
         self.mesh_cache.clear();
         self.dirty_keys.clear();
         self.chunk_spawn_times.clear();
@@ -230,6 +231,7 @@ impl Renderer {
         if let Some(vk) = self.vulkan.as_mut() {
             vk.clear_chunk_buffers();
         }
+        crate::log_info!("RENDER", "Cleared chunk mesh cache (freed {} meshes) and reset dirty queues", count);
     }
 
     pub fn selected_block(&self) -> u8 {

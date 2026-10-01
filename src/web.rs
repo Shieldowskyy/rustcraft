@@ -190,6 +190,7 @@ impl WebGame {
             key_q,
             key_g,
             key_m,
+            key_f3: false,
             key_f5,
             key_enter,
             key_up,
