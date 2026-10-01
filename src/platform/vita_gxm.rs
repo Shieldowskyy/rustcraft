@@ -760,6 +760,8 @@ pub const ALL_TEXTURES: &[TextureId] = &[
     TextureId::RawChicken, TextureId::CookedChicken, TextureId::Feather,
     TextureId::ChickenFeathers, TextureId::ChickenFace, TextureId::ChickenBeak, TextureId::ChickenWattle, TextureId::ChickenLeg,
     TextureId::PigSpawnEgg, TextureId::CowSpawnEgg, TextureId::ChickenSpawnEgg,
+    TextureId::RawPorkchop, TextureId::CookedPorkchop, TextureId::RawBeef, TextureId::CookedBeef,
+    TextureId::Apple, TextureId::IronIngot, TextureId::GoldIngot, TextureId::IronOunce, TextureId::GoldOunce, TextureId::Bone,
 ];
 
 unsafe fn populate_atlas(pixels: *mut u32, atlas: &TextureAtlas) {
@@ -938,6 +940,16 @@ pub fn atlas_uv(tex_id: TextureId) -> (f32, f32, f32, f32) {
         TextureId::PigSpawnEgg => 85,
         TextureId::CowSpawnEgg => 86,
         TextureId::ChickenSpawnEgg => 87,
+        TextureId::RawPorkchop => 88,
+        TextureId::CookedPorkchop => 89,
+        TextureId::RawBeef => 90,
+        TextureId::CookedBeef => 91,
+        TextureId::Apple => 92,
+        TextureId::IronIngot => 93,
+        TextureId::GoldIngot => 94,
+        TextureId::IronOunce => 95,
+        TextureId::GoldOunce => 96,
+        TextureId::Bone => 97,
     };
     const TILE_NORM: f32 = 1.0 / ATLAS_TILES_PER_ROW as f32;
     let col = tile_idx % ATLAS_TILES_PER_ROW;
@@ -2291,6 +2303,59 @@ fn append_dropped_item(
     };
 
     let block = item.block;
+    if block.is_meat() {
+        let tilt_angle = 0.32f32;
+        let base_up = Vec3::new(0.0, 1.0, 0.0);
+        let base_right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+        let base_forward = Vec3::new(yaw.sin(), 0.0, yaw.cos());
+
+        let meat_up = (base_up * tilt_angle.cos() + base_right * tilt_angle.sin()).normalized();
+        let meat_right = (base_right * tilt_angle.cos() - base_up * tilt_angle.sin()).normalized();
+        let meat_forward = base_forward;
+
+        append_meat_3d(
+            block,
+            pos,
+            meat_right,
+            meat_up,
+            meat_forward,
+            0.85,
+            vb,
+            ib,
+            v_count,
+            i_count,
+            max_verts,
+            max_idx,
+        );
+        return;
+    }
+    if block.is_tool() {
+        let tilt_angle = 0.38f32;
+        let base_up = Vec3::new(0.0, 1.0, 0.0);
+        let base_right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+        let base_forward = Vec3::new(yaw.sin(), 0.0, yaw.cos());
+
+        let tool_up = (base_up * tilt_angle.cos() + base_right * tilt_angle.sin()).normalized();
+        let tool_right = (base_right * tilt_angle.cos() - base_up * tilt_angle.sin()).normalized();
+        let tool_forward = base_forward;
+
+        append_procedural_tool_3d(
+            block,
+            pos,
+            tool_right,
+            tool_up,
+            tool_forward,
+            0.85,
+            vb,
+            ib,
+            v_count,
+            i_count,
+            max_verts,
+            max_idx,
+        );
+        return;
+    }
+
     let face_data = [
         ([corner(-1.0, 1.0, 1.0), corner(1.0, 1.0, 1.0), corner(1.0, 1.0, -1.0), corner(-1.0, 1.0, -1.0)], block.texture_id(Face::Top), 1.00),
         ([corner(-1.0, -1.0, -1.0), corner(1.0, -1.0, -1.0), corner(1.0, -1.0, 1.0), corner(-1.0, -1.0, 1.0)], block.texture_id(Face::Bottom), 0.55),
@@ -2904,6 +2969,79 @@ fn append_procedural_tool_3d(
     }
 }
 
+fn append_meat_3d(
+    block: BlockId,
+    pos: Vec3,
+    meat_right: Vec3,
+    meat_up: Vec3,
+    meat_forward: Vec3,
+    scale: f32,
+    vb: *mut GxmVertex,
+    ib: *mut u16,
+    v_count: &mut usize,
+    i_count: &mut usize,
+    max_verts: usize,
+    max_idx: usize,
+) {
+    let meat_tex = match block {
+        BlockId::RawPorkchop => TextureId::RawPorkchop,
+        BlockId::CookedPorkchop => TextureId::CookedPorkchop,
+        BlockId::RawBeef => TextureId::RawBeef,
+        BlockId::CookedBeef => TextureId::CookedBeef,
+        BlockId::RawChicken => TextureId::RawChicken,
+        BlockId::CookedChicken => TextureId::CookedChicken,
+        _ => TextureId::RawBeef,
+    };
+    let bone_tex = TextureId::Bone;
+
+    let mut cube = |offset: Vec3, sz: [f32; 3], tex: TextureId| {
+        append_cube_oriented(
+            pos + offset,
+            meat_right,
+            meat_up,
+            meat_forward,
+            sz,
+            tex,
+            tex,
+            tex,
+            vb,
+            ib,
+            v_count,
+            i_count,
+            max_verts,
+            max_idx,
+        );
+    };
+
+    match block {
+        BlockId::RawPorkchop | BlockId::CookedPorkchop => {
+            // Main chop slab
+            cube(Vec3::ZERO, [0.065 * scale, 0.080 * scale, 0.024 * scale], meat_tex);
+            // Secondary curved meat lobe
+            cube(meat_right * (0.045 * scale) - meat_up * (0.025 * scale), [0.035 * scale, 0.055 * scale, 0.022 * scale], meat_tex);
+            // Bone nub on corner
+            cube(-meat_right * (0.055 * scale) + meat_up * (0.085 * scale), [0.020 * scale, 0.030 * scale, 0.016 * scale], bone_tex);
+        }
+        BlockId::RawBeef | BlockId::CookedBeef => {
+            // Main steak cut
+            cube(Vec3::ZERO, [0.085 * scale, 0.070 * scale, 0.026 * scale], meat_tex);
+            // Rib bone along edge
+            cube(-meat_right * (0.065 * scale) + meat_up * (0.020 * scale), [0.020 * scale, 0.045 * scale, 0.022 * scale], bone_tex);
+            // Outer tapered lobe
+            cube(meat_right * (0.050 * scale) - meat_up * (0.030 * scale), [0.045 * scale, 0.035 * scale, 0.024 * scale], meat_tex);
+        }
+        BlockId::RawChicken | BlockId::CookedChicken => {
+            // Plump drumstick meat
+            cube(meat_up * (0.035 * scale), [0.055 * scale, 0.065 * scale, 0.048 * scale], meat_tex);
+            // Bone handle
+            cube(-meat_up * (0.055 * scale), [0.016 * scale, 0.040 * scale, 0.016 * scale], bone_tex);
+            // Knuckle joint
+            cube(-meat_up * (0.095 * scale), [0.028 * scale, 0.016 * scale, 0.024 * scale], bone_tex);
+        }
+        _ => {}
+    }
+}
+
 fn append_hand_3d(
     camera: &Camera,
     block_id: Option<u8>,
@@ -2965,6 +3103,27 @@ fn append_hand_3d(
                 tool_right,
                 tool_up,
                 tool_forward,
+                1.0,
+                vb,
+                ib,
+                v_count,
+                i_count,
+                max_verts,
+                max_idx,
+            );
+        } else if block.is_meat() {
+            let swing_pitch = attack * 0.65;
+            let meat_up = (up * (1.0 - swing_pitch * 0.4) + forward * (0.5 + swing_pitch) - right * 0.15).normalized();
+            let meat_right = (right * 0.95 + up * 0.15).normalized();
+            let meat_forward = meat_up.cross(meat_right).normalized();
+            let meat_origin = hand_pos + forward * (0.08 + attack * 0.10) + up * (0.08 - attack * 0.08);
+
+            append_meat_3d(
+                block,
+                meat_origin,
+                meat_right,
+                meat_up,
+                meat_forward,
                 1.0,
                 vb,
                 ib,

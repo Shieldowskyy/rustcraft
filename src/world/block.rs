@@ -372,6 +372,18 @@ impl BlockId {
         }
     }
 
+    pub fn is_meat(self) -> bool {
+        matches!(
+            self,
+            BlockId::RawPorkchop
+                | BlockId::CookedPorkchop
+                | BlockId::RawBeef
+                | BlockId::CookedBeef
+                | BlockId::RawChicken
+                | BlockId::CookedChicken
+        )
+    }
+
     pub fn is_tool(self) -> bool {
         matches!(
             self,
@@ -727,6 +739,15 @@ impl BlockId {
                 Face::East | Face::West => TextureId::FurnaceSide,
             },
             BlockId::Torch => TextureId::Torch,
+            BlockId::RawPorkchop => TextureId::RawPorkchop,
+            BlockId::CookedPorkchop => TextureId::CookedPorkchop,
+            BlockId::RawBeef => TextureId::RawBeef,
+            BlockId::CookedBeef => TextureId::CookedBeef,
+            BlockId::Apple => TextureId::Apple,
+            BlockId::IronIngot => TextureId::IronIngot,
+            BlockId::GoldIngot => TextureId::GoldIngot,
+            BlockId::IronOunce => TextureId::IronOunce,
+            BlockId::GoldOunce => TextureId::GoldOunce,
             _ => TextureId::Planks,
         }
     }
@@ -772,5 +793,45 @@ impl Face {
             Face::East => IVec3::new(1, 0, 0),
             Face::West => IVec3::new(-1, 0, 0),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_meat_properties_and_textures() {
+        let meats = [
+            (BlockId::RawPorkchop, TextureId::RawPorkchop),
+            (BlockId::CookedPorkchop, TextureId::CookedPorkchop),
+            (BlockId::RawBeef, TextureId::RawBeef),
+            (BlockId::CookedBeef, TextureId::CookedBeef),
+            (BlockId::RawChicken, TextureId::RawChicken),
+            (BlockId::CookedChicken, TextureId::CookedChicken),
+        ];
+
+        for (block, expected_tex) in meats {
+            assert!(block.is_meat(), "{:?} should be classified as meat", block);
+            assert!(block.is_food(), "{:?} should be classified as food", block);
+            assert!(!block.is_placeable(), "{:?} must not be placeable as a block", block);
+            assert_ne!(
+                block.texture_id(Face::Top),
+                TextureId::Planks,
+                "{:?} should not have Planks texture!",
+                block
+            );
+            assert_eq!(
+                block.texture_id(Face::Top),
+                expected_tex,
+                "{:?} texture must match {:?}",
+                block,
+                expected_tex
+            );
+        }
+
+        assert!(!BlockId::Planks.is_meat());
+        assert!(!BlockId::Dirt.is_meat());
+        assert!(!BlockId::IronSword.is_meat());
     }
 }

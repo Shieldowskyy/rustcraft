@@ -1000,6 +1000,16 @@ pub enum TextureId {
     PigSpawnEgg,
     CowSpawnEgg,
     ChickenSpawnEgg,
+    RawPorkchop,
+    CookedPorkchop,
+    RawBeef,
+    CookedBeef,
+    Apple,
+    IronIngot,
+    GoldIngot,
+    IronOunce,
+    GoldOunce,
+    Bone,
 }
 
 impl TextureId {
@@ -1386,6 +1396,16 @@ pub struct TextureAtlas {
     pub pig_spawn_egg: Texture,
     pub cow_spawn_egg: Texture,
     pub chicken_spawn_egg: Texture,
+    pub raw_porkchop: Texture,
+    pub cooked_porkchop: Texture,
+    pub raw_beef: Texture,
+    pub cooked_beef: Texture,
+    pub apple: Texture,
+    pub iron_ingot: Texture,
+    pub gold_ingot: Texture,
+    pub iron_ounce: Texture,
+    pub gold_ounce: Texture,
+    pub bone: Texture,
 }
 
 fn chest_top() -> Texture {
@@ -1875,6 +1895,154 @@ fn chicken_spawn_egg() -> Texture {
     spawn_egg_texture([0.95, 0.95, 0.92], [0.85, 0.15, 0.15], [0.35, 0.35, 0.30], 703)
 }
 
+fn raw_porkchop() -> Texture {
+    let mut tex = speckled([0.92, 0.58, 0.64], 0.08, 901);
+    let bone = [0.95, 0.95, 0.88];
+    let hi = [0.98, 0.78, 0.82];
+    let sh = [0.75, 0.38, 0.45];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if (x < 3 && y < 3) || (x == 2 && y == 3) {
+                tex.texels[y * TEX_SIZE + x] = bone;
+            } else if x <= 5 && y <= 6 {
+                tex.texels[y * TEX_SIZE + x] = hi;
+            } else if x >= 11 || y >= 11 {
+                tex.texels[y * TEX_SIZE + x] = sh;
+            }
+        }
+    }
+    tex
+}
+
+fn cooked_porkchop() -> Texture {
+    let mut tex = speckled([0.72, 0.42, 0.18], 0.10, 902);
+    let bone = [0.92, 0.90, 0.82];
+    let hi = [0.90, 0.65, 0.32];
+    let sear = [0.45, 0.22, 0.08];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if (x < 3 && y < 3) || (x == 2 && y == 3) {
+                tex.texels[y * TEX_SIZE + x] = bone;
+            } else if (x + y) % 4 == 0 {
+                tex.texels[y * TEX_SIZE + x] = sear;
+            } else if x <= 5 && y <= 6 {
+                tex.texels[y * TEX_SIZE + x] = hi;
+            }
+        }
+    }
+    tex
+}
+
+fn raw_beef() -> Texture {
+    let mut tex = speckled([0.82, 0.20, 0.20], 0.10, 903);
+    let fat = [0.96, 0.90, 0.88];
+    let sh = [0.52, 0.10, 0.10];
+    let hi = [0.94, 0.42, 0.42];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if (x == 5 && y == 7) || (x == 6 && y == 8) || (x == 9 && y == 6) || (x == 10 && y == 7) || (x + y == 12 && x % 2 == 0) {
+                tex.texels[y * TEX_SIZE + x] = fat;
+            } else if x <= 4 && y <= 5 {
+                tex.texels[y * TEX_SIZE + x] = hi;
+            } else if x >= 11 || y >= 11 {
+                tex.texels[y * TEX_SIZE + x] = sh;
+            }
+        }
+    }
+    tex
+}
+
+fn cooked_beef() -> Texture {
+    let mut tex = speckled([0.50, 0.26, 0.14], 0.10, 904);
+    let grill = [0.18, 0.08, 0.04];
+    let hi = [0.70, 0.42, 0.22];
+    let sh = [0.28, 0.12, 0.06];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if (x + y == 10) || (x + y == 14) || (x + y == 18) {
+                tex.texels[y * TEX_SIZE + x] = grill;
+            } else if x <= 4 && y <= 5 {
+                tex.texels[y * TEX_SIZE + x] = hi;
+            } else if x >= 11 || y >= 11 {
+                tex.texels[y * TEX_SIZE + x] = sh;
+            }
+        }
+    }
+    tex
+}
+
+fn apple() -> Texture {
+    let mut tex = speckled([0.88, 0.14, 0.14], 0.08, 905);
+    let stem = [0.42, 0.26, 0.12];
+    let leaf = [0.35, 0.78, 0.22];
+    let hi = [0.98, 0.48, 0.48];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if (x == 7 || x == 8) && (y == 0 || y == 1) {
+                tex.texels[y * TEX_SIZE + x] = stem;
+            } else if (x == 9 || x == 10) && y == 1 {
+                tex.texels[y * TEX_SIZE + x] = leaf;
+            } else if (x >= 4 && x <= 6) && (y >= 4 && y <= 6) {
+                tex.texels[y * TEX_SIZE + x] = hi;
+            }
+        }
+    }
+    tex
+}
+
+fn iron_ingot() -> Texture {
+    let mut tex = speckled([0.85, 0.85, 0.88], 0.06, 906);
+    let hi = [0.96, 0.96, 0.98];
+    let sh = [0.65, 0.65, 0.70];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if x <= 2 || y <= 2 {
+                tex.texels[y * TEX_SIZE + x] = hi;
+            } else if x >= 13 || y >= 13 {
+                tex.texels[y * TEX_SIZE + x] = sh;
+            }
+        }
+    }
+    tex
+}
+
+fn gold_ingot() -> Texture {
+    let mut tex = speckled([0.95, 0.82, 0.22], 0.06, 907);
+    let hi = [1.00, 0.95, 0.55];
+    let sh = [0.75, 0.58, 0.10];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if x <= 2 || y <= 2 {
+                tex.texels[y * TEX_SIZE + x] = hi;
+            } else if x >= 13 || y >= 13 {
+                tex.texels[y * TEX_SIZE + x] = sh;
+            }
+        }
+    }
+    tex
+}
+
+fn iron_ounce() -> Texture {
+    speckled([0.80, 0.80, 0.82], 0.08, 908)
+}
+
+fn gold_ounce() -> Texture {
+    speckled([0.92, 0.78, 0.20], 0.08, 909)
+}
+
+fn bone() -> Texture {
+    let mut tex = speckled([0.95, 0.95, 0.88], 0.04, 910);
+    let sh = [0.82, 0.80, 0.72];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            if (x + y) % 5 == 0 {
+                tex.texels[y * TEX_SIZE + x] = sh;
+            }
+        }
+    }
+    tex
+}
+
 impl TextureAtlas {
     pub fn generate() -> TextureAtlas {
         Self::generate_with_fancy(true)
@@ -1961,6 +2129,16 @@ impl TextureAtlas {
             pig_spawn_egg: pig_spawn_egg(),
             cow_spawn_egg: cow_spawn_egg(),
             chicken_spawn_egg: chicken_spawn_egg(),
+            raw_porkchop: raw_porkchop(),
+            cooked_porkchop: cooked_porkchop(),
+            raw_beef: raw_beef(),
+            cooked_beef: cooked_beef(),
+            apple: apple(),
+            iron_ingot: iron_ingot(),
+            gold_ingot: gold_ingot(),
+            iron_ounce: iron_ounce(),
+            gold_ounce: gold_ounce(),
+            bone: bone(),
         }
     }
 
@@ -2054,6 +2232,16 @@ impl TextureAtlas {
             TextureId::PigSpawnEgg => &self.pig_spawn_egg,
             TextureId::CowSpawnEgg => &self.cow_spawn_egg,
             TextureId::ChickenSpawnEgg => &self.chicken_spawn_egg,
+            TextureId::RawPorkchop => &self.raw_porkchop,
+            TextureId::CookedPorkchop => &self.cooked_porkchop,
+            TextureId::RawBeef => &self.raw_beef,
+            TextureId::CookedBeef => &self.cooked_beef,
+            TextureId::Apple => &self.apple,
+            TextureId::IronIngot => &self.iron_ingot,
+            TextureId::GoldIngot => &self.gold_ingot,
+            TextureId::IronOunce => &self.iron_ounce,
+            TextureId::GoldOunce => &self.gold_ounce,
+            TextureId::Bone => &self.bone,
         }
     }
     /// Returns a reference to the texture corresponding to the specified `TextureId`.

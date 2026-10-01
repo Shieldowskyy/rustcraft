@@ -1940,6 +1940,129 @@ impl Renderer {
         }
     }
 
+    pub fn draw_meat_3d(
+        &mut self,
+        block: crate::world::block::BlockId,
+        pos: Vec3,
+        meat_right: Vec3,
+        meat_up: Vec3,
+        meat_forward: Vec3,
+        scale: f32,
+        view_proj: &Mat4,
+    ) {
+        use crate::world::block::BlockId;
+        let meat_tex = match block {
+            BlockId::RawPorkchop => TextureId::RawPorkchop,
+            BlockId::CookedPorkchop => TextureId::CookedPorkchop,
+            BlockId::RawBeef => TextureId::RawBeef,
+            BlockId::CookedBeef => TextureId::CookedBeef,
+            BlockId::RawChicken => TextureId::RawChicken,
+            BlockId::CookedChicken => TextureId::CookedChicken,
+            _ => TextureId::RawBeef,
+        };
+        let bone_tex = TextureId::Bone;
+
+        match block {
+            BlockId::RawPorkchop | BlockId::CookedPorkchop => {
+                // Main chop slab
+                self.draw_cube_3d(
+                    pos,
+                    meat_right,
+                    meat_up,
+                    meat_forward,
+                    [0.065 * scale, 0.080 * scale, 0.024 * scale],
+                    meat_tex,
+                    view_proj,
+                );
+                // Secondary curved meat lobe
+                self.draw_cube_3d(
+                    pos + meat_right * (0.045 * scale) - meat_up * (0.025 * scale),
+                    meat_right,
+                    meat_up,
+                    meat_forward,
+                    [0.035 * scale, 0.055 * scale, 0.022 * scale],
+                    meat_tex,
+                    view_proj,
+                );
+                // Bone nub on corner
+                self.draw_cube_3d(
+                    pos - meat_right * (0.055 * scale) + meat_up * (0.085 * scale),
+                    meat_right,
+                    meat_up,
+                    meat_forward,
+                    [0.020 * scale, 0.030 * scale, 0.016 * scale],
+                    bone_tex,
+                    view_proj,
+                );
+            }
+            BlockId::RawBeef | BlockId::CookedBeef => {
+                // Main steak cut
+                self.draw_cube_3d(
+                    pos,
+                    meat_right,
+                    meat_up,
+                    meat_forward,
+                    [0.085 * scale, 0.070 * scale, 0.026 * scale],
+                    meat_tex,
+                    view_proj,
+                );
+                // Rib bone along edge
+                self.draw_cube_3d(
+                    pos - meat_right * (0.065 * scale) + meat_up * (0.020 * scale),
+                    meat_right,
+                    meat_up,
+                    meat_forward,
+                    [0.020 * scale, 0.045 * scale, 0.022 * scale],
+                    bone_tex,
+                    view_proj,
+                );
+                // Outer tapered lobe
+                self.draw_cube_3d(
+                    pos + meat_right * (0.050 * scale) - meat_up * (0.030 * scale),
+                    meat_right,
+                    meat_up,
+                    meat_forward,
+                    [0.045 * scale, 0.035 * scale, 0.024 * scale],
+                    meat_tex,
+                    view_proj,
+                );
+            }
+            BlockId::RawChicken | BlockId::CookedChicken => {
+                // Plump drumstick meat
+                self.draw_cube_3d(
+                    pos + meat_up * (0.035 * scale),
+                    meat_right,
+                    meat_up,
+                    meat_forward,
+                    [0.055 * scale, 0.065 * scale, 0.048 * scale],
+                    meat_tex,
+                    view_proj,
+                );
+                // Bone handle
+                self.draw_cube_3d(
+                    pos - meat_up * (0.055 * scale),
+                    meat_right,
+                    meat_up,
+                    meat_forward,
+                    [0.016 * scale, 0.040 * scale, 0.016 * scale],
+                    bone_tex,
+                    view_proj,
+                );
+                // Knuckle joint
+                self.draw_cube_3d(
+                    pos - meat_up * (0.095 * scale),
+                    meat_right,
+                    meat_up,
+                    meat_forward,
+                    [0.028 * scale, 0.016 * scale, 0.024 * scale],
+                    bone_tex,
+                    view_proj,
+                );
+            }
+            _ => {}
+        }
+    }
+
     pub fn draw_hand_3d(
         &mut self,
         camera: &Camera,
@@ -1987,6 +2110,14 @@ impl Renderer {
                 let tool_origin = hand_pos + forward * (0.10 + attack * 0.15) + up * (0.12 - attack * 0.12) - right * 0.02;
 
                 self.draw_procedural_tool_3d(block, tool_origin, tool_right, tool_up, tool_forward, 1.0, view_proj);
+            } else if block.is_meat() {
+                let swing_pitch = attack * 0.65;
+                let meat_up = (up * (1.0 - swing_pitch * 0.4) + forward * (0.5 + swing_pitch) - right * 0.15).normalized();
+                let meat_right = (right * 0.95 + up * 0.15).normalized();
+                let meat_forward = meat_up.cross(meat_right).normalized();
+                let meat_origin = hand_pos + forward * (0.08 + attack * 0.10) + up * (0.08 - attack * 0.08);
+
+                self.draw_meat_3d(block, meat_origin, meat_right, meat_up, meat_forward, 1.0, view_proj);
             } else {
                 let top_tex = block.texture_id(crate::world::block::Face::Top);
                 let side_tex = block.texture_id(crate::world::block::Face::North);
@@ -2174,6 +2305,18 @@ impl Renderer {
             let tool_forward = base_forward;
 
             self.draw_procedural_tool_3d(block, pos, tool_right, tool_up, tool_forward, 0.85, view_proj);
+        } else if block.is_meat() {
+            // Spinning tilted 3D meat
+            let tilt_angle = 0.32f32;
+            let base_up = Vec3::new(0.0, 1.0, 0.0);
+            let base_right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+            let base_forward = Vec3::new(yaw.sin(), 0.0, yaw.cos());
+
+            let meat_up = (base_up * tilt_angle.cos() + base_right * tilt_angle.sin()).normalized();
+            let meat_right = (base_right * tilt_angle.cos() - base_up * tilt_angle.sin()).normalized();
+            let meat_forward = base_forward;
+
+            self.draw_meat_3d(block, pos, meat_right, meat_up, meat_forward, 0.85, view_proj);
         } else {
             use crate::world::block::Face;
             let size = 0.28;
