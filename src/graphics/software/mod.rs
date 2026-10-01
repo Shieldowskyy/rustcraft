@@ -386,6 +386,10 @@ impl Renderer {
         );
     }
 
+    pub fn clear_depth_buffer(&mut self) {
+        self.depth_buffer.fill(f32::INFINITY);
+    }
+
     pub fn draw_settings_menu(
         &mut self,
         settings: &crate::core::settings::GameSettings,
@@ -393,6 +397,7 @@ impl Renderer {
         hovered_tab: Option<usize>,
         hovered: Option<usize>,
         server_ip: &str,
+        profiler_copied: bool,
     ) {
         crate::ui::draw_settings_menu(
             &mut self.color_buffer,
@@ -403,6 +408,7 @@ impl Renderer {
             hovered_tab,
             hovered,
             server_ip,
+            profiler_copied,
         );
     }
 
@@ -1943,19 +1949,23 @@ impl Renderer {
         speed: f32,
         attack_animation: f32,
     ) {
+        // Clear depth buffer for the isolated hand / held item pass
+        // so held blocks, tools, and the arm never clip into adjacent world blocks or walls.
+        self.clear_depth_buffer();
+
         let forward = camera.forward();
         let right = camera.forward().cross(Vec3::new(0.0, 1.0, 0.0)).normalized();
         let up = right.cross(forward).normalized();
         let movement = (speed / 8.5).clamp(0.0, 1.0);
-        let swing = walk_phase.sin() * 0.10 * movement;
+        let swing = walk_phase.sin() * 0.08 * movement;
         let attack = (attack_animation * std::f32::consts::PI).sin();
-        let swing = swing + attack * 0.16;
-        let bob = (walk_phase * 2.0).cos() * 0.035 * movement - attack.abs() * 0.08;
+        let swing = swing + attack * 0.12;
+        let bob = (walk_phase * 2.0).cos() * 0.025 * movement - attack.abs() * 0.06;
         let hand_pos = camera.position
-            + forward * 0.68
-            + right * (0.53 + swing)
-            + up * (-0.40 + bob);
-        let arm_pos = hand_pos - right * 0.10 - up * 0.13;
+            + forward * 0.72
+            + right * (0.48 + swing)
+            + up * (-0.36 + bob);
+        let arm_pos = hand_pos - right * 0.08 - up * 0.10 + forward * 0.03;
         // Always draw arm
         self.draw_cube_3d(arm_pos, right, up, forward, [0.085, 0.085, 0.12], TextureId::Dirt, view_proj);
         // Draw held tool, torch or block

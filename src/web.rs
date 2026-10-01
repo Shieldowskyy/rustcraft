@@ -248,6 +248,10 @@ impl WebGame {
             gp_dpad_down_just_pressed: gp_dpad_down_just,
             gp_dpad_left_just_pressed: gp_dpad_left_just,
             gp_dpad_right_just_pressed: gp_dpad_right_just,
+            gp_menu_up: gp_dpad_up_just,
+            gp_menu_down: gp_dpad_down_just,
+            gp_menu_left: gp_dpad_left_just,
+            gp_menu_right: gp_dpad_right_just,
             gp_right_trigger_just_pressed: gp_rt_just,
             gp_left_trigger_just_pressed: gp_lt_just,
 

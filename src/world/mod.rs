@@ -842,6 +842,7 @@ pub struct World {
     pub active_sand: HashSet<IVec3>,
     pub chests: HashMap<IVec3, ChestData>,
     pub furnaces: HashMap<IVec3, FurnaceData>,
+    pub saved_player: Option<crate::gameplay::player::SavedPlayerData>,
     pub sim_tick: u64,
     pub time_of_day: f32,
     pub torches: HashSet<IVec3>,
@@ -1019,6 +1020,7 @@ impl World {
             active_sand: HashSet::new(),
             chests: HashMap::new(),
             furnaces: HashMap::new(),
+            saved_player: None,
             sim_tick: 0,
             time_of_day: 120.0, // Start around 9:00 AM bright daylight
             torches: HashSet::new(),
@@ -1111,7 +1113,7 @@ impl World {
 
     pub fn save(&self, path: &str) -> Result<(), String> {
         let mut bytes = Vec::with_capacity(32 + self.chunks.len() * 4);
-        bytes.extend_from_slice(b"RUSTCRAFT5");
+        bytes.extend_from_slice(b"RUSTCRAFT6");
         bytes.extend_from_slice(&self.seed.to_le_bytes());
         let mode_byte: u8 = match self.gamemode {
             crate::gameplay::player::GameMode::Survival => 0,
@@ -1174,6 +1176,38 @@ impl World {
             bytes.extend_from_slice(&furnace.burn_time_total.to_le_bytes());
             bytes.extend_from_slice(&furnace.cook_progress.to_le_bytes());
         }
+        // Save player state
+        if let Some(ref p) = self.saved_player {
+            bytes.push(1);
+            bytes.extend_from_slice(&p.health.to_le_bytes());
+            bytes.extend_from_slice(&p.max_health.to_le_bytes());
+            bytes.extend_from_slice(&p.hunger.to_le_bytes());
+            bytes.extend_from_slice(&p.max_hunger.to_le_bytes());
+            bytes.extend_from_slice(&p.saturation.to_le_bytes());
+            bytes.extend_from_slice(&p.exhaustion.to_le_bytes());
+            bytes.extend_from_slice(&p.air.to_le_bytes());
+            bytes.push(p.selected_hotbar_slot);
+            for item in &p.hotbar {
+                if let Some(stack) = item {
+                    bytes.push(stack.block.to_u8());
+                    bytes.push(stack.count);
+                } else {
+                    bytes.push(0);
+                    bytes.push(0);
+                }
+            }
+            for item in &p.main {
+                if let Some(stack) = item {
+                    bytes.push(stack.block.to_u8());
+                    bytes.push(stack.count);
+                } else {
+                    bytes.push(0);
+                    bytes.push(0);
+                }
+            }
+        } else {
+            bytes.push(0);
+        }
         std::fs::write(path, bytes).map_err(|error| format!("failed to save world: {error}"))
     }
 
@@ -1181,11 +1215,11 @@ impl World {
         let bytes = std::fs::read(path).map_err(|error| format!("failed to read world file: {error}"))?;
         let mut cursor = 0usize;
         let format = read_bytes(&bytes, &mut cursor, 10)?;
-        if format != b"RUSTCRAFT1" && format != b"RUSTCRAFT2" && format != b"RUSTCRAFT3" && format != b"RUSTCRAFT4" && format != b"RUSTCRAFT5" {
+        if format != b"RUSTCRAFT1" && format != b"RUSTCRAFT2" && format != b"RUSTCRAFT3" && format != b"RUSTCRAFT4" && format != b"RUSTCRAFT5" && format != b"RUSTCRAFT6" {
             return Err("unknown world file format".to_owned());
         }
         let seed = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap());
-        let (gamemode, name) = if format == b"RUSTCRAFT4" || format == b"RUSTCRAFT5" {
+        let (gamemode, name) = if format == b"RUSTCRAFT4" || format == b"RUSTCRAFT5" || format == b"RUSTCRAFT6" {
             let gm_byte = read_bytes(&bytes, &mut cursor, 1)?[0];
             let gm = if gm_byte == 1 { crate::gameplay::player::GameMode::Creative } else { crate::gameplay::player::GameMode::Survival };
             let name_len = read_bytes(&bytes, &mut cursor, 1)?[0] as usize;
@@ -1198,7 +1232,7 @@ impl World {
         } else {
             (crate::gameplay::player::GameMode::Survival, format!("World {}", seed))
         };
-        let player_position = if format == b"RUSTCRAFT2" || format == b"RUSTCRAFT3" || format == b"RUSTCRAFT4" || format == b"RUSTCRAFT5" {
+        let player_position = if format == b"RUSTCRAFT2" || format == b"RUSTCRAFT3" || format == b"RUSTCRAFT4" || format == b"RUSTCRAFT5" || format == b"RUSTCRAFT6" {
             Vec3::new(
                 f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
                 f32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()),
@@ -1223,7 +1257,7 @@ impl World {
             let blocks = read_bytes(&bytes, &mut cursor, block_len)?.to_vec();
             world.chunks.insert((cx, cz), Chunk { cx, cz, blocks, dirty: true });
         }
-        if format == b"RUSTCRAFT3" || format == b"RUSTCRAFT4" || format == b"RUSTCRAFT5" {
+        if format == b"RUSTCRAFT3" || format == b"RUSTCRAFT4" || format == b"RUSTCRAFT5" || format == b"RUSTCRAFT6" {
             let fluid_count = u32::from_le_bytes(read_bytes(&bytes, &mut cursor, 4)?.try_into().unwrap()) as usize;
             for _ in 0..fluid_count {
                 let pos = IVec3::new(
@@ -1235,7 +1269,7 @@ impl World {
                 world.fluid_levels.insert(pos, level);
             }
         }
-        if format == b"RUSTCRAFT5" && bytes.len() > cursor {
+        if (format == b"RUSTCRAFT5" || format == b"RUSTCRAFT6") && bytes.len() > cursor {
             if let Ok(chest_count_bytes) = read_bytes(&bytes, &mut cursor, 4) {
                 let chest_count = u32::from_le_bytes(chest_count_bytes.try_into().unwrap_or_default()) as usize;
                 for _ in 0..chest_count {
@@ -1302,6 +1336,57 @@ impl World {
                             furnace.cook_progress = f32::from_le_bytes(prog.try_into().unwrap_or_default());
                         }
                         world.furnaces.insert(pos, furnace);
+                    }
+                }
+            }
+        }
+        if format == b"RUSTCRAFT6" && bytes.len() > cursor {
+            if let Ok(has_p) = read_bytes(&bytes, &mut cursor, 1) {
+                if has_p[0] == 1 {
+                    if let (Ok(h), Ok(mh), Ok(hg), Ok(mhg), Ok(sat), Ok(exh), Ok(air), Ok(slot)) = (
+                        read_bytes(&bytes, &mut cursor, 4),
+                        read_bytes(&bytes, &mut cursor, 4),
+                        read_bytes(&bytes, &mut cursor, 4),
+                        read_bytes(&bytes, &mut cursor, 4),
+                        read_bytes(&bytes, &mut cursor, 4),
+                        read_bytes(&bytes, &mut cursor, 4),
+                        read_bytes(&bytes, &mut cursor, 4),
+                        read_bytes(&bytes, &mut cursor, 1),
+                    ) {
+                        let mut hotbar = [None; 10];
+                        for slot_item in &mut hotbar {
+                            if let Ok(ib) = read_bytes(&bytes, &mut cursor, 2) {
+                                if ib[0] > 0 && ib[1] > 0 {
+                                    *slot_item = Some(crate::gameplay::inventory::ItemStack {
+                                        block: BlockId::from_u8(ib[0]),
+                                        count: ib[1],
+                                    });
+                                }
+                            }
+                        }
+                        let mut main = [None; 27];
+                        for slot_item in &mut main {
+                            if let Ok(ib) = read_bytes(&bytes, &mut cursor, 2) {
+                                if ib[0] > 0 && ib[1] > 0 {
+                                    *slot_item = Some(crate::gameplay::inventory::ItemStack {
+                                        block: BlockId::from_u8(ib[0]),
+                                        count: ib[1],
+                                    });
+                                }
+                            }
+                        }
+                        world.saved_player = Some(crate::gameplay::player::SavedPlayerData {
+                            health: f32::from_le_bytes(h.try_into().unwrap_or_default()),
+                            max_health: f32::from_le_bytes(mh.try_into().unwrap_or_default()),
+                            hunger: f32::from_le_bytes(hg.try_into().unwrap_or_default()),
+                            max_hunger: f32::from_le_bytes(mhg.try_into().unwrap_or_default()),
+                            saturation: f32::from_le_bytes(sat.try_into().unwrap_or_default()),
+                            exhaustion: f32::from_le_bytes(exh.try_into().unwrap_or_default()),
+                            air: f32::from_le_bytes(air.try_into().unwrap_or_default()),
+                            selected_hotbar_slot: slot[0],
+                            hotbar,
+                            main,
+                        });
                     }
                 }
             }
@@ -2162,4 +2247,42 @@ mod tests {
         assert!(unsupported.contains(&IVec3::new(6, 11, 5)));
         assert!(unsupported.contains(&IVec3::new(4, 11, 5)));
     }
+
+    #[test]
+    fn test_world_save_and_load_with_player_stats() {
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join("rustcraft_test_player_world.bin");
+        let path_str = path.to_string_lossy().to_string();
+
+        let mut world = World::new_with_seed(12345);
+        world.name = "PlayerSaveTest".to_string();
+
+        let mut player = crate::gameplay::player::Player::new();
+        player.health = 13.0;
+        player.hunger = 15.0;
+        player.saturation = 4.0;
+        player.exhaustion = 2.0;
+        player.air = 18.0;
+        player.selected_hotbar_slot = 4;
+        player.inventory.hotbar[4] = Some(crate::gameplay::inventory::ItemStack {
+            block: BlockId::Torch,
+            count: 16,
+        });
+
+        world.saved_player = Some(player.save_state());
+        assert!(world.save(&path_str).is_ok());
+
+        let loaded = World::load(&path_str).expect("Should load RUSTCRAFT6 world file");
+        assert_eq!(loaded.name, "PlayerSaveTest");
+        let loaded_player = loaded.saved_player.expect("Should load player data");
+        assert_eq!(loaded_player.health, 13.0);
+        assert_eq!(loaded_player.hunger, 15.0);
+        assert_eq!(loaded_player.saturation, 4.0);
+        assert_eq!(loaded_player.selected_hotbar_slot, 4);
+        assert_eq!(loaded_player.hotbar[4].unwrap().block, BlockId::Torch);
+        assert_eq!(loaded_player.hotbar[4].unwrap().count, 16);
+
+        let _ = std::fs::remove_file(path);
+    }
 }
+

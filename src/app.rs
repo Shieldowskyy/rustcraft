@@ -10,6 +10,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use crate::cli::generate_random_seed;
+use crate::core::controls::{Action, ControlsManager};
 use crate::core::math::{IVec3, Mat4, Vec3};
 use crate::core::profiler::{FrameProfiler, MemoryBreakdown};
 use crate::core::settings::GameSettings;
@@ -166,6 +167,10 @@ pub struct InputState {
     pub gp_dpad_down_just_pressed: bool,
     pub gp_dpad_left_just_pressed: bool,
     pub gp_dpad_right_just_pressed: bool,
+    pub gp_menu_up: bool,
+    pub gp_menu_down: bool,
+    pub gp_menu_left: bool,
+    pub gp_menu_right: bool,
     pub gp_right_trigger_just_pressed: bool,
     pub gp_left_trigger_just_pressed: bool,
 
@@ -257,6 +262,7 @@ pub struct RustCraftApp {
     pub frozen_frame: Option<Vec<u32>>,
     pub right_drag_visited: Vec<crate::ui::inventory_ui::InventorySlotTarget>,
     pub profiler_frame_count: u64,
+    pub profiler_copied_timer: f32,
 
     // Controls toggle states
     pub sprint_toggled: bool,
@@ -291,6 +297,7 @@ pub struct RustCraftApp {
     prev_l1_btn: bool,
     prev_r1_btn: bool,
     prev_key_digits: [bool; 10],
+    pub controls: ControlsManager,
 }
 
 impl RustCraftApp {
@@ -419,6 +426,7 @@ impl RustCraftApp {
             frozen_frame: None,
             right_drag_visited: Vec::new(),
             profiler_frame_count: 0,
+            profiler_copied_timer: 0.0,
 
             sprint_toggled: false,
             crouch_toggled: false,
@@ -451,6 +459,7 @@ impl RustCraftApp {
             prev_l1_btn: false,
             prev_r1_btn: false,
             prev_key_digits: [false; 10],
+            controls: ControlsManager::new(),
         }
     }
 
@@ -470,6 +479,8 @@ impl RustCraftApp {
         self.renderer.total_time = self.total_time;
         self.renderer.chunk_anim = self.settings.chunk_anim;
         self.hand_animation = (self.hand_animation - dt * 3.5).max(0.0);
+        self.profiler_copied_timer = (self.profiler_copied_timer - dt).max(0.0);
+        self.controls.update(input);
 
         let mut out = AppOutput {
             request_capture_mouse: false,
@@ -521,7 +532,7 @@ impl RustCraftApp {
                     }
                 }
 
-                if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
+                if input.gp_dpad_up_just_pressed || input.gp_menu_up || (up_arrow_down && !self.prev_up_arrow_down) {
                     let next = match self.menu_hovered_btn {
                         Some(0) | None => 2,
                         Some(i) => i - 1,
@@ -529,7 +540,7 @@ impl RustCraftApp {
                     self.menu_hovered_btn = Some(next);
                     hovered_idx = Some(next);
                 }
-                if input.gp_dpad_down_just_pressed || (down_arrow_down && !self.prev_down_arrow_down) {
+                if input.gp_dpad_down_just_pressed || input.gp_menu_down || (down_arrow_down && !self.prev_down_arrow_down) {
                     let next = match self.menu_hovered_btn {
                         Some(2) | None => 0,
                         Some(i) => i + 1,
@@ -674,6 +685,11 @@ impl RustCraftApp {
                                 Ok(loaded_world) => {
                                     let pos = loaded_world.player_position;
                                     self.player.gamemode = loaded_world.gamemode;
+                                    if let Some(ref saved) = loaded_world.saved_player {
+                                        self.player.apply_saved_state(saved);
+                                    } else {
+                                        self.player.reset(loaded_world.gamemode);
+                                    }
                                     self.world = loaded_world;
                                     self.camera = Camera::new(pos);
                                     self.mob_manager = MobManager::new();
@@ -681,6 +697,7 @@ impl RustCraftApp {
                                 }
                                 Err(_) => {
                                     self.world = World::new_with_seed(self.seed);
+                                    self.player.reset(self.world.gamemode);
                                     self.camera = Camera::new(self.world.player_position);
                                     self.mob_manager = MobManager::new();
                                     self.state = GameState::Playing;
@@ -743,10 +760,10 @@ impl RustCraftApp {
                 }
 
                 let tab_just = tab_down && !self.prev_tab_down;
-                let up_just = (up_arrow_down && !self.prev_up_arrow_down) || input.gp_dpad_up_just_pressed;
-                let down_just = (down_arrow_down && !self.prev_down_arrow_down) || input.gp_dpad_down_just_pressed;
-                let left_just = (left_arrow_down && !self.prev_left_arrow_down) || input.gp_dpad_left_just_pressed;
-                let right_just = (right_arrow_down && !self.prev_right_arrow_down) || input.gp_dpad_right_just_pressed;
+                let up_just = (up_arrow_down && !self.prev_up_arrow_down) || input.gp_dpad_up_just_pressed || input.gp_menu_up;
+                let down_just = (down_arrow_down && !self.prev_down_arrow_down) || input.gp_dpad_down_just_pressed || input.gp_menu_down;
+                let left_just = (left_arrow_down && !self.prev_left_arrow_down) || input.gp_dpad_left_just_pressed || input.gp_menu_left;
+                let right_just = (right_arrow_down && !self.prev_right_arrow_down) || input.gp_dpad_right_just_pressed || input.gp_menu_right;
 
                 if tab_just || down_just {
                     self.create_world_focus = (self.create_world_focus + 1) % 6;
@@ -921,7 +938,7 @@ impl RustCraftApp {
                     let gamemode = self.create_world_gamemode;
                     self.save_slot = self.create_world_slot;
                     self.seed = seed;
-                    self.player.gamemode = gamemode;
+                    self.player.reset(gamemode);
 
                     #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
                     {
@@ -1043,7 +1060,7 @@ impl RustCraftApp {
                     _ => 5,
                 };
 
-                if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
+                if input.gp_dpad_up_just_pressed || input.gp_menu_up || (up_arrow_down && !self.prev_up_arrow_down) {
                     let next = match self.settings_hovered_opt {
                         Some(0) | None => max_opts - 1,
                         Some(i) => (i + max_opts - 1) % max_opts,
@@ -1051,7 +1068,7 @@ impl RustCraftApp {
                     self.settings_hovered_opt = Some(next);
                     hovered_opt = Some(next);
                 }
-                if input.gp_dpad_down_just_pressed || (down_arrow_down && !self.prev_down_arrow_down) {
+                if input.gp_dpad_down_just_pressed || input.gp_menu_down || (down_arrow_down && !self.prev_down_arrow_down) {
                     let next = match self.settings_hovered_opt {
                         Some(i) => (i + 1) % max_opts,
                         None => 0,
@@ -1075,8 +1092,8 @@ impl RustCraftApp {
                     None
                 };
 
-                let left_key_just = left_arrow_down && !self.prev_left_arrow_down;
-                let right_key_just = right_arrow_down && !self.prev_right_arrow_down;
+                let left_key_just = (left_arrow_down && !self.prev_left_arrow_down) || input.gp_menu_left;
+                let right_key_just = (right_arrow_down && !self.prev_right_arrow_down) || input.gp_menu_right;
 
                 if self.settings_tab == 0 {
                     // GRAPHICS TAB
@@ -1223,10 +1240,10 @@ impl RustCraftApp {
                             }
                             1 => {
                                 if self.settings.profiler_server {
-                                    if let Some(mut s) = self.profiler_server.take() {
-                                        s.stop();
-                                    }
-                                    self.profiler_server = crate::core::profiler_server::ProfilerServer::start(self.settings.profiler_server_port).ok();
+                                    let server_ip = self.profiler_server.as_ref().map(|s| s.ip_address.as_str()).unwrap_or("127.0.0.1");
+                                    let url = format!("http://{}:{}", server_ip, self.settings.profiler_server_port);
+                                    crate::ui::clipboard::set_clipboard(&url);
+                                    self.profiler_copied_timer = 2.5;
                                 }
                             }
                             2 => {
@@ -1317,7 +1334,7 @@ impl RustCraftApp {
                     }
                 }
                 let server_ip = self.profiler_server.as_ref().map(|s| s.ip_address.as_str()).unwrap_or("127.0.0.1");
-                self.renderer.draw_settings_menu(&self.settings, self.settings_tab, hovered_tab, hovered_opt, server_ip);
+                self.renderer.draw_settings_menu(&self.settings, self.settings_tab, hovered_tab, hovered_opt, server_ip, self.profiler_copied_timer > 0.0);
             }
             #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
             GameState::Loading(ref rx) => {
@@ -1326,6 +1343,12 @@ impl RustCraftApp {
                 if let Ok(result) = rx.try_recv() {
                     match result {
                         WorldLoadResult::Success(loaded_world, loaded_pos) => {
+                            self.player.gamemode = loaded_world.gamemode;
+                            if let Some(ref saved) = loaded_world.saved_player {
+                                self.player.apply_saved_state(saved);
+                            } else {
+                                self.player.reset(loaded_world.gamemode);
+                            }
                             self.world = loaded_world;
                             let start_pos = loaded_pos.unwrap_or(self.world.player_position);
                             self.camera = Camera::new(start_pos);
@@ -1345,7 +1368,7 @@ impl RustCraftApp {
                 self.state = GameState::Playing;
             }
             GameState::Playing => {
-                if f5_down && !self.prev_f5_down {
+                if self.controls.is_just_pressed(Action::Save) {
                     let path = save_path(self.save_slot);
                     match save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref()) {
                         Ok(()) => println!("Saved world to {path}"),
@@ -1353,7 +1376,7 @@ impl RustCraftApp {
                     }
                     self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                 }
-                if (escape_down && !self.prev_escape_down) || (p_down && !self.prev_p_down) || input.gp_start_just_pressed {
+                if self.controls.is_just_pressed(Action::Pause) {
                     self.last_clean_thumbnail = Some(crate::world::storage::capture_thumbnail(self.renderer.pixel_buffer(), self.width, self.height));
                     self.state = GameState::Paused;
                     out.request_release_mouse = true;
@@ -1361,7 +1384,7 @@ impl RustCraftApp {
                     self.fly_velocity = Vec3::zero();
                 }
 
-                if (e_down && !self.prev_e_down) || input.gp_north_just_pressed {
+                if self.controls.is_just_pressed(Action::Inventory) {
                     self.crafting_table_open = false;
                     self.state = GameState::Inventory;
                     out.request_release_mouse = true;
@@ -1397,12 +1420,10 @@ impl RustCraftApp {
                 let right = self.camera.right_flat();
                 let mut wish_dir = Vec3::zero();
 
-                if input.is_mouse_captured {
-                    if input.key_w { wish_dir = wish_dir + forward; }
-                    if input.key_s { wish_dir = wish_dir - forward; }
-                    if input.key_a { wish_dir = wish_dir - right; }
-                    if input.key_d { wish_dir = wish_dir + right; }
-                }
+                if self.controls.is_active(Action::MoveForward) { wish_dir = wish_dir + forward; }
+                if self.controls.is_active(Action::MoveBackward) { wish_dir = wish_dir - forward; }
+                if self.controls.is_active(Action::StrafeLeft) { wish_dir = wish_dir - right; }
+                if self.controls.is_active(Action::StrafeRight) { wish_dir = wish_dir + right; }
                 if input.gp_left_stick_y.abs() > 0.0 || input.gp_left_stick_x.abs() > 0.0 {
                     wish_dir = wish_dir + forward * input.gp_left_stick_y + right * input.gp_left_stick_x;
                 }
@@ -1410,13 +1431,13 @@ impl RustCraftApp {
                     wish_dir = wish_dir.normalized();
                 }
 
-                if (f_down && !self.prev_f_down) || input.gp_r3_just_pressed {
+                if self.controls.is_just_pressed(Action::ToggleFly) {
                     self.fly_mode = !self.fly_mode;
                     self.horiz_velocity = Vec3::zero();
                     self.fly_velocity = Vec3::zero();
                 }
 
-                if (g_down && !self.prev_g_down) || input.gp_select_just_pressed {
+                if self.controls.is_just_pressed(Action::ToggleGamemode) {
                     self.player.gamemode = if self.player.gamemode == GameMode::Survival {
                         GameMode::Creative
                     } else {
@@ -1424,8 +1445,8 @@ impl RustCraftApp {
                     };
                 }
 
-                let sneak_btn_down = (input.is_mouse_captured && (input.key_shift || input.key_c)) || input.gp_btn_east;
-                let sneak_just_pressed = sneak_btn_down && !self.prev_sneak_btn;
+                let sneak_btn_down = self.controls.is_active(Action::Sneak);
+                let sneak_just_pressed = self.controls.is_just_pressed(Action::Sneak);
                 self.prev_sneak_btn = sneak_btn_down;
 
                 if self.settings.sneak_mode == crate::core::settings::SneakMode::Toggle {
@@ -1450,8 +1471,8 @@ impl RustCraftApp {
                 }
 
                 let can_sprint = self.player.gamemode == GameMode::Creative || self.player.hunger > 6.0;
-                let sprint_btn_down = (input.is_mouse_captured && input.key_ctrl) || input.gp_btn_l3 || input.gp_left_stick_y > 0.85;
-                let sprint_just_pressed = sprint_btn_down && !self.prev_sprint_btn;
+                let sprint_btn_down = self.controls.is_active(Action::Sprint) || input.gp_left_stick_y > 0.85;
+                let sprint_just_pressed = self.controls.is_just_pressed(Action::Sprint) || (input.gp_left_stick_y > 0.85 && !self.prev_sprint_btn);
                 self.prev_sprint_btn = sprint_btn_down;
 
                 if self.settings.sprint_mode == crate::core::settings::SprintMode::Toggle {
@@ -1491,17 +1512,17 @@ impl RustCraftApp {
 
                 if self.fly_mode {
                     let mut move_dir = wish_dir;
-                    if (input.is_mouse_captured && input.key_space) || input.gp_btn_south {
+                    if self.controls.is_active(Action::Jump) {
                         move_dir.y += 1.0;
                     }
-                    if (input.is_mouse_captured && input.key_shift) || input.gp_btn_east {
+                    if self.controls.is_active(Action::Sneak) {
                         move_dir.y -= 1.0;
                     }
                     if move_dir.length_sq() > 0.0001 {
                         move_dir = move_dir.normalized();
                     }
 
-                    let fly_fast = (input.is_mouse_captured && input.key_ctrl) || input.gp_btn_l3;
+                    let fly_fast = self.controls.is_active(Action::Sprint);
                     let fly_mult = if fly_fast { 2.0 } else { 1.0 };
                     let target_fly = move_dir * (FLY_SPEED * fly_mult);
                     let fly_damping = 14.0;
@@ -1544,7 +1565,7 @@ impl RustCraftApp {
                         if self.vertical_velocity < -1.8 {
                             self.vertical_velocity = -1.8;
                         }
-                        if (input.key_space && input.is_mouse_captured) || input.gp_btn_south {
+                        if self.controls.is_active(Action::Jump) {
                             self.vertical_velocity = 2.2;
                         }
                     } else if in_water {
@@ -1552,7 +1573,7 @@ impl RustCraftApp {
                         if self.vertical_velocity < -2.5 {
                             self.vertical_velocity = -2.5;
                         }
-                        if (input.key_space && input.is_mouse_captured) || input.gp_btn_south {
+                        if self.controls.is_active(Action::Jump) {
                             self.vertical_velocity = 3.2;
                         }
                     } else {
@@ -1561,7 +1582,7 @@ impl RustCraftApp {
                             self.vertical_velocity = -TERMINAL_VELOCITY;
                         }
 
-                        let mut should_jump = ((input.key_space && input.is_mouse_captured) || input.gp_btn_south) && self.on_ground;
+                        let mut should_jump = self.controls.is_active(Action::Jump) && self.on_ground;
 
                         // Auto-jump logic
                         if !should_jump && self.settings.jump_mode == crate::core::settings::JumpMode::AutoJump && self.on_ground && wish_dir.length_sq() > 0.01 {
@@ -1750,16 +1771,10 @@ impl RustCraftApp {
                     self.vertical_velocity = self.vertical_velocity.min(0.0);
                 }
 
-                if input.scroll_delta > 0.0 {
-                    self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
-                } else if input.scroll_delta < 0.0 {
+                if input.scroll_delta < 0.0 || self.controls.is_just_pressed(Action::HotbarPrev) {
                     self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
                 }
-
-                if input.gp_lb_just_pressed || input.gp_dpad_left_just_pressed {
-                    self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
-                }
-                if input.gp_rb_just_pressed || input.gp_dpad_right_just_pressed {
+                if input.scroll_delta > 0.0 || self.controls.is_just_pressed(Action::HotbarNext) {
                     self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
                 }
 
@@ -1775,8 +1790,8 @@ impl RustCraftApp {
                 }
                 self.renderer.set_selected_block(selected_block_id);
 
-                let interact_left = (input.is_mouse_captured && left_down) || input.gp_right_trigger > 0.15;
-                let interact_left_just = (!self.prev_left_down && left_down && input.is_mouse_captured) || input.gp_right_trigger_just_pressed;
+                let interact_left = self.controls.is_active(Action::AttackBreak);
+                let interact_left_just = self.controls.is_just_pressed(Action::AttackBreak);
 
                 if interact_left {
                     if self.hand_animation < 0.1 {
@@ -1936,7 +1951,7 @@ impl RustCraftApp {
                     self.break_progress = 0.0;
                 }
 
-                let interact_right = (input.is_mouse_captured && right_down && !self.prev_right_down) || input.gp_left_trigger_just_pressed;
+                let interact_right = self.controls.is_just_pressed(Action::UsePlace);
                 if interact_right {
                     let held_food = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
                     let mut ate_food = false;
@@ -2140,7 +2155,7 @@ impl RustCraftApp {
                     self.fly_velocity = Vec3::zero();
                 }
 
-                if (q_down && !self.prev_q_down && input.is_mouse_captured) || input.gp_west_just_pressed {
+                if self.controls.is_just_pressed(Action::DropItem) {
                     if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
                         self.items.push(ItemEntity::new(
                             self.camera.position + self.camera.forward() * 0.5,
@@ -2324,7 +2339,10 @@ impl RustCraftApp {
                     let hand_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
                     let hand_block: Option<u8> = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize]
                         .map(|s| s.block.to_u8());
-                    self.renderer.draw_hand_3d(&self.camera, &view_proj, hand_block, self.walk_phase, hand_speed, self.hand_animation);
+                    let aspect = (self.width as f32) / (self.height as f32);
+                    let hand_proj = Mat4::perspective(68.0_f32.to_radians(), aspect, 0.01, 20.0);
+                    let hand_view_proj = hand_proj.mul(&self.camera.view_matrix_with_tilt(shake_offset, roll));
+                    self.renderer.draw_hand_3d(&self.camera, &hand_view_proj, hand_block, self.walk_phase, hand_speed, self.hand_animation);
                     if let Some(h_start) = hand_start {
                         cur_profiler.render_hand_ms = h_start.elapsed().as_secs_f32() * 1000.0;
                     }
@@ -2631,11 +2649,11 @@ impl RustCraftApp {
                     }
                 }
 
-                if (escape_down && !self.prev_escape_down) || (p_down && !self.prev_p_down) || input.gp_east_just_pressed || input.gp_start_just_pressed {
+                if self.controls.is_just_pressed(Action::Pause) || input.gp_east_just_pressed {
                     self.state = GameState::Playing;
                     out.request_capture_mouse = true;
                 }
-                if f_down && !self.prev_f_down {
+                if self.controls.is_just_pressed(Action::ToggleFly) {
                     self.fly_mode = !self.fly_mode;
                 }
                 if q_down && !self.prev_q_down {
@@ -2668,19 +2686,16 @@ impl RustCraftApp {
             GameState::Inventory => {
                 self.world.update_furnaces(dt);
 
-                if input.gp_lb_just_pressed {
+                if input.scroll_delta < 0.0 || self.controls.is_just_pressed(Action::HotbarPrev) {
                     self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
                 }
-                if input.gp_rb_just_pressed {
+                if input.scroll_delta > 0.0 || self.controls.is_just_pressed(Action::HotbarNext) {
                     self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
                 }
 
-                if (e_down && !self.prev_e_down)
-                    || (escape_down && !self.prev_escape_down)
-                    || (p_down && !self.prev_p_down)
+                if self.controls.is_just_pressed(Action::Inventory)
+                    || self.controls.is_just_pressed(Action::Pause)
                     || input.gp_east_just_pressed
-                    || input.gp_north_just_pressed
-                    || input.gp_start_just_pressed
                 {
                     self.player.inventory.return_crafting_items();
                     if self.player.gamemode == GameMode::Creative {
@@ -2877,19 +2892,16 @@ impl RustCraftApp {
                 let chest_pos = pos;
                 self.world.update_furnaces(dt);
 
-                if input.gp_lb_just_pressed {
+                if input.scroll_delta < 0.0 || self.controls.is_just_pressed(Action::HotbarPrev) {
                     self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
                 }
-                if input.gp_rb_just_pressed {
+                if input.scroll_delta > 0.0 || self.controls.is_just_pressed(Action::HotbarNext) {
                     self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
                 }
 
-                if (e_down && !self.prev_e_down)
-                    || (escape_down && !self.prev_escape_down)
-                    || (p_down && !self.prev_p_down)
+                if self.controls.is_just_pressed(Action::Inventory)
+                    || self.controls.is_just_pressed(Action::Pause)
                     || input.gp_east_just_pressed
-                    || input.gp_north_just_pressed
-                    || input.gp_start_just_pressed
                 {
                     if self.player.gamemode == GameMode::Creative {
                         self.player.inventory.held_item = None;
@@ -3001,19 +3013,16 @@ impl RustCraftApp {
                 let furnace_pos = pos;
                 self.world.update_furnaces(dt);
 
-                if input.gp_lb_just_pressed {
+                if input.scroll_delta < 0.0 || self.controls.is_just_pressed(Action::HotbarPrev) {
                     self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
                 }
-                if input.gp_rb_just_pressed {
+                if input.scroll_delta > 0.0 || self.controls.is_just_pressed(Action::HotbarNext) {
                     self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
                 }
 
-                if (e_down && !self.prev_e_down)
-                    || (escape_down && !self.prev_escape_down)
-                    || (p_down && !self.prev_p_down)
+                if self.controls.is_just_pressed(Action::Inventory)
+                    || self.controls.is_just_pressed(Action::Pause)
                     || input.gp_east_just_pressed
-                    || input.gp_north_just_pressed
-                    || input.gp_start_just_pressed
                 {
                     if self.player.gamemode == GameMode::Creative {
                         self.player.inventory.held_item = None;
@@ -3276,6 +3285,8 @@ impl RustCraftApp {
                             out.request_capture_mouse = true;
                         }
                         1 => {
+                            self.player.reset(self.player.gamemode);
+                            self.camera.position = self.world.player_position;
                             let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                             self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                             self.state = GameState::MainMenu;
@@ -3286,6 +3297,8 @@ impl RustCraftApp {
                 }
 
                 if (escape_down && !self.prev_escape_down) || (p_down && !self.prev_p_down) || input.gp_east_just_pressed {
+                    self.player.reset(self.player.gamemode);
+                    self.camera.position = self.world.player_position;
                     let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                     self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                     self.state = GameState::MainMenu;

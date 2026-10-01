@@ -209,10 +209,10 @@ pub fn get_save_metadata(slot: u8) -> SaveMetadata {
         if bytes.len() >= 14 {
             let mut cursor = 0;
             if let Ok(fmt) = crate::world::read_bytes(&bytes, &mut cursor, 10) {
-                if fmt == b"RUSTCRAFT1" || fmt == b"RUSTCRAFT2" || fmt == b"RUSTCRAFT3" || fmt == b"RUSTCRAFT4" || fmt == b"RUSTCRAFT5" {
+                if fmt == b"RUSTCRAFT1" || fmt == b"RUSTCRAFT2" || fmt == b"RUSTCRAFT3" || fmt == b"RUSTCRAFT4" || fmt == b"RUSTCRAFT5" || fmt == b"RUSTCRAFT6" {
                     if let Ok(seed_bytes) = crate::world::read_bytes(&bytes, &mut cursor, 4) {
                         let seed = u32::from_le_bytes(seed_bytes.try_into().unwrap_or_default());
-                        let (gamemode, name) = if fmt == b"RUSTCRAFT4" || fmt == b"RUSTCRAFT5" {
+                        let (gamemode, name) = if fmt == b"RUSTCRAFT4" || fmt == b"RUSTCRAFT5" || fmt == b"RUSTCRAFT6" {
                             let gm_byte = crate::world::read_bytes(&bytes, &mut cursor, 1).map(|b| b[0]).unwrap_or(0);
                             let gm = if gm_byte == 1 { crate::gameplay::player::GameMode::Creative } else { crate::gameplay::player::GameMode::Survival };
                             let name_len = crate::world::read_bytes(&bytes, &mut cursor, 1).map(|b| b[0] as usize).unwrap_or(0);
@@ -231,7 +231,7 @@ pub fn get_save_metadata(slot: u8) -> SaveMetadata {
                         };
 
                         let mut player_pos = crate::world::World::find_spawn_position(seed);
-                        if (fmt == b"RUSTCRAFT2" || fmt == b"RUSTCRAFT3" || fmt == b"RUSTCRAFT4" || fmt == b"RUSTCRAFT5") && bytes.len() >= cursor + 12 {
+                        if (fmt == b"RUSTCRAFT2" || fmt == b"RUSTCRAFT3" || fmt == b"RUSTCRAFT4" || fmt == b"RUSTCRAFT5" || fmt == b"RUSTCRAFT6") && bytes.len() >= cursor + 12 {
                             if let (Ok(x), Ok(y), Ok(z)) = (
                                 crate::world::read_bytes(&bytes, &mut cursor, 4),
                                 crate::world::read_bytes(&bytes, &mut cursor, 4),
@@ -302,6 +302,7 @@ pub fn save_current_world(
 ) -> Result<(), String> {
     world.player_position = camera.position;
     world.gamemode = player.gamemode;
+    world.saved_player = Some(player.save_state());
     if let Some(thumb) = thumbnail {
         save_thumbnail(slot, thumb);
     }

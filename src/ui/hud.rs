@@ -55,6 +55,136 @@ pub fn draw_lava_overlay(buffer: &mut [u32], width: usize, height: usize, time: 
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HeartIconState {
+    Full,
+    Half,
+    Empty,
+}
+
+pub fn draw_heart_icon(
+    buffer: &mut [u32],
+    width: usize,
+    height: usize,
+    x: i32,
+    y: i32,
+    state: HeartIconState,
+    flashing: bool,
+) {
+    let outline = if flashing {
+        pack_color(1.0, 1.0, 1.0)
+    } else {
+        pack_color(0.20, 0.04, 0.04)
+    };
+    let dark_bg = pack_color(0.12, 0.06, 0.06);
+    let red_hi = if flashing { pack_color(1.0, 1.0, 1.0) } else { pack_color(1.0, 0.40, 0.40) };
+    let red_base = if flashing { pack_color(1.0, 0.85, 0.85) } else { pack_color(0.88, 0.10, 0.10) };
+    let red_dark = if flashing { pack_color(0.90, 0.65, 0.65) } else { pack_color(0.55, 0.05, 0.05) };
+
+    // Standard 9x9 heart outline
+    // Row 0
+    set_px(buffer, width, height, x + 1, y + 0, outline);
+    set_px(buffer, width, height, x + 2, y + 0, outline);
+    set_px(buffer, width, height, x + 5, y + 0, outline);
+    set_px(buffer, width, height, x + 6, y + 0, outline);
+    // Row 1
+    set_px(buffer, width, height, x + 0, y + 1, outline);
+    set_px(buffer, width, height, x + 3, y + 1, outline);
+    set_px(buffer, width, height, x + 4, y + 1, outline);
+    set_px(buffer, width, height, x + 7, y + 1, outline);
+    // Row 2..=4 sides
+    for r in 2..=4 {
+        set_px(buffer, width, height, x + 0, y + r, outline);
+        set_px(buffer, width, height, x + 7, y + r, outline);
+    }
+    // Row 5
+    set_px(buffer, width, height, x + 1, y + 5, outline);
+    set_px(buffer, width, height, x + 6, y + 5, outline);
+    // Row 6
+    set_px(buffer, width, height, x + 2, y + 6, outline);
+    set_px(buffer, width, height, x + 5, y + 6, outline);
+    // Row 7
+    set_px(buffer, width, height, x + 3, y + 7, outline);
+    set_px(buffer, width, height, x + 4, y + 7, outline);
+
+    match state {
+        HeartIconState::Full => {
+            // Left lobe
+            set_px(buffer, width, height, x + 1, y + 1, red_hi);
+            set_px(buffer, width, height, x + 2, y + 1, red_base);
+            // Right lobe
+            set_px(buffer, width, height, x + 5, y + 1, red_base);
+            set_px(buffer, width, height, x + 6, y + 1, red_base);
+
+            // Row 2
+            set_px(buffer, width, height, x + 1, y + 2, red_hi);
+            fill_rect(buffer, width, height, x + 2, y + 2, 4, 1, red_base);
+            set_px(buffer, width, height, x + 6, y + 2, red_dark);
+
+            // Row 3
+            fill_rect(buffer, width, height, x + 1, y + 3, 5, 1, red_base);
+            set_px(buffer, width, height, x + 6, y + 3, red_dark);
+
+            // Row 4
+            fill_rect(buffer, width, height, x + 1, y + 4, 4, 1, red_base);
+            set_px(buffer, width, height, x + 5, y + 4, red_dark);
+            set_px(buffer, width, height, x + 6, y + 4, red_dark);
+
+            // Row 5
+            fill_rect(buffer, width, height, x + 2, y + 5, 3, 1, red_base);
+            set_px(buffer, width, height, x + 5, y + 5, red_dark);
+
+            // Row 6
+            set_px(buffer, width, height, x + 3, y + 6, red_base);
+            set_px(buffer, width, height, x + 4, y + 6, red_dark);
+        }
+        HeartIconState::Half => {
+            // Left lobe filled, right lobe empty
+            set_px(buffer, width, height, x + 1, y + 1, red_hi);
+            set_px(buffer, width, height, x + 2, y + 1, red_base);
+            set_px(buffer, width, height, x + 5, y + 1, dark_bg);
+            set_px(buffer, width, height, x + 6, y + 1, dark_bg);
+
+            // Row 2
+            set_px(buffer, width, height, x + 1, y + 2, red_hi);
+            fill_rect(buffer, width, height, x + 2, y + 2, 2, 1, red_base);
+            fill_rect(buffer, width, height, x + 4, y + 2, 3, 1, dark_bg);
+
+            // Row 3
+            fill_rect(buffer, width, height, x + 1, y + 3, 3, 1, red_base);
+            fill_rect(buffer, width, height, x + 4, y + 3, 3, 1, dark_bg);
+
+            // Row 4
+            fill_rect(buffer, width, height, x + 1, y + 4, 3, 1, red_base);
+            fill_rect(buffer, width, height, x + 4, y + 4, 3, 1, dark_bg);
+
+            // Row 5
+            fill_rect(buffer, width, height, x + 2, y + 5, 2, 1, red_base);
+            fill_rect(buffer, width, height, x + 4, y + 5, 2, 1, dark_bg);
+
+            // Row 6
+            set_px(buffer, width, height, x + 3, y + 6, red_base);
+            set_px(buffer, width, height, x + 4, y + 6, dark_bg);
+        }
+        HeartIconState::Empty => {
+            // Row 1
+            set_px(buffer, width, height, x + 1, y + 1, dark_bg);
+            set_px(buffer, width, height, x + 2, y + 1, dark_bg);
+            set_px(buffer, width, height, x + 5, y + 1, dark_bg);
+            set_px(buffer, width, height, x + 6, y + 1, dark_bg);
+
+            // Rows 2..=4
+            for r in 2..=4 {
+                fill_rect(buffer, width, height, x + 1, y + r, 6, 1, dark_bg);
+            }
+            // Row 5
+            fill_rect(buffer, width, height, x + 2, y + 5, 4, 1, dark_bg);
+            // Row 6
+            fill_rect(buffer, width, height, x + 3, y + 6, 2, 1, dark_bg);
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum BubbleState {
     Full,
@@ -261,18 +391,26 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
         let health_start_x = start_x;
         let health_y = y - 16;
         let hp = player.health.ceil() as i32;
-        let max_hp = player.max_health as i32;
-        for i in 0..(max_hp / 2) {
+        let max_hearts = (player.max_health as i32 / 2).max(1);
+        let is_flashing = player.invulnerability_timer > 0.0;
+        let is_low_health = player.health <= 4.0 && player.health > 0.0;
+
+        for i in 0..max_hearts {
             let heart_x = health_start_x + i * 10;
-            let color = if (i * 2 + 1) <= hp {
-                pack_color(1.0, 0.1, 0.1)
-            } else if (i * 2) < hp {
-                pack_color(1.0, 0.5, 0.5)
+            let threshold = (i + 1) * 2;
+            let state = if hp >= threshold {
+                HeartIconState::Full
+            } else if hp == threshold - 1 {
+                HeartIconState::Half
             } else {
-                pack_color(0.0, 0.0, 0.0)
+                HeartIconState::Empty
             };
-            fill_rect(buffer, width, height, heart_x, health_y, 8, 8, pack_color(0.1, 0.1, 0.1));
-            fill_rect(buffer, width, height, heart_x + 1, health_y + 1, 6, 6, color);
+            let wobble = if is_low_health {
+                if (i as i32 + (player.invulnerability_timer * 15.0) as i32) % 3 == 1 { -1 } else { 0 }
+            } else {
+                0
+            };
+            draw_heart_icon(buffer, width, height, heart_x, health_y + wobble, state, is_flashing);
         }
 
         // Hunger bar - on right side above hotbar
@@ -901,6 +1039,27 @@ mod tests {
         let mut buffer_empty = vec![0u32; width * height];
         draw_hunger_icon(&mut buffer_empty, width, height, 4, 4, HungerIconState::Empty);
         assert!(buffer_empty.iter().filter(|&&p| p != 0).count() > 0);
+    }
+
+    #[test]
+    fn test_draw_heart_icon_renders_pixels() {
+        let width = 32;
+        let height = 32;
+        let mut buffer_full = vec![0u32; width * height];
+        draw_heart_icon(&mut buffer_full, width, height, 4, 4, HeartIconState::Full, false);
+        assert!(buffer_full.iter().filter(|&&p| p != 0).count() > 0);
+
+        let mut buffer_half = vec![0u32; width * height];
+        draw_heart_icon(&mut buffer_half, width, height, 4, 4, HeartIconState::Half, false);
+        assert!(buffer_half.iter().filter(|&&p| p != 0).count() > 0);
+
+        let mut buffer_empty = vec![0u32; width * height];
+        draw_heart_icon(&mut buffer_empty, width, height, 4, 4, HeartIconState::Empty, false);
+        assert!(buffer_empty.iter().filter(|&&p| p != 0).count() > 0);
+
+        let mut buffer_flash = vec![0u32; width * height];
+        draw_heart_icon(&mut buffer_flash, width, height, 4, 4, HeartIconState::Full, true);
+        assert!(buffer_flash.iter().filter(|&&p| p != 0).count() > 0);
     }
 }
 

@@ -91,6 +91,7 @@ pub fn draw_settings_menu(
     hovered_tab: Option<usize>,
     hovered_idx: Option<usize>,
     server_ip: &str,
+    profiler_copied: bool,
 ) {
     fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.0, 0.0, 0.0), 0.78);
 
@@ -266,7 +267,11 @@ pub fn draw_settings_menu(
     } else {
         // Tab 2: DEBUG
         let status_str = if settings.profiler_server {
-            t_fmt("settings.profiler_server_active", &[server_ip, &settings.profiler_server_port.to_string()])
+            if profiler_copied {
+                t_fmt("settings.profiler_server_copied", &[server_ip, &settings.profiler_server_port.to_string()])
+            } else {
+                t_fmt("settings.profiler_server_active", &[server_ip, &settings.profiler_server_port.to_string()])
+            }
         } else {
             t("settings.profiler_server_inactive").to_string()
         };

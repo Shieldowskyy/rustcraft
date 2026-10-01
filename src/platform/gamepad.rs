@@ -60,6 +60,10 @@ pub struct GamepadEvents {
     pub dpad_down_just_pressed: bool,
     pub dpad_left_just_pressed: bool,
     pub dpad_right_just_pressed: bool,
+    pub menu_up: bool,
+    pub menu_down: bool,
+    pub menu_left: bool,
+    pub menu_right: bool,
     pub right_trigger_just_pressed: bool,
     pub left_trigger_just_pressed: bool,
 }
@@ -219,6 +223,11 @@ impl GamepadManager {
             }
         }
 
+        let dpad_up_edge = self.state.dpad_up && !self.prev_state.dpad_up;
+        let dpad_down_edge = self.state.dpad_down && !self.prev_state.dpad_down;
+        let dpad_left_edge = self.state.dpad_left && !self.prev_state.dpad_left;
+        let dpad_right_edge = self.state.dpad_right && !self.prev_state.dpad_right;
+
         GamepadEvents {
             south_just_pressed: self.state.btn_south && !self.prev_state.btn_south,
             east_just_pressed: self.state.btn_east && !self.prev_state.btn_east,
@@ -230,10 +239,14 @@ impl GamepadManager {
             r3_just_pressed: self.state.btn_r3 && !self.prev_state.btn_r3,
             start_just_pressed: self.state.btn_start && !self.prev_state.btn_start,
             select_just_pressed: self.state.btn_select && !self.prev_state.btn_select,
-            dpad_up_just_pressed: (self.state.dpad_up && !self.prev_state.dpad_up) || stick_nav_up,
-            dpad_down_just_pressed: (self.state.dpad_down && !self.prev_state.dpad_down) || stick_nav_down,
-            dpad_left_just_pressed: (self.state.dpad_left && !self.prev_state.dpad_left) || stick_nav_left,
-            dpad_right_just_pressed: (self.state.dpad_right && !self.prev_state.dpad_right) || stick_nav_right,
+            dpad_up_just_pressed: dpad_up_edge,
+            dpad_down_just_pressed: dpad_down_edge,
+            dpad_left_just_pressed: dpad_left_edge,
+            dpad_right_just_pressed: dpad_right_edge,
+            menu_up: dpad_up_edge || stick_nav_up,
+            menu_down: dpad_down_edge || stick_nav_down,
+            menu_left: dpad_left_edge || stick_nav_left,
+            menu_right: dpad_right_edge || stick_nav_right,
             right_trigger_just_pressed: (self.state.btn_rt && !self.prev_state.btn_rt)
                 || (self.state.right_trigger > 0.15 && self.prev_state.right_trigger <= 0.15),
             left_trigger_just_pressed: (self.state.btn_lt && !self.prev_state.btn_lt)

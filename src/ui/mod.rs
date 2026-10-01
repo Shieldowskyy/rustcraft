@@ -18,8 +18,8 @@ pub use draw::{
 pub use hud::{
     death_screen_button_rects, draw_advanced_debug_overlay, draw_break_progress, draw_bubble,
     draw_capture_prompt, draw_crosshair, draw_damage_flash, draw_death_screen, draw_debug_panel,
-    draw_hotbar, draw_hunger_icon, draw_lava_overlay, draw_low_health_vignette, draw_pause_menu,
-    draw_pie_chart, draw_underwater_overlay, pause_menu_button_rects, BubbleState, HungerIconState,
+    draw_heart_icon, draw_hotbar, draw_hunger_icon, draw_lava_overlay, draw_low_health_vignette, draw_pause_menu,
+    draw_pie_chart, draw_underwater_overlay, pause_menu_button_rects, BubbleState, HeartIconState, HungerIconState,
 };
 pub use inventory_ui::{draw_inventory_screen, draw_item_icon, InventoryLayout, InventorySlotTarget};
 pub use menu::{draw_main_menu, draw_rustcraft_logo, main_menu_button_rects};

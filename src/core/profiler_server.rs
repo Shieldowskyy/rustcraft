@@ -379,19 +379,56 @@ impl ProfilerServer {
     pub fn detect_local_ip() -> String {
         #[cfg(target_os = "vita")]
         {
-            "192.168.1.50".to_string()
-        }
-        #[cfg(not(target_os = "vita"))]
-        {
-            if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
-                if socket.connect("8.8.8.8:80").is_ok() {
-                    if let Ok(addr) = socket.local_addr() {
-                        return addr.ip().to_string();
+            #[repr(C)]
+            struct SceNetCtlInfo {
+                ip_address: [u8; 16],
+                _padding: [u8; 240],
+            }
+
+            #[link(name = "SceNetCtl_stub")]
+            extern "C" {
+                fn sceNetCtlInit() -> i32;
+                fn sceNetCtlGetInfo(code: i32, info: *mut SceNetCtlInfo) -> i32;
+            }
+
+            unsafe {
+                let _ = sceNetCtlInit();
+                let mut info = std::mem::zeroed::<SceNetCtlInfo>();
+                // 4 = SCE_NETCTL_INFO_IP_ADDRESS
+                if sceNetCtlGetInfo(4, &mut info) >= 0 {
+                    let bytes = &info.ip_address;
+                    let len = bytes.iter().position(|&c| c == 0).unwrap_or(bytes.len());
+                    if let Ok(s) = std::str::from_utf8(&bytes[..len]) {
+                        let trimmed = s.trim();
+                        if !trimmed.is_empty() && trimmed != "0.0.0.0" {
+                            return trimmed.to_string();
+                        }
                     }
                 }
             }
-            "127.0.0.1".to_string()
         }
+
+        // Standard dynamic IP detection via UDP socket routing
+        if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+            if socket.connect("8.8.8.8:80").is_ok() {
+                if let Ok(addr) = socket.local_addr() {
+                    let ip = addr.ip().to_string();
+                    if ip != "0.0.0.0" && !ip.starts_with("127.") {
+                        return ip;
+                    }
+                }
+            }
+            if socket.connect("192.168.1.1:80").is_ok() {
+                if let Ok(addr) = socket.local_addr() {
+                    let ip = addr.ip().to_string();
+                    if ip != "0.0.0.0" && !ip.starts_with("127.") {
+                        return ip;
+                    }
+                }
+            }
+        }
+
+        "127.0.0.1".to_string()
     }
 
     /// Spawns the HTTP profiler server thread on `0.0.0.0:port`.

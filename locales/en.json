@@ -32,6 +32,7 @@
   "settings.profiler_server_status": "STATUS: {}",
   "settings.profiler_server_port": "SERVER PORT: < {} >",
   "settings.profiler_server_active": "ACTIVE (http://{}:{})",
+  "settings.profiler_server_copied": "COPIED TO CLIPBOARD! (http://{}:{})",
   "settings.profiler_server_inactive": "INACTIVE",
   "settings.profiler_server_open_browser": "PROFILER LIVE: http://{}:{}",
   "settings.language": "LANGUAGE: < {} >",
@@ -75,7 +76,7 @@
 
   "pause.title": "GAME MENU",
   "pause.resume": "RESUME GAME",
-  "pause.settings": "GRAPHICS SETTINGS",
+  "pause.settings": "SETTINGS",
   "pause.fly_on": "FLY MODE: ON",
   "pause.fly_off": "FLY MODE: OFF",
   "pause.main_menu": "MAIN MENU",

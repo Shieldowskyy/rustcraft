@@ -262,6 +262,10 @@ fn main() {
             gp_dpad_down_just_pressed: gp_events.dpad_down_just_pressed,
             gp_dpad_left_just_pressed: gp_events.dpad_left_just_pressed,
             gp_dpad_right_just_pressed: gp_events.dpad_right_just_pressed,
+            gp_menu_up: gp_events.menu_up,
+            gp_menu_down: gp_events.menu_down,
+            gp_menu_left: gp_events.menu_left,
+            gp_menu_right: gp_events.menu_right,
             gp_right_trigger_just_pressed: gp_events.right_trigger_just_pressed,
             gp_left_trigger_just_pressed: gp_events.left_trigger_just_pressed,
 

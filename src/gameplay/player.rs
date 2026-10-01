@@ -28,10 +28,28 @@ pub struct Player {
     pub has_landed: bool,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SavedPlayerData {
+    pub health: f32,
+    pub max_health: f32,
+    pub hunger: f32,
+    pub max_hunger: f32,
+    pub saturation: f32,
+    pub exhaustion: f32,
+    pub air: f32,
+    pub selected_hotbar_slot: u8,
+    pub hotbar: [Option<crate::gameplay::inventory::ItemStack>; 10],
+    pub main: [Option<crate::gameplay::inventory::ItemStack>; 27],
+}
+
 impl Player {
     pub fn new() -> Self {
+        Self::new_with_gamemode(GameMode::Survival)
+    }
+
+    pub fn new_with_gamemode(gamemode: GameMode) -> Self {
         Self {
-            gamemode: GameMode::Creative,
+            gamemode,
             health: 20.0,
             max_health: 20.0,
             hunger: 20.0,
@@ -50,6 +68,48 @@ impl Player {
             invulnerability_timer: 3.0,
             has_landed: false,
         }
+    }
+
+    pub fn reset(&mut self, gamemode: GameMode) {
+        *self = Self::new_with_gamemode(gamemode);
+    }
+
+    pub fn save_state(&self) -> SavedPlayerData {
+        let (health, hunger, saturation, air) = if self.health <= 0.0 {
+            (self.max_health, self.max_hunger, 5.0, self.max_air)
+        } else {
+            (self.health, self.hunger, self.saturation, self.air)
+        };
+        SavedPlayerData {
+            health,
+            max_health: self.max_health,
+            hunger,
+            max_hunger: self.max_hunger,
+            saturation,
+            exhaustion: self.exhaustion,
+            air,
+            selected_hotbar_slot: self.selected_hotbar_slot.min(9),
+            hotbar: self.inventory.hotbar,
+            main: self.inventory.main,
+        }
+    }
+
+    pub fn apply_saved_state(&mut self, data: &SavedPlayerData) {
+        self.health = if data.health <= 0.0 { data.max_health } else { data.health.min(data.max_health) };
+        self.max_health = data.max_health;
+        self.hunger = data.hunger.min(data.max_hunger);
+        self.max_hunger = data.max_hunger;
+        self.saturation = data.saturation;
+        self.exhaustion = data.exhaustion;
+        self.air = data.air.min(self.max_air);
+        self.selected_hotbar_slot = data.selected_hotbar_slot.min(9);
+        self.inventory.hotbar = data.hotbar;
+        self.inventory.main = data.main;
+        self.starvation_timer = 0.0;
+        self.heal_timer = 0.0;
+        self.invulnerability_timer = 1.0;
+        self.fall_distance = 0.0;
+        self.has_landed = false;
     }
 
     pub fn take_damage(&mut self, amount: f32) -> bool {
@@ -133,5 +193,41 @@ mod tests {
         assert!(!creative_player.can_eat(BlockId::CookedBeef));
         assert!(!creative_player.can_eat(BlockId::Apple));
     }
+
+    #[test]
+    fn test_player_save_and_apply_state() {
+        let mut player = Player::new();
+        player.health = 14.0;
+        player.hunger = 12.0;
+        player.saturation = 3.5;
+        player.exhaustion = 1.2;
+        player.air = 15.0;
+        player.selected_hotbar_slot = 3;
+        player.inventory.hotbar[3] = Some(crate::gameplay::inventory::ItemStack {
+            block: BlockId::IronPickaxe,
+            count: 1,
+        });
+
+        let saved = player.save_state();
+        assert_eq!(saved.health, 14.0);
+        assert_eq!(saved.hunger, 12.0);
+        assert_eq!(saved.selected_hotbar_slot, 3);
+        assert_eq!(saved.hotbar[3].unwrap().block, BlockId::IronPickaxe);
+
+        // Reset player to another world
+        player.reset(GameMode::Creative);
+        assert_eq!(player.health, 20.0);
+        assert_eq!(player.hunger, 20.0);
+        assert_eq!(player.selected_hotbar_slot, 0);
+        assert!(player.inventory.hotbar[3].is_none());
+
+        // Restore saved player state
+        player.apply_saved_state(&saved);
+        assert_eq!(player.health, 14.0);
+        assert_eq!(player.hunger, 12.0);
+        assert_eq!(player.selected_hotbar_slot, 3);
+        assert_eq!(player.inventory.hotbar[3].unwrap().block, BlockId::IronPickaxe);
+    }
 }
+
 

@@ -1,0 +1,70 @@
+{
+  "move_forward": {
+    "keys": ["W"],
+    "gamepad": []
+  },
+  "move_backward": {
+    "keys": ["S"],
+    "gamepad": []
+  },
+  "strafe_left": {
+    "keys": ["A"],
+    "gamepad": []
+  },
+  "strafe_right": {
+    "keys": ["D"],
+    "gamepad": []
+  },
+  "jump": {
+    "keys": ["Space"],
+    "gamepad": ["South"]
+  },
+  "sneak": {
+    "keys": ["Shift", "C"],
+    "gamepad": ["East"]
+  },
+  "sprint": {
+    "keys": ["Control"],
+    "gamepad": ["L3"]
+  },
+  "inventory": {
+    "keys": ["E"],
+    "gamepad": ["North"]
+  },
+  "drop_item": {
+    "keys": ["Q"],
+    "gamepad": ["West"]
+  },
+  "toggle_fly": {
+    "keys": ["F"],
+    "gamepad": ["R3"]
+  },
+  "toggle_gamemode": {
+    "keys": ["G"],
+    "gamepad": ["Select"]
+  },
+  "pause": {
+    "keys": ["Escape", "P"],
+    "gamepad": ["Start"]
+  },
+  "save": {
+    "keys": ["F5"],
+    "gamepad": []
+  },
+  "attack_break": {
+    "mouse": ["Left"],
+    "gamepad": ["RightTrigger"]
+  },
+  "use_place": {
+    "mouse": ["Right"],
+    "gamepad": ["LeftTrigger"]
+  },
+  "hotbar_prev": {
+    "mouse": ["WheelDown"],
+    "gamepad": ["LB"]
+  },
+  "hotbar_next": {
+    "mouse": ["WheelUp"],
+    "gamepad": ["RB"]
+  }
+}
