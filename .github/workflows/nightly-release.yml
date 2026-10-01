@@ -116,7 +116,7 @@ jobs:
           curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
       - name: Build with Cross
         run: |
-          RUSTFLAGS="-C target-cpu=arm1176jzf-s" cross build --target arm-unknown-linux-gnueabihf --release
+          RUSTFLAGS="-C target-cpu=arm1176jzf-s -C link-arg=-latomic" PKG_CONFIG_PATH="/usr/lib/arm-linux-gnueabihf/pkgconfig" PKG_CONFIG_ALLOW_CROSS="1" cross build --target arm-unknown-linux-gnueabihf --release
           arm-linux-gnueabihf-strip target/arm-unknown-linux-gnueabihf/release/rustcraft || true
           mkdir -p dist
           tar -czf dist/rustcraft-rpi-armv6.tar.gz -C target/arm-unknown-linux-gnueabihf/release rustcraft

@@ -9,3 +9,10 @@ rustflags = [
     "-C", "lto=fat",
     "-C", "opt-level=s",
 ]
+
+[target.arm-unknown-linux-gnueabihf]
+linker = "arm-linux-gnueabihf-gcc"
+rustflags = [
+    "-C", "target-cpu=arm1176jzf-s",
+    "-C", "link-arg=-latomic",
+]

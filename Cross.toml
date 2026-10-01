@@ -7,9 +7,12 @@ pre-build = [
 
 [target.aarch64-unknown-linux-gnu.env]
 passthrough = [
-    "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig",
-    "PKG_CONFIG_ALLOW_CROSS=1",
+    "RUSTFLAGS",
+    "PKG_CONFIG_PATH",
+    "PKG_CONFIG_ALLOW_CROSS",
 ]
+PKG_CONFIG_PATH = "/usr/lib/aarch64-linux-gnu/pkgconfig"
+PKG_CONFIG_ALLOW_CROSS = "1"
 
 [target.armv7-unknown-linux-gnueabihf]
 pre-build = [
@@ -20,22 +23,29 @@ pre-build = [
 
 [target.armv7-unknown-linux-gnueabihf.env]
 passthrough = [
-    "PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig",
-    "PKG_CONFIG_ALLOW_CROSS=1",
+    "RUSTFLAGS",
+    "PKG_CONFIG_PATH",
+    "PKG_CONFIG_ALLOW_CROSS",
 ]
+PKG_CONFIG_PATH = "/usr/lib/arm-linux-gnueabihf/pkgconfig"
+PKG_CONFIG_ALLOW_CROSS = "1"
 
 [target.arm-unknown-linux-gnueabihf]
 pre-build = [
+    "rm -f /etc/apt/preferences.d/*",
     "dpkg --add-architecture armhf",
     "apt-get update",
-    "apt-get install --assume-yes libudev-dev:armhf libasound2-dev:armhf libx11-dev:armhf",
+    "apt-get install --assume-yes --no-install-recommends libudev-dev:armhf libasound2-dev:armhf libx11-dev:armhf",
 ]
 
 [target.arm-unknown-linux-gnueabihf.env]
 passthrough = [
-    "PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig",
-    "PKG_CONFIG_ALLOW_CROSS=1",
+    "RUSTFLAGS",
+    "PKG_CONFIG_PATH",
+    "PKG_CONFIG_ALLOW_CROSS",
 ]
+PKG_CONFIG_PATH = "/usr/lib/arm-linux-gnueabihf/pkgconfig"
+PKG_CONFIG_ALLOW_CROSS = "1"
 
 [target.riscv64gc-unknown-linux-gnu]
 pre-build = [
@@ -46,9 +56,12 @@ pre-build = [
 
 [target.riscv64gc-unknown-linux-gnu.env]
 passthrough = [
-    "PKG_CONFIG_PATH=/usr/lib/riscv64-linux-gnu/pkgconfig",
-    "PKG_CONFIG_ALLOW_CROSS=1",
+    "RUSTFLAGS",
+    "PKG_CONFIG_PATH",
+    "PKG_CONFIG_ALLOW_CROSS",
 ]
+PKG_CONFIG_PATH = "/usr/lib/riscv64-linux-gnu/pkgconfig"
+PKG_CONFIG_ALLOW_CROSS = "1"
 
 [target.i686-unknown-linux-gnu]
 pre-build = [
@@ -59,7 +72,9 @@ pre-build = [
 
 [target.i686-unknown-linux-gnu.env]
 passthrough = [
-    "PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig",
-    "PKG_CONFIG_ALLOW_CROSS=1",
+    "RUSTFLAGS",
+    "PKG_CONFIG_PATH",
+    "PKG_CONFIG_ALLOW_CROSS",
 ]
-
+PKG_CONFIG_PATH = "/usr/lib/i386-linux-gnu/pkgconfig"
+PKG_CONFIG_ALLOW_CROSS = "1"

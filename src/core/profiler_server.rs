@@ -6,7 +6,7 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -365,7 +365,7 @@ fn escape_json(s: &str) -> String {
 pub struct ProfilerServer {
     running: Arc<AtomicBool>,
     screenshot_requested: Arc<AtomicBool>,
-    screenshot_counter: Arc<AtomicU64>,
+    screenshot_counter: Arc<AtomicU32>,
     latest_snapshot: Arc<RwLock<ProfilerSnapshot>>,
     history_buffer: Arc<Mutex<Vec<ProfilerSnapshot>>>,
     latest_screenshot: Arc<RwLock<Option<ScreenshotData>>>,
@@ -435,7 +435,7 @@ impl ProfilerServer {
     pub fn start(port: u16) -> Result<Self, String> {
         let running = Arc::new(AtomicBool::new(true));
         let screenshot_requested = Arc::new(AtomicBool::new(false));
-        let screenshot_counter = Arc::new(AtomicU64::new(0));
+        let screenshot_counter = Arc::new(AtomicU32::new(0));
         let latest_snapshot = Arc::new(RwLock::new(ProfilerSnapshot::default()));
         let history_buffer = Arc::new(Mutex::new(Vec::with_capacity(1200)));
         let latest_screenshot = Arc::new(RwLock::new(None));
@@ -543,7 +543,7 @@ impl ProfilerServer {
         snapshot: &Arc<RwLock<ProfilerSnapshot>>,
         history: &Arc<Mutex<Vec<ProfilerSnapshot>>>,
         screenshot_req: &Arc<AtomicBool>,
-        screenshot_counter: &Arc<AtomicU64>,
+        screenshot_counter: &Arc<AtomicU32>,
         latest_screenshot: &Arc<RwLock<Option<ScreenshotData>>>,
     ) {
         let mut buffer = [0u8; 2048];
