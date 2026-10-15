@@ -56,7 +56,9 @@ else
 fi
 
 # Set CPU flag specifically for ARM1176JZF-S (Raspberry Pi Zero / Zero W / 1) and link libatomic
-export RUSTFLAGS="-C target-cpu=arm1176jzf-s -C link-arg=-latomic ${RUSTFLAGS:-}"
+# --unresolved-symbols: the cross image's old glibc sysroot lacks symbols (e.g. statx) that the
+# newer armhf libudev references; they resolve at runtime on the Raspberry Pi.
+export RUSTFLAGS="-C target-cpu=arm1176jzf-s -C link-arg=-latomic -C link-arg=-Wl,--unresolved-symbols=ignore-in-shared-libs ${RUSTFLAGS:-}"
 export PKG_CONFIG_ALLOW_CROSS=1
 if [ -d "/usr/lib/arm-linux-gnueabihf/pkgconfig" ]; then
     export PKG_CONFIG_PATH="/usr/lib/arm-linux-gnueabihf/pkgconfig:${PKG_CONFIG_PATH:-}"

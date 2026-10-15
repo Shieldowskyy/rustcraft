@@ -40,8 +40,10 @@ if command -v rustup &> /dev/null; then
     fi
 fi
 
-# Detect cross-linker or multilib gcc
-if command -v gcc &> /dev/null; then
+# Host multilib gcc/-m32 is only needed without `cross` (the container has its own i686 toolchain)
+if cross_available; then
+    :
+elif command -v gcc &> /dev/null; then
     export CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER="gcc"
     export RUSTFLAGS="-C link-arg=-m32"
 elif command -v zig &> /dev/null; then

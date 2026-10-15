@@ -11,11 +11,16 @@
 #
 # Usage: cross_build <rust-target> [multiarch-triplet]
 
+# True when `cross` and a container engine are available.
+cross_available() {
+    command -v cross &> /dev/null && { command -v docker &> /dev/null || command -v podman &> /dev/null; }
+}
+
 cross_build() {
     local target="$1"
     local triplet="${2:-}"
 
-    if command -v cross &> /dev/null && { command -v docker &> /dev/null || command -v podman &> /dev/null; }; then
+    if cross_available; then
         echo "==> Using 'cross' (container-based cross-compilation) for $target"
         cross build --release --target "$target"
         return

@@ -58,6 +58,12 @@ else
 fi
 
 export PKG_CONFIG_ALLOW_CROSS=1
+# The FreeBSD cross image has an old glibc and can't run host-built build scripts cached in
+# target/release, so use a dedicated target dir when building through `cross`.
+if cross_available; then
+    export CARGO_TARGET_DIR="target/cross-freebsd"
+    BINARY_PATH="${CARGO_TARGET_DIR}/${TARGET}/release/${BINARY_NAME}"
+fi
 export RUSTFLAGS="-L /usr/local/lib -C link-arg=-Wl,-rpath,/usr/local/lib ${RUSTFLAGS:-}"
 
 cross_build "$TARGET"
