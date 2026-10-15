@@ -19,6 +19,27 @@ if [ -n "$VITASDK" ] && [ -d "$VITASDK/bin" ]; then
     export PATH="$VITASDK/bin:$PATH"
 fi
 
+# Auto-install VitaSDK (toolchain + libs) if the Vita linker is missing
+if ! command -v arm-vita-eabi-gcc &> /dev/null; then
+    echo "⚠ VitaSDK not found (arm-vita-eabi-gcc missing). Installing to \$HOME/vitasdk ..."
+    for tool in git curl cmake make xz python3; do
+        if ! command -v "$tool" &> /dev/null; then
+            echo "❌ Missing required tool: $tool (install it with your package manager, e.g. sudo apt install git curl cmake make xz-utils python3 build-essential)"
+            exit 1
+        fi
+    done
+    export VITASDK="${VITASDK:-$HOME/vitasdk}"
+    VDPM_DIR="$(mktemp -d)/vdpm"
+    git clone --depth 1 https://github.com/vitasdk/vdpm "$VDPM_DIR"
+    (cd "$VDPM_DIR" && ./bootstrap-vitasdk.sh)
+    export PATH="$VITASDK/bin:$PATH"
+    if ! command -v arm-vita-eabi-gcc &> /dev/null; then
+        echo "❌ VitaSDK installation failed. See https://vitasdk.org/ for manual setup."
+        exit 1
+    fi
+    echo "✓ VitaSDK installed at $VITASDK"
+fi
+
 TARGET="armv7-sony-vita-newlibeabihf"
 TITLE_ID="RUSTCRAFT"
 TITLE_NAME="RustCraft"

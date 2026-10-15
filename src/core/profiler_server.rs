@@ -388,14 +388,14 @@ impl ProfilerServer {
             #[link(name = "SceNetCtl_stub")]
             extern "C" {
                 fn sceNetCtlInit() -> i32;
-                fn sceNetCtlGetInfo(code: i32, info: *mut SceNetCtlInfo) -> i32;
+                fn sceNetCtlInetGetInfo(code: i32, info: *mut SceNetCtlInfo) -> i32;
             }
 
             unsafe {
                 let _ = sceNetCtlInit();
                 let mut info = std::mem::zeroed::<SceNetCtlInfo>();
                 // 4 = SCE_NETCTL_INFO_IP_ADDRESS
-                if sceNetCtlGetInfo(4, &mut info) >= 0 {
+                if sceNetCtlInetGetInfo(4, &mut info) >= 0 {
                     let bytes = &info.ip_address;
                     let len = bytes.iter().position(|&c| c == 0).unwrap_or(bytes.len());
                     if let Ok(s) = std::str::from_utf8(&bytes[..len]) {
