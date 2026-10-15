@@ -2,13 +2,14 @@
 # Shared helper for the cross-compilation build scripts (meant to be sourced).
 #
 # Cross-compiling needs *target* libraries (libudev, alsa, x11) or cross-toolchains
-# (MinGW for Windows) that host build systems may lack.
+# (MinGW for Windows, osxcross/Xcode for macOS) that host build systems may lack.
 # This helper picks a strategy that actually works:
 #   1. `cross` + Docker/Podman (uses Cross.toml, installs target libs in container)
 #   2. plain `cargo` when a target sysroot / toolchain is available:
 #        - PKG_CONFIG_SYSROOT_DIR is set, or
 #        - Debian/Ubuntu multiarch libs exist (/usr/lib/<triplet>/pkgconfig/libudev.pc), or
-#        - target is Windows and host has MinGW / zig / native Windows environment
+#        - target is Windows and host has MinGW / zig / native Windows environment, or
+#        - target is macOS (Apple Darwin) and host is macOS or has osxcross / zig
 #   3. otherwise: stop with clear instructions instead of a cryptic crash.
 #
 # Usage: cross_build <rust-target> [multiarch-triplet]
@@ -36,9 +37,77 @@ sync_canonical_binary() {
     fi
 }
 
+# Safely strips debug symbols from a binary (supports Linux GNU strip and macOS/BSD strip)
+strip_binary() {
+    local file="$1"
+    local custom_strip="${2:-}"
+
+    if [ ! -f "$file" ]; then
+        return 0
+    fi
+
+    if [ -n "$custom_strip" ] && command -v "$custom_strip" &> /dev/null; then
+        echo "==> Running '$custom_strip'..."
+        "$custom_strip" --strip-all "$file" 2>/dev/null || "$custom_strip" "$file" 2>/dev/null || true
+    elif [[ "$(uname -s)" == "Darwin" ]] || [[ "${target:-}" == *apple-darwin* ]]; then
+        if command -v strip &> /dev/null; then
+            echo "==> Running 'strip' (macOS)..."
+            strip -u -r "$file" 2>/dev/null || strip -x "$file" 2>/dev/null || strip "$file" 2>/dev/null || true
+        fi
+    elif command -v strip &> /dev/null; then
+        echo "==> Running 'strip'..."
+        strip --strip-all "$file" 2>/dev/null || strip "$file" 2>/dev/null || true
+    fi
+}
+
 cross_build() {
     local target="$1"
     local triplet="${2:-}"
+
+    # macOS (Apple Darwin) targets
+    # Note: `cross` does not provide built-in Docker images for Apple Darwin targets,
+    # and falls back to host cargo which fails on non-macOS hosts.
+    # Therefore Darwin targets must be handled explicitly:
+    if [[ "$target" == *apple-darwin* || "$target" == *darwin* ]]; then
+        # Native build or cross-architecture build (x86_64 <-> aarch64) on macOS host
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            echo "==> Using plain cargo on macOS for $target"
+            cargo build --release --target "$target"
+            return
+        fi
+
+        # Cross-compiling for macOS on non-Darwin host:
+        # Check for osxcross or zig
+        local osxcross_linker=""
+        if [[ "$target" == aarch64* ]] && command -v aarch64-apple-darwin-clang &> /dev/null; then
+            osxcross_linker="aarch64-apple-darwin-clang"
+        elif [[ "$target" == aarch64* ]] && command -v oa64-clang &> /dev/null; then
+            osxcross_linker="oa64-clang"
+        elif [[ "$target" == x86_64* ]] && command -v x86_64-apple-darwin-clang &> /dev/null; then
+            osxcross_linker="x86_64-apple-darwin-clang"
+        elif [[ "$target" == x86_64* ]] && command -v o64-clang &> /dev/null; then
+            osxcross_linker="o64-clang"
+        elif command -v zig &> /dev/null; then
+            osxcross_linker="zig"
+        fi
+
+        if [ -n "$osxcross_linker" ]; then
+            echo "==> Using cross-compiler ($osxcross_linker) for $target"
+            cargo build --release --target "$target"
+            return
+        fi
+
+        echo "==> ERROR: unable to build for macOS target $target on this Linux host."
+        echo "    Reason: Official macOS SDK & toolchain (Objective-C/Cocoa) are not available on this host."
+        echo "    Fix (recommended): build natively on macOS with Xcode Command Line Tools:"
+        echo "      xcode-select --install"
+        echo "      rustup target add $target"
+        echo "      ./build_macos.sh"
+        echo "    Alternative (Linux cross-compilation):"
+        echo "      - Install osxcross (https://github.com/tpoechtrager/osxcross) and set target linker"
+        echo "      - Or configure a custom macOS cross-image in Cross.toml"
+        return 1
+    fi
 
     if cross_available; then
         # Container images have their own glibc and cannot run host-built build scripts
@@ -65,7 +134,7 @@ cross_build() {
         echo "==> ERROR: no cross-compiler found for Windows target $target."
         echo "    Fix (recommended): install Docker or Podman, then:  cargo install cross"
         echo "      and re-run this script - it will cross-compile for Windows via container."
-        echo "    Alternative (Linux): install MinGW (e.g. gcc-mingw-w64 or mingw64-gcc / mingw32-gcc)."
+        echo "    Alternative (Linux/macOS): install MinGW (e.g. gcc-mingw-w64, mingw64-gcc, or brew install mingw-w64)."
         return 1
     fi
 

@@ -28,7 +28,7 @@ RustCraft features a multithreaded CPU software rasterizer (tiled rasterization,
 | **Android (ARM64 / ARMv7 / x86_64)** | `aarch64-linux-android` | ANativeWindow (Software / Rayon) | `./build_android.sh` |
 | **WebAssembly** | `wasm32-unknown-unknown` | Single-threaded Software CPU | `./build_web.sh` |
 | **PlayStation Vita** | `armv7-sony-vita-newlibeabihf` | Bare-Metal GXM GPU (SGX543MP4) | `./build_vita.sh` |
-| **macOS** | `x86_64-apple-darwin` / `aarch64` | Software CPU / Metal (WGPU) | `cargo run --release` |
+| **macOS (Apple Silicon & Intel)** | `aarch64` / `x86_64-apple-darwin` | Software CPU / Metal (WGPU) | `./build_macos.sh` |
 
 ---
 
@@ -164,6 +164,17 @@ Install `RustCraft.vpk` on your console using VitaShell (via USB or FTP to `ux0:
 ./build_web.sh
 cd web && python3 -m http.server 8080
 # Open http://localhost:8080 in your browser
+```
+
+### macOS (Apple Silicon & Intel)
+```bash
+# Build for host macOS architecture (Apple Silicon M1/M2/M3/M4 or Intel):
+./build_macos.sh
+
+# Or build Universal 2 binary (arm64 + x86_64) packaged as .app bundle:
+./build_macos.sh universal
+
+# Output: dist/RustCraft.app and dist/rustcraft-macos-*.tar.gz
 ```
 
 ---
@@ -307,6 +318,7 @@ rustcraft/
 ├── build_freebsd.sh            # FreeBSD x86_64 build script
 ├── build_vita.sh               # PS Vita VPK packaging script
 ├── build_web.sh                # WebAssembly build script
+├── build_macos.sh              # macOS (Apple Silicon & Intel) build & .app bundle script
 ├── locales/                    # Embedded i18n JSON dictionaries
 │   ├── en.json
 │   └── pl.json

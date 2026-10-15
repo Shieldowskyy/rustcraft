@@ -317,6 +317,27 @@ jobs:
           name: wasm-pkg
           path: dist/rustcraft-web-wasm.zip
 
+  build-macos:
+    name: Build macOS Universal 2 (.app / .tar.gz)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - name: Build macOS Universal App
+        run: |
+          chmod +x build_macos.sh
+          ./build_macos.sh universal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-pkg
+          path: |
+            dist/rustcraft-macos-universal.tar.gz
+            dist/rustcraft-macos-universal.zip
+
   publish-nightly:
     name: Publish Nightly Release
     needs: [
@@ -331,7 +352,8 @@ jobs:
       build-windows-i686,
       build-windows-arm64,
       build-vita,
-      build-wasm
+      build-wasm,
+      build-macos
     ]
     runs-on: ubuntu-latest
     steps:
@@ -360,6 +382,7 @@ jobs:
 
             ### Available Packages:
             - **PlayStation Vita:** `RustCraft.vpk`
+            - **macOS Universal 2 (Apple Silicon & Intel):** `rustcraft-macos-universal.tar.gz`, `rustcraft-macos-universal.zip`
             - **Windows (x86_64):** `rustcraft-windows-x86_64.zip`
             - **Windows (32-bit i686):** `rustcraft-windows-i686.zip`
             - **Windows (ARM64 / AArch64):** `rustcraft-windows-arm64.zip`

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
-source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/scripts/cross_build.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/scripts/cross_build.sh"
 
 # ============================================================================
 # Build script for RustCraft on Windows 32-bit (i686)
