@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/scripts/cross_build.sh"
+
 # ============================================================================
 # Build script for RustCraft on Linux ARMv7 (32-bit Hard Float)
 # Target: armv7-unknown-linux-gnueabihf
@@ -50,7 +52,7 @@ else
     echo "    sudo pacman -S arm-linux-gnueabihf-gcc (Arch)"
 fi
 
-cargo build --release --target "$TARGET"
+cross_build "$TARGET" "arm-linux-gnueabihf"
 
 if [ -f "$BINARY_PATH" ]; then
     echo "--------------------------------------------------"

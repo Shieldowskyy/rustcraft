@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/scripts/cross_build.sh"
+
 # ============================================================================
 # Build script for RustCraft on FreeBSD (x86_64)
 # Target: x86_64-unknown-freebsd
@@ -58,11 +60,7 @@ fi
 export PKG_CONFIG_ALLOW_CROSS=1
 export RUSTFLAGS="-L /usr/local/lib -C link-arg=-Wl,-rpath,/usr/local/lib ${RUSTFLAGS:-}"
 
-if [ "$USE_CROSS_TOOL" -eq 1 ]; then
-    cross build --release --target "$TARGET"
-else
-    cargo build --release --target "$TARGET"
-fi
+cross_build "$TARGET"
 
 if [ -f "$BINARY_PATH" ]; then
     echo "--------------------------------------------------"

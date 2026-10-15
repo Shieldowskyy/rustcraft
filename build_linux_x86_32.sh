@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/scripts/cross_build.sh"
+
 # ============================================================================
 # Build script for RustCraft on Linux 32-bit x86 (i686)
 # Target: i686-unknown-linux-gnu
@@ -51,7 +53,7 @@ else
     echo "    sudo pacman -S lib32-gcc-libs (Arch)"
 fi
 
-cargo build --release --target "$TARGET"
+cross_build "$TARGET" "i386-linux-gnu"
 
 if [ -f "$BINARY_PATH" ]; then
     echo "--------------------------------------------------"

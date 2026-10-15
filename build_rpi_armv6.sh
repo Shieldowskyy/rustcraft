@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/scripts/cross_build.sh"
+
 # ============================================================================
 # Build script for RustCraft on Linux ARMv6 (Raspberry Pi Zero / Zero W / Pi 1)
 # Target: arm-unknown-linux-gnueabihf with ARMv6KZ VFPv2 tuning
@@ -60,11 +62,7 @@ if [ -d "/usr/lib/arm-linux-gnueabihf/pkgconfig" ]; then
     export PKG_CONFIG_PATH="/usr/lib/arm-linux-gnueabihf/pkgconfig:${PKG_CONFIG_PATH:-}"
 fi
 
-if [ "$USE_CROSS_TOOL" -eq 1 ]; then
-    cross build --release --target "$TARGET"
-else
-    cargo build --release --target "$TARGET"
-fi
+cross_build "$TARGET" "arm-linux-gnueabihf"
 
 if [ -f "$BINARY_PATH" ]; then
     echo "--------------------------------------------------"

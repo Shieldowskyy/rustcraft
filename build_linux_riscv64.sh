@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/scripts/cross_build.sh"
+
 # ============================================================================
 # Build script for RustCraft on Linux RISC-V 64-bit (riscv64gc)
 # Target: riscv64gc-unknown-linux-gnu
@@ -50,7 +52,7 @@ else
     echo "    sudo pacman -S riscv64-linux-gnu-gcc (Arch)"
 fi
 
-cargo build --release --target "$TARGET"
+cross_build "$TARGET" "riscv64-linux-gnu"
 
 if [ -f "$BINARY_PATH" ]; then
     echo "--------------------------------------------------"

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/scripts/cross_build.sh"
+
 # ============================================================================
 # Build script for RustCraft on Linux ARM64 (aarch64)
 # Compatible with Raspberry Pi 3/4/5 (64-bit), Orange Pi, ARM64 servers/desktops
@@ -49,7 +51,7 @@ else
     echo "    sudo pacman -S aarch64-linux-gnu-gcc (Arch)"
 fi
 
-cargo build --release --target "$TARGET"
+cross_build "$TARGET" "aarch64-linux-gnu"
 
 if [ -f "$BINARY_PATH" ]; then
     echo "--------------------------------------------------"
