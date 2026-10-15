@@ -5,7 +5,7 @@ use rayon::prelude::*;
 use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId};
 use crate::graphics::camera::Camera;
-#[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
 use crate::graphics::gpu::VulkanContext;
 use crate::graphics::traits::RenderBackend;
 use crate::world::mesher::{Triangle, Vertex};
@@ -64,9 +64,9 @@ pub struct Renderer {
     pub chunk_anim: bool,
     selected_block: u8,
     pub textures: TextureAtlas,
-    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
     vulkan: Option<VulkanContext>,
-    #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+    #[cfg(any(target_arch = "wasm32", target_os = "vita", target_os = "android"))]
     vulkan: Option<()>,
     loaded_keys: Vec<(i32, i32)>,
     dirty_keys: HashSet<(i32, i32)>,
@@ -153,7 +153,7 @@ impl Renderer {
         )
     }
 
-    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
     pub fn new_vulkan(width: usize, height: usize) -> Result<Self, String> {
         let mut renderer = Self::new(width, height);
         renderer.vulkan = Some(VulkanContext::new(width, height, &renderer.textures)?);
@@ -163,14 +163,16 @@ impl Renderer {
     pub fn backend_name(&self) -> &'static str {
         #[cfg(target_os = "vita")]
         return "vita_gxm";
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        #[cfg(target_os = "android")]
+        return "android_software";
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
         if self.vulkan.is_some() { return "vulkan"; }
-        #[cfg(not(target_os = "vita"))]
+        #[cfg(not(any(target_os = "vita", target_os = "android")))]
         "software"
     }
 
     pub fn renderer_info(&self) -> (String, String, String) {
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
         if let Some(vk) = &self.vulkan {
             let (name, driver, ver) = vk.gpu_info();
             return (ver.to_string(), name.to_string(), driver.to_string());
@@ -183,6 +185,13 @@ impl Renderer {
             "SCE GXM / CDRAM Triple Buffer".to_string(),
         );
 
+        #[cfg(target_os = "android")]
+        return (
+            "Software Rasterizer (Android NDK)".to_string(),
+            "ANativeWindow / ARM NEON SIMD".to_string(),
+            format!("Rayon ({} threads)", rayon::current_num_threads()),
+        );
+
         #[cfg(target_arch = "wasm32")]
         return (
             "Software Rasterizer".to_string(),
@@ -190,7 +199,7 @@ impl Renderer {
             "Canvas 2D Context".to_string(),
         );
 
-        #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
+        #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_os = "android")))]
         (
             "Software Rasterizer".to_string(),
             "CPU Multi-threaded SIMD".to_string(),
@@ -202,13 +211,17 @@ impl Renderer {
         &self.color_buffer
     }
 
+    pub fn pixel_buffer_mut(&mut self) -> &mut [u32] {
+        &mut self.color_buffer
+    }
+
     /// Resizes internal color and depth buffers to new resolution dimensions.
     pub fn resize(&mut self, width: usize, height: usize) {
         self.width = width;
         self.height = height;
         self.color_buffer.resize(width * height, 0);
         self.depth_buffer.resize(width * height, f32::INFINITY);
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
         if let Some(vk) = self.vulkan.as_mut() {
             vk.resize(width, height);
         }
@@ -216,7 +229,7 @@ impl Renderer {
 
     pub fn update_textures(&mut self, fancy_leaves: bool) {
         self.textures = TextureAtlas::generate_with_fancy(fancy_leaves);
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
         if let Some(vk) = self.vulkan.as_mut() {
             vk.update_textures(&self.textures);
         }
@@ -227,7 +240,7 @@ impl Renderer {
         self.mesh_cache.clear();
         self.dirty_keys.clear();
         self.chunk_spawn_times.clear();
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
         if let Some(vk) = self.vulkan.as_mut() {
             vk.clear_chunk_buffers();
         }
@@ -610,7 +623,7 @@ impl Renderer {
             }
         }
 
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
         if let Some(vulkan) = self.vulkan.as_mut() {
             let is_occluded = world.is_view_fully_occluded(camera.position, camera.yaw, camera.pitch);
             self.visible_keys.clear();

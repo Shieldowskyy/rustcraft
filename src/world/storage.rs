@@ -3,8 +3,23 @@
 use crate::graphics::camera::Camera;
 use crate::world::World;
 
-/// Returns (and lazily caches) the directory path where world save files are stored.
-fn saves_dir() -> &'static std::path::PathBuf {
+static CUSTOM_SAVES_DIR: std::sync::RwLock<Option<std::path::PathBuf>> = std::sync::RwLock::new(None);
+
+/// Overrides the save files directory at runtime (essential for mobile sandboxed storage).
+pub fn set_custom_save_dir(dir: std::path::PathBuf) {
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(mut lock) = CUSTOM_SAVES_DIR.write() {
+        *lock = Some(dir);
+    }
+}
+
+/// Returns the directory path where world save files are stored.
+fn saves_dir() -> std::path::PathBuf {
+    if let Ok(lock) = CUSTOM_SAVES_DIR.read() {
+        if let Some(dir) = lock.as_ref() {
+            return dir.clone();
+        }
+    }
     use std::sync::OnceLock;
     static SAVES_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
 
@@ -13,7 +28,7 @@ fn saves_dir() -> &'static std::path::PathBuf {
             return dir;
         }
         fallback_saves_dir()
-    })
+    }).clone()
 }
 
 /// Returns the `saves/` subdirectory adjacent to the executable if it exists and is writable.
@@ -33,15 +48,21 @@ fn exe_saves_dir_if_writable() -> Option<std::path::PathBuf> {
     }
 }
 
-/// Fallback save directory per platform (ux0 on PS Vita, APPDATA on Windows, ~/.config on Linux).
+/// Fallback save directory per platform (Android files, ux0 on PS Vita, APPDATA on Windows, ~/.config on Linux).
 fn fallback_saves_dir() -> std::path::PathBuf {
+    #[cfg(target_os = "android")]
+    {
+        let dir = std::path::PathBuf::from("/data/data/com.rustcraft.game/files/saves");
+        let _ = std::fs::create_dir_all(&dir);
+        return dir;
+    }
     #[cfg(target_os = "vita")]
     {
         let dir = std::path::PathBuf::from("ux0:data/rustcraft/saves");
         let _ = std::fs::create_dir_all(&dir);
         dir
     }
-    #[cfg(not(target_os = "vita"))]
+    #[cfg(not(any(target_os = "vita", target_os = "android")))]
     {
         #[cfg(windows)]
         {

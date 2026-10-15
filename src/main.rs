@@ -1,17 +1,17 @@
-#[cfg(not(target_os = "vita"))]
+#[cfg(not(any(target_os = "vita", target_os = "android")))]
 use minifb::{CursorStyle, Key, MouseButton, MouseMode, Window, WindowOptions};
-#[cfg(not(target_os = "vita"))]
+#[cfg(not(any(target_os = "vita", target_os = "android")))]
 use std::time::Instant;
 
-#[cfg(not(target_os = "vita"))]
+#[cfg(not(any(target_os = "vita", target_os = "android")))]
 use rustcraft::app::{InputState, RustCraftApp, HEIGHT, WIDTH};
-#[cfg(not(target_os = "vita"))]
+#[cfg(not(any(target_os = "vita", target_os = "android")))]
 use rustcraft::cli::{parse_log_enabled, parse_profiler_enabled, parse_renderer_choice, parse_seed};
-#[cfg(not(target_os = "vita"))]
+#[cfg(not(any(target_os = "vita", target_os = "android")))]
 use rustcraft::core::init_logger;
-#[cfg(not(target_os = "vita"))]
+#[cfg(not(any(target_os = "vita", target_os = "android")))]
 use rustcraft::platform::gamepad::GamepadManager;
-#[cfg(not(target_os = "vita"))]
+#[cfg(not(any(target_os = "vita", target_os = "android")))]
 use rustcraft::platform::mouse_capture::{self, MouseCapture};
 
 
@@ -20,7 +20,12 @@ fn main() {
     rustcraft::platform::vita::run_vita_app();
 }
 
-#[cfg(not(target_os = "vita"))]
+#[cfg(target_os = "android")]
+fn main() {
+    // Android entry points are in platform::android (JNI / cdylib)
+}
+
+#[cfg(not(any(target_os = "vita", target_os = "android")))]
 fn main() {
     let log_enabled = parse_log_enabled();
     init_logger(log_enabled);

@@ -20,13 +20,17 @@ profiler = []
 bytemuck = { version = "1.16", features = ["derive"] }
 getrandom = { version = "=0.2.15", features = ["js"] }
 
-[target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))'.dependencies]
+[target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))'.dependencies]
 minifb = "0.27"
 raw-window-handle = "0.6"
 wgpu = "0.19"
 pollster = "0.3"
 rayon = "1.8"
 gilrs = "0.11"
+
+[target.'cfg(target_os = "android")'.dependencies]
+rayon = "1.8"
+jni-sys = "=0.3.1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"

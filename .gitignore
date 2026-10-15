@@ -17,3 +17,7 @@ Cargo.lock
 *.psp2dmp
 *.gxp
 *.vpk
+*.apk
+*.idsig
+*.so
+android/app/src/main/jniLibs/

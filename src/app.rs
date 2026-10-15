@@ -328,7 +328,7 @@ impl RustCraftApp {
         let settings = GameSettings::load();
         crate::core::i18n::set_language(settings.language);
         let mut renderer = match renderer_choice {
-            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
             "vulkan" => Renderer::new_vulkan(width, height).unwrap_or_else(|error| {
                 eprintln!("Failed to initialize Vulkan renderer: {error}, falling back to software renderer");
                 Renderer::new(width, height)
@@ -505,6 +505,10 @@ impl RustCraftApp {
 
     pub fn pixel_buffer(&self) -> &[u32] {
         self.renderer.pixel_buffer()
+    }
+
+    pub fn pixel_buffer_mut(&mut self) -> &mut [u32] {
+        self.renderer.pixel_buffer_mut()
     }
 
     /// Alias for PS Vita – full update of game logic and software state.

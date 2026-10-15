@@ -85,7 +85,31 @@ This guide provides architectural instructions for porting RustCraft to other op
   # Output: RustCraft.vpk — install via VitaShell
   ```
   Prerequisites: VitaSDK at `/usr/local/vitasdk`, Rust target `armv7-sony-vita-newlibeabihf`,
-  `vita-elf-create`, `vita-make-fself`, optionally `psp2cgc` (vdpm: `vdpm install psp2cgc-linux`).
+### Android (ARM64 / ARMv7 / x86_64) — Implemented
+* **Status**: Fully implemented. Native JNI + ANativeWindow hardware-accelerated surface rendering.
+* **Target triples**: `aarch64-linux-android` (primary), `armv7-linux-androideabi`, `x86_64-linux-android`.
+* **Platform layer** (`src/platform/android.rs`):
+  * Hardware surface blit via `ANativeWindow_lock` / `ANativeWindow_unlockAndPost` with automatic resolution scaling to fullscreen.
+  * Multi-touch virtual controls overlay:
+    * Left virtual joystick / D-Pad (forward, backward, left, right movement).
+    * Right camera look drag with smooth velocity scaling.
+    * On-screen action buttons: `[JUMP]`, `[SNEAK]`, `[MINE]`, `[PLACE]`.
+    * Top toolbar: `[PAUSE]`, `[INV]`, `[FLY]`, `[CAM]`, `[CHAT]`.
+    * Bottom hotbar direct slot touch selection.
+    * Direct touch clicks in all menus, crafting table, chests, furnaces, and inventory screens.
+  * Physical hardware support: USB/Bluetooth gamepads and keyboards via Android KeyEvents & MotionEvents.
+  * Logging: Native diagnostics piped to Android Logcat (`__android_log_write`) under tag `RustCraftNative`.
+* **Storage**: App internal storage (`/data/data/com.rustcraft.game/files/saves`) configured via `set_custom_save_dir`.
+* **Android Project & Packaging** (`android/`):
+  * Standalone lean Android application (`com.rustcraft.game`).
+  * `RustCraftActivity.java` with sticky immersive fullscreen mode, cutout/notch handling, and 60 FPS render loop thread.
+  * Adaptive voxel block icon and AndroidManifest configured for gaming.
+* **Build**:
+  ```bash
+  ./build_android.sh
+  # Output: RustCraft.apk — install via adb install -r RustCraft.apk
+  ```
+  Prerequisites: Android SDK & NDK, OpenJDK/Java (`javac`).
 
 ---
 
@@ -165,6 +189,7 @@ Save file paths per platform:
 | Linux / Windows / macOS | `./rustcraft_world_NN.bin` (cwd) |
 | WebAssembly | In-memory / IndexedDB (platform-specific hook) |
 | PlayStation Vita | `ux0:data/RustCraft/rustcraft_world_NN.bin` |
+| Android | `/data/data/com.rustcraft.game/files/saves/` |
 
 ---
 
