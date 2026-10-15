@@ -3016,7 +3016,7 @@ fn append_meat_3d(
     match block {
         BlockId::RawPorkchop | BlockId::CookedPorkchop => {
             // Main chop slab
-            cube(Vec3::ZERO, [0.065 * scale, 0.080 * scale, 0.024 * scale], meat_tex);
+            cube(Vec3::zero(), [0.065 * scale, 0.080 * scale, 0.024 * scale], meat_tex);
             // Secondary curved meat lobe
             cube(meat_right * (0.045 * scale) - meat_up * (0.025 * scale), [0.035 * scale, 0.055 * scale, 0.022 * scale], meat_tex);
             // Bone nub on corner
@@ -3024,7 +3024,7 @@ fn append_meat_3d(
         }
         BlockId::RawBeef | BlockId::CookedBeef => {
             // Main steak cut
-            cube(Vec3::ZERO, [0.085 * scale, 0.070 * scale, 0.026 * scale], meat_tex);
+            cube(Vec3::zero(), [0.085 * scale, 0.070 * scale, 0.026 * scale], meat_tex);
             // Rib bone along edge
             cube(-meat_right * (0.065 * scale) + meat_up * (0.020 * scale), [0.020 * scale, 0.045 * scale, 0.022 * scale], bone_tex);
             // Outer tapered lobe
