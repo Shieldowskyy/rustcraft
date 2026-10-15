@@ -73,6 +73,8 @@ if [ -f "$BINARY_PATH" ]; then
         echo "--------------------------------------------------"
     fi
 
+    sync_canonical_binary "$TARGET"
+
     echo "Done! Linux 32-bit binary is located at: $BINARY_PATH"
 else
     echo "==> Error: Generated binary not found at $BINARY_PATH"

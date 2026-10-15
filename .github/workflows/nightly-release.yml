@@ -60,8 +60,8 @@ jobs:
           curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
       - name: Build with Cross
         run: |
-          cross build --target aarch64-unknown-linux-gnu --release
-          aarch64-linux-gnu-strip target/aarch64-unknown-linux-gnu/release/rustcraft || true
+          chmod +x build_linux_arm64.sh
+          ./build_linux_arm64.sh
           mkdir -p dist
           tar -czf dist/rustcraft-linux-arm64.tar.gz -C target/aarch64-unknown-linux-gnu/release rustcraft
       - uses: actions/upload-artifact@v4
@@ -88,8 +88,8 @@ jobs:
           curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
       - name: Build with Cross
         run: |
-          cross build --target armv7-unknown-linux-gnueabihf --release
-          arm-linux-gnueabihf-strip target/armv7-unknown-linux-gnueabihf/release/rustcraft || true
+          chmod +x build_linux_armv7.sh
+          ./build_linux_armv7.sh
           mkdir -p dist
           tar -czf dist/rustcraft-linux-armv7.tar.gz -C target/armv7-unknown-linux-gnueabihf/release rustcraft
       - uses: actions/upload-artifact@v4
@@ -116,8 +116,8 @@ jobs:
           curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
       - name: Build with Cross
         run: |
-          RUSTFLAGS="-C target-cpu=arm1176jzf-s -C link-arg=-latomic" PKG_CONFIG_PATH="/usr/lib/arm-linux-gnueabihf/pkgconfig" PKG_CONFIG_ALLOW_CROSS="1" cross build --target arm-unknown-linux-gnueabihf --release
-          arm-linux-gnueabihf-strip target/arm-unknown-linux-gnueabihf/release/rustcraft || true
+          chmod +x build_rpi_armv6.sh
+          ./build_rpi_armv6.sh
           mkdir -p dist
           tar -czf dist/rustcraft-rpi-armv6.tar.gz -C target/arm-unknown-linux-gnueabihf/release rustcraft
       - uses: actions/upload-artifact@v4
@@ -144,8 +144,8 @@ jobs:
           curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
       - name: Build with Cross
         run: |
-          cross build --target riscv64gc-unknown-linux-gnu --release
-          riscv64-linux-gnu-strip target/riscv64gc-unknown-linux-gnu/release/rustcraft || true
+          chmod +x build_linux_riscv64.sh
+          ./build_linux_riscv64.sh
           mkdir -p dist
           tar -czf dist/rustcraft-linux-riscv64.tar.gz -C target/riscv64gc-unknown-linux-gnu/release rustcraft
       - uses: actions/upload-artifact@v4
@@ -168,14 +168,10 @@ jobs:
         with:
           toolchain: stable
           targets: i686-unknown-linux-gnu
-      - name: Build (native, multilib)
-        env:
-          PKG_CONFIG_ALLOW_CROSS: "1"
-          PKG_CONFIG_PATH: /usr/lib/i386-linux-gnu/pkgconfig
-          PKG_CONFIG_LIBDIR: /usr/lib/i386-linux-gnu/pkgconfig:/usr/share/pkgconfig
+      - name: Build and Package (Linux i686)
         run: |
-          cargo build --target i686-unknown-linux-gnu --release
-          strip --strip-all target/i686-unknown-linux-gnu/release/rustcraft || true
+          chmod +x build_linux_x86_32.sh
+          ./build_linux_x86_32.sh
           mkdir -p dist
           tar -czf dist/rustcraft-linux-i686.tar.gz -C target/i686-unknown-linux-gnu/release rustcraft
       - uses: actions/upload-artifact@v4
@@ -198,11 +194,8 @@ jobs:
             [ -f /usr/local/bin/pkg-config ] || ln -sf /usr/local/bin/pkgconf /usr/local/bin/pkg-config
           run: |
             export PATH="/usr/local/bin:${HOME}/.cargo/bin:${PATH:-/usr/bin:/bin}"
-            export PKG_CONFIG_PATH="/usr/local/libdata/pkgconfig:/usr/local/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-            export LIBRARY_PATH="/usr/local/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
-            export RUSTFLAGS="-L /usr/local/lib -C link-arg=-Wl,-rpath,/usr/local/lib ${RUSTFLAGS:-}"
-            cargo build --release
-            strip --strip-all target/release/rustcraft || true
+            chmod +x build_freebsd.sh
+            ./build_freebsd.sh
             mkdir -p dist
             tar -czf dist/rustcraft-freebsd-x86_64.tar.gz -C target/release rustcraft
       - uses: actions/upload-artifact@v4

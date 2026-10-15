@@ -38,13 +38,10 @@ jobs:
         run: |
           curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
 
-      - name: Build with Cross
+      - name: Build and Strip Linux RISC-V 64 Binary
         run: |
-          cross build --target riscv64gc-unknown-linux-gnu --release
-
-      - name: Strip Binary
-        run: |
-          riscv64-linux-gnu-strip target/riscv64gc-unknown-linux-gnu/release/rustcraft || true
+          chmod +x build_linux_riscv64.sh
+          ./build_linux_riscv64.sh
 
       - name: Upload Linux RISC-V 64 Binary
         uses: actions/upload-artifact@v4

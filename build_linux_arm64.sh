@@ -71,6 +71,8 @@ if [ -f "$BINARY_PATH" ]; then
         strip --strip-all "$BINARY_PATH" 2>/dev/null || true
     fi
 
+    sync_canonical_binary "$TARGET"
+
     echo "Done! Linux ARM64 binary is located at: $BINARY_PATH"
 else
     echo "==> Error: Generated binary not found at $BINARY_PATH"

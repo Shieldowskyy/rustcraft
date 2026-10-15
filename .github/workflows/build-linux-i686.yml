@@ -37,17 +37,10 @@ jobs:
           toolchain: stable
           targets: i686-unknown-linux-gnu
 
-      - name: Build (native, multilib)
-        env:
-          PKG_CONFIG_ALLOW_CROSS: "1"
-          PKG_CONFIG_PATH: /usr/lib/i386-linux-gnu/pkgconfig
-          PKG_CONFIG_LIBDIR: /usr/lib/i386-linux-gnu/pkgconfig:/usr/share/pkgconfig
+      - name: Build and Strip Linux 32-bit Binary
         run: |
-          cargo build --target i686-unknown-linux-gnu --release
-
-      - name: Strip Binary
-        run: |
-          strip --strip-all target/i686-unknown-linux-gnu/release/rustcraft || true
+          chmod +x build_linux_x86_32.sh
+          ./build_linux_x86_32.sh
 
       - name: Upload Linux 32-bit Binary
         uses: actions/upload-artifact@v4

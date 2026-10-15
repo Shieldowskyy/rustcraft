@@ -6,7 +6,12 @@ set -e
 # Target: aarch64-pc-windows-msvc / aarch64-pc-windows-gnullvm
 # ============================================================================
 
-export PATH="$HOME/.cargo/bin:$PATH"
+# Automatically load Rust environment (if present)
+if [ -f "$HOME/.cargo/env" ]; then
+    source "$HOME/.cargo/env"
+elif [ -d "$HOME/.cargo/bin" ]; then
+    export PATH="$HOME/.cargo/bin:$PATH"
+fi
 
 TARGET="${RUST_TARGET:-aarch64-pc-windows-msvc}"
 BINARY_NAME="rustcraft.exe"
@@ -21,7 +26,21 @@ if command -v rustup &> /dev/null; then
 fi
 
 echo "=== Compiling RustCraft for Windows ARM64 (${TARGET}) ==="
-cargo build --release --target "$TARGET"
+
+if ! [[ "$(uname -s)" =~ (MINGW|MSYS|CYGWIN|Windows_NT) ]] && [ "$TARGET" = "aarch64-pc-windows-msvc" ]; then
+    if command -v cargo-xwin &> /dev/null; then
+        echo "==> Using cargo-xwin for Windows ARM64 MSVC cross-compilation..."
+        cargo xwin build --release --target "$TARGET"
+    else
+        echo "==> Note: Cross-compiling for Windows MSVC (aarch64-pc-windows-msvc) from Linux"
+        echo "    requires 'cargo-xwin' (for MSVC CRT & Windows SDK headers)."
+        echo "    Install via: cargo install cargo-xwin"
+        echo "    Or cross-compile via LLVM: RUST_TARGET=aarch64-pc-windows-gnullvm ./build_windows_arm64.sh"
+        cargo build --release --target "$TARGET"
+    fi
+else
+    cargo build --release --target "$TARGET"
+fi
 
 if [ -f "$BINARY_PATH" ]; then
     echo "--------------------------------------------------"

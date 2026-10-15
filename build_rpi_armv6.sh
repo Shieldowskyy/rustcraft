@@ -84,6 +84,8 @@ if [ -f "$BINARY_PATH" ]; then
         strip --strip-all "$BINARY_PATH" 2>/dev/null || true
     fi
 
+    sync_canonical_binary "$TARGET"
+
     echo "Done! Raspberry Pi Zero W binary is located at: $BINARY_PATH"
     echo "To run on RPi Zero W: copy binary to device, ensure X11/FB environment is running, and launch ./rustcraft"
 else

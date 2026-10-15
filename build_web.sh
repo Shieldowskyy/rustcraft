@@ -14,7 +14,12 @@ NC='\033[0m'
 echo -e "${BLUE}=== Building RustCraft for WebAssembly (WASM) ===${NC}"
 
 # Check if wasm32 target is installed
-if ! rustc --print target-list | grep -q "wasm32-unknown-unknown"; then
+if command -v rustup &> /dev/null; then
+    if ! rustup target list --installed | grep -q "^wasm32-unknown-unknown$"; then
+        echo -e "${YELLOW}Installing wasm32-unknown-unknown target via rustup...${NC}"
+        rustup target add wasm32-unknown-unknown
+    fi
+elif ! rustc --print target-list | grep -q "wasm32-unknown-unknown"; then
     echo -e "${RED}Error: wasm32-unknown-unknown target not supported in compiler.${NC}"
     exit 1
 fi

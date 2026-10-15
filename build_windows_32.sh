@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/scripts/cross_build.sh"
+
 # ============================================================================
 # Build script for RustCraft on Windows 32-bit (i686)
 # Target: i686-pc-windows-gnu
@@ -17,12 +19,21 @@ BINARY_PATH="target/${TARGET}/release/${BINARY_NAME}"
 if command -v rustup &> /dev/null; then
     if ! rustup target list --installed | grep -q "$TARGET"; then
         echo "==> Adding target $TARGET via rustup..."
-        rustup target add "$TARGET"
+        rustup target add "$TARGET" || true
+    fi
+fi
+
+# Detect cross-linker when not using containerized cross
+if ! cross_available; then
+    if command -v i686-w64-mingw32-gcc &> /dev/null; then
+        export CARGO_TARGET_I686_PC_WINDOWS_GNU_LINKER="i686-w64-mingw32-gcc"
+    elif command -v zig &> /dev/null; then
+        export CARGO_TARGET_I686_PC_WINDOWS_GNU_LINKER="zig cc -target i386-windows-gnu"
     fi
 fi
 
 echo "=== Compiling RustCraft for Windows 32-bit (${TARGET}) ==="
-cargo build --release --target "$TARGET"
+cross_build "$TARGET"
 
 if [ -f "$BINARY_PATH" ]; then
     echo "--------------------------------------------------"
@@ -52,6 +63,8 @@ if [ -f "$BINARY_PATH" ]; then
         du -h "$BINARY_PATH" | awk '{print $1}'
         echo "--------------------------------------------------"
     fi
+
+    sync_canonical_binary "$TARGET"
 
     echo "Done! Windows 32-bit executable is located at: $BINARY_PATH"
 else

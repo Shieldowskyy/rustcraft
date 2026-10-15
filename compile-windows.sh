@@ -1,17 +1,33 @@
 #!/usr/bin/env bash
 set -e
 
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/scripts/cross_build.sh"
+
+export PATH="$HOME/.cargo/bin:$PATH"
+
 TARGET="x86_64-pc-windows-gnu"
 BINARY_NAME="rustcraft.exe"
 BINARY_PATH="target/${TARGET}/release/${BINARY_NAME}"
 
-if ! command -v cargo &> /dev/null; then
-    echo "==> Error: 'cargo' command not found. Please ensure Rust is installed."
-    exit 1
+# Check if target is installed in rustup
+if command -v rustup &> /dev/null; then
+    if ! rustup target list --installed | grep -q "$TARGET"; then
+        echo "==> Adding target $TARGET via rustup..."
+        rustup target add "$TARGET" || true
+    fi
+fi
+
+# Detect cross-linker when not using containerized cross
+if ! cross_available; then
+    if command -v x86_64-w64-mingw32-gcc &> /dev/null; then
+        export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="x86_64-w64-mingw32-gcc"
+    elif command -v zig &> /dev/null; then
+        export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="zig cc -target x86_64-windows-gnu"
+    fi
 fi
 
 echo "==> Compiling project for Windows (${TARGET})..."
-cargo build --release --target "$TARGET"
+cross_build "$TARGET"
 
 if [ -f "$BINARY_PATH" ]; then
     echo "--------------------------------------------------"
@@ -39,12 +55,14 @@ if [ -f "$BINARY_PATH" ]; then
     # UPX compression
     if command -v upx &> /dev/null; then
         echo "==> UPX tool detected. Compressing .exe binary..."
-        upx --best --lzma "$BINARY_PATH"
+        upx --best --lzma "$BINARY_PATH" 2>/dev/null || true
         echo "--------------------------------------------------"
         echo -n " Size after UPX compression: "
         du -h "$BINARY_PATH" | awk '{print $1}'
         echo "--------------------------------------------------"
     fi
+
+    sync_canonical_binary "$TARGET"
 
     echo "Done! Your executable is located at: $BINARY_PATH"
 else

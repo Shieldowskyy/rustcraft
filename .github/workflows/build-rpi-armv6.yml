@@ -38,13 +38,10 @@ jobs:
         run: |
           curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
 
-      - name: Build with Cross for ARMv6KZ
+      - name: Build and Strip Raspberry Pi ARMv6 Binary
         run: |
-          RUSTFLAGS="-C target-cpu=arm1176jzf-s -C link-arg=-latomic" PKG_CONFIG_PATH="/usr/lib/arm-linux-gnueabihf/pkgconfig" PKG_CONFIG_ALLOW_CROSS="1" cross build --target arm-unknown-linux-gnueabihf --release
-
-      - name: Strip Binary
-        run: |
-          arm-linux-gnueabihf-strip target/arm-unknown-linux-gnueabihf/release/rustcraft || true
+          chmod +x build_rpi_armv6.sh
+          ./build_rpi_armv6.sh
 
       - name: Upload Raspberry Pi ARMv6 Binary
         uses: actions/upload-artifact@v4
