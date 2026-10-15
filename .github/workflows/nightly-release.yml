@@ -168,12 +168,13 @@ jobs:
         with:
           toolchain: stable
           targets: i686-unknown-linux-gnu
-      - name: Install Cross
+      - name: Build (native, multilib)
+        env:
+          PKG_CONFIG_ALLOW_CROSS: "1"
+          PKG_CONFIG_PATH: /usr/lib/i386-linux-gnu/pkgconfig
+          PKG_CONFIG_LIBDIR: /usr/lib/i386-linux-gnu/pkgconfig:/usr/share/pkgconfig
         run: |
-          curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
-      - name: Build with Cross
-        run: |
-          cross build --target i686-unknown-linux-gnu --release
+          cargo build --target i686-unknown-linux-gnu --release
           strip --strip-all target/i686-unknown-linux-gnu/release/rustcraft || true
           mkdir -p dist
           tar -czf dist/rustcraft-linux-i686.tar.gz -C target/i686-unknown-linux-gnu/release rustcraft
