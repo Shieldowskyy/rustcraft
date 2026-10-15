@@ -22,3 +22,7 @@ Cargo.lock
 *.idsig
 *.so
 android/app/src/main/jniLibs/
+__pycache__/
+*.pyc
+*.log
+RustCraft-Xbox360.zip

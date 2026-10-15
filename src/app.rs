@@ -4,9 +4,9 @@
 //! audio cues, inventory management, rendering backend dispatches, and menus.
 
 use std::fmt::Write;
-#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
 use std::sync::mpsc;
-#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
 use std::thread;
 
 use crate::cli::generate_random_seed;
@@ -72,10 +72,10 @@ pub enum GameState {
     /// Video / graphics settings menu.
     Settings(PreviousMenu),
     /// Asynchronous world generation / loading screen.
-    #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
+    #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
     Loading(mpsc::Receiver<WorldLoadResult>),
     /// Synchronous world loading state for embedded platforms.
-    #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+    #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
     Loading,
     /// Active 3D gameplay.
     Playing,
@@ -325,10 +325,13 @@ pub struct RustCraftApp {
 
 impl RustCraftApp {
     pub fn new(width: usize, height: usize, renderer_choice: &str, seed: u32) -> Self {
+        crate::log_info!("APP", "[Step 1/5] Loading game configuration and language...");
         let settings = GameSettings::load();
         crate::core::i18n::set_language(settings.language);
+
+        crate::log_info!("APP", "[Step 2/5] Initializing renderer ({})...", renderer_choice);
         let mut renderer = match renderer_choice {
-            #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
+            #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
             "vulkan" => Renderer::new_vulkan(width, height).unwrap_or_else(|error| {
                 eprintln!("Failed to initialize Vulkan renderer: {error}, falling back to software renderer");
                 Renderer::new(width, height)
@@ -341,7 +344,10 @@ impl RustCraftApp {
             renderer.update_textures(false);
         }
 
+        crate::log_info!("APP", "[Step 3/5] Initializing world instance (seed: {})...", seed);
         let world = World::new_with_seed(seed);
+
+        crate::log_info!("APP", "[Step 4/5] Initializing camera, player & UI layout...");
         let camera = Camera::new(world.player_position);
 
         let mut player = Player::new();
@@ -370,9 +376,11 @@ impl RustCraftApp {
         let last_fov = camera.fov_y;
         let proj_matrix = camera.projection_matrix(aspect);
 
+        crate::log_info!("APP", "[Step 5/5] Checking save slots cache...");
         let save_metadata_cache = std::array::from_fn(|index| {
             get_save_metadata(index as u8 + 1)
         });
+        crate::log_info!("APP", "RustCraftApp state initialization complete.");
 
         let app = Self {
             width,
@@ -885,7 +893,7 @@ impl RustCraftApp {
                     if meta.exists {
                         let path = save_path(self.save_slot);
                         crate::log_info!("MENU", "Selected existing world in slot {} ('{}', seed: {}) to load", self.save_slot, meta.name, meta.seed);
-                        #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
+                        #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
                         {
                             let (tx, rx) = mpsc::channel();
                             thread::spawn(move || {
@@ -901,7 +909,7 @@ impl RustCraftApp {
                             });
                             self.state = GameState::Loading(rx);
                         }
-                        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+                        #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
                         {
                             match World::load(&path) {
                                 Ok(loaded_world) => {
@@ -1170,7 +1178,7 @@ impl RustCraftApp {
                     self.player.reset(gamemode);
                     crate::log_info!("MENU", "Creating new world '{}' (seed: {}, mode: {:?}) in slot {}", name, seed, gamemode, self.save_slot);
 
-                    #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
+                    #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
                     {
                         let (tx, rx) = mpsc::channel();
                         let thread_seed = self.seed;
@@ -1184,7 +1192,7 @@ impl RustCraftApp {
                         });
                         self.state = GameState::Loading(rx);
                     }
-                    #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+                    #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
                     {
                         self.world = World::new_with_seed(self.seed);
                         self.world.name = name;
@@ -1710,7 +1718,7 @@ impl RustCraftApp {
                 let server_ip = self.profiler_server.as_ref().map(|s| s.ip_address.as_str()).unwrap_or("127.0.0.1");
                 self.renderer.draw_settings_menu(&self.settings, self.settings_tab, hovered_tab, hovered_opt, server_ip, self.profiler_copied_timer > 0.0);
             }
-            #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
+            #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
             GameState::Loading(ref rx) => {
                 self.renderer.draw_main_menu(None, &self.settings.nickname, false);
 
@@ -1738,7 +1746,7 @@ impl RustCraftApp {
                     }
                 }
             }
-            #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+            #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
             GameState::Loading => {
                 self.renderer.draw_main_menu(None, &self.settings.nickname, false);
                 self.state = GameState::Playing;
@@ -3970,9 +3978,9 @@ impl RustCraftApp {
                     GameState::SaveSelect => "Save Select",
                     GameState::CreateWorld => "Create World",
                     GameState::Settings(_) => "Settings",
-                    #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
+                    #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
                     GameState::Loading(_) => "Loading",
-                    #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+                    #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
                     GameState::Loading => "Loading",
                     GameState::Playing => "Playing",
                     GameState::Paused => "Paused",

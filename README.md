@@ -2,10 +2,10 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20FreeBSD%20%7C%20Android%20%7C%20ARM64%20%7C%20ARMv7%20%7C%20ARMv6%20%7C%20RISC--V%20%7C%20x86__32%20%7C%20Win__ARM64%20%7C%20PS%20Vita%20%7C%20WASM-brightgreen.svg)]()
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20FreeBSD%20%7C%20Android%20%7C%20Xbox%20360%20%7C%20ARM64%20%7C%20ARMv7%20%7C%20ARMv6%20%7C%20RISC--V%20%7C%20x86__32%20%7C%20Win__ARM64%20%7C%20PS%20Vita%20%7C%20WASM-brightgreen.svg)]()
 
 A high-performance, modular voxel sandbox game and engine written in Rust with first-class support for **multiple platforms and architectures**:
-Desktop (Linux x86_64 / x86 32-bit / ARM64 / RISC-V 64, Windows x86_64 / 32-bit / ARM64, macOS, FreeBSD), Mobile (Android ARM64 / ARMv7 / x86_64 APK with multi-touch virtual controls), Embedded Linux (Raspberry Pi Zero W / ARMv6, Raspberry Pi 2/3 / ARMv7), Sony PlayStation Vita (GXM GPU), and Web browsers (WebAssembly / HTML5 canvas).
+Desktop (Linux x86_64 / x86 32-bit / ARM64 / RISC-V 64, Windows x86_64 / 32-bit / ARM64, macOS, FreeBSD), Mobile (Android ARM64 / ARMv7 / x86_64 APK with multi-touch virtual controls), Consoles (Microsoft Xbox 360 Homebrew XEX2, Sony PlayStation Vita GXM GPU), Embedded Linux (Raspberry Pi Zero W / ARMv6, Raspberry Pi 2/3 / ARMv7), and Web browsers (WebAssembly / HTML5 canvas).
 
 RustCraft features a multithreaded CPU software rasterizer (tiled rasterization, sub-pixel precision, per-vertex Ambient Occlusion, distance fog) with zero graphics library dependencies, a hardware-accelerated Vulkan/WGPU backend, and a bare-metal GXM GPU renderer for the PlayStation Vita (SGX543MP4) delivering smooth 60 FPS.
 
@@ -26,6 +26,7 @@ RustCraft features a multithreaded CPU software rasterizer (tiled rasterization,
 | **Windows (32-bit x86 / i686)** | `i686-pc-windows-gnu` | Software CPU / Vulkan | `./build_windows_32.sh` |
 | **Windows (ARM64 / AArch64)** | `aarch64-pc-windows-msvc` | Software CPU / Vulkan | `./build_windows_arm64.sh` |
 | **Android (ARM64 / ARMv7 / x86_64)** | `aarch64-linux-android` | ANativeWindow (Software / Rayon) | `./build_android.sh` |
+| **Microsoft Xbox 360 (Homebrew XEX2)** | `powerpc-unknown-linux-gnu` / Xenon | Direct VRAM Framebuffer (720p HD) | `./build_xbox360.sh` |
 | **WebAssembly** | `wasm32-unknown-unknown` | Single-threaded Software CPU | `./build_web.sh` |
 | **PlayStation Vita** | `armv7-sony-vita-newlibeabihf` | Bare-Metal GXM GPU (SGX543MP4) | `./build_vita.sh` |
 | **macOS (Apple Silicon & Intel)** | `aarch64` / `x86_64-apple-darwin` | Software CPU / Metal (WGPU) | `./build_macos.sh` |
@@ -176,6 +177,13 @@ cd web && python3 -m http.server 8080
 
 # Output: dist/RustCraft.app and dist/rustcraft-macos-*.tar.gz
 ```
+
+### Microsoft Xbox 360 (Homebrew XEX2 / XeLL)
+```bash
+./build_xbox360.sh
+# Output: RustCraft-Xbox360.zip and target/xbox360/RustCraft/default.xex
+```
+Extract `RustCraft-Xbox360.zip` to a FAT32 USB drive (`USB:\RustCraft\default.xex`) and launch via XeXMenu, Aurora Dashboard, or DashLaunch on any exploited Xbox 360 console (RGH / JTAG), or boot `rustcraft.elf` directly via XeLL Reloaded.
 
 ---
 

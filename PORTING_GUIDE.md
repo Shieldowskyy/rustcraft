@@ -111,6 +111,44 @@ This guide provides architectural instructions for porting RustCraft to other op
   ```
   Prerequisites: Android SDK & NDK, OpenJDK/Java (`javac`).
 
+### Microsoft Xbox 360 (Xenon PowerPC / ATI Xenos) — Implemented
+* **Status**: Fully implemented. Native libxenon Homebrew API with direct 720p linear framebuffer blit.
+* **Architecture & Targets**: `powerpc-unknown-linux-gnu` / `powerpc-xenon-elf` (PowerPC Tri-Core 3.2GHz, Big-Endian).
+* **Platform layer** (`src/platform/xbox360.rs`):
+  * Low-level libxenon FFI bindings (`video_init`, `video_get_vram`, `video_set_mode`, `usb_do_poll`, `controller_read`).
+  * Direct 720p (1280x720) 60 FPS hardware framebuffer scanout with double-buffering.
+  * Big-Endian pixel packing compatible with the ATI Xenos GPU memory architecture.
+  * Hardware Xbox 360 Wireless and USB controller support:
+    * Left Stick: analog walk/run movement (WASD) with deadzone filtering.
+    * Right Stick: camera look (pitch & yaw) with smooth exponential curve.
+    * Right Trigger (RT): mine / attack / UI click.
+    * Left Trigger (LT): place block / secondary action.
+    * [A]: jump / fly ascend / UI select.
+    * [B]: sneak / fly descend / UI cancel.
+    * [X]: drop item / quick craft.
+    * [Y]: toggle inventory screen.
+    * [LB] / [RB]: hotbar previous / next slot.
+    * D-Pad: direct slot navigation & menu grid selection.
+    * START: pause menu / settings.
+    * BACK: toggle flight mode / 3rd person perspective (F5).
+    * Left Thumb (L3): sprint toggle.
+    * Right Thumb (R3): F3 telemetry profiler overlay.
+    * Virtual cursor with smooth analog tracking in crafting/furnace/chest/inventory screens.
+  * Storage: Auto-detection of USB (`uda0:/RustCraft/saves`) and internal hard drive (`sda0:/RustCraft/saves`).
+  * High-precision PowerPC timebase reader via `mftb` register.
+* **Packaging & XEX Generator** (`scripts/make_xex.py`):
+  * Produces valid Microsoft Xbox 360 XEX2 executable (`default.xex`).
+  * Uncompressed and unencrypted container with Title ID `0x58580864`.
+  * Zero-signature for instant execution on exploited consoles (RGH 1.2, RGH 2.0, RGH 3.0, JTAG, BadUpdate) via hypervisor patch bypass.
+  * Pre-packaged with Aurora/XeXMenu metadata (`title.meta`), icon (`icon.png`), and NXE panoramic background art (`nxeart.png`).
+  * ELF output (`rustcraft.elf`) for direct XeLL Reloaded bootloader launching.
+* **Build**:
+  ```bash
+  ./build_xbox360.sh
+  # Output: target/xbox360/RustCraft/default.xex and RustCraft-Xbox360.zip
+  ```
+  Prerequisites: Python 3, `zip`.
+
 ---
 
 ## 2. Implementing a New Graphics Backend

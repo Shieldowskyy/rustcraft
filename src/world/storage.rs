@@ -3,22 +3,18 @@
 use crate::graphics::camera::Camera;
 use crate::world::World;
 
-static CUSTOM_SAVES_DIR: std::sync::RwLock<Option<std::path::PathBuf>> = std::sync::RwLock::new(None);
+static CUSTOM_SAVES_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 
 /// Overrides the save files directory at runtime (essential for mobile sandboxed storage).
 pub fn set_custom_save_dir(dir: std::path::PathBuf) {
     let _ = std::fs::create_dir_all(&dir);
-    if let Ok(mut lock) = CUSTOM_SAVES_DIR.write() {
-        *lock = Some(dir);
-    }
+    let _ = CUSTOM_SAVES_DIR.set(dir);
 }
 
 /// Returns the directory path where world save files are stored.
 fn saves_dir() -> std::path::PathBuf {
-    if let Ok(lock) = CUSTOM_SAVES_DIR.read() {
-        if let Some(dir) = lock.as_ref() {
-            return dir.clone();
-        }
+    if let Some(dir) = CUSTOM_SAVES_DIR.get() {
+        return dir.clone();
     }
     use std::sync::OnceLock;
     static SAVES_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
@@ -60,9 +56,19 @@ fn fallback_saves_dir() -> std::path::PathBuf {
     {
         let dir = std::path::PathBuf::from("ux0:data/rustcraft/saves");
         let _ = std::fs::create_dir_all(&dir);
-        dir
+        return dir;
     }
-    #[cfg(not(any(target_os = "vita", target_os = "android")))]
+    #[cfg(any(target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
+    {
+        let usb_dir = std::path::PathBuf::from("uda0:/RustCraft/saves");
+        if std::fs::create_dir_all(&usb_dir).is_ok() {
+            return usb_dir;
+        }
+        let hdd_dir = std::path::PathBuf::from("sda0:/RustCraft/saves");
+        let _ = std::fs::create_dir_all(&hdd_dir);
+        return hdd_dir;
+    }
+    #[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
     {
         #[cfg(windows)]
         {

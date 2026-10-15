@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
-#[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_arch = "powerpc"), not(feature = "xbox360")))]
 use rayon::prelude::*;
 
 use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId};
 use crate::graphics::camera::Camera;
-#[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
 use crate::graphics::gpu::VulkanContext;
 use crate::graphics::traits::RenderBackend;
 use crate::world::mesher::{Triangle, Vertex};
@@ -64,9 +64,9 @@ pub struct Renderer {
     pub chunk_anim: bool,
     selected_block: u8,
     pub textures: TextureAtlas,
-    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
     vulkan: Option<VulkanContext>,
-    #[cfg(any(target_arch = "wasm32", target_os = "vita", target_os = "android"))]
+    #[cfg(any(target_arch = "wasm32", target_arch = "powerpc", target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
     vulkan: Option<()>,
     loaded_keys: Vec<(i32, i32)>,
     dirty_keys: HashSet<(i32, i32)>,
@@ -90,7 +90,7 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(width: usize, height: usize) -> Self {
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "xbox360"), not(target_os = "xenon"), not(target_arch = "powerpc"), not(feature = "xbox360")))]
         {
             let logical_threads = std::thread::available_parallelism()
                 .map(|n| n.get())
@@ -115,7 +115,12 @@ impl Renderer {
             total_time: 0.0,
             chunk_anim: true,
             selected_block: 1,
-            textures: TextureAtlas::generate(),
+            textures: {
+                crate::log_info!("RENDERER", "Generating procedural texture atlas (70+ textures)...");
+                let tex = TextureAtlas::generate();
+                crate::log_info!("RENDERER", "Texture atlas generated successfully.");
+                tex
+            },
             vulkan: None,
             loaded_keys: Vec::with_capacity(128),
             dirty_keys: HashSet::with_capacity(64),
@@ -153,7 +158,7 @@ impl Renderer {
         )
     }
 
-    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
     pub fn new_vulkan(width: usize, height: usize) -> Result<Self, String> {
         let mut renderer = Self::new(width, height);
         renderer.vulkan = Some(VulkanContext::new(width, height, &renderer.textures)?);
@@ -165,14 +170,16 @@ impl Renderer {
         return "vita_gxm";
         #[cfg(target_os = "android")]
         return "android_software";
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
+        #[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
+        return "xenon_framebuffer";
+        #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
         if self.vulkan.is_some() { return "vulkan"; }
-        #[cfg(not(any(target_os = "vita", target_os = "android")))]
+        #[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
         "software"
     }
 
     pub fn renderer_info(&self) -> (String, String, String) {
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
         if let Some(vk) = &self.vulkan {
             let (name, driver, ver) = vk.gpu_info();
             return (ver.to_string(), name.to_string(), driver.to_string());
@@ -192,6 +199,13 @@ impl Renderer {
             format!("Rayon ({} threads)", rayon::current_num_threads()),
         );
 
+        #[cfg(any(target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
+        return (
+            "Direct Linear VRAM Framebuffer (720p HD)".to_string(),
+            "Microsoft Xbox 360 (Xenon 3.2GHz PowerPC / ATI Xenos)".to_string(),
+            "libxenon Homebrew API / double-buffered scanout".to_string(),
+        );
+
         #[cfg(target_arch = "wasm32")]
         return (
             "Software Rasterizer".to_string(),
@@ -199,7 +213,7 @@ impl Renderer {
             "Canvas 2D Context".to_string(),
         );
 
-        #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_os = "android")))]
+        #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
         (
             "Software Rasterizer".to_string(),
             "CPU Multi-threaded SIMD".to_string(),
@@ -221,7 +235,7 @@ impl Renderer {
         self.height = height;
         self.color_buffer.resize(width * height, 0);
         self.depth_buffer.resize(width * height, f32::INFINITY);
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
         if let Some(vk) = self.vulkan.as_mut() {
             vk.resize(width, height);
         }
@@ -229,7 +243,7 @@ impl Renderer {
 
     pub fn update_textures(&mut self, fancy_leaves: bool) {
         self.textures = TextureAtlas::generate_with_fancy(fancy_leaves);
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
         if let Some(vk) = self.vulkan.as_mut() {
             vk.update_textures(&self.textures);
         }
@@ -240,7 +254,7 @@ impl Renderer {
         self.mesh_cache.clear();
         self.dirty_keys.clear();
         self.chunk_spawn_times.clear();
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
         if let Some(vk) = self.vulkan.as_mut() {
             vk.clear_chunk_buffers();
         }
@@ -278,24 +292,24 @@ impl Renderer {
             }
         };
 
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_arch = "powerpc"), not(feature = "xbox360")))]
         self.color_buffer
             .par_chunks_mut(width * TILE_HEIGHT)
             .enumerate()
             .for_each(clear_tile);
 
-        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+        #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", feature = "xbox360"))]
         self.color_buffer
             .chunks_mut(width * TILE_HEIGHT)
             .enumerate()
             .for_each(clear_tile);
 
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_arch = "powerpc"), not(feature = "xbox360")))]
         self.depth_buffer.par_chunks_mut(width * TILE_HEIGHT).for_each(|chunk| {
             chunk.fill(f32::INFINITY);
         });
 
-        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+        #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", feature = "xbox360"))]
         self.depth_buffer.chunks_mut(width * TILE_HEIGHT).for_each(|chunk| {
             chunk.fill(f32::INFINITY);
         });
@@ -623,7 +637,7 @@ impl Renderer {
             }
         }
 
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
         if let Some(vulkan) = self.vulkan.as_mut() {
             let is_occluded = world.is_view_fully_occluded(camera.position, camera.yaw, camera.pitch);
             self.visible_keys.clear();
@@ -672,7 +686,7 @@ impl Renderer {
             return;
         }
 
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_arch = "powerpc"), not(feature = "xbox360")))]
         let mut visible: Vec<(i32, i32)> = self
             .loaded_keys
             .par_iter()
@@ -680,7 +694,7 @@ impl Renderer {
             .filter(|&key| Self::chunk_visible(key, &view_proj))
             .collect();
 
-        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+        #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", feature = "xbox360"))]
         let mut visible: Vec<(i32, i32)> = self
             .loaded_keys
             .iter()
@@ -786,24 +800,24 @@ impl Renderer {
             (local_opaque, local_transparent)
         };
 
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_arch = "powerpc"), not(feature = "xbox360")))]
         let (opaque_chunks, transparent_chunks): (Vec<Vec<ScreenTriangle>>, Vec<Vec<ScreenTriangle>>) = visible
             .par_iter()
             .map(process_chunk)
             .unzip();
 
-        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+        #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", feature = "xbox360"))]
         let (opaque_chunks, transparent_chunks): (Vec<Vec<ScreenTriangle>>, Vec<Vec<ScreenTriangle>>) = visible
             .iter()
             .map(process_chunk)
             .unzip();
 
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_arch = "powerpc"), not(feature = "xbox360")))]
         {
             self.opaque_tris_buf = opaque_chunks.into_par_iter().flatten().collect();
             self.transparent_tris_buf = transparent_chunks.into_par_iter().flatten().collect();
         }
-        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+        #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", feature = "xbox360"))]
         {
             self.opaque_tris_buf = opaque_chunks.into_iter().flatten().collect();
             self.transparent_tris_buf = transparent_chunks.into_iter().flatten().collect();
@@ -879,7 +893,7 @@ impl Renderer {
             }
         };
 
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_arch = "powerpc"), not(feature = "xbox360")))]
         color_chunks
             .zip(depth_chunks)
             .enumerate()
@@ -887,7 +901,7 @@ impl Renderer {
             .into_par_iter()
             .for_each(render_tile);
 
-        #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+        #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", feature = "xbox360"))]
         color_chunks
             .zip(depth_chunks)
             .enumerate()

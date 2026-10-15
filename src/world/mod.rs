@@ -849,6 +849,7 @@ pub struct World {
     pub pending_explosions: Vec<Vec3>,
     pub primed_tnts: Vec<PrimedTnt>,
     #[cfg(not(target_arch = "wasm32"))]
+    #[allow(dead_code)]
     chunk_req_tx: Option<std::sync::mpsc::Sender<(i32, i32, u32)>>,
     #[cfg(not(target_arch = "wasm32"))]
     chunk_res_rx: Option<std::sync::Mutex<std::sync::mpsc::Receiver<Chunk>>>,
@@ -936,7 +937,7 @@ impl World {
 
     pub fn new_with_seed(seed: u32) -> Self {
         crate::log_info!("WORLD", "Initializing world with seed {}", seed);
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(feature = "xbox360")))]
         let (chunk_req_tx, chunk_res_rx) = {
             let (req_tx, req_rx) = std::sync::mpsc::channel::<(i32, i32, u32)>();
             let (res_tx, res_rx) = std::sync::mpsc::channel::<Chunk>();
@@ -998,20 +999,30 @@ impl World {
             (Some(req_tx), Some(std::sync::Mutex::new(res_rx)))
         };
 
+        #[cfg(any(target_arch = "wasm32", feature = "xbox360"))]
+        let (chunk_req_tx, chunk_res_rx) = (None, None);
+
         let spawn_pos = Self::find_spawn_position(seed);
         let spawn_cx = (spawn_pos.x.floor() as i32) >> 4;
         let spawn_cz = (spawn_pos.z.floor() as i32) >> 4;
         crate::log_info!("WORLD", "Spawn point found at ({:.1}, {:.1}, {:.1}) [chunk ({}, {})]", spawn_pos.x, spawn_pos.y, spawn_pos.z, spawn_cx, spawn_cz);
 
         let mut chunks = HashMap::new();
-        // Light pregeneration of initial spawn area (2-chunk radius -> 5x5 = 25 chunks)
-        crate::log_info!("WORLD", "Pregenerating initial 5x5 spawn chunks around ({}, {})", spawn_cx, spawn_cz);
-        for dz in -2..=2 {
-            for dx in -2..=2 {
+        let radius: i32 = {
+            #[cfg(any(target_os = "xbox360", target_os = "xenon", target_os = "vita", target_arch = "powerpc", feature = "xbox360"))]
+            { 1 }
+            #[cfg(not(any(target_os = "xbox360", target_os = "xenon", target_os = "vita", target_arch = "powerpc", feature = "xbox360")))]
+            { 2 }
+        };
+        let total_chunks = (radius * 2 + 1) * (radius * 2 + 1);
+        crate::log_info!("WORLD", "Pregenerating initial {}x{} spawn chunks around ({}, {})", radius * 2 + 1, radius * 2 + 1, spawn_cx, spawn_cz);
+        for dz in -radius..=radius {
+            for dx in -radius..=radius {
                 let cx = spawn_cx + dx;
                 let cz = spawn_cz + dz;
                 let chunk = Chunk::generate(cx, cz, seed);
                 chunks.insert((cx, cz), chunk);
+                crate::log_info!("WORLD", "Spawn chunk ({}, {}) ready [{}/{}]", cx, cz, chunks.len(), total_chunks);
             }
         }
         crate::log_info!("WORLD", "Pregeneration completed ({} chunks loaded in memory)", chunks.len());
@@ -1803,7 +1814,7 @@ impl World {
                 dx * dx + dz * dz
             });
 
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(not(target_arch = "wasm32"), not(feature = "xbox360")))]
             {
                 if let Some(tx) = &self.chunk_req_tx {
                     for (cx, cz) in missing_chunks {
@@ -1813,7 +1824,7 @@ impl World {
                 }
             }
 
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(any(target_arch = "wasm32", feature = "xbox360"))]
             {
                 let count = missing_chunks.len().min(1);
                 for (cx, cz) in missing_chunks.into_iter().take(count) {

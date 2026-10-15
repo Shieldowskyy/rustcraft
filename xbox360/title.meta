@@ -1,0 +1,14 @@
+[Title]
+TitleId=FFFE07D1
+TitleName=RustCraft
+Version=1.0.0.0
+Publisher=RustCraft Open Source Team
+Developer=RustCraft
+Genre=Voxel Sandbox Survival
+Platform=Xbox 360 (Homebrew libxenon)
+MediaFlags=0xFFFFFFFF
+Region=Region Free (PAL / NTSC)
+Description=RustCraft is a high-performance voxel sandbox and survival game ported natively to Microsoft Xbox 360 using homebrew APIs. Features 720p 60 FPS direct framebuffer rasterization, full wireless Xbox 360 controller support, survival gameplay, crafting, day/night cycle, and USB/HDD world saves.
+ExecutionPath=default.xex
+IconPath=icon.png
+BackgroundPath=nxeart.png

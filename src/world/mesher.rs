@@ -75,8 +75,11 @@ pub struct ChunkMeshJob {
 }
 
 pub struct AsyncMesher {
+    #[allow(dead_code)]
     req_tx: std::sync::mpsc::Sender<ChunkMeshJob>,
     res_rx: std::sync::mpsc::Receiver<((i32, i32), Vec<Triangle>)>,
+    #[allow(dead_code)]
+    res_tx: std::sync::mpsc::Sender<((i32, i32), Vec<Triangle>)>,
 }
 
 impl Default for AsyncMesher {
@@ -94,7 +97,9 @@ impl AsyncMesher {
         let num_threads = {
             #[cfg(target_os = "vita")]
             { 2 }
-            #[cfg(not(target_os = "vita"))]
+            #[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
+            { 0 }
+            #[cfg(not(any(target_os = "vita", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
             {
                 std::thread::available_parallelism()
                     .map(|n| n.get())
@@ -142,11 +147,20 @@ impl AsyncMesher {
                 });
         }
 
-        Self { req_tx, res_rx }
+        Self { req_tx, res_rx, res_tx }
     }
 
     pub fn submit_job(&self, job: ChunkMeshJob) {
-        let _ = self.req_tx.send(job);
+        #[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
+        {
+            let key = job.key;
+            let mesh = build_chunk_mesh_from_job(&job);
+            let _ = self.res_tx.send((key, mesh));
+        }
+        #[cfg(not(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
+        {
+            let _ = self.req_tx.send(job);
+        }
     }
 
     pub fn drain_completed(&self) -> Vec<((i32, i32), Vec<Triangle>)> {

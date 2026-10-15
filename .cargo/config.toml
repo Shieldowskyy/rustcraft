@@ -22,3 +22,11 @@ rustflags = [
     "-L", "/usr/local/lib",
     "-C", "link-arg=-Wl,-rpath,/usr/local/lib",
 ]
+
+[target.powerpc-unknown-linux-gnu]
+linker = "clang"
+rustflags = [
+    "-C", "target-cpu=ppc",
+    "-C", "link-arg=--target=powerpc-unknown-linux-gnu",
+    "-C", "link-arg=-fuse-ld=lld",
+]

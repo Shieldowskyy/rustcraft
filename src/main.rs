@@ -1,17 +1,17 @@
-#[cfg(not(any(target_os = "vita", target_os = "android")))]
+#[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
 use minifb::{CursorStyle, Key, MouseButton, MouseMode, Window, WindowOptions};
-#[cfg(not(any(target_os = "vita", target_os = "android")))]
+#[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
 use std::time::Instant;
 
-#[cfg(not(any(target_os = "vita", target_os = "android")))]
+#[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
 use rustcraft::app::{InputState, RustCraftApp, HEIGHT, WIDTH};
-#[cfg(not(any(target_os = "vita", target_os = "android")))]
+#[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
 use rustcraft::cli::{parse_log_enabled, parse_profiler_enabled, parse_renderer_choice, parse_seed};
-#[cfg(not(any(target_os = "vita", target_os = "android")))]
+#[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
 use rustcraft::core::init_logger;
-#[cfg(not(any(target_os = "vita", target_os = "android")))]
+#[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
 use rustcraft::platform::gamepad::GamepadManager;
-#[cfg(not(any(target_os = "vita", target_os = "android")))]
+#[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
 use rustcraft::platform::mouse_capture::{self, MouseCapture};
 
 
@@ -25,7 +25,12 @@ fn main() {
     // Android entry points are in platform::android (JNI / cdylib)
 }
 
-#[cfg(not(any(target_os = "vita", target_os = "android")))]
+#[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
+fn main() {
+    rustcraft::platform::xbox360::run_xbox360_app();
+}
+
+#[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
 fn main() {
     let log_enabled = parse_log_enabled();
     init_logger(log_enabled);

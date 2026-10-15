@@ -4,7 +4,7 @@
 //! runtime language switching, and helper functions for formatted localized strings.
 
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::Mutex;
 
 /// Supported game languages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -112,10 +112,10 @@ impl I18nManager {
     }
 }
 
-static I18N: std::sync::OnceLock<RwLock<I18nManager>> = std::sync::OnceLock::new();
+static I18N: std::sync::OnceLock<Mutex<I18nManager>> = std::sync::OnceLock::new();
 
-fn get_i18n() -> &'static RwLock<I18nManager> {
-    I18N.get_or_init(|| RwLock::new(I18nManager::new()))
+fn get_i18n() -> &'static Mutex<I18nManager> {
+    I18N.get_or_init(|| Mutex::new(I18nManager::new()))
 }
 
 /// Translates a localization key using the active language.
@@ -123,7 +123,7 @@ fn get_i18n() -> &'static RwLock<I18nManager> {
 /// Falls back to English if the key is missing in the target locale.
 /// Returns empty string `""` if key is not found in any locale.
 pub fn t(key: &str) -> &'static str {
-    if let Ok(mgr) = get_i18n().read() {
+    if let Ok(mgr) = get_i18n().lock() {
         let res = mgr.translate(key);
         if !res.is_empty() {
             return res;
@@ -158,14 +158,14 @@ pub fn t_fmt(key: &str, args: &[&str]) -> String {
 
 /// Changes the active game language.
 pub fn set_language(lang: Language) {
-    if let Ok(mut mgr) = get_i18n().write() {
+    if let Ok(mut mgr) = get_i18n().lock() {
         mgr.current_language = lang;
     }
 }
 
 /// Returns the currently active language.
 pub fn current_language() -> Language {
-    if let Ok(mgr) = get_i18n().read() {
+    if let Ok(mgr) = get_i18n().lock() {
         mgr.current_language
     } else {
         Language::English
@@ -174,7 +174,7 @@ pub fn current_language() -> Language {
 
 /// Translates a localization key for a specific explicit language.
 pub fn translate_lang(lang: Language, key: &str) -> &'static str {
-    if let Ok(mgr) = get_i18n().read() {
+    if let Ok(mgr) = get_i18n().lock() {
         match lang {
             Language::English => mgr.en_dict.get(key).copied().unwrap_or(""),
             Language::Polish => mgr.pl_dict.get(key).copied().or_else(|| mgr.en_dict.get(key).copied()).unwrap_or(""),

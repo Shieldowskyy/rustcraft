@@ -5,7 +5,7 @@ edition = "2021"
 
 [lib]
 name = "rustcraft"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["staticlib", "rlib"]
 path = "src/lib.rs"
 
 [[bin]]
@@ -15,21 +15,23 @@ path = "src/main.rs"
 [features]
 default = []
 profiler = []
+xbox360 = []
 
 [dependencies]
 bytemuck = { version = "1.16", features = ["derive"] }
-getrandom = { version = "=0.2.15", features = ["js"] }
+getrandom = { version = "=0.2.15", features = ["js", "custom"] }
 
-[target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android")))'.dependencies]
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "vita")))'.dependencies]
+rayon = "1.8"
+
+[target.'cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon")))'.dependencies]
 minifb = "0.27"
 raw-window-handle = "0.6"
 wgpu = "0.19"
 pollster = "0.3"
-rayon = "1.8"
 gilrs = "0.11"
 
 [target.'cfg(target_os = "android")'.dependencies]
-rayon = "1.8"
 jni-sys = "=0.3.1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -53,7 +55,7 @@ web-sys = { version = "0.3", features = [
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Graphics_Gdi"] }
 
-[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+[target.'cfg(all(any(target_os = "linux", target_os = "freebsd"), not(target_arch = "powerpc")))'.dependencies]
 x11-dl = "2.21"
 
 [profile.release]
@@ -70,5 +72,14 @@ wasm-opt = false
 title_id = "RUSTCRAFT"
 title_name = "RustCraft"
 assets = "vita/sce_sys"
+
+[package.metadata.xbox360]
+title_id = "58580864"
+title_name = "RustCraft"
+media_id = "00000000"
+version = "1.0.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("vita", "xbox360", "xenon"))'] }
 
 
