@@ -28,66 +28,47 @@ Folder gry (`RustCraft/`) zawiera:
 
 ---
 
-## 🚀 Instrukcja instalacji na konsoli
+## 🚀 Instrukcja instalacji i uruchamiania na konsoli
 
-### Metoda 1: Uruchomienie z pendrive'a USB (najprostsza)
-1. Wypakuj archiwum `RustCraft-Xbox360.zip`.
-2. Skopiuj cały folder `RustCraft` do katalogu głównego pendrive'a FAT32, aby ścieżka wyglądała następująco:
-   ```text
-   USB:\RustCraft\default.xex
-   USB:\RustCraft\icon.png
-   USB:\RustCraft\title.meta
-   ```
-3. Włóż pendrive do dowolnego portu USB w konsoli Xbox 360.
-4. Uruchom **XeXMenu** lub **Aurora Dashboard**.
-5. W XeXMenu:
-   * Wciśnij `RB`, przejdź do napędu `Usb0:\`.
-   * Wejdź do katalogu `RustCraft`.
-   * Zaznacz `default.xex` i wciśnij przycisk **[A]**.
-6. Gra wystartuje w natywnej rozdzielczości 720p HD (1280x720 60 FPS)!
+### Metoda 1: Uruchomienie przez XeLL Reloaded (Zalecane – pełna grafika TV 720p)
+Silnik RustCraft dla Xbox 360 korzysta z bezpośredniego bufora liniowego VRAM układu graficznego Xenos. W środowisku **XeLL Reloaded** obraz jest wyświetlany natychmiast na telewizorze wraz z ekranem diagnostycznym:
+1. Skopiuj plik `xenon.elf` (lub `rustcraft.elf`) bezpośrednio do katalogu głównego pendrive'a sformatowanego w systemie **FAT32** (`USB:\xenon.elf`).
+2. Wyłącz konsolę Xbox 360.
+3. Włącz konsolę **przyciskiem EJECT** (wysunięcie tacki napędu).
+4. XeLL Reloaded wystartuje, zainicjalizuje urządzenia USB i sieć, po czym automatycznie uruchomi grę z natywnym obrazem 720p HD i konsolą diagnostyczną na ekranie TV!
 
-### Metoda 2: Instalacja na wewnętrznym dysku twardym (Hdd1)
-1. Uruchom menedżer plików w **XeXMenu** lub połącz się z konsolą przez **FTP** (np. FileZilla, port 21).
-2. Prześlij folder `RustCraft` do lokalizacji:
-   ```text
-   Hdd1:\Homebrew\RustCraft\
-   ```
-3. W **Aurora Dashboard**:
-   * Wejdź w Ustawienia -> Content -> Manage Paths -> Add.
-   * Wybierz `Hdd1:\Homebrew\`.
-   * Wciśnij `Scan Content`.
-   * RustCraft pojawi się automatycznie na liście gier z dedykowaną ikoną i tłem!
+### Metoda 2: Uruchomienie z Dashboardu (Aurora / XeXMenu) przez `xelllaunch.xex`
+Jeśli chcesz uruchamiać grę wygodnie z menu Aurory lub XeXMenu bez wyłączania konsoli:
+1. Skopiuj folder `RustCraft` na pendrive (`USB:\RustCraft\`).
+2. Upewnij się, że plik `xenon.elf` znajduje się w katalogu głównym pendrive'a (`USB:\xenon.elf`).
+3. W Aurora lub XeXMenu wejdź do folderu `RustCraft` i uruchom plik **`xelllaunch.xex`**.
+4. Konsola zrestartuje się bezpiecznie do XeLL i natychmiast uruchomi RustCraft.
 
-### Metoda 3: Bezpośredni start przez XeLL (przycisk Eject)
-1. Skopiuj plik `rustcraft.elf` bezpośrednio na pendrive jako:
-   ```text
-   USB:\xenon.elf
-   # lub
-   USB:\rustcraft.elf
-   ```
-2. Włącz konsolę Xbox 360 przyciskiem **EJECT** (wysunięcie tacki).
-3. XeLL Reloaded wystartuje, zainicjalizuje sieć oraz USB, wykryje plik ELF i automatycznie uruchomi grę.
+### Metoda 3: Diagnostyka przez `default.xex` (Aurora / XeXMenu)
+* Bezpośrednie uruchomienie `default.xex` z poziomu menedżera plików przeprowadza pełen pakiet testów sprzętowych (CPU, 64 MB alokator pamięci GDDR3, system plików USB, kontrolery) oraz zapisuje pełny dziennik zdarzeń do pliku:
+  * `USB:\RustCraft\rustcraft.log`
+  * `USB:\rustcraft.log`
+* Po zakończeniu testów aplikacja bezpiecznie i czysto kończy działanie bez zawieszania konsoli!
 
 ---
 
 ## 🕹️ Sterowanie na padzie Xbox 360
 
-| Przycisk / Gałka | Akcja w grze | Akcja w Menu / Ekwipunku |
+| Przycisk / Gałka | Akcja w grze | Ekran Diagnostyczny |
 | :--- | :--- | :--- |
+| **Przycisk [A]** | Skok / Pływanie / Wznoszenie (lot) | Zamknięcie konsoli / Start gry |
+| **Przycisk START** | Menu pauzy / Ustawienia | Zamknięcie konsoli / Start gry |
+| **Wciśnięcie RS (R3)** | Przełączenie konsoli diagnostycznej | Schowanie / Pokazanie diagnostyki |
 | **Lewa gałka (LS)** | Chodzenie (przód / tył / lewo / prawo) | Ruch wirtualnym kursorem |
 | **Prawa gałka (RS)** | Obracanie kamery (płynny rozgląd) | Dodatkowa kontrola kursora |
 | **Prawy Trigger (RT)** | Wydobywanie klocka / Atak | Kliknięcie lewym przyciskiem myszy |
 | **Lewy Trigger (LT)** | Postawienie klocka / Interakcja | Kliknięcie prawym przyciskiem myszy |
-| **Przycisk [A]** | Skok / Pływanie / Wznoszenie (lot) | Wybór / Zatwierdzenie |
-| **Przycisk [B]** | Skradanie / Opadanie (lot) | Wstecz / Wyjście z menu |
+| **Przycisk [B]** | Skradanie / Opadanie (lot) | Powrót / Wyjście |
 | **Przycisk [X]** | Wyrzucenie trzymanego przedmiotu | Szybkie rzemiosło |
 | **Przycisk [Y]** | Otwarcie ekwipunku | Zamknięcie ekwipunku |
-| **Bumpery [LB] / [RB]** | Wybór poprzedniego / następnego slotu paska | Zmiana zakładek |
-| **Krzyżak (D-Pad)** | Wybór slotu paska podręcznego | Skokowe przeskakiwanie po polach |
-| **Przycisk START** | Menu pauzy / Ustawienia | Powrót do gry |
+| **Bumpery [LB] / [RB]** | Wybór slotu paska podręcznego | Zmiana zakładek |
 | **Przycisk BACK** | Przełączenie trybu latania (Fly Mode) | Przełączenie kamery (F5) |
 | **Wciśnięcie LS (L3)** | Włączenie sprintu | - |
-| **Wciśnięcie RS (R3)** | Włączenie nakładki diagnostycznej F3 (Profiler) | - |
 
 ---
 
@@ -102,14 +83,12 @@ Zapisy zawierają ukształtowanie terenu, stan gracza, zawartość skrzyń, piec
 
 ## 📋 Diagnostyka i zrzut logów na pendrive (`rustcraft.log`)
 
-Silnik posiada wbudowany moduł aktywnego, asynchronicznego i synchronicznego logowania zdarzeń oraz przechwytywania awarii (Crash Handler):
-* **Lokalizacja logu:** Przy każdym uruchomieniu silnik natychmiast tworzy lub nadpisuje plik dziennika bezpośrednio w katalogu z grą na pendrive:
+Silnik posiada wbudowany moduł aktywnego logowania zdarzeń oraz ekran diagnostyczny (**On-Screen Diagnostic Console**):
+* **Na ekranie TV:** Przy starcie gry wyświetla się panel diagnostyczny pokazujący stan wszystkich 6 etapów startowych (taktowanie procesora, test alokatora 64 MB, wykrywanie pamięci masowej, bufor wideo, generowanie świata i pad).
+* **Lokalizacja logu:** Przy każdym uruchomieniu silnik natychmiast tworzy lub nadpisuje plik dziennika bezpośrednio na pendrive:
   * `USB:\RustCraft\rustcraft.log`
   * oraz `USB:\rustcraft.log`
-* **Zabezpieczenie przed utratą danych:** Każda linia logu jest natychmiast wymuszana do zapisu na pamięć flash USB za pomocą instrukcji `flush()` i `sync_data()`.
-* **Przechwytywanie crasha (Panic Hook & Hardware Traps):** 
-  * W razie wystąpienia błędu w grze lub wyjątku procesora (DSI, ISI, Alignment, Illegal Instruction), handler natychmiast zrzuca na pendrive pełny raport z informacją o pliku, linii kodu, treści błędu oraz stanie rejestrów CPU PowerPC (r0-r31, PC, MSR, LR, Timebase).
-  * Na ekranie telewizora wyświetlana jest awaryjna czerwona plansza diagnostyczna z informacją o zapisaniu logu na pendrive.
+* **Zabezpieczenie przed utratą danych:** Każda linia logu jest natychmiast wymuszana do zapisu na pamięć flash USB (`xbox_flush_log_to_disk`), dzięki czemu w razie problemu cała historia zdarzeń znajduje się w pliku na pendrive.
 
 ---
 

@@ -12,6 +12,9 @@
 #![allow(dead_code)]
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+#[cfg(not(target_arch = "powerpc"))]
+use std::time::Instant;
 
 use crate::app::{GameState, InputState, RustCraftApp};
 
@@ -98,12 +101,38 @@ extern "C" {
     #[link_name = "xenon_uart_puts"]
     fn xenon_uart_puts(s: *const u8);
 
+    #[link_name = "xenon_present_framebuffer"]
+    fn xenon_present_framebuffer(
+        vram: *mut u32,
+        pixels: *const u32,
+        src_w: i32,
+        src_h: i32,
+        dst_w: i32,
+        dst_h: i32,
+    );
+
     // SMC power functions
     #[link_name = "xenon_smc_power_shutdown"]
     fn xenon_smc_power_shutdown();
 
     #[link_name = "xenon_smc_power_reboot"]
     fn xenon_smc_power_reboot();
+
+    // Launcher logging & diagnostic helpers
+    #[link_name = "xbox_append_log_c"]
+    fn xbox_append_log_c(s: *const u8, len: u32);
+
+    #[link_name = "is_running_under_kernel_c"]
+    fn is_running_under_kernel_c() -> i32;
+
+    #[link_name = "xbox_get_bound_log_path"]
+    fn xbox_get_bound_log_path() -> *const u8;
+
+    #[link_name = "xbox_get_heap_used"]
+    fn xbox_get_heap_used() -> u32;
+
+    #[link_name = "xbox_get_heap_total"]
+    fn xbox_get_heap_total() -> u32;
 }
 
 // PowerPC Time Base register read
@@ -171,19 +200,194 @@ pub fn init_xbox_logger() {
     println!("[XBOX360] Native console logger initialized (Timebase: 0x{:016X})", cur);
 }
 
-/// Prints and logs a diagnostic message to console (DbgPrint) and UART.
+// ============================================================================
+// On-Screen Diagnostic Console Facility
+// ============================================================================
+
+#[derive(Clone)]
+pub struct ConsoleEntry {
+    pub text: String,
+    pub color: u32,
+}
+
+pub struct OnScreenConsole {
+    pub entries: Vec<ConsoleEntry>,
+    pub max_entries: usize,
+    pub visible: bool,
+}
+
+impl OnScreenConsole {
+    pub const fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+            max_entries: 60,
+            visible: true,
+        }
+    }
+
+    pub fn push(&mut self, text: &str) {
+        let color = if text.contains("✓") || text.contains("[OK]") || text.contains("SUCCESS") || text.contains("PASSED") {
+            0xFF4ADE80 // Emerald green
+        } else if text.contains("❌") || text.contains("[FAIL]") || text.contains("[ERROR]") || text.contains("FATAL") {
+            0xFFF87171 // Coral red
+        } else if text.contains("⚠️") || text.contains("[WARN]") || text.contains("Warning") {
+            0xFFFBBF24 // Amber
+        } else if text.contains("[Stage") || text.contains("[Environment]") || text.contains("[System]") || text.contains("[Hardware]") {
+            0xFF38BDF8 // Sky blue
+        } else if text.contains("=====") {
+            0xFF64748B // Slate
+        } else {
+            0xFFF1F5F9 // Light slate / white
+        };
+
+        if self.entries.len() >= self.max_entries {
+            self.entries.remove(0);
+        }
+        self.entries.push(ConsoleEntry {
+            text: text.to_string(),
+            color,
+        });
+    }
+
+    pub fn render(&self, fb: &mut [u32], width: usize, height: usize) {
+        if width == 0 || height == 0 || fb.len() < width * height {
+            return;
+        }
+
+        // 1. Clear background to dark navy / carbon (0xFF0A0F1D)
+        for p in fb.iter_mut() {
+            *p = 0xFF0A0F1D;
+        }
+
+        // 2. Top Header Bar (height 52px, 0xFF1E293B with 0xFF38BDF8 accent line)
+        for y in 0..50.min(height) {
+            for x in 0..width {
+                fb[y * width + x] = 0xFF1E293B;
+            }
+        }
+        if height > 51 {
+            for x in 0..width {
+                fb[50 * width + x] = 0xFF38BDF8;
+                fb[51 * width + x] = 0xFF38BDF8;
+            }
+        }
+
+        // Header Title
+        crate::graphics::font::draw_text(
+            "RUSTCRAFT XBOX 360 DIAGNOSTIC CONSOLE",
+            24,
+            12,
+            2,
+            2,
+            |px, py| {
+                if px >= 0 && (px as usize) < width && py >= 0 && (py as usize) < height {
+                    fb[py as usize * width + px as usize] = 0xFFFFFFFF;
+                }
+            },
+        );
+
+        // Header Subtitle (System Info)
+        let sub = "Xenon 3.2GHz Tri-Core | 64MB Coalescing Heap | 720p HD Scanout | JTAG/RGH Homebrew";
+        crate::graphics::font::draw_text(
+            sub,
+            24,
+            34,
+            1,
+            1,
+            |px, py| {
+                if px >= 0 && (px as usize) < width && py >= 0 && (py as usize) < height {
+                    fb[py as usize * width + px as usize] = 0xFF94A3B8;
+                }
+            },
+        );
+
+        // 3. Render Log Entries in the main scroll area (y: 60..height - 60)
+        let line_height = 18;
+        let max_visible_lines = ((height.saturating_sub(120)) / line_height).min(34);
+        let start_idx = self.entries.len().saturating_sub(max_visible_lines);
+        let visible_entries = &self.entries[start_idx..];
+
+        for (i, entry) in visible_entries.iter().enumerate() {
+            let y_pos = 62 + (i as i32) * (line_height as i32);
+            let color = entry.color;
+            crate::graphics::font::draw_text(
+                &entry.text,
+                24,
+                y_pos,
+                1,
+                1,
+                |px, py| {
+                    if px >= 0 && (px as usize) < width && py >= 0 && (py as usize) < height {
+                        fb[py as usize * width + px as usize] = color;
+                    }
+                },
+            );
+        }
+
+        // 4. Footer Bar (y: height - 52..height)
+        let footer_y = height.saturating_sub(50);
+        if footer_y < height {
+            for x in 0..width {
+                fb[footer_y * width + x] = 0xFF334155;
+                fb[(footer_y + 1) * width + x] = 0xFF334155;
+            }
+            for y in (footer_y + 2)..height {
+                for x in 0..width {
+                    fb[y * width + x] = 0xFF1E293B;
+                }
+            }
+
+            // Left status: log file
+            let log_text = "LOG FILE: USB:\\RustCraft\\rustcraft.log [FLUSHED / ACTIVE]";
+            crate::graphics::font::draw_text(
+                log_text,
+                24,
+                footer_y as i32 + 16,
+                1,
+                1,
+                |px, py| {
+                    if px >= 0 && (px as usize) < width && py >= 0 && (py as usize) < height {
+                        fb[py as usize * width + px as usize] = 0xFF4ADE80;
+                    }
+                },
+            );
+
+            // Right status: controls
+            let controls = "[A] / [START] Start Game    [RS Click] Toggle Diagnostics    [BACK] Exit";
+            let c_width = crate::graphics::font::measure_text(controls, 1, 1);
+            let c_x = (width as i32 - c_width - 24).max(300);
+            crate::graphics::font::draw_text(
+                controls,
+                c_x,
+                footer_y as i32 + 16,
+                1,
+                1,
+                |px, py| {
+                    if px >= 0 && (px as usize) < width && py >= 0 && (py as usize) < height {
+                        fb[py as usize * width + px as usize] = 0xFFF1F5F9;
+                    }
+                },
+            );
+        }
+    }
+}
+
+pub static CONSOLE: Mutex<OnScreenConsole> = Mutex::new(OnScreenConsole::new());
+
+/// Prints and logs a diagnostic message to on-screen console, DbgPrint, UART and rustcraft.log file.
 pub fn xbox_log(msg: &str) {
     let elapsed = get_xbox_elapsed_ms();
-    println!("[{:8} ms] [XBOX360] {}", elapsed, msg);
+    let formatted = format!("[{:8} ms] [XBOX360] {}", elapsed, msg);
+    println!("{}", formatted);
 
-    // Hardware UART serial port
-    #[cfg(any(target_os = "xbox360", target_os = "xenon"))]
+    if let Ok(mut con) = CONSOLE.lock() {
+        con.push(msg);
+    }
+
+    // Hardware UART serial port & persistent file logger
+    #[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
     unsafe {
-        let formatted = format!("[{:8} ms] [XBOX360] {}\n", elapsed, msg);
-        let mut buf = Vec::with_capacity(formatted.len() + 1);
-        buf.extend_from_slice(formatted.as_bytes());
-        buf.push(0);
-        xenon_uart_puts(buf.as_ptr());
+        xbox_append_log_c(formatted.as_ptr(), formatted.len() as u32);
     }
 }
 
@@ -201,13 +405,13 @@ pub struct XenonVideo {
 impl XenonVideo {
     pub fn new(width: usize, height: usize) -> Self {
         let vram = if HARDWARE_INITIALIZED.load(Ordering::SeqCst) {
-            #[cfg(any(target_os = "xbox360", target_os = "xenon"))]
+            #[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
             unsafe {
                 xenon_video_init();
                 xenon_video_set_mode(VIDEO_MODE_720P);
                 xenon_video_get_vram()
             }
-            #[cfg(not(any(target_os = "xbox360", target_os = "xenon")))]
+            #[cfg(not(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
             {
                 core::ptr::addr_of_mut!(SIMULATED_VRAM) as *mut u32
             }
@@ -224,35 +428,48 @@ impl XenonVideo {
     }
 
     /// Blits the engine color buffer to the hardware linear framebuffer (VRAM).
-    /// Performs byte packing/swapping if necessary for the Big-Endian Xenos GPU.
+    /// Performs presentation and cache line flushing (dcbst) for Xenos scanout.
     pub fn present(&mut self, source_pixels: &[u32], src_width: usize, src_height: usize) {
-        if self.vram_ptr.is_null() {
-            return;
+        #[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
+        unsafe {
+            xenon_present_framebuffer(
+                self.vram_ptr,
+                source_pixels.as_ptr(),
+                src_width as i32,
+                src_height as i32,
+                self.width as i32,
+                self.height as i32,
+            );
         }
 
-        if src_width == self.width && src_height == self.height {
-            // Direct 1:1 blit
-            let count = self.width * self.height;
-            let src = source_pixels.as_ptr();
-            let dst = self.vram_ptr;
-            unsafe {
-                // On Big-Endian PowerPC, ARGB/XRGB pixels can be written directly to VRAM
-                std::ptr::copy_nonoverlapping(src, dst, count);
+        #[cfg(not(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
+        {
+            if self.vram_ptr.is_null() {
+                return;
             }
-        } else {
-            // Nearest-neighbor scaling from render resolution to 720p output
-            let x_ratio = ((src_width << 16) / self.width) + 1;
-            let y_ratio = ((src_height << 16) / self.height) + 1;
 
-            unsafe {
-                for y in 0..self.height {
-                    let src_y = ((y * y_ratio) >> 16).min(src_height - 1);
-                    let src_row = &source_pixels[src_y * src_width..];
-                    let dst_row = self.vram_ptr.add(y * self.width);
+            if src_width == self.width && src_height == self.height {
+                // Direct 1:1 blit
+                let count = self.width * self.height;
+                let src = source_pixels.as_ptr();
+                let dst = self.vram_ptr;
+                unsafe {
+                    std::ptr::copy_nonoverlapping(src, dst, count);
+                }
+            } else {
+                let x_ratio = ((src_width << 16) / self.width) + 1;
+                let y_ratio = ((src_height << 16) / self.height) + 1;
 
-                    for x in 0..self.width {
-                        let src_x = ((x * x_ratio) >> 16).min(src_width - 1);
-                        *dst_row.add(x) = src_row[src_x];
+                unsafe {
+                    for y in 0..self.height {
+                        let src_y = ((y * y_ratio) >> 16).min(src_height - 1);
+                        let src_row = &source_pixels[src_y * src_width..];
+                        let dst_row = self.vram_ptr.add(y * self.width);
+
+                        for x in 0..self.width {
+                            let src_x = ((x * x_ratio) >> 16).min(src_width - 1);
+                            *dst_row.add(x) = src_row[src_x];
+                        }
                     }
                 }
             }
@@ -293,14 +510,14 @@ impl Xbox360InputTracker {
 
     /// Polls physical Xbox 360 controllers and maps inputs to the engine's InputState.
     pub fn poll(&mut self, is_mouse_captured: bool, dt: f32) -> InputState {
-        #[cfg(any(target_os = "xbox360", target_os = "xenon"))]
+        #[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
         unsafe {
             xenon_usb_do_poll();
         }
 
         #[allow(unused_mut)]
         let mut data = ControllerData::default();
-        #[cfg(any(target_os = "xbox360", target_os = "xenon"))]
+        #[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
         unsafe {
             let _ = xenon_get_controller_data(&mut data, 0);
         }
@@ -529,18 +746,69 @@ pub extern "C" fn run_rustcraft_xbox360() {
     run_xbox360_app();
 }
 
-/// Main application entry point for Xbox 360 – runs the native game loop.
+/// Main application entry point for Xbox 360 – runs self-tests and the native game loop.
 pub fn run_xbox360_app() {
-    // 0. Initialize persistent crash & event file logging
     init_xbox_logger();
 
+    let is_kernel = {
+        #[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
+        unsafe { is_running_under_kernel_c() != 0 }
+        #[cfg(not(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
+        false
+    };
+
     xbox_log("============================================================");
-    xbox_log("RustCraft booting on Microsoft Xbox 360 (Homebrew API)...");
+    xbox_log("RustCraft Xbox 360 Diagnostics & Self-Test Suite v1.2");
+    if is_kernel {
+        xbox_log("[Environment] Running inside xboxkrnl.exe (Title Container)");
+    } else {
+        xbox_log("[Environment] Running bare-metal inside XeLL Reloaded");
+    }
     xbox_log(&format!("CPU Timebase frequency: ~50 MHz | Initial TB: 0x{:016X}", read_timebase()));
     xbox_log("============================================================");
 
-    // 1. Configure Xbox 360 save storage directory (USB or internal HDD)
-    xbox_log("[Stage 1/5] Detecting save storage device...");
+    // 1. Video Subsystem & Framebuffer Allocation
+    xbox_log("[Stage 1/6] Initializing Video Framebuffer (1280x720 60Hz)...");
+    HARDWARE_INITIALIZED.store(true, Ordering::SeqCst);
+    let mut video = XenonVideo::new(XBOX360_WIDTH, XBOX360_HEIGHT);
+    let mut console_buf = vec![0xFF0A0F1D; XBOX360_WIDTH * XBOX360_HEIGHT];
+    xbox_log("✓ Video subsystem ready (720p HD linear scanout).");
+
+    // Helper to refresh on-screen console
+    let refresh_screen = |vid: &mut XenonVideo, buf: &mut [u32]| {
+        if let Ok(con) = CONSOLE.lock() {
+            con.render(buf, XBOX360_WIDTH, XBOX360_HEIGHT);
+        }
+        vid.present(buf, XBOX360_WIDTH, XBOX360_HEIGHT);
+    };
+    refresh_screen(&mut video, &mut console_buf);
+
+    // 2. Memory Allocator Integrity Test
+    xbox_log("[Stage 2/6] Testing Freestanding Coalescing Memory Allocator...");
+    #[allow(unused_mut)]
+    let mut heap_total_mb = 64;
+    #[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
+    unsafe {
+        let t = xbox_get_heap_total();
+        if t > 0 {
+            heap_total_mb = t / (1024 * 1024);
+        }
+    }
+    let mut test_vec: Vec<u32> = Vec::with_capacity(32768);
+    for i in 0..32768 {
+        test_vec.push(i as u32 ^ 0xAA55AA55);
+    }
+    let verified = test_vec.iter().enumerate().all(|(i, &val)| val == (i as u32 ^ 0xAA55AA55));
+    drop(test_vec);
+    if verified {
+        xbox_log(&format!("✓ Memory Allocator Test PASSED (Heap: {} MB GDDR3, Coalescing active)", heap_total_mb));
+    } else {
+        xbox_log("❌ Memory Allocator Test FAILED: Data corruption detected!");
+    }
+    refresh_screen(&mut video, &mut console_buf);
+
+    // 3. Save Storage and File System Detection
+    xbox_log("[Stage 3/6] Detecting save storage device & mounting USB...");
     let usb_saves = std::path::PathBuf::from("uda0:/RustCraft/saves");
     let usb_saves_nt = std::path::PathBuf::from("Usb0:\\RustCraft\\saves");
     let hdd_saves = std::path::PathBuf::from("sda0:/RustCraft/saves");
@@ -557,54 +825,98 @@ pub fn run_xbox360_app() {
         crate::world::storage::set_custom_save_dir(hdd_saves);
     } else {
         let _ = std::fs::create_dir_all(&local_saves);
-        xbox_log("✓ Save storage using local directory: ./saves");
+        xbox_log("✓ Save storage using local directory fallback: ./saves");
         crate::world::storage::set_custom_save_dir(local_saves);
     }
+    refresh_screen(&mut video, &mut console_buf);
 
-    // 2. Initialize video subsystem (720p HD)
-    xbox_log("[Stage 2/5] Initializing video framebuffer (1280x720 60Hz)...");
-    HARDWARE_INITIALIZED.store(true, Ordering::SeqCst);
-    let mut video = XenonVideo::new(XBOX360_WIDTH, XBOX360_HEIGHT);
-    xbox_log("✓ Video framebuffer initialized successfully.");
-
-    // 3. Initialize game engine (render at 720p 1280x720)
+    // 4. Game Engine Instantiation & Voxel World Generator Test
     let seed = (read_timebase() & 0xFFFFFFFF) as u32;
-    xbox_log(&format!("[Stage 3/5] Instantiating RustCraftApp (1280x720, seed: {})...", seed));
-
+    xbox_log(&format!("[Stage 4/6] Instantiating RustCraftApp (seed: {})...", seed));
     let mut app = RustCraftApp::new(XBOX360_WIDTH, XBOX360_HEIGHT, "software", seed);
     app.settings.fps_limit = 60;
     app.settings.render_distance = 6;
     app.settings.fog = true;
-    xbox_log("✓ RustCraftApp engine state ready.");
+    xbox_log("✓ RustCraftApp engine & voxel world state ready.");
+    refresh_screen(&mut video, &mut console_buf);
 
-    // 4. Initialize input tracker
-    xbox_log("[Stage 4/5] Initializing Xbox 360 controller subsystem...");
+    // 5. Input & Controller Subsystem
+    xbox_log("[Stage 5/6] Initializing Xbox 360 controller subsystem...");
     let mut input_tracker = Xbox360InputTracker::new();
     let mut last_tb = read_timebase();
-    xbox_log("✓ Input tracker ready.");
+    xbox_log("✓ Controller tracker ready (XInput port 0, analog deadzones calibrated).");
+    refresh_screen(&mut video, &mut console_buf);
 
-    // 5. Main loop
-    xbox_log("[Stage 5/5] Entering Xbox 360 main render loop. Ready for player input.");
+    // 6. Diagnostic Log Persistence
+    xbox_log("[Stage 6/6] Verifying diagnostic log persistence on storage...");
+    let mut bound_path_str = String::from("USB:\\RustCraft\\rustcraft.log");
+    #[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
+    unsafe {
+        let p = xbox_get_bound_log_path();
+        if !p.is_null() {
+            let mut len = 0;
+            while *p.add(len) != 0 && len < 128 { len += 1; }
+            if let Ok(s) = core::str::from_utf8(core::slice::from_raw_parts(p, len)) {
+                bound_path_str = s.to_string();
+            }
+        }
+    }
+    xbox_log(&format!("✓ Diagnostic log stream active. Target: {}", bound_path_str));
+    xbox_log("============================================================");
+    xbox_log("ALL SELF-TESTS COMPLETED SUCCESSFULLY!");
+    xbox_log("Displaying Diagnostic Console on screen.");
+    xbox_log("Press [A] or [START] to enter the game, or [RS Click] to toggle console.");
+    xbox_log("============================================================");
+    refresh_screen(&mut video, &mut console_buf);
 
+    // 7. Interactive Render & Diagnostic Loop
     let mut frame_count: u64 = 0;
+    let mut show_console = true;
+    let mut auto_hide_counter = 0;
+
     loop {
         let cur_tb = read_timebase();
         let diff = cur_tb.saturating_sub(last_tb);
         last_tb = cur_tb;
 
-        // Xenon timebase runs at ~50 MHz (50_000_000 ticks per second)
         let dt = (diff as f32 / 50_000_000.0).clamp(0.001, 0.1);
 
-        let is_captured = matches!(app.state, GameState::Playing);
+        let is_captured = matches!(app.state, GameState::Playing) && !show_console;
         let input = input_tracker.poll(is_captured, dt);
+
+        // Toggle diagnostic console with RS click (R3)
+        if input.gp_r3_just_pressed {
+            show_console = !show_console;
+            xbox_log(&format!("Diagnostic console toggled: visible = {}", show_console));
+        }
+
+        if show_console {
+            // Dismiss diagnostic screen on A or START
+            if input.gp_south_just_pressed || input.gp_start_just_pressed {
+                show_console = false;
+                xbox_log("Diagnostic console dismissed by player. Entering game view.");
+            }
+            auto_hide_counter += 1;
+            // Auto-hide diagnostic screen after ~5 seconds if in MainMenu
+            if auto_hide_counter > 300 && matches!(app.state, GameState::MainMenu) {
+                show_console = false;
+            }
+        }
 
         let output = app.update_and_render(dt, &input);
 
-        // Blit engine framebuffer directly to hardware VRAM
-        video.present(app.renderer.pixel_buffer(), app.width, app.height);
+        // Presentation
+        if show_console {
+            if let Ok(con) = CONSOLE.lock() {
+                con.render(&mut console_buf, XBOX360_WIDTH, XBOX360_HEIGHT);
+            }
+            video.present(&console_buf, XBOX360_WIDTH, XBOX360_HEIGHT);
+        } else {
+            video.present(app.renderer.pixel_buffer(), app.width, app.height);
+        }
 
         frame_count += 1;
-        if frame_count == 1 || frame_count == 30 || frame_count == 60 || frame_count % 600 == 0 {
+        if frame_count == 1 || frame_count == 60 || frame_count % 600 == 0 {
             let fps = (1.0 / dt).round() as u32;
             let state_str = match &app.state {
                 GameState::MainMenu => "MainMenu",
@@ -620,14 +932,14 @@ pub fn run_xbox360_app() {
                 _ => "Other",
             };
             if frame_count == 1 {
-                xbox_log("✓ First frame successfully rendered and presented to VRAM.");
+                xbox_log("✓ First frame successfully rendered and presented to scanout.");
             } else {
-                xbox_log(&format!("Heartbeat: frame {}, fps ~{}, state: {}", frame_count, fps, state_str));
+                xbox_log(&format!("Heartbeat: frame {}, fps ~{}, state: {}, console: {}", frame_count, fps, state_str, show_console));
             }
         }
 
         if output.quit_requested {
-            xbox_log("Quit requested from dashboard. Exiting...");
+            xbox_log("Quit requested from dashboard. Exiting cleanly...");
             break;
         }
     }

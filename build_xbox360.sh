@@ -115,8 +115,9 @@ fi
 # 5. Create Distribution Zip Archive
 # ----------------------------------------------------------------------------
 echo "Creating release distribution package: $PACKAGE_NAME..."
+cp "$PRIMARY_PAYLOAD" "target/xbox360/xenon.elf"
 rm -f "$PACKAGE_NAME"
-(cd target/xbox360 && zip -r "../../$PACKAGE_NAME" RustCraft/)
+(cd target/xbox360 && zip -r "../../$PACKAGE_NAME" RustCraft/ xenon.elf)
 
 echo ""
 echo "============================================================================"

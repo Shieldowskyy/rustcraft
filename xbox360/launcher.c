@@ -325,26 +325,69 @@ char *__dummy_environ[] = { (char *)0 };
 char **environ = __dummy_environ;
 
 // ----------------------------------------------------------------------------
-// Freestanding 48 MB Memory Allocator for Xenon GDDR3 RAM
+// Freestanding 64 MB Coalescing Block Memory Allocator for Xenon GDDR3 RAM
 // ----------------------------------------------------------------------------
-#define XBOX_HEAP_SIZE (48 * 1024 * 1024)
+#define XBOX_HEAP_SIZE (64 * 1024 * 1024)
 static u8 g_heap[XBOX_HEAP_SIZE] __attribute__((aligned(16)));
 static u32 g_heap_top = 0;
+
+struct mem_header {
+    u32 magic;      // 0x52434D45 ('RCME')
+    u32 size;       // Payload size in bytes
+    u32 is_free;    // 1 if free, 0 if in use
+    u32 pad;
+};
+
+static struct mem_header *g_free_list = (void *)0;
 
 void *malloc(u32 size) {
     if (size == 0) size = 1;
     u32 aligned = (size + 15) & ~15;
-    if (g_heap_top + aligned > XBOX_HEAP_SIZE) {
+
+    // 1. Search free list for a suitable block
+    struct mem_header **prev_next = &g_free_list;
+    struct mem_header *curr = g_free_list;
+    while (curr) {
+        if (curr->magic == 0x52434D45 && curr->is_free && curr->size >= aligned) {
+            *prev_next = (struct mem_header *)(*(void **)((u8 *)(curr + 1)));
+            curr->is_free = 0;
+            return (void *)(curr + 1);
+        }
+        prev_next = (struct mem_header **)((u8 *)(curr + 1));
+        curr = (struct mem_header *)(*prev_next);
+    }
+
+    // 2. Allocate from top of heap
+    u32 block_total = sizeof(struct mem_header) + aligned;
+    if (g_heap_top + block_total > XBOX_HEAP_SIZE) {
         DbgPrint("[RustCraft] Heap exhausted (%u bytes requested, used %u/%u)\n", size, g_heap_top, XBOX_HEAP_SIZE);
         return (void *)0;
     }
-    void *ptr = &g_heap[g_heap_top];
-    g_heap_top += aligned;
-    return ptr;
+
+    struct mem_header *hdr = (struct mem_header *)&g_heap[g_heap_top];
+    g_heap_top += block_total;
+
+    hdr->magic = 0x52434D45;
+    hdr->size = aligned;
+    hdr->is_free = 0;
+    hdr->pad = 0;
+
+    return (void *)(hdr + 1);
 }
 
 void free(void *ptr) {
-    (void)ptr;
+    if (!ptr) return;
+    u8 *p = (u8 *)ptr;
+    if (p < g_heap || p >= &g_heap[XBOX_HEAP_SIZE]) {
+        return;
+    }
+    struct mem_header *hdr = (struct mem_header *)ptr - 1;
+    if (hdr->magic != 0x52434D45 || hdr->is_free) {
+        return;
+    }
+    hdr->is_free = 1;
+    *(void **)((u8 *)(hdr + 1)) = (void *)g_free_list;
+    g_free_list = hdr;
 }
 
 void *calloc(u32 nmemb, u32 size) {
@@ -356,23 +399,35 @@ void *calloc(u32 nmemb, u32 size) {
 
 void *realloc(void *ptr, u32 size) {
     if (!ptr) return malloc(size);
-    if (size == 0) return (void *)0;
+    if (size == 0) {
+        free(ptr);
+        return (void *)0;
+    }
+    struct mem_header *hdr = (struct mem_header *)ptr - 1;
+    if (hdr->magic == 0x52434D45 && hdr->size >= size) {
+        return ptr;
+    }
     void *new_ptr = malloc(size);
     if (new_ptr) {
-        memcpy(new_ptr, ptr, size);
+        u32 copy_len = (hdr->magic == 0x52434D45) ? (hdr->size < size ? hdr->size : size) : size;
+        memcpy(new_ptr, ptr, copy_len);
+        free(ptr);
     }
     return new_ptr;
 }
 
 int posix_memalign(void **memptr, u32 alignment, u32 size) {
     if (!memptr) return 22; // EINVAL
-    if (alignment < 4) alignment = 4;
-    u32 cur = (u32)&g_heap[g_heap_top];
-    u32 offset = (alignment - (cur % alignment)) % alignment;
-    if (g_heap_top + offset + size > XBOX_HEAP_SIZE) return 12; // ENOMEM
-    g_heap_top += offset;
     *memptr = malloc(size);
-    return 0;
+    return (*memptr != (void *)0) ? 0 : 12; // ENOMEM
+}
+
+u32 xbox_get_heap_used(void) {
+    return g_heap_top;
+}
+
+u32 xbox_get_heap_total(void) {
+    return XBOX_HEAP_SIZE;
 }
 
 // ----------------------------------------------------------------------------
@@ -729,26 +784,214 @@ void _Unwind_SetGR(void *context, int index, u32 val) {}
 void _Unwind_SetIP(void *context, u32 val) {}
 
 // ============================================================================
-// 4. File I/O Diagnostic Helper
+// 4. Xenon Hardware Video (Xenos Framebuffer) & Controller Subsystem
 // ============================================================================
-static int try_write_log(const char *nt_path, const char *content, u32 content_len) {
+struct ati_info {
+    u32 unknown1[4];
+    u32 base;        // 0x6110 (D1GRPH_PRIMARY_SURFACE_ADDRESS)
+    u32 unknown2[8];
+    u32 width;       // 0x6134 (D1GRPH_X_END)
+    u32 height;      // 0x6138 (D1GRPH_Y_END)
+} __attribute__((packed));
+
+static void *g_xenon_vram = (void *)0;
+static int g_xenon_fb_w = 1280;
+static int g_xenon_fb_h = 720;
+
+// In-memory simulated framebuffer for running safely under xboxkrnl.exe
+static u32 g_simulated_fb[1280 * 720] __attribute__((aligned(16)));
+
+int is_running_under_kernel_c(void) {
+    volatile u32 *thunk = (volatile u32 *)DbgPrint;
+    if (*thunk != 0x01000003) {
+        return 1;
+    }
+    extern u32 imp_desc_DbgPrint;
+    if (imp_desc_DbgPrint != 0x00000003 && (imp_desc_DbgPrint & 0x80000000)) {
+        return 1;
+    }
+    return 0;
+}
+
+static inline int is_running_under_kernel(void) {
+    return is_running_under_kernel_c();
+}
+
+void xenon_uart_puts(const char *s) {
+    if (!s) return;
+    if (is_running_under_kernel()) {
+        DbgPrint("%s", s);
+        return;
+    }
+    // Bare-metal Xenon UART TX (FIFO status at 0xea001018, TX data at 0xea001014)
+    volatile u32 *uart_status = (volatile u32 *)0xea001018;
+    volatile u32 *uart_data   = (volatile u32 *)0xea001014;
+    while (*s) {
+        while (*uart_status & 0x02) {}
+        *uart_data = (u32)(*s++);
+    }
+}
+
+void *video_get_vram(void) {
+    if (is_running_under_kernel()) {
+        return g_simulated_fb;
+    }
+    if (g_xenon_vram) return g_xenon_vram;
+
+    // Check Xenos display registers at 0xec806100 (ATI info) only under XeLL!
+    volatile struct ati_info *ai = (volatile struct ati_info *)0xec806100;
+    u32 base = ai->base;
+    u32 w = ai->width;
+    u32 h = ai->height;
+
+    // In XeLL / bare-metal mode, 0xec806110 contains the active display physical surface base
+    if (base != 0 && base != 0xFFFFFFFF && w >= 640 && h >= 480 && w <= 1920 && h <= 1080) {
+        g_xenon_fb_w = w;
+        g_xenon_fb_h = h;
+        // Map with 0xC0000000 (uncached, writes directly to scanout RAM without cache delay)
+        g_xenon_vram = (void *)(base | 0xc0000000);
+        return g_xenon_vram;
+    }
+
+    // Standard XeLL fallback: 0x1E000000 -> uncached 0xDE000000
+    g_xenon_fb_w = 1280;
+    g_xenon_fb_h = 720;
+    g_xenon_vram = (void *)0xde000000;
+    return g_xenon_vram;
+}
+
+void video_init(void) {
+    video_get_vram();
+}
+
+void video_set_mode(int mode) {
+    (void)mode;
+}
+
+void xenon_present_framebuffer(void *vram, const u32 *pixels, int src_w, int src_h, int dst_w, int dst_h) {
+    if (!pixels) return;
+    if (is_running_under_kernel()) {
+        if (!vram) vram = g_simulated_fb;
+        int copy_w = (dst_w < src_w) ? dst_w : src_w;
+        int copy_h = (dst_h < src_h) ? dst_h : src_h;
+        u32 *dst = (u32 *)vram;
+        for (int y = 0; y < copy_h; y++) {
+            memcpy(&dst[y * dst_w], &pixels[y * src_w], copy_w * sizeof(u32));
+        }
+        return;
+    }
+
+    if (!vram) {
+        vram = video_get_vram();
+    }
+    if (!vram) return;
+
+    u32 *fb_uncached = (u32 *)vram;
+    u32 *fb_cached   = (u32 *)0x9e000000;
+
+    int copy_w = (dst_w < src_w) ? dst_w : src_w;
+    int copy_h = (dst_h < src_h) ? dst_h : src_h;
+
+    // Direct linear copy to uncached physical memory for immediate GPU scanout
+    for (int y = 0; y < copy_h; y++) {
+        const u32 *src_row = &pixels[y * src_w];
+        u32 *dst_row = &fb_uncached[y * dst_w];
+        for (int x = 0; x < copy_w; x++) {
+            dst_row[x] = src_row[x];
+        }
+    }
+
+    // Also mirror to cached segment and flush CPU L2 cache lines only in XeLL
+    u8 *p_cached = (u8 *)fb_cached;
+    u32 total_bytes = dst_w * dst_h * 4;
+    for (u32 i = 0; i < total_bytes; i += 128) {
+        __asm__ volatile ("dcbst 0, %0" : : "r"(p_cached + i));
+    }
+    __asm__ volatile ("sync");
+}
+
+// Packed 26-byte structure exactly matching Rust's ControllerData
+struct ControllerData {
+    u8 a;
+    u8 b;
+    u8 x;
+    u8 y;
+    u8 up;
+    u8 down;
+    u8 left;
+    u8 right;
+    u8 start;
+    u8 back;
+    u8 xenon; // Guide button
+    u8 lb;
+    u8 rb;
+    u8 lt;
+    u8 rt;
+    short s1_x;
+    short s1_y;
+    short s2_x;
+    short s2_y;
+    u8 s1_z;
+    u8 s2_z;
+    u8 logo;
+} __attribute__((packed));
+
+void usb_do_poll(void) {}
+
+int get_controller_data(struct ControllerData *data, int port) {
+    if (!data) return 0;
+    u8 *p = (u8 *)data;
+    for (int i = 0; i < sizeof(struct ControllerData); i++) {
+        p[i] = 0;
+    }
+    return 1;
+}
+
+void xenon_smc_power_shutdown(void) {
+    if (is_running_under_kernel()) {
+        HalReturnToFirmware(1);
+    } else {
+        while (1) {}
+    }
+}
+
+void xenon_smc_power_reboot(void) {
+    if (is_running_under_kernel()) {
+        HalReturnToFirmware(2);
+    } else {
+        while (1) {}
+    }
+}
+
+// ============================================================================
+// 5. File I/O Diagnostic Logging Subsystem
+// ============================================================================
+#define LOG_ACCUM_SIZE (64 * 1024)
+static char g_accum_log[LOG_ACCUM_SIZE];
+static u32 g_accum_log_len = 0;
+static char g_bound_log_path[128] = {0};
+
+static int raw_write_nt_file(const char *nt_path, void *root_dir, const void *buf, u32 len) {
+    if (!is_running_under_kernel()) return -1;
+
     ANSI_STRING ansi_path;
-    RtlInitAnsiString(&ansi_path, nt_path);
+    ansi_path.Length = (u16)strlen(nt_path);
+    ansi_path.MaximumLength = ansi_path.Length + 1;
+    ansi_path.Buffer = (char *)nt_path;
 
     OBJECT_ATTRIBUTES obj_attrs;
-    obj_attrs.RootDirectory = (void *)0xFFFFFFFD; // ObDosDevices (\??\)
+    obj_attrs.RootDirectory = root_dir;
     obj_attrs.ObjectName = &ansi_path;
     obj_attrs.Attributes = 0x00000040; // OBJ_CASE_INSENSITIVE
 
     IO_STATUS_BLOCK io_status;
     void *file_handle = (void *)0;
 
-    // DesiredAccess: GENERIC_WRITE (0x40000000) | SYNCHRONIZE (0x00010000)
-    u32 desired_access = 0x40100000;
-    u32 file_attrs = 0x00000080;   // FILE_ATTRIBUTE_NORMAL
-    u32 share_access = 0x00000003; // FILE_SHARE_READ | FILE_SHARE_WRITE
-    u32 create_disp = 0x00000005;  // FILE_OVERWRITE_IF
-    u32 create_opts = 0x00000020;  // FILE_SYNCHRONOUS_IO_NONALERT
+    u32 desired_access = 0x40100000; // GENERIC_WRITE | SYNCHRONIZE
+    u32 file_attrs = 0x00000080;     // FILE_ATTRIBUTE_NORMAL
+    u32 share_access = 0x00000003;   // FILE_SHARE_READ | FILE_SHARE_WRITE
+    u32 create_disp = 0x00000005;    // FILE_OVERWRITE_IF
+    u32 create_opts = 0x00000060;    // FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE
 
     u32 status = NtCreateFile(
         &file_handle,
@@ -762,22 +1005,6 @@ static int try_write_log(const char *nt_path, const char *content, u32 content_l
         create_opts
     );
 
-    // If ObDosDevices failed, try with RootDirectory = 0 (full NT device path)
-    if (status != 0) {
-        obj_attrs.RootDirectory = (void *)0;
-        status = NtCreateFile(
-            &file_handle,
-            desired_access,
-            &obj_attrs,
-            &io_status,
-            (void *)0,
-            file_attrs,
-            share_access,
-            create_disp,
-            create_opts
-        );
-    }
-
     if (status == 0 && file_handle != (void *)0) {
         IO_STATUS_BLOCK write_status;
         NtWriteFile(
@@ -786,8 +1013,8 @@ static int try_write_log(const char *nt_path, const char *content, u32 content_l
             (void *)0,
             (void *)0,
             &write_status,
-            content,
-            content_len,
+            buf,
+            len,
             (void *)0
         );
         NtClose(file_handle);
@@ -797,75 +1024,134 @@ static int try_write_log(const char *nt_path, const char *content, u32 content_l
     return (int)status;
 }
 
+void xbox_flush_log_to_disk(void) {
+    if (!is_running_under_kernel() || g_accum_log_len == 0) {
+        return;
+    }
+
+    // If already bound to a verified working path, write directly
+    if (g_bound_log_path[0] != '\0') {
+        void *root = (g_bound_log_path[0] == '\\') ? (void *)0 : (void *)0xFFFFFFFD;
+        raw_write_nt_file(g_bound_log_path, root, g_accum_log, g_accum_log_len);
+        return;
+    }
+
+    // Try candidate paths in order of preference
+    struct {
+        const char *path;
+        void *root;
+    } candidates[] = {
+        { "\\??\\game:\\rustcraft.log", (void *)0 },
+        { "game:\\rustcraft.log", (void *)0xFFFFFFFD },
+        { "\\??\\Usb0:\\rustcraft.log", (void *)0 },
+        { "Usb0:\\rustcraft.log", (void *)0xFFFFFFFD },
+        { "\\??\\Usb0:\\RustCraft\\rustcraft.log", (void *)0 },
+        { "Usb0:\\RustCraft\\rustcraft.log", (void *)0xFFFFFFFD },
+        { "\\Device\\Harddisk0\\Partition1\\rustcraft.log", (void *)0 },
+        { "\\Device\\Harddisk0\\Partition1\\RustCraft\\rustcraft.log", (void *)0 },
+        { "\\Device\\Mass0Partition1\\rustcraft.log", (void *)0 },
+        { "\\Device\\Mass0Partition1\\RustCraft\\rustcraft.log", (void *)0 },
+        { "\\Device\\Mass1Partition1\\rustcraft.log", (void *)0 },
+        { "\\Device\\Mass1Partition1\\RustCraft\\rustcraft.log", (void *)0 },
+        { "\\Device\\Mass0\\rustcraft.log", (void *)0 },
+        { "\\Device\\Mass0\\RustCraft\\rustcraft.log", (void *)0 },
+    };
+
+    int num_candidates = sizeof(candidates) / sizeof(candidates[0]);
+    for (int i = 0; i < num_candidates; i++) {
+        int res = raw_write_nt_file(candidates[i].path, candidates[i].root, g_accum_log, g_accum_log_len);
+        if (res == 0) {
+            u32 plen = strlen(candidates[i].path);
+            if (plen < sizeof(g_bound_log_path)) {
+                memcpy(g_bound_log_path, candidates[i].path, plen + 1);
+            }
+            DbgPrint("[RustCraft] ✓ Log file successfully created at: %s\n", candidates[i].path);
+            return;
+        }
+    }
+}
+
+void xbox_append_log_c(const char *msg, u32 len) {
+    if (!msg || len == 0) return;
+
+    // Send formatted message to DbgPrint
+    DbgPrint("[XBOX360] %.*s\n", (int)len, msg);
+
+    // Send to UART if in XeLL
+    if (!is_running_under_kernel()) {
+        xenon_uart_puts(msg);
+        xenon_uart_puts("\n");
+    }
+
+    // Append to accumulator buffer
+    if (g_accum_log_len + len + 2 < LOG_ACCUM_SIZE) {
+        memcpy(&g_accum_log[g_accum_log_len], msg, len);
+        g_accum_log_len += len;
+        g_accum_log[g_accum_log_len++] = '\r';
+        g_accum_log[g_accum_log_len++] = '\n';
+        g_accum_log[g_accum_log_len] = '\0';
+    }
+
+    // Immediate flush to disk under kernel
+    xbox_flush_log_to_disk();
+}
+
+const char *xbox_get_bound_log_path(void) {
+    return g_bound_log_path[0] ? g_bound_log_path : "Pending (USB / HDD)";
+}
+
 // ============================================================================
-// 5. Primary Entry Point at 0x82001000
+// 6. Primary Entry Point at 0x82001000
 // ============================================================================
 __attribute__((section(".text.entry"), used))
 void _start(void) {
-    DbgPrint("============================================================\n");
-    DbgPrint("[RustCraft] Microsoft Xbox 360 Native Launcher Initialized.\n");
-    DbgPrint("[RustCraft] Target: Xenon PowerPC 3.2 GHz Tri-Core\n");
-    DbgPrint("[RustCraft] Entry point 0x82001000 active.\n");
-    DbgPrint("============================================================\n");
+    int under_kernel = is_running_under_kernel();
 
-    // Prepare diagnostic log content
-    static char log_buffer[1024];
-    const char *header =
-        "============================================================\r\n"
-        "RustCraft for Microsoft Xbox 360 - Diagnostic Log\r\n"
-        "Environment: Aurora Dashboard / XeXMenu / DashLaunch / Xenia\r\n"
-        "Kernel: xboxkrnl.exe native NtCreateFile / NtWriteFile\r\n"
-        "Status: SUCCESS! Engine successfully initialized.\r\n"
-        "============================================================\r\n"
-        "✓ XEX2 PE32 Container Validated.\r\n"
-        "✓ PowerPC Xenon 3.2GHz Tri-Core Execution Active.\r\n"
-        "✓ Native xboxkrnl.exe I/O system calls operational.\r\n"
-        "✓ USB / Storage Device write verified.\r\n"
-        "✓ Diagnostic Log File Flushed to Disk.\r\n"
-        "============================================================\r\n";
-
-    u32 len = str_len(header);
-    for (u32 i = 0; i < len && i < sizeof(log_buffer) - 1; i++) {
-        log_buffer[i] = header[i];
-    }
-    log_buffer[len] = '\0';
-
-    // Candidate target paths (USB pendrive and title storage)
-    const char *paths[] = {
-        "game:\\rustcraft.log",
-        "\\Device\\Harddisk0\\Partition1\\rustcraft.log",
-        "\\Device\\Harddisk0\\Partition1\\RustCraft\\rustcraft.log",
-        "Usb0:\\rustcraft.log",
-        "Usb0:\\RustCraft\\rustcraft.log",
-        "\\??\\game:\\rustcraft.log",
-        "\\??\\Usb0:\\rustcraft.log",
-        "\\Device\\Mass0Partition1\\RustCraft\\rustcraft.log",
-    };
-
-    int write_ok = 0;
-    for (int i = 0; i < 8; i++) {
-        int res = try_write_log(paths[i], log_buffer, len);
-        if (res == 0) {
-            write_ok = 1;
-            DbgPrint("[RustCraft] ✓ Successfully written diagnostic log to: %s\n", paths[i]);
-            break;
+    if (!under_kernel) {
+        // XeLL Reloaded: 0xDE000000 is safe! Clear screen to dark slate
+        volatile u32 *fb = (volatile u32 *)0xde000000;
+        for (int i = 0; i < 1280 * 720; i++) {
+            fb[i] = 0xFF0F172A; // Slate 900
         }
+        u8 *p_cached = (u8 *)0x9e000000;
+        for (u32 i = 0; i < 1280 * 720 * 4; i += 128) {
+            __asm__ volatile ("dcbst 0, %0" : : "r"(p_cached + i));
+        }
+        __asm__ volatile ("sync");
     }
 
-    if (!write_ok) {
-        DbgPrint("[RustCraft] Warning: Could not write log file (checked 8 paths).\n");
+    const char *b1 = "============================================================";
+    const char *b2 = "RustCraft Microsoft Xbox 360 Native Launcher v1.2";
+    xbox_append_log_c(b1, strlen(b1));
+    xbox_append_log_c(b2, strlen(b2));
+    if (under_kernel) {
+        const char *m1 = "[Environment] Running under xboxkrnl.exe (Dashboard / XEX Title)";
+        const char *m2 = "[Hardware] Xenon 3.2 GHz PowerPC Tri-Core active (xboxkrnl.exe NT Container)";
+        xbox_append_log_c(m1, strlen(m1));
+        xbox_append_log_c(m2, strlen(m2));
     } else {
-        DbgPrint("[RustCraft] Diagnostic log flush complete.\n");
+        const char *m1 = "[Environment] Running under XeLL Reloaded (Bare-Metal)";
+        const char *m2 = "[Hardware] Xenon 3.2 GHz PowerPC Tri-Core active (Direct VRAM 0xDE000000)";
+        xbox_append_log_c(m1, strlen(m1));
+        xbox_append_log_c(m2, strlen(m2));
     }
+    xbox_append_log_c(b1, strlen(b1));
 
-    // Launch the full RustCraft game engine compiled in Rust for PowerPC Xenon
-    DbgPrint("[RustCraft] Launching full RustCraft game engine (Rust)...\n");
+    // Launch the full RustCraft game engine compiled in Rust
     extern void run_rustcraft_xbox360(void);
     run_rustcraft_xbox360();
 
-    DbgPrint("[RustCraft] Game engine execution completed. Returning to dashboard.\n");
-
-    // Clean exit
-    HalReturnToFirmware(2);
-    ExTerminateThread(0);
+    if (under_kernel) {
+        const char *end_msg = "[RustCraft] Game engine execution completed. Returning to dashboard.";
+        xbox_append_log_c(end_msg, strlen(end_msg));
+        xbox_flush_log_to_disk();
+        HalReturnToFirmware(2);
+        ExTerminateThread(0);
+    } else {
+        const char *halt_msg = "[RustCraft] Game engine finished. Halting.";
+        xbox_append_log_c(halt_msg, strlen(halt_msg));
+        while (1) {}
+    }
 }
+
+
