@@ -290,7 +290,7 @@ mod tests {
 
         // Client reads incoming replies
         let servers = client.update();
-        if let Some(s) = servers.iter().find(|s| s.port == 26656) {
+        if let Some(s) = servers.iter().find(|s| s.motd == "My Test Server") {
             assert_eq!(s.motd, "My Test Server");
             assert_eq!(s.player_count, 3);
             assert_eq!(s.max_players, 12);

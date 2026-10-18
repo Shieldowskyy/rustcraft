@@ -1,6 +1,6 @@
 //! Command-line argument parsing and random seed generation for RustCraft.
 
-const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan] [--seed NUMBER] [--profiler] [-log] [--server] [--port PORT] [--connect ADDR]";
+const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan] [--seed NUMBER] [--profiler] [--autotest] [-log] [--server] [--port PORT] [--connect ADDR]";
 
 /// Parses command-line arguments to determine the desired rendering backend.
 ///
@@ -29,6 +29,7 @@ pub fn parse_renderer_choice() -> &'static str {
             "--software" => choice = "software",
             "--seed" => index += 1,
             "--profiler" => {},
+            "--autotest" => {},
             "-log" | "--log" => {},
             "--server" => {},
             "--port" => index += 1,
@@ -45,6 +46,12 @@ pub fn parse_renderer_choice() -> &'static str {
         index += 1;
     }
     choice
+}
+
+/// Parses whether the autotest mode is requested via `--autotest` CLI flag
+/// or via the `autotest` compile-time feature.
+pub fn parse_autotest_enabled() -> bool {
+    cfg!(feature = "autotest") || std::env::args().any(|arg| arg == "--autotest")
 }
 
 /// Parses whether the `--profiler` CLI flag was specified.

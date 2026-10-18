@@ -1,3 +1,4 @@
+pub mod autotest;
 pub mod chat;
 pub mod inventory;
 pub mod item;
@@ -7,6 +8,7 @@ pub mod physics;
 pub mod player;
 pub mod recipe;
 
+pub use autotest::{AutoTestRunner, AutoTestStage, TestRecord};
 pub use chat::{ChatAction, ChatMessage, ChatState, CommandContext};
 pub use inventory::{Inventory, ItemStack};
 pub use item::ItemEntity;

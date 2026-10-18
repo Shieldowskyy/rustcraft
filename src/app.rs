@@ -297,6 +297,7 @@ pub struct RustCraftApp {
     pub profiler_copied_timer: f32,
     pub telemetry_timer: f32,
     pub camera_perspective: CameraPerspective,
+    pub autotest: Option<crate::gameplay::autotest::AutoTestRunner>,
 
     // Controls toggle states
     pub sprint_toggled: bool,
@@ -396,6 +397,14 @@ impl RustCraftApp {
         });
         crate::log_info!("APP", "RustCraftApp state initialization complete.");
 
+        let autotest_enabled = crate::cli::parse_autotest_enabled();
+        let (initial_state, autotest) = if autotest_enabled {
+            crate::log_info!("AUTOTEST", "AutoTest Mode ENABLED: auto-starting automated bot test sequence in active world");
+            (GameState::Playing, Some(crate::gameplay::autotest::AutoTestRunner::new()))
+        } else {
+            (GameState::MainMenu, None)
+        };
+
         let app = Self {
             width,
             height,
@@ -409,7 +418,8 @@ impl RustCraftApp {
             recipe_book: RecipeBook::new(),
             crafting_table_open: false,
             settings,
-            state: GameState::MainMenu,
+            state: initial_state,
+            autotest,
             save_slot: 1,
             save_select_slot: 1,
             save_select_scroll: 0,
@@ -568,6 +578,13 @@ impl RustCraftApp {
     }
 
     pub fn update_and_render(&mut self, dt: f32, input: &InputState) -> AppOutput {
+        let mut bot_input = input.clone();
+        if let Some(mut runner) = self.autotest.take() {
+            runner.update(self, dt, &mut bot_input);
+            self.autotest = Some(runner);
+        }
+        let input = &bot_input;
+
         self.total_time += dt;
         self.renderer.total_time = self.total_time;
         self.renderer.chunk_anim = self.settings.chunk_anim;
@@ -4203,6 +4220,10 @@ impl RustCraftApp {
                     },
                 });
             }
+        }
+
+        if let Some(ref runner) = self.autotest {
+            runner.render_overlay(self.renderer.pixel_buffer_mut(), self.width, self.height);
         }
 
         out

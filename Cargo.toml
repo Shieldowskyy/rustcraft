@@ -16,6 +16,7 @@ path = "src/main.rs"
 default = []
 profiler = []
 xbox360 = []
+autotest = []
 
 [dependencies]
 bytemuck = { version = "1.16", features = ["derive"] }

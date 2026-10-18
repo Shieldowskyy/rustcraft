@@ -871,7 +871,7 @@ pub fn run_xbox360_app() {
 
     // 7. Interactive Render & Diagnostic Loop
     let mut frame_count: u64 = 0;
-    let mut show_console = true;
+    let mut show_console = app.autotest.is_none();
     let mut auto_hide_counter = 0;
 
     loop {
