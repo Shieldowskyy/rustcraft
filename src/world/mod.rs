@@ -2153,6 +2153,76 @@ impl World {
         None
     }
 
+    /// Traces a ray from `origin` along `dir` for up to `max_dist` blocks,
+    /// stopping if any solid voxel is encountered and leaving a 0.25-block buffer
+    /// to prevent the third-person camera from clipping into walls.
+    pub fn raycast_camera_collision(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> f32 {
+        let dir = dir.normalized();
+        if dir.length_sq() < 1e-8 {
+            return max_dist;
+        }
+
+        let mut x = origin.x.floor() as i32;
+        let mut y = origin.y.floor() as i32;
+        let mut z = origin.z.floor() as i32;
+
+        let step_x = if dir.x > 0.0 { 1 } else { -1 };
+        let step_y = if dir.y > 0.0 { 1 } else { -1 };
+        let step_z = if dir.z > 0.0 { 1 } else { -1 };
+
+        let t_delta_x = if dir.x.abs() > 1e-8 { 1.0 / dir.x.abs() } else { f32::INFINITY };
+        let t_delta_y = if dir.y.abs() > 1e-8 { 1.0 / dir.y.abs() } else { f32::INFINITY };
+        let t_delta_z = if dir.z.abs() > 1e-8 { 1.0 / dir.z.abs() } else { f32::INFINITY };
+
+        let next_boundary = |p: f32, step: i32| -> f32 {
+            if step > 0 {
+                p.floor() + 1.0 - p
+            } else {
+                p - p.floor()
+            }
+        };
+
+        let mut t_max_x = if dir.x.abs() > 1e-8 {
+            next_boundary(origin.x, step_x) / dir.x.abs()
+        } else {
+            f32::INFINITY
+        };
+        let mut t_max_y = if dir.y.abs() > 1e-8 {
+            next_boundary(origin.y, step_y) / dir.y.abs()
+        } else {
+            f32::INFINITY
+        };
+        let mut t_max_z = if dir.z.abs() > 1e-8 {
+            next_boundary(origin.z, step_z) / dir.z.abs()
+        } else {
+            f32::INFINITY
+        };
+
+        let mut traveled = 0.0f32;
+        while traveled <= max_dist {
+            let block = self.get_block(IVec3::new(x, y, z));
+            if block.is_solid() {
+                return (traveled - 0.25).max(0.25);
+            }
+
+            if t_max_x < t_max_y && t_max_x < t_max_z {
+                x += step_x;
+                traveled = t_max_x;
+                t_max_x += t_delta_x;
+            } else if t_max_y < t_max_z {
+                y += step_y;
+                traveled = t_max_y;
+                t_max_y += t_delta_y;
+            } else {
+                z += step_z;
+                traveled = t_max_z;
+                t_max_z += t_delta_z;
+            }
+        }
+
+        max_dist
+    }
+
     pub fn box_collides(&self, min: Vec3, max: Vec3) -> bool {
         let eps = 1e-4;
         let x0 = min.x.floor() as i32;

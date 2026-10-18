@@ -1010,6 +1010,14 @@ pub enum TextureId {
     IronOunce,
     GoldOunce,
     Bone,
+    // Player / Steve Textures
+    PlayerSkin,
+    PlayerFace,
+    PlayerHair,
+    PlayerShirt,
+    PlayerShirtFront,
+    PlayerPants,
+    PlayerShoes,
 }
 
 impl TextureId {
@@ -1406,6 +1414,13 @@ pub struct TextureAtlas {
     pub iron_ounce: Texture,
     pub gold_ounce: Texture,
     pub bone: Texture,
+    pub player_skin: Texture,
+    pub player_face: Texture,
+    pub player_hair: Texture,
+    pub player_shirt: Texture,
+    pub player_shirt_front: Texture,
+    pub player_pants: Texture,
+    pub player_shoes: Texture,
 }
 
 fn chest_top() -> Texture {
@@ -2043,6 +2058,101 @@ fn bone() -> Texture {
     tex
 }
 
+fn player_skin() -> Texture {
+    speckled([0.76, 0.54, 0.42], 0.04, 501)
+}
+
+fn player_hair() -> Texture {
+    speckled([0.28, 0.18, 0.12], 0.05, 502)
+}
+
+fn player_face() -> Texture {
+    let mut tex = player_skin();
+    let hair = [0.28, 0.18, 0.12];
+    let white = [0.96, 0.96, 0.96];
+    let eye_blue = [0.18, 0.22, 0.58];
+    let nose = [0.66, 0.44, 0.34];
+    let mouth_beard = [0.34, 0.20, 0.14];
+
+    // Top hair band (y = 0..3 full width, y = 3..5 sides)
+    for y in 0..3 {
+        for x in 0..TEX_SIZE {
+            tex.texels[y * TEX_SIZE + x] = hair;
+        }
+    }
+    for y in 3..6 {
+        for x in 0..2 {
+            tex.texels[y * TEX_SIZE + x] = hair;
+        }
+        for x in (TEX_SIZE - 2)..TEX_SIZE {
+            tex.texels[y * TEX_SIZE + x] = hair;
+        }
+    }
+
+    // Eyes: y = 7..9
+    // Left eye: white at x = 3..4, pupil blue at x = 5..6
+    for y in 7..9 {
+        tex.texels[y * TEX_SIZE + 3] = white;
+        tex.texels[y * TEX_SIZE + 4] = white;
+        tex.texels[y * TEX_SIZE + 5] = eye_blue;
+        tex.texels[y * TEX_SIZE + 6] = eye_blue;
+
+        // Right eye: pupil blue at x = 9..10, white at x = 11..12
+        tex.texels[y * TEX_SIZE + 9] = eye_blue;
+        tex.texels[y * TEX_SIZE + 10] = eye_blue;
+        tex.texels[y * TEX_SIZE + 11] = white;
+        tex.texels[y * TEX_SIZE + 12] = white;
+    }
+
+    // Nose: y = 9..11, center
+    for y in 9..11 {
+        for x in 7..9 {
+            tex.texels[y * TEX_SIZE + x] = nose;
+        }
+    }
+
+    // Mouth / Beard: y = 12..14
+    for y in 12..14 {
+        for x in 5..11 {
+            tex.texels[y * TEX_SIZE + x] = mouth_beard;
+        }
+    }
+
+    tex
+}
+
+fn player_shirt() -> Texture {
+    speckled([0.0, 0.65, 0.68], 0.05, 503)
+}
+
+fn player_shirt_front() -> Texture {
+    let mut tex = player_shirt();
+    let skin = [0.76, 0.54, 0.42];
+    // V-neck neckline cutout at top center
+    for y in 0..2 {
+        for x in 5..11 {
+            tex.texels[y * TEX_SIZE + x] = skin;
+        }
+    }
+    for y in 2..4 {
+        for x in 6..10 {
+            tex.texels[y * TEX_SIZE + x] = skin;
+        }
+    }
+    for x in 7..9 {
+        tex.texels[4 * TEX_SIZE + x] = skin;
+    }
+    tex
+}
+
+fn player_pants() -> Texture {
+    speckled([0.18, 0.24, 0.48], 0.05, 504)
+}
+
+fn player_shoes() -> Texture {
+    speckled([0.20, 0.20, 0.22], 0.04, 505)
+}
+
 impl TextureAtlas {
     pub fn generate() -> TextureAtlas {
         Self::generate_with_fancy(true)
@@ -2139,6 +2249,13 @@ impl TextureAtlas {
             iron_ounce: iron_ounce(),
             gold_ounce: gold_ounce(),
             bone: bone(),
+            player_skin: player_skin(),
+            player_face: player_face(),
+            player_hair: player_hair(),
+            player_shirt: player_shirt(),
+            player_shirt_front: player_shirt_front(),
+            player_pants: player_pants(),
+            player_shoes: player_shoes(),
         }
     }
 
@@ -2242,6 +2359,13 @@ impl TextureAtlas {
             TextureId::IronOunce => &self.iron_ounce,
             TextureId::GoldOunce => &self.gold_ounce,
             TextureId::Bone => &self.bone,
+            TextureId::PlayerSkin => &self.player_skin,
+            TextureId::PlayerFace => &self.player_face,
+            TextureId::PlayerHair => &self.player_hair,
+            TextureId::PlayerShirt => &self.player_shirt,
+            TextureId::PlayerShirtFront => &self.player_shirt_front,
+            TextureId::PlayerPants => &self.player_pants,
+            TextureId::PlayerShoes => &self.player_shoes,
         }
     }
     /// Returns a reference to the texture corresponding to the specified `TextureId`.

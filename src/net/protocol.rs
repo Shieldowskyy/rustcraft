@@ -52,6 +52,10 @@ pub enum ClientPacket {
     Disconnect {
         reason: String,
     },
+    AttackPlayer {
+        target_id: u32,
+        damage: f32,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -104,6 +108,13 @@ pub enum ServerPacket {
         x: f32,
         y: f32,
         z: f32,
+    },
+    PlayerHurt {
+        victim_id: u32,
+        attacker_id: u32,
+        damage: f32,
+        knockback_x: f32,
+        knockback_z: f32,
     },
 }
 
@@ -291,6 +302,12 @@ impl ClientPacket {
                 pw.write_string(reason);
                 pw.finish()
             }
+            ClientPacket::AttackPlayer { target_id, damage } => {
+                let mut pw = PacketWriter::new(0x07);
+                pw.write_u32(*target_id);
+                pw.write_f32(*damage);
+                pw.finish()
+            }
         }
     }
 
@@ -331,6 +348,11 @@ impl ClientPacket {
             0x06 => {
                 let reason = r.read_string()?;
                 Ok(ClientPacket::Disconnect { reason })
+            }
+            0x07 => {
+                let target_id = r.read_u32()?;
+                let damage = r.read_f32()?;
+                Ok(ClientPacket::AttackPlayer { target_id, damage })
             }
             _ => Err("Unknown client packet ID"),
         }
@@ -431,6 +453,15 @@ impl ServerPacket {
                 pw.write_f32(*x);
                 pw.write_f32(*y);
                 pw.write_f32(*z);
+                pw.finish()
+            }
+            ServerPacket::PlayerHurt { victim_id, attacker_id, damage, knockback_x, knockback_z } => {
+                let mut pw = PacketWriter::new(0x8C);
+                pw.write_u32(*victim_id);
+                pw.write_u32(*attacker_id);
+                pw.write_f32(*damage);
+                pw.write_f32(*knockback_x);
+                pw.write_f32(*knockback_z);
                 pw.finish()
             }
         }
@@ -535,6 +566,14 @@ impl ServerPacket {
                 let z = r.read_f32()?;
                 Ok(ServerPacket::Teleport { x, y, z })
             }
+            0x8C => {
+                let victim_id = r.read_u32()?;
+                let attacker_id = r.read_u32()?;
+                let damage = r.read_f32()?;
+                let knockback_x = r.read_f32()?;
+                let knockback_z = r.read_f32()?;
+                Ok(ServerPacket::PlayerHurt { victim_id, attacker_id, damage, knockback_x, knockback_z })
+            }
             _ => Err("Unknown server packet ID"),
         }
     }
@@ -586,6 +625,14 @@ mod tests {
         let mut framed2 = pmove.serialize();
         let packets2 = extract_packets(&mut framed2);
         assert_eq!(ClientPacket::deserialize(&packets2[0]).unwrap(), pmove);
+
+        let attack = ClientPacket::AttackPlayer {
+            target_id: 101,
+            damage: 6.5,
+        };
+        let mut framed_atk = attack.serialize();
+        let packets_atk = extract_packets(&mut framed_atk);
+        assert_eq!(ClientPacket::deserialize(&packets_atk[0]).unwrap(), attack);
     }
 
     #[test]
@@ -603,6 +650,17 @@ mod tests {
         let packets = extract_packets(&mut framed);
         assert_eq!(packets.len(), 1);
         assert_eq!(ServerPacket::deserialize(&packets[0]).unwrap(), login);
+
+        let hurt = ServerPacket::PlayerHurt {
+            victim_id: 7,
+            attacker_id: 3,
+            damage: 4.5,
+            knockback_x: 0.3,
+            knockback_z: -0.2,
+        };
+        let mut framed_hurt = hurt.serialize();
+        let packets_hurt = extract_packets(&mut framed_hurt);
+        assert_eq!(ServerPacket::deserialize(&packets_hurt[0]).unwrap(), hurt);
 
         let chat = ServerPacket::ChatMessage {
             sender: "SwiftMiner".to_string(),

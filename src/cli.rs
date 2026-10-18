@@ -1,6 +1,6 @@
 //! Command-line argument parsing and random seed generation for RustCraft.
 
-const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan] [--seed NUMBER] [--profiler] [-log] [--server] [--port PORT]";
+const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan] [--seed NUMBER] [--profiler] [-log] [--server] [--port PORT] [--connect ADDR]";
 
 /// Parses command-line arguments to determine the desired rendering backend.
 ///
@@ -32,6 +32,7 @@ pub fn parse_renderer_choice() -> &'static str {
             "-log" | "--log" => {},
             "--server" => {},
             "--port" => index += 1,
+            "--connect" => index += 1,
             "--help" | "-h" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -80,6 +81,19 @@ pub fn parse_server_port() -> u16 {
         }
     }
     crate::net::DEFAULT_SERVER_PORT
+}
+
+/// Parses the optional `--connect <ADDRESS>` CLI flag for direct multiplayer join.
+pub fn parse_connect_addr() -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    for i in 1..args.len() {
+        if args[i] == "--connect" {
+            if let Some(val) = args.get(i + 1) {
+                return Some(val.clone());
+            }
+        }
+    }
+    None
 }
 
 /// Generates a cryptographically strong random seed using OS entropy (`getrandom`),

@@ -380,6 +380,39 @@ pub fn move_player_with_collision(
     on_ground
 }
 
+/// Ray-AABB intersection test returning the distance parameter t along ray if hit.
+pub fn ray_aabb_intersect(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
+    let mut t_min = (min.x - origin.x) / if dir.x != 0.0 { dir.x } else { 1e-8 };
+    let mut t_max = (max.x - origin.x) / if dir.x != 0.0 { dir.x } else { 1e-8 };
+    if t_min > t_max { std::mem::swap(&mut t_min, &mut t_max); }
+
+    let mut ty_min = (min.y - origin.y) / if dir.y != 0.0 { dir.y } else { 1e-8 };
+    let mut ty_max = (max.y - origin.y) / if dir.y != 0.0 { dir.y } else { 1e-8 };
+    if ty_min > ty_max { std::mem::swap(&mut ty_min, &mut ty_max); }
+
+    if (t_min > ty_max) || (ty_min > t_max) {
+        return None;
+    }
+    if ty_min > t_min { t_min = ty_min; }
+    if ty_max < t_max { t_max = ty_max; }
+
+    let mut tz_min = (min.z - origin.z) / if dir.z != 0.0 { dir.z } else { 1e-8 };
+    let mut tz_max = (max.z - origin.z) / if dir.z != 0.0 { dir.z } else { 1e-8 };
+    if tz_min > tz_max { std::mem::swap(&mut tz_min, &mut tz_max); }
+
+    if (t_min > tz_max) || (tz_min > t_max) {
+        return None;
+    }
+    if tz_min > t_min { t_min = tz_min; }
+    if tz_max < t_max { t_max = tz_max; }
+
+    if t_max < 0.0 {
+        return None;
+    }
+
+    Some(if t_min >= 0.0 { t_min } else { t_max })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -399,5 +432,38 @@ mod tests {
         assert!(pushed);
         // Feet should have been pushed outwards along X or Y
         assert!(feet.x > 0.95 || feet.y > 60.0);
+    }
+
+    #[test]
+    fn test_ray_aabb_intersect_hit_and_miss() {
+        let min = Vec3::new(-0.5, 0.0, -0.5);
+        let max = Vec3::new(0.5, 1.8, 0.5);
+
+        // Ray directly into the box from 3 blocks away
+        let origin = Vec3::new(0.0, 1.0, -3.0);
+        let dir = Vec3::new(0.0, 0.0, 1.0);
+        let hit = ray_aabb_intersect(origin, dir, min, max);
+        assert!(hit.is_some());
+        let t = hit.unwrap();
+        assert!((t - 2.5).abs() < 1e-4);
+
+        // Ray pointing away
+        let miss_dir = Vec3::new(0.0, 0.0, -1.0);
+        assert!(ray_aabb_intersect(origin, miss_dir, min, max).is_none());
+
+        // Ray passing to the side
+        let side_origin = Vec3::new(5.0, 1.0, -3.0);
+        assert!(ray_aabb_intersect(side_origin, dir, min, max).is_none());
+    }
+
+    #[test]
+    fn test_player_collision_separation_distance() {
+        let p1 = Vec3::new(10.0, 64.0, 10.0);
+        let p2 = Vec3::new(10.3, 64.0, 10.0); // 0.3 apart horizontally
+        let min_dist = PLAYER_HALF_WIDTH * 2.0; // 0.60
+        let dist = (p1 - p2).length();
+        assert!(dist < min_dist);
+        let overlap = min_dist - dist;
+        assert!((overlap - 0.3).abs() < 1e-4);
     }
 }

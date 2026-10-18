@@ -326,7 +326,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn multiplayer_menu_rects(&self) -> [(i32, i32, i32, i32); 5] {
+    pub fn multiplayer_menu_rects(&self) -> [(i32, i32, i32, i32); crate::ui::multiplayer_menu::MULTIPLAYER_RECT_COUNT] {
         crate::ui::multiplayer_menu_rects(self.width, self.height)
     }
 
@@ -343,6 +343,9 @@ impl Renderer {
         hovered_idx: Option<usize>,
         status_msg: Option<&str>,
         is_connecting: bool,
+        lan_servers: &[crate::net::DiscoveredServer],
+        selected_lan: Option<usize>,
+        is_refreshing: bool,
     ) {
         crate::ui::draw_multiplayer_menu(
             &mut self.color_buffer,
@@ -354,6 +357,9 @@ impl Renderer {
             hovered_idx,
             status_msg,
             is_connecting,
+            lan_servers,
+            selected_lan,
+            is_refreshing,
         );
     }
 
@@ -1701,140 +1707,363 @@ impl Renderer {
         }
     }
 
-    pub fn draw_remote_player(&mut self, player: &crate::net::RemotePlayer, camera: &Camera, view_proj: &Mat4) {
-        let base_pos = player.pos;
-        let yaw = player.yaw;
-        let leg_swing = player.walk_phase.sin() * 0.65;
+    pub fn draw_player_model(
+        &mut self,
+        pos: Vec3,
+        yaw: f32,
+        pitch: f32,
+        walk_phase: f32,
+        swing_progress: f32,
+        is_sneaking: bool,
+        hurt_tint: f32,
+        nickname: Option<&str>,
+        held_block: Option<crate::world::block::BlockId>,
+        camera: &Camera,
+        view_proj: &Mat4,
+    ) {
         let camera_pos = camera.position;
+        let player_forward = Vec3::new(yaw.cos(), 0.0, yaw.sin()).normalized();
+        let player_right = Vec3::new(-yaw.sin(), 0.0, yaw.cos()).normalized();
+        let player_up = Vec3::new(0.0, 1.0, 0.0);
 
-        // Head
-        let head_box = MobBox {
-            center: Vec3::new(0.0, 1.62, 0.0),
-            size: Vec3::new(0.48, 0.48, 0.48),
-            yaw,
-            pitch: player.pitch,
-            roll: 0.0,
-            origin: base_pos,
-            tex_top: TextureId::Planks,
-            tex_bottom: TextureId::Planks,
-            tex_side: TextureId::Planks,
-            tex_front: TextureId::Planks,
+        let leg_swing = walk_phase.sin() * 0.65;
+        let sneak_y_drop: f32 = if is_sneaking { 0.22 } else { 0.0 };
+        let sneak_torso_pitch: f32 = if is_sneaking { 0.28 } else { 0.0 };
+        let sneak_forward = if is_sneaking {
+            player_forward * 0.16
+        } else {
+            Vec3::zero()
         };
-        self.draw_mob_box(&head_box, 0.0, camera_pos, view_proj);
 
-        // Torso / Body
-        let body_box = MobBox {
-            center: Vec3::new(0.0, 1.05, 0.0),
-            size: Vec3::new(0.48, 0.66, 0.28),
-            yaw,
-            pitch: 0.0,
-            roll: 0.0,
-            origin: base_pos,
-            tex_top: TextureId::WoodSide,
-            tex_bottom: TextureId::WoodSide,
-            tex_side: TextureId::WoodSide,
-            tex_front: TextureId::WoodSide,
+        // 1. Head (0.48 x 0.48 x 0.48, Steve hair, face, skin)
+        let head_origin = pos + player_up * (1.44 - sneak_y_drop) + sneak_forward;
+        let head_forward = (player_forward * pitch.cos() + player_up * pitch.sin()).normalized();
+        let head_up = (player_up * pitch.cos() - player_forward * pitch.sin()).normalized();
+        self.draw_oriented_box(
+            head_origin,
+            Vec3::new(0.0, 0.24, 0.0),
+            Vec3::new(0.48, 0.48, 0.48),
+            head_forward,
+            player_right,
+            head_up,
+            TextureId::PlayerHair,
+            TextureId::PlayerSkin,
+            TextureId::PlayerFace,
+            TextureId::PlayerHair,
+            TextureId::PlayerHair,
+            TextureId::PlayerHair,
+            hurt_tint,
+            camera_pos,
+            view_proj,
+        );
+
+        // 2. Torso / Body (0.48 x 0.70 x 0.26, Steve cyan t-shirt with neckline)
+        let body_origin = pos + player_up * 0.72;
+        let torso_forward = (player_forward * sneak_torso_pitch.cos() - player_up * sneak_torso_pitch.sin()).normalized();
+        let torso_up = (player_up * sneak_torso_pitch.cos() + player_forward * sneak_torso_pitch.sin()).normalized();
+        self.draw_oriented_box(
+            body_origin,
+            Vec3::new(0.0, 0.35 - sneak_y_drop * 0.5, 0.0) + sneak_forward * 0.5,
+            Vec3::new(0.48, 0.70, 0.26),
+            torso_forward,
+            player_right,
+            torso_up,
+            TextureId::PlayerShirt,
+            TextureId::PlayerPants,
+            TextureId::PlayerShirtFront,
+            TextureId::PlayerShirt,
+            TextureId::PlayerShirt,
+            TextureId::PlayerShirt,
+            hurt_tint,
+            camera_pos,
+            view_proj,
+        );
+
+        // 3. Left arm (cyan sleeve at shoulder, skin on arm/hand)
+        let left_shoulder_origin = pos - player_right * 0.36 + player_up * (1.36 - sneak_y_drop) + sneak_forward * 0.5;
+        let left_arm_pitch = -leg_swing;
+        let left_arm_forward = (player_forward * left_arm_pitch.cos() + player_up * left_arm_pitch.sin()).normalized();
+        let left_arm_up = (player_up * left_arm_pitch.cos() - player_forward * left_arm_pitch.sin()).normalized();
+        self.draw_oriented_box(
+            left_shoulder_origin,
+            Vec3::new(0.0, -0.32, 0.0),
+            Vec3::new(0.24, 0.64, 0.24),
+            left_arm_forward,
+            player_right,
+            left_arm_up,
+            TextureId::PlayerShirt,
+            TextureId::PlayerSkin,
+            TextureId::PlayerSkin,
+            TextureId::PlayerSkin,
+            TextureId::PlayerSkin,
+            TextureId::PlayerSkin,
+            hurt_tint,
+            camera_pos,
+            view_proj,
+        );
+
+        // 4. Right arm (with swing animation when mining/punching)
+        let arm_swing_angle = if swing_progress > 0.0 {
+            let swing = (swing_progress * std::f32::consts::PI).sin() * 1.3;
+            leg_swing * 0.3 - swing
+        } else {
+            leg_swing
         };
-        self.draw_mob_box(&body_box, 0.0, camera_pos, view_proj);
+        let right_shoulder_origin = pos + player_right * 0.36 + player_up * (1.36 - sneak_y_drop) + sneak_forward * 0.5;
+        let right_arm_forward = (player_forward * arm_swing_angle.cos() + player_up * arm_swing_angle.sin()).normalized();
+        let right_arm_up = (player_up * arm_swing_angle.cos() - player_forward * arm_swing_angle.sin()).normalized();
+        self.draw_oriented_box(
+            right_shoulder_origin,
+            Vec3::new(0.0, -0.32, 0.0),
+            Vec3::new(0.24, 0.64, 0.24),
+            right_arm_forward,
+            player_right,
+            right_arm_up,
+            TextureId::PlayerShirt,
+            TextureId::PlayerSkin,
+            TextureId::PlayerSkin,
+            TextureId::PlayerSkin,
+            TextureId::PlayerSkin,
+            TextureId::PlayerSkin,
+            hurt_tint,
+            camera_pos,
+            view_proj,
+        );
 
-        // Left arm
-        let left_arm_origin = base_pos + Vec3::new(-0.38 * yaw.cos(), 1.35, -0.38 * yaw.sin());
-        let left_arm = MobBox {
-            center: Vec3::new(0.0, -0.32, 0.0),
-            size: Vec3::new(0.24, 0.64, 0.24),
-            yaw,
-            pitch: -leg_swing,
-            roll: 0.0,
-            origin: left_arm_origin,
-            tex_top: TextureId::Planks,
-            tex_bottom: TextureId::Planks,
-            tex_side: TextureId::Planks,
-            tex_front: TextureId::Planks,
-        };
-        self.draw_mob_box(&left_arm, 0.0, camera_pos, view_proj);
-
-        // Right arm
-        let right_arm_origin = base_pos + Vec3::new(0.38 * yaw.cos(), 1.35, 0.38 * yaw.sin());
-        let right_arm = MobBox {
-            center: Vec3::new(0.0, -0.32, 0.0),
-            size: Vec3::new(0.24, 0.64, 0.24),
-            yaw,
-            pitch: leg_swing,
-            roll: 0.0,
-            origin: right_arm_origin,
-            tex_top: TextureId::Planks,
-            tex_bottom: TextureId::Planks,
-            tex_side: TextureId::Planks,
-            tex_front: TextureId::Planks,
-        };
-        self.draw_mob_box(&right_arm, 0.0, camera_pos, view_proj);
-
-        // Left leg
-        let left_leg_origin = base_pos + Vec3::new(-0.14 * yaw.cos(), 0.72, -0.14 * yaw.sin());
-        let left_leg = MobBox {
-            center: Vec3::new(0.0, -0.36, 0.0),
-            size: Vec3::new(0.24, 0.72, 0.24),
-            yaw,
-            pitch: leg_swing,
-            roll: 0.0,
-            origin: left_leg_origin,
-            tex_top: TextureId::WoodSide,
-            tex_bottom: TextureId::WoodSide,
-            tex_side: TextureId::WoodSide,
-            tex_front: TextureId::WoodSide,
-        };
-        self.draw_mob_box(&left_leg, 0.0, camera_pos, view_proj);
-
-        // Right leg
-        let right_leg_origin = base_pos + Vec3::new(0.14 * yaw.cos(), 0.72, 0.14 * yaw.sin());
-        let right_leg = MobBox {
-            center: Vec3::new(0.0, -0.36, 0.0),
-            size: Vec3::new(0.24, 0.72, 0.24),
-            yaw,
-            pitch: -leg_swing,
-            roll: 0.0,
-            origin: right_leg_origin,
-            tex_top: TextureId::WoodSide,
-            tex_bottom: TextureId::WoodSide,
-            tex_side: TextureId::WoodSide,
-            tex_front: TextureId::WoodSide,
-        };
-        self.draw_mob_box(&right_leg, 0.0, camera_pos, view_proj);
-
-        // Floating nametag above player head
-        let tag_pos = base_pos + Vec3::new(0.0, 2.05, 0.0);
-        let clip = view_proj.transform_point(tag_pos);
-        if clip[3] > 0.2 {
-            let ndc_x = clip[0] / clip[3];
-            let ndc_y = clip[1] / clip[3];
-            if ndc_x >= -1.1 && ndc_x <= 1.1 && ndc_y >= -1.1 && ndc_y <= 1.1 {
-                let sx = ((ndc_x * 0.5 + 0.5) * self.width as f32) as i32;
-                let sy = (((1.0 - (ndc_y * 0.5 + 0.5))) * self.height as f32) as i32;
-                let ntw = crate::graphics::font::measure_text(&player.nickname, 1, 1);
-                crate::ui::draw::fill_rect_alpha(
-                    &mut self.color_buffer,
-                    self.width,
-                    self.height,
-                    sx - ntw / 2 - 4,
-                    sy - 10,
-                    ntw + 8,
-                    14,
-                    crate::ui::draw::pack_color(0.0, 0.0, 0.0),
-                    0.6,
-                );
-                crate::ui::draw::draw_text_colored_shadowed(
-                    &mut self.color_buffer,
-                    self.width,
-                    self.height,
-                    &player.nickname,
-                    sx - ntw / 2,
-                    sy - 8,
-                    1,
-                    1,
-                    crate::ui::draw::pack_color(1.0, 1.0, 1.0),
+        // 3D Held Item in right hand (if equipped)
+        if let Some(blk) = held_block {
+            if blk != crate::world::block::BlockId::Air {
+                let hand_pos = right_shoulder_origin + right_arm_forward * 0.22 - right_arm_up * 0.50;
+                self.draw_item_3d_oriented(
+                    blk,
+                    hand_pos,
+                    player_right,
+                    right_arm_up,
+                    right_arm_forward,
+                    0.85,
+                    view_proj,
                 );
             }
         }
+
+        // 5. Left leg (blue jeans, dark shoes)
+        let left_hip_origin = pos - player_right * 0.14 + player_up * 0.72;
+        let left_leg_pitch = leg_swing;
+        let left_leg_forward = (player_forward * left_leg_pitch.cos() + player_up * left_leg_pitch.sin()).normalized();
+        let left_leg_up = (player_up * left_leg_pitch.cos() - player_forward * left_leg_pitch.sin()).normalized();
+        self.draw_oriented_box(
+            left_hip_origin,
+            Vec3::new(0.0, -0.36, 0.0),
+            Vec3::new(0.24, 0.72, 0.24),
+            left_leg_forward,
+            player_right,
+            left_leg_up,
+            TextureId::PlayerPants,
+            TextureId::PlayerShoes,
+            TextureId::PlayerPants,
+            TextureId::PlayerPants,
+            TextureId::PlayerPants,
+            TextureId::PlayerPants,
+            hurt_tint,
+            camera_pos,
+            view_proj,
+        );
+
+        // 6. Right leg (blue jeans, dark shoes)
+        let right_hip_origin = pos + player_right * 0.14 + player_up * 0.72;
+        let right_leg_pitch = -leg_swing;
+        let right_leg_forward = (player_forward * right_leg_pitch.cos() + player_up * right_leg_pitch.sin()).normalized();
+        let right_leg_up = (player_up * right_leg_pitch.cos() - player_forward * right_leg_pitch.sin()).normalized();
+        self.draw_oriented_box(
+            right_hip_origin,
+            Vec3::new(0.0, -0.36, 0.0),
+            Vec3::new(0.24, 0.72, 0.24),
+            right_leg_forward,
+            player_right,
+            right_leg_up,
+            TextureId::PlayerPants,
+            TextureId::PlayerShoes,
+            TextureId::PlayerPants,
+            TextureId::PlayerPants,
+            TextureId::PlayerPants,
+            TextureId::PlayerPants,
+            hurt_tint,
+            camera_pos,
+            view_proj,
+        );
+
+        // 7. Floating nametag above player head (billboard)
+        if let Some(nick) = nickname {
+            let tag_pos = pos + Vec3::new(0.0, 2.22, 0.0);
+            let clip = view_proj.transform_point(tag_pos);
+            if clip[3] > 0.2 {
+                let ndc_x = clip[0] / clip[3];
+                let ndc_y = clip[1] / clip[3];
+                if ndc_x >= -1.1 && ndc_x <= 1.1 && ndc_y >= -1.1 && ndc_y <= 1.1 {
+                    let sx = ((ndc_x * 0.5 + 0.5) * self.width as f32) as i32;
+                    let sy = (((1.0 - (ndc_y * 0.5 + 0.5))) * self.height as f32) as i32;
+                    let ntw = crate::graphics::font::measure_text(nick, 1, 1);
+                    crate::ui::draw::fill_rect_alpha(
+                        &mut self.color_buffer,
+                        self.width,
+                        self.height,
+                        sx - ntw / 2 - 4,
+                        sy - 10,
+                        ntw + 8,
+                        14,
+                        crate::ui::draw::pack_color(0.0, 0.0, 0.0),
+                        0.6,
+                    );
+                    crate::ui::draw::draw_text_colored_shadowed(
+                        &mut self.color_buffer,
+                        self.width,
+                        self.height,
+                        nick,
+                        sx - ntw / 2,
+                        sy - 8,
+                        1,
+                        1,
+                        crate::ui::draw::pack_color(1.0, 1.0, 1.0),
+                    );
+                }
+            }
+        }
+    }
+
+    pub fn draw_remote_player(&mut self, player: &crate::net::RemotePlayer, camera: &Camera, view_proj: &Mat4) {
+        // Feet position is base_pos. If network position is eye level (y > 1.62), convert to feet.
+        let feet_pos = Vec3::new(
+            player.pos.x,
+            player.pos.y - crate::gameplay::physics::STANDING_EYE_OFFSET,
+            player.pos.z,
+        );
+        let hurt_tint = if player.hurt_timer > 0.0 { 0.65 } else { 0.0 };
+        self.draw_player_model(
+            feet_pos,
+            player.yaw,
+            player.pitch,
+            player.walk_phase,
+            0.0,
+            player.is_sneaking,
+            hurt_tint,
+            Some(&player.nickname),
+            None,
+            camera,
+            view_proj,
+        );
+    }
+
+    fn draw_oriented_box(
+        &mut self,
+        origin: Vec3,
+        center: Vec3,
+        size: Vec3,
+        forward: Vec3,
+        right: Vec3,
+        up: Vec3,
+        tex_top: TextureId,
+        tex_bottom: TextureId,
+        tex_front: TextureId,
+        tex_back: TextureId,
+        tex_left: TextureId,
+        tex_right: TextureId,
+        hurt_tint: f32,
+        camera_pos: Vec3,
+        view_proj: &Mat4,
+    ) {
+        let half = Vec3::new(size.x * 0.5, size.y * 0.5, size.z * 0.5);
+
+        let get_pt = |sx: f32, sy: f32, sz: f32| -> Vec3 {
+            origin + right * (center.x + sx * half.x)
+                + up * (center.y + sy * half.y)
+                + forward * (center.z + sz * half.z)
+        };
+
+        let mut draw_quad = |p0: Vec3, p1: Vec3, p2: Vec3, p3: Vec3, tex: TextureId, shade: f32| {
+            let edge1 = p1 - p0;
+            let edge2 = p3 - p0;
+            let normal = edge1.cross(edge2);
+            let c = (p0 + p1 + p2 + p3) * 0.25;
+            let to_face = c - camera_pos;
+            if to_face.dot(normal) >= 0.0 {
+                return;
+            }
+
+            let t1 = Triangle {
+                v0: Vertex::new(p0, (0.0, 1.0), shade),
+                v1: Vertex::new(p1, (1.0, 1.0), shade),
+                v2: Vertex::new(p2, (1.0, 0.0), shade),
+                texture: tex,
+            };
+            let t2 = Triangle {
+                v0: Vertex::new(p0, (0.0, 1.0), shade),
+                v1: Vertex::new(p2, (1.0, 0.0), shade),
+                v2: Vertex::new(p3, (0.0, 0.0), shade),
+                texture: tex,
+            };
+            self.raster_triangle_tinted(&t1, hurt_tint, view_proj);
+            self.raster_triangle_tinted(&t2, hurt_tint, view_proj);
+        };
+
+        // Front (+forward): normal points in +forward
+        draw_quad(
+            get_pt(-1.0, -1.0, 1.0),
+            get_pt(1.0, -1.0, 1.0),
+            get_pt(1.0, 1.0, 1.0),
+            get_pt(-1.0, 1.0, 1.0),
+            tex_front,
+            0.85,
+        );
+
+        // Back (-forward): normal points in -forward
+        draw_quad(
+            get_pt(1.0, -1.0, -1.0),
+            get_pt(-1.0, -1.0, -1.0),
+            get_pt(-1.0, 1.0, -1.0),
+            get_pt(1.0, 1.0, -1.0),
+            tex_back,
+            0.85,
+        );
+
+        // Right (+right): normal points in +right
+        draw_quad(
+            get_pt(1.0, -1.0, 1.0),
+            get_pt(1.0, -1.0, -1.0),
+            get_pt(1.0, 1.0, -1.0),
+            get_pt(1.0, 1.0, 1.0),
+            tex_right,
+            0.70,
+        );
+
+        // Left (-right): normal points in -right
+        draw_quad(
+            get_pt(-1.0, -1.0, -1.0),
+            get_pt(-1.0, -1.0, 1.0),
+            get_pt(-1.0, 1.0, 1.0),
+            get_pt(-1.0, 1.0, -1.0),
+            tex_left,
+            0.70,
+        );
+
+        // Top (+up): normal points in +up
+        draw_quad(
+            get_pt(-1.0, 1.0, 1.0),
+            get_pt(1.0, 1.0, 1.0),
+            get_pt(1.0, 1.0, -1.0),
+            get_pt(-1.0, 1.0, -1.0),
+            tex_top,
+            1.00,
+        );
+
+        // Bottom (-up): normal points in -up
+        draw_quad(
+            get_pt(-1.0, -1.0, -1.0),
+            get_pt(1.0, -1.0, -1.0),
+            get_pt(1.0, -1.0, 1.0),
+            get_pt(-1.0, -1.0, 1.0),
+            tex_bottom,
+            0.50,
+        );
     }
 
     fn draw_mob_box(&mut self, b: &MobBox, hurt_tint: f32, camera_pos: Vec3, view_proj: &Mat4) {
@@ -2496,49 +2725,34 @@ impl Renderer {
         }
     }
 
-    pub fn draw_item_3d(
+    pub fn draw_item_3d_oriented(
         &mut self,
         block: crate::world::block::BlockId,
         pos: Vec3,
-        yaw: f32,
+        right: Vec3,
+        up: Vec3,
+        forward: Vec3,
+        scale: f32,
         view_proj: &Mat4,
     ) {
         if block == crate::world::block::BlockId::Torch {
-            let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
-            let up = Vec3::new(0.0, 1.0, 0.0);
-            let forward = Vec3::new(yaw.sin(), 0.0, yaw.cos());
-            self.draw_torch_3d(pos, right, up, forward, 0.85, view_proj);
+            self.draw_torch_3d(pos, right, up, forward, scale, view_proj);
         } else if block.is_tool() {
-            // Spinning tilted 3D tool
-            let tilt_angle = 0.38f32; // ~22 degrees
-            let base_up = Vec3::new(0.0, 1.0, 0.0);
-            let base_right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
-            let base_forward = Vec3::new(yaw.sin(), 0.0, yaw.cos());
-
-            let tool_up = (base_up * tilt_angle.cos() + base_right * tilt_angle.sin()).normalized();
-            let tool_right = (base_right * tilt_angle.cos() - base_up * tilt_angle.sin()).normalized();
-            let tool_forward = base_forward;
-
-            self.draw_procedural_tool_3d(block, pos, tool_right, tool_up, tool_forward, 0.85, view_proj);
+            let tilt_angle = 0.38f32;
+            let tool_up = (up * tilt_angle.cos() + right * tilt_angle.sin()).normalized();
+            let tool_right = (right * tilt_angle.cos() - up * tilt_angle.sin()).normalized();
+            let tool_forward = forward;
+            self.draw_procedural_tool_3d(block, pos, tool_right, tool_up, tool_forward, scale, view_proj);
         } else if block.is_meat() {
-            // Spinning tilted 3D meat
             let tilt_angle = 0.32f32;
-            let base_up = Vec3::new(0.0, 1.0, 0.0);
-            let base_right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
-            let base_forward = Vec3::new(yaw.sin(), 0.0, yaw.cos());
-
-            let meat_up = (base_up * tilt_angle.cos() + base_right * tilt_angle.sin()).normalized();
-            let meat_right = (base_right * tilt_angle.cos() - base_up * tilt_angle.sin()).normalized();
-            let meat_forward = base_forward;
-
-            self.draw_meat_3d(block, pos, meat_right, meat_up, meat_forward, 0.85, view_proj);
+            let meat_up = (up * tilt_angle.cos() + right * tilt_angle.sin()).normalized();
+            let meat_right = (right * tilt_angle.cos() - up * tilt_angle.sin()).normalized();
+            let meat_forward = forward;
+            self.draw_meat_3d(block, pos, meat_right, meat_up, meat_forward, scale, view_proj);
         } else {
             use crate::world::block::Face;
-            let size = 0.28;
+            let size = 0.28 * scale;
             let half = size * 0.5;
-            let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
-            let up = Vec3::new(0.0, 1.0, 0.0);
-            let forward = Vec3::new(yaw.sin(), 0.0, yaw.cos());
 
             let corner = |x: f32, y: f32, z: f32| {
                 pos + right * (x * half) + up * (y * half) + forward * (z * half)
@@ -2570,6 +2784,19 @@ impl Renderer {
                 self.raster_triangle(&t2, view_proj);
             }
         }
+    }
+
+    pub fn draw_item_3d(
+        &mut self,
+        block: crate::world::block::BlockId,
+        pos: Vec3,
+        yaw: f32,
+        view_proj: &Mat4,
+    ) {
+        let right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+        let up = Vec3::new(0.0, 1.0, 0.0);
+        let forward = Vec3::new(yaw.sin(), 0.0, yaw.cos());
+        self.draw_item_3d_oriented(block, pos, right, up, forward, 0.85, view_proj);
     }
 
     pub fn draw_item_shadow(&mut self, pos: Vec3, ground_y: f32, view_proj: &Mat4) {

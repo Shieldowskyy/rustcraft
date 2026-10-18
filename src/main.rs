@@ -68,6 +68,11 @@ fn main() {
 
     let mut app = RustCraftApp::new(WIDTH, HEIGHT, renderer_choice, seed);
     app.profiler_enabled = profiler_enabled;
+
+    if let Some(connect_addr) = rustcraft::cli::parse_connect_addr() {
+        rustcraft::log_info!("MAIN", "Auto-connecting to multiplayer server: {}", connect_addr);
+        app.connect_to_server(&connect_addr);
+    }
     let mut gamepad_mgr = GamepadManager::new();
 
     mouse_capture::maximize_window(&window);

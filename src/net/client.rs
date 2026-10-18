@@ -19,6 +19,7 @@ pub struct RemotePlayer {
     pub is_sneaking: bool,
     pub is_sprinting: bool,
     pub walk_phase: f32,
+    pub hurt_timer: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -53,6 +54,13 @@ pub enum NetworkEvent {
         x: f32,
         y: f32,
         z: f32,
+    },
+    PlayerHurt {
+        victim_id: u32,
+        attacker_id: u32,
+        damage: f32,
+        knockback_x: f32,
+        knockback_z: f32,
     },
 }
 
@@ -152,11 +160,22 @@ impl NetworkClient {
         let _ = self.send_packet(&packet);
     }
 
+    pub fn send_attack_player(&mut self, target_id: u32, damage: f32) {
+        if !self.is_connected {
+            return;
+        }
+        let packet = ClientPacket::AttackPlayer { target_id, damage };
+        let _ = self.send_packet(&packet);
+    }
+
     pub fn update(&mut self, dt: f32) -> Vec<NetworkEvent> {
         let mut events = Vec::new();
 
-        // Interpolate remote player positions
+        // Interpolate remote player positions & decrement hurt timers
         for rp in self.remote_players.values_mut() {
+            if rp.hurt_timer > 0.0 {
+                rp.hurt_timer = (rp.hurt_timer - dt).max(0.0);
+            }
             let diff = rp.target_pos - rp.pos;
             let len = diff.length();
             if len > 0.001 {
@@ -243,6 +262,7 @@ impl NetworkClient {
                                 is_sneaking: false,
                                 is_sprinting: false,
                                 walk_phase: 0.0,
+                                hurt_timer: 0.0,
                             },
                         );
                     }
@@ -281,6 +301,7 @@ impl NetworkClient {
                                     is_sneaking: u.is_sneaking,
                                     is_sprinting: u.is_sprinting,
                                     walk_phase: 0.0,
+                                    hurt_timer: 0.0,
                                 },
                             );
                         }
@@ -297,6 +318,12 @@ impl NetworkClient {
                 }
                 Ok(ServerPacket::Teleport { x, y, z }) => {
                     events.push(NetworkEvent::Teleport { x, y, z });
+                }
+                Ok(ServerPacket::PlayerHurt { victim_id, attacker_id, damage, knockback_x, knockback_z }) => {
+                    if let Some(rp) = self.remote_players.get_mut(&victim_id) {
+                        rp.hurt_timer = 0.4;
+                    }
+                    events.push(NetworkEvent::PlayerHurt { victim_id, attacker_id, damage, knockback_x, knockback_z });
                 }
                 Ok(ServerPacket::Pong { seq: _ }) => {}
                 Err(err) => {

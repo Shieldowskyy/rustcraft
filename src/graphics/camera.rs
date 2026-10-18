@@ -1,5 +1,6 @@
 use crate::core::math::{Mat4, Vec3};
 
+#[derive(Clone, Debug)]
 pub struct Camera {
     pub position: Vec3,
     pub yaw: f32,   // rotation around Y axis, radians

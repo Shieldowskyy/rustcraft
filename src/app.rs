@@ -19,7 +19,7 @@ use crate::gameplay::item::ItemEntity;
 use crate::gameplay::mob::MobManager;
 use crate::gameplay::particles::ParticleSystem;
 use crate::gameplay::physics::{
-    block_intersects_player, move_player_with_collision, CROUCH_EYE_OFFSET, CROUCH_HEIGHT,
+    block_intersects_player, move_player_with_collision, ray_aabb_intersect, CROUCH_EYE_OFFSET, CROUCH_HEIGHT,
     FLY_SPEED, GRAVITY, JUMP_SPEED, SNEAK_SPEED, SPRINT_JUMP_BOOST, SPRINT_SPEED,
     STANDING_EYE_OFFSET, STANDING_HEIGHT, SWIM_SPEED, TERMINAL_VELOCITY, WALK_SPEED,
 };
@@ -96,6 +96,17 @@ pub enum GameState {
         server_addr: String,
         start_time: std::time::Instant,
     },
+}
+
+/// Camera perspective modes matching Minecraft F5 cycling.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CameraPerspective {
+    /// Standard first-person view.
+    FirstPerson,
+    /// Third-person camera positioned behind player looking forward.
+    ThirdPersonBack,
+    /// Third-person camera positioned in front of player looking at player's face.
+    ThirdPersonFront,
 }
 
 /// Unified input snapshot passed into `RustCraftApp::update_and_render`.
@@ -249,11 +260,13 @@ pub struct RustCraftApp {
     pub proj_matrix: Mat4,
     pub main_menu_rects: [(i32, i32, i32, i32); 4],
     pub main_menu_nick_rect: (i32, i32, i32, i32),
-    pub multiplayer_menu_rects: [(i32, i32, i32, i32); 5],
+    pub multiplayer_menu_rects: [(i32, i32, i32, i32); crate::ui::MULTIPLAYER_RECT_COUNT],
     pub multiplayer_server_addr: String,
     pub multiplayer_focus: usize,
     pub multiplayer_status: Option<String>,
     pub multiplayer_is_connecting: bool,
+    pub lan_discovery: crate::net::LanDiscoveryClient,
+    pub selected_lan_server: Option<usize>,
     pub main_menu_nick_hovered: bool,
     pub net_client: Option<crate::net::NetworkClient>,
     pub is_multiplayer: bool,
@@ -283,6 +296,7 @@ pub struct RustCraftApp {
     pub profiler_frame_count: u64,
     pub profiler_copied_timer: f32,
     pub telemetry_timer: f32,
+    pub camera_perspective: CameraPerspective,
 
     // Controls toggle states
     pub sprint_toggled: bool,
@@ -442,6 +456,8 @@ impl RustCraftApp {
             multiplayer_focus: 0,
             multiplayer_status: None,
             multiplayer_is_connecting: false,
+            lan_discovery: crate::net::LanDiscoveryClient::new(),
+            selected_lan_server: None,
             main_menu_nick_hovered: false,
             net_client: None,
             is_multiplayer: false,
@@ -470,6 +486,7 @@ impl RustCraftApp {
             profiler_frame_count: 0,
             profiler_copied_timer: 0.0,
             telemetry_timer: 0.0,
+            camera_perspective: CameraPerspective::FirstPerson,
 
             sprint_toggled: false,
             crouch_toggled: false,
@@ -524,6 +541,30 @@ impl RustCraftApp {
     #[cfg(target_os = "vita")]
     pub fn update(&mut self, dt: f32, input: &crate::app::InputState) -> AppOutput {
         self.update_and_render(dt, input)
+    }
+
+    fn raycast_remote_player(&self, origin: Vec3, dir: Vec3, max_reach: f32) -> Option<(u32, Vec3)> {
+        let client = self.net_client.as_ref()?;
+        let dir = dir.normalized();
+        let mut closest_hit: Option<(u32, f32)> = None;
+
+        for (&id, rp) in &client.remote_players {
+            let feet_y = rp.pos.y - crate::gameplay::physics::STANDING_EYE_OFFSET;
+            let half = 0.40f32;
+            let min = Vec3::new(rp.pos.x - half, feet_y, rp.pos.z - half);
+            let max = Vec3::new(rp.pos.x + half, feet_y + crate::gameplay::physics::STANDING_HEIGHT, rp.pos.z + half);
+
+            if let Some(t) = ray_aabb_intersect(origin, dir, min, max) {
+                if t >= 0.0 && t <= max_reach {
+                    match closest_hit {
+                        Some((_, closest_t)) if t >= closest_t => {}
+                        _ => closest_hit = Some((id, t)),
+                    }
+                }
+            }
+        }
+
+        closest_hit.map(|(id, t)| (id, origin + dir * t))
     }
 
     pub fn update_and_render(&mut self, dt: f32, input: &InputState) -> AppOutput {
@@ -632,6 +673,8 @@ impl RustCraftApp {
                     self.state = GameState::MultiplayerMenu;
                     self.multiplayer_status = None;
                     self.multiplayer_is_connecting = false;
+                    self.selected_lan_server = None;
+                    self.lan_discovery.refresh();
                     crate::log_info!("MENU", "Opened Multiplayer menu from Main Menu");
                 } else if click_button == Some(2) || (enter_down && !self.prev_enter_down && hovered_idx == Some(2)) {
                     self.state = GameState::Settings(PreviousMenu::MainMenu);
@@ -645,6 +688,15 @@ impl RustCraftApp {
                 self.renderer.draw_main_menu(hovered_idx, &self.settings.nickname, self.main_menu_nick_hovered);
             }
             GameState::MultiplayerMenu => {
+                // Poll LAN server discovery announcements and probe pings
+                self.lan_discovery.update();
+
+                // F5 or Gamepad Triangle/North refreshes LAN discovery
+                if (f5_down && !self.prev_f5_down) || input.gp_north_just_pressed {
+                    self.lan_discovery.refresh();
+                    crate::log_info!("LAN", "LAN server discovery refreshed via hotkey");
+                }
+
                 let rects = self.multiplayer_menu_rects;
                 let mut hovered_idx = None;
                 if let Some((mx, my)) = mouse_pos {
@@ -676,6 +728,19 @@ impl RustCraftApp {
                                 let _ = self.settings.save();
                                 self.state = GameState::MainMenu;
                                 crate::log_info!("MENU", "Returned to Main Menu from Multiplayer menu");
+                            }
+                            5 => {
+                                self.lan_discovery.refresh();
+                                crate::log_info!("LAN", "LAN server discovery refreshed via button click");
+                            }
+                            6..=9 => {
+                                let slot = idx - 6;
+                                if slot < self.lan_discovery.servers.len() {
+                                    self.selected_lan_server = Some(slot);
+                                    let s = &self.lan_discovery.servers[slot];
+                                    self.multiplayer_server_addr = s.addr();
+                                    crate::log_info!("LAN", "Selected LAN server {}: {}", s.motd, s.addr());
+                                }
                             }
                             _ => {}
                         }
@@ -722,6 +787,9 @@ impl RustCraftApp {
                     hovered_idx,
                     self.multiplayer_status.as_deref(),
                     self.multiplayer_is_connecting,
+                    &self.lan_discovery.servers,
+                    self.selected_lan_server,
+                    self.lan_discovery.is_refreshing,
                 );
             }
             GameState::MultiplayerConnecting { .. } => {
@@ -796,6 +864,9 @@ impl RustCraftApp {
                     None,
                     Some("Connecting to server..."),
                     true,
+                    &self.lan_discovery.servers,
+                    self.selected_lan_server,
+                    false,
                 );
             }
             GameState::SaveSelect => {
@@ -1781,6 +1852,22 @@ impl RustCraftApp {
                             crate::net::NetworkEvent::Teleport { x, y, z } => {
                                 self.camera.position = Vec3::new(x, y, z);
                             }
+                            crate::net::NetworkEvent::PlayerHurt { victim_id, attacker_id, damage, knockback_x, knockback_z } => {
+                                let is_local = client.local_id == Some(victim_id);
+                                if is_local {
+                                    if self.player.take_damage(damage) {
+                                        self.damage_tilt_timer = 0.4;
+                                        self.damage_tilt_dir = if knockback_x > 0.0 { -1.0 } else { 1.0 };
+                                        self.horiz_velocity.x += knockback_x * 8.0;
+                                        self.horiz_velocity.z += knockback_z * 8.0;
+                                        self.vertical_velocity = 3.5;
+                                        self.particles.spawn_mob_hit(self.camera.position);
+                                        crate::log_info!("PVP", "Player took {:.1} damage from player ID {}", damage, attacker_id);
+                                    }
+                                } else if let Some(rp) = client.remote_players.get(&victim_id) {
+                                    self.particles.spawn_mob_hit(rp.pos);
+                                }
+                            }
                             crate::net::NetworkEvent::Disconnected { reason } => {
                                 should_disconnect = Some(reason);
                             }
@@ -1968,6 +2055,22 @@ impl RustCraftApp {
                         GameMode::Survival
                     };
                     crate::log_info!("PLAYER", "Gamemode changed to {:?}", self.player.gamemode);
+                }
+
+                // F5 Camera Perspective cycling (First Person -> Third Person Back -> Third Person Front)
+                if !self.chat.is_open && ((f5_down && !self.prev_f5_down) || input.gp_select_just_pressed) {
+                    self.camera_perspective = match self.camera_perspective {
+                        CameraPerspective::FirstPerson => CameraPerspective::ThirdPersonBack,
+                        CameraPerspective::ThirdPersonBack => CameraPerspective::ThirdPersonFront,
+                        CameraPerspective::ThirdPersonFront => CameraPerspective::FirstPerson,
+                    };
+                    let mode_str = match self.camera_perspective {
+                        CameraPerspective::FirstPerson => "Perspective: First Person",
+                        CameraPerspective::ThirdPersonBack => "Perspective: Third Person (Back)",
+                        CameraPerspective::ThirdPersonFront => "Perspective: Third Person (Front)",
+                    };
+                    self.chat.add_message(mode_str.to_string(), crate::ui::pack_color(0.4, 0.9, 1.0));
+                    crate::log_info!("CAMERA", "{}", mode_str);
                 }
 
                 let sneak_btn_down = !self.chat.is_open && self.controls.is_active(Action::Sneak);
@@ -2158,6 +2261,25 @@ impl RustCraftApp {
                         self.player.fall_distance = 0.0;
                     }
 
+                    // Multiplayer player-to-player collision pushing
+                    if let Some(client) = &self.net_client {
+                        for rp in client.remote_players.values() {
+                            let dy = (self.camera.position.y - rp.pos.y).abs();
+                            if dy < self.current_player_height {
+                                let dx = self.camera.position.x - rp.pos.x;
+                                let dz = self.camera.position.z - rp.pos.z;
+                                let dist_sq = dx * dx + dz * dz;
+                                let min_dist = crate::gameplay::physics::PLAYER_HALF_WIDTH * 2.0; // 0.60m
+                                if dist_sq < min_dist * min_dist && dist_sq > 0.00001 {
+                                    let dist = dist_sq.sqrt();
+                                    let push = (min_dist - dist) * 0.5;
+                                    self.camera.position.x += (dx / dist) * push;
+                                    self.camera.position.z += (dz / dist) * push;
+                                }
+                            }
+                        }
+                    }
+
                     // Lava damage (4.0 dmg = 2 hearts every 0.5s)
                     if in_lava && self.player.gamemode == GameMode::Survival {
                         self.lava_damage_timer += dt;
@@ -2332,21 +2454,33 @@ impl RustCraftApp {
                     }
                     let forward = self.camera.forward();
                     let held_tool = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
+                    let dmg = held_tool.map(|b| b.attack_damage()).unwrap_or(1.5);
+                    let mut entity_hit = false;
 
                     if interact_left_just {
-                        if let Some((mob_idx, _)) = self.mob_manager.raycast_mob(self.camera.position, forward, 4.2) {
+                        if let Some((target_id, hit_pos)) = self.raycast_remote_player(self.camera.position, forward, 4.2) {
+                            if let Some(client) = &mut self.net_client {
+                                client.send_attack_player(target_id, dmg);
+                            }
+                            self.particles.spawn_mob_hit(hit_pos);
+                            self.break_target = None;
+                            self.break_progress = 0.0;
+                            crate::log_info!("COMBAT", "Player attacked remote player ID {} dealing {:.1} damage", target_id, dmg);
+                            entity_hit = true;
+                        } else if let Some((mob_idx, _)) = self.mob_manager.raycast_mob(self.camera.position, forward, 4.2) {
                             let mob = &mut self.mob_manager.mobs[mob_idx];
                             let hit_pos = mob.center_pos();
-                            let dmg = held_tool.map(|b| b.attack_damage()).unwrap_or(1.5);
                             mob.take_damage(dmg, forward);
                             self.particles.spawn_mob_hit(hit_pos);
                             self.break_target = None;
                             self.break_progress = 0.0;
                             crate::log_info!("COMBAT", "Player attacked mob {:?} dealing {:.1} damage (remaining HP: {:.1})", mob.kind, dmg, mob.health);
+                            entity_hit = true;
                         }
                     }
 
-                    if let Some(hit) = self.world.raycast(self.camera.position, forward, 8.0) {
+                    if !entity_hit {
+                        if let Some(hit) = self.world.raycast(self.camera.position, forward, 8.0) {
                         let target = hit.block_pos;
                         let broken_block = self.world.get_block(target);
 
@@ -2484,6 +2618,7 @@ impl RustCraftApp {
                     } else {
                         self.break_target = None;
                         self.break_progress = 0.0;
+                    }
                     }
                 } else {
                     self.break_target = None;
@@ -2804,37 +2939,86 @@ impl RustCraftApp {
                     (Vec3::zero(), 0.0)
                 };
                 #[cfg(not(target_os = "vita"))]
-                let view_proj = self.proj_matrix.mul(&self.camera.view_matrix_with_tilt(shake_offset, roll));
+                let effective_camera = match self.camera_perspective {
+                    CameraPerspective::FirstPerson => self.camera.clone(),
+                    CameraPerspective::ThirdPersonBack => {
+                        let eye_pos = self.camera.position;
+                        let forward = self.camera.forward();
+                        let max_dist = 3.8;
+                        let actual_dist = self.world.raycast_camera_collision(eye_pos, -forward, max_dist);
+                        let mut cam = self.camera.clone();
+                        cam.position = eye_pos - forward * actual_dist;
+                        cam
+                    }
+                    CameraPerspective::ThirdPersonFront => {
+                        let eye_pos = self.camera.position;
+                        let forward = self.camera.forward();
+                        let max_dist = 3.8;
+                        let actual_dist = self.world.raycast_camera_collision(eye_pos, forward, max_dist);
+                        let mut cam = self.camera.clone();
+                        cam.position = eye_pos + forward * actual_dist;
+                        cam.yaw = self.camera.yaw + std::f32::consts::PI;
+                        cam.pitch = -self.camera.pitch;
+                        cam
+                    }
+                };
+                #[cfg(not(target_os = "vita"))]
+                let view_proj = self.proj_matrix.mul(&effective_camera.view_matrix_with_tilt(shake_offset, roll));
                 #[cfg(not(target_os = "vita"))]
                 {
                     let render_terrain_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
                     self.renderer.fog_enabled = self.settings.fog;
-                    self.renderer.render_frame(&mut self.world, &self.camera);
+                    self.renderer.render_frame(&mut self.world, &effective_camera);
                     if let Some(t_start) = render_terrain_start {
                         cur_profiler.render_terrain_ms = t_start.elapsed().as_secs_f32() * 1000.0;
                     }
 
                     let render_entities_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
-                    let is_occluded = self.world.is_view_fully_occluded(self.camera.position, self.camera.yaw, self.camera.pitch);
+                    let is_occluded = self.world.is_view_fully_occluded(effective_camera.position, effective_camera.yaw, effective_camera.pitch);
 
                     if !is_occluded {
+                        // In 3rd person perspective, render local player model
+                        if self.camera_perspective != CameraPerspective::FirstPerson {
+                            let feet_pos = Vec3::new(
+                                self.camera.position.x,
+                                self.camera.position.y - self.current_eye_offset,
+                                self.camera.position.z,
+                            );
+                            let held = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
+                            let swing = self.break_progress.max(self.hand_animation);
+                            let hurt_tint = if self.damage_tilt_timer > 0.0 { 0.65 } else { 0.0 };
+                            self.renderer.draw_player_model(
+                                feet_pos,
+                                self.camera.yaw,
+                                self.camera.pitch,
+                                self.walk_phase,
+                                swing,
+                                self.crouch_toggled,
+                                hurt_tint,
+                                None,
+                                held,
+                                &effective_camera,
+                                &view_proj,
+                            );
+                        }
+
                         for mob in &self.mob_manager.mobs {
-                            self.renderer.draw_mob(mob, &self.camera, &view_proj);
+                            self.renderer.draw_mob(mob, &effective_camera, &view_proj);
                         }
 
                         if let Some(client) = &self.net_client {
                             for rp in client.remote_players.values() {
-                                self.renderer.draw_remote_player(rp, &self.camera, &view_proj);
+                                self.renderer.draw_remote_player(rp, &effective_camera, &view_proj);
                             }
                         }
 
                         for tnt in &self.world.primed_tnts {
-                            self.renderer.draw_tnt_cube(tnt.pos, tnt.fuse, &self.camera, &view_proj);
+                            self.renderer.draw_tnt_cube(tnt.pos, tnt.fuse, &effective_camera, &view_proj);
                         }
 
                         if self.settings.clouds {
                             let clouds_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
-                            self.renderer.draw_clouds(self.camera.position, &view_proj, self.total_time);
+                            self.renderer.draw_clouds(effective_camera.position, &view_proj, self.total_time);
                             if let Some(c_start) = clouds_start {
                                 cur_profiler.render_clouds_ms = c_start.elapsed().as_secs_f32() * 1000.0;
                             }
@@ -2901,19 +3085,23 @@ impl RustCraftApp {
                 }
 
                 let render_ui_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
-                self.renderer.draw_crosshair();
+                if self.camera_perspective != CameraPerspective::ThirdPersonFront {
+                    self.renderer.draw_crosshair();
+                }
                 self.renderer.draw_break_progress(self.break_progress);
                 #[cfg(not(target_os = "vita"))]
                 {
-                    let hand_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
-                    let hand_block: Option<u8> = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize]
-                        .map(|s| s.block.to_u8());
-                    let aspect = (self.width as f32) / (self.height as f32);
-                    let hand_proj = Mat4::perspective(68.0_f32.to_radians(), aspect, 0.01, 20.0);
-                    let hand_view_proj = hand_proj.mul(&self.camera.view_matrix_with_tilt(shake_offset, roll));
-                    self.renderer.draw_hand_3d(&self.camera, &hand_view_proj, hand_block, self.walk_phase, hand_speed, self.hand_animation);
-                    if let Some(h_start) = hand_start {
-                        cur_profiler.render_hand_ms = h_start.elapsed().as_secs_f32() * 1000.0;
+                    if self.camera_perspective == CameraPerspective::FirstPerson {
+                        let hand_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
+                        let hand_block: Option<u8> = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize]
+                            .map(|s| s.block.to_u8());
+                        let aspect = (self.width as f32) / (self.height as f32);
+                        let hand_proj = Mat4::perspective(68.0_f32.to_radians(), aspect, 0.01, 20.0);
+                        let hand_view_proj = hand_proj.mul(&self.camera.view_matrix_with_tilt(shake_offset, roll));
+                        self.renderer.draw_hand_3d(&self.camera, &hand_view_proj, hand_block, self.walk_phase, hand_speed, self.hand_animation);
+                        if let Some(h_start) = hand_start {
+                            cur_profiler.render_hand_ms = h_start.elapsed().as_secs_f32() * 1000.0;
+                        }
                     }
                 }
                 self.renderer.draw_hotbar(&self.player);
@@ -4151,6 +4339,12 @@ impl RustCraftApp {
                 );
             }
         }
+    }
+
+    /// Sets the multiplayer server address and initiates connection immediately.
+    pub fn connect_to_server(&mut self, addr: &str) {
+        self.multiplayer_server_addr = addr.to_string();
+        self.start_multiplayer_connect();
     }
 
     /// Resizes internal framebuffers, camera aspect projection, and UI interactive hitboxes.

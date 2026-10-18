@@ -15,6 +15,10 @@
   "multiplayer.connected": "Connected! Loading world...",
   "multiplayer.failed": "Failed to connect",
   "multiplayer.players": "Players ({})",
+  "multiplayer.refresh_btn": "REFRESH",
+  "multiplayer.lan_title": "LOCAL NETWORK SERVERS (LAN)",
+  "multiplayer.lan_scanning": "Scanning local network (UDP 26655)...",
+  "multiplayer.lan_empty": "No LAN servers found. Host a server or click Refresh.",
 
   "save_select.title": "SELECT WORLD",
   "save_select.play": "PLAY SELECTED",

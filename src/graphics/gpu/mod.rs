@@ -7,7 +7,7 @@ use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId, TEX_SIZE};
 use crate::world::mesher::Triangle;
 
-pub const TEXTURE_LAYER_COUNT: u32 = 98;
+pub const TEXTURE_LAYER_COUNT: u32 = 105;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -1132,6 +1132,13 @@ impl VulkanContext {
             TextureId::IronOunce => 95,
             TextureId::GoldOunce => 96,
             TextureId::Bone => 97,
+            TextureId::PlayerSkin => 98,
+            TextureId::PlayerFace => 99,
+            TextureId::PlayerHair => 100,
+            TextureId::PlayerShirt => 101,
+            TextureId::PlayerShirtFront => 102,
+            TextureId::PlayerPants => 103,
+            TextureId::PlayerShoes => 104,
         }
     }
 
@@ -1235,6 +1242,13 @@ impl VulkanContext {
             95 => TextureId::IronOunce,
             96 => TextureId::GoldOunce,
             97 => TextureId::Bone,
+            98 => TextureId::PlayerSkin,
+            99 => TextureId::PlayerFace,
+            100 => TextureId::PlayerHair,
+            101 => TextureId::PlayerShirt,
+            102 => TextureId::PlayerShirtFront,
+            103 => TextureId::PlayerPants,
+            104 => TextureId::PlayerShoes,
             _ => TextureId::CraftingTableFront,
         }
     }
