@@ -162,16 +162,18 @@ impl AudioEngine {
                                         min_dist,
                                         max_dist,
                                         rolloff,
+                                        occlusion,
                                     } => {
                                         if let Some(sample) = bank_clone.get(&sound_id) {
-                                            let (lg, rg) = if spatial {
-                                                listener.calculate_spatial_gains(
-                                                    position, min_dist, max_dist, rolloff,
-                                                )
+                                            let (lg, rg, filter_alpha) = if spatial {
+                                                let res = listener.calculate_spatial(
+                                                    position, min_dist, max_dist, rolloff, occlusion,
+                                                );
+                                                (res.left_gain, res.right_gain, res.filter_alpha)
                                             } else {
                                                 let angle = (pan.clamp(-1.0, 1.0) + 1.0)
                                                     * (std::f32::consts::PI * 0.25);
-                                                (angle.cos(), angle.sin())
+                                                (angle.cos(), angle.sin(), 1.0)
                                             };
 
                                             if lg > 0.001 || rg > 0.001 {
@@ -182,6 +184,7 @@ impl AudioEngine {
                                                     pitch,
                                                     lg,
                                                     rg,
+                                                    filter_alpha,
                                                     looping,
                                                 );
                                             }
@@ -299,11 +302,20 @@ impl AudioEngine {
             min_dist: 1.0,
             max_dist: 40.0,
             rolloff: 1.0,
+            occlusion: 0.0,
         });
     }
 
-    /// Plays a 3D spatialized sound effect located at world coordinates `position`.
-    pub fn play_sound_3d(&mut self, sound_id: SoundId, position: Vec3, volume: f32, pitch: f32) {
+    /// Plays a 3D spatialized sound effect located at world coordinates `position`
+    /// with acoustic voxel occlusion factor in [0.0, 1.0].
+    pub fn play_sound_3d_occluded(
+        &mut self,
+        sound_id: SoundId,
+        position: Vec3,
+        volume: f32,
+        pitch: f32,
+        occlusion: f32,
+    ) {
         if self.is_muted {
             return;
         }
@@ -318,13 +330,24 @@ impl AudioEngine {
             min_dist: 2.0,
             max_dist: 36.0,
             rolloff: 1.0,
+            occlusion: occlusion.clamp(0.0, 1.0),
         });
+    }
+
+    /// Plays a 3D spatialized sound effect located at world coordinates `position`.
+    pub fn play_sound_3d(&mut self, sound_id: SoundId, position: Vec3, volume: f32, pitch: f32) {
+        self.play_sound_3d_occluded(sound_id, position, volume, pitch, 0.0);
     }
 
     /// Plays a 3D sound with subtle organic pitch variation (e.g. ±6%).
     pub fn play_sound_3d_varied(&mut self, sound_id: SoundId, position: Vec3, volume: f32) {
-        let pitch = self.rand_f32(0.94, 1.06);
-        self.play_sound_3d(sound_id, position, volume, pitch);
+        self.play_sound_3d_varied_occluded(sound_id, position, volume, 0.0);
+    }
+
+    /// Plays a 3D sound with subtle organic pitch variation and acoustic occlusion.
+    pub fn play_sound_3d_varied_occluded(&mut self, sound_id: SoundId, position: Vec3, volume: f32, occlusion: f32) {
+        let pitch = self.rand_f32(0.92, 1.08);
+        self.play_sound_3d_occluded(sound_id, position, volume, pitch, occlusion);
     }
 
     /// Dispatches an audio command to the background audio thread or processes synchronously.
@@ -348,16 +371,18 @@ impl AudioEngine {
                     min_dist,
                     max_dist,
                     rolloff,
+                    occlusion,
                 } => {
                     if let Some(sample) = self.soundbank.get(&sound_id) {
-                        let (lg, rg) = if spatial {
-                            self.listener.calculate_spatial_gains(position, min_dist, max_dist, rolloff)
+                        let (lg, rg, filter_alpha) = if spatial {
+                            let res = self.listener.calculate_spatial(position, min_dist, max_dist, rolloff, occlusion);
+                            (res.left_gain, res.right_gain, res.filter_alpha)
                         } else {
                             let angle = (pan.clamp(-1.0, 1.0) + 1.0) * (std::f32::consts::PI * 0.25);
-                            (angle.cos(), angle.sin())
+                            (angle.cos(), angle.sin(), 1.0)
                         };
                         if lg > 0.001 || rg > 0.001 {
-                            mixer.play_sample(sample, sound_id.category(), volume, pitch, lg, rg, looping);
+                            mixer.play_sample(sample, sound_id.category(), volume, pitch, lg, rg, filter_alpha, looping);
                         }
                     }
                 }

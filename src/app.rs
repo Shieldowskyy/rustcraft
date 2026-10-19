@@ -237,6 +237,7 @@ pub struct RustCraftApp {
     pub current_player_height: f32,
     pub break_progress: f32,
     pub break_target: Option<IVec3>,
+    pub dig_sound_timer: f32,
     pub total_time: f32,
     pub material_timer: f32,
     pub hand_animation: f32,
@@ -452,6 +453,7 @@ impl RustCraftApp {
             current_player_height: STANDING_HEIGHT,
             break_progress: 0.0,
             break_target: None,
+            dig_sound_timer: 0.0,
             total_time: 0.0,
             material_timer: 0.0,
             hand_animation: 0.0,
@@ -568,6 +570,18 @@ impl RustCraftApp {
     #[cfg(target_os = "vita")]
     pub fn update(&mut self, dt: f32, input: &crate::app::InputState) -> AppOutput {
         self.update_and_render(dt, input)
+    }
+
+    /// Plays a 3D spatialized sound effect with realistic acoustic voxel occlusion through terrain/walls.
+    pub fn play_world_sound(&mut self, sound_id: crate::audio::SoundId, pos: Vec3, volume: f32, pitch: f32) {
+        let occlusion = self.world.calculate_acoustic_occlusion(self.camera.position, pos);
+        self.audio.play_sound_3d_occluded(sound_id, pos, volume, pitch, occlusion);
+    }
+
+    /// Plays a 3D sound with realistic Minecraft-style pitch variation (±12%) and acoustic occlusion.
+    pub fn play_world_sound_varied(&mut self, sound_id: crate::audio::SoundId, pos: Vec3, volume: f32) {
+        let occlusion = self.world.calculate_acoustic_occlusion(self.camera.position, pos);
+        self.audio.play_sound_3d_varied_occluded(sound_id, pos, volume, occlusion);
     }
 
     fn raycast_remote_player(&self, origin: Vec3, dir: Vec3, max_reach: f32) -> Option<(u32, Vec3)> {
@@ -2711,11 +2725,21 @@ impl RustCraftApp {
                             self.world.prime_tnt(target);
                             self.break_target = None;
                             self.break_progress = 0.0;
+                            self.dig_sound_timer = 0.0;
                             crate::log_info!("WORLD", "TNT primed at ({}, {}, {})", target.x, target.y, target.z);
                         } else {
                             if self.break_target != Some(target) {
                                 self.break_target = Some(target);
                                 self.break_progress = 0.0;
+                                self.dig_sound_timer = 0.0;
+                            }
+
+                            let sound_pos = Vec3::new(target.x as f32 + 0.5, target.y as f32 + 0.5, target.z as f32 + 0.5);
+                            self.dig_sound_timer -= dt;
+                            if interact_left_just || self.dig_sound_timer <= 0.0 {
+                                self.dig_sound_timer = 0.22; // Minecraft hit cadence
+                                let dig_sound = crate::audio::SoundId::from_block_dig(broken_block);
+                                self.play_world_sound_varied(dig_sound, sound_pos, 0.78);
                             }
 
                             let break_time = if self.player.gamemode == GameMode::Creative {
@@ -2733,6 +2757,7 @@ impl RustCraftApp {
                             if self.break_progress >= 1.0 {
                                 self.break_progress = 0.0;
                                 self.break_target = None;
+                                self.dig_sound_timer = 0.0;
                                 self.hand_animation = 1.0;
 
                                 let bx = target.x as f32 + 0.5;
@@ -2755,7 +2780,7 @@ impl RustCraftApp {
                                 self.world.set_block(target, BlockId::Air);
                                 let break_sound = crate::audio::SoundId::from_block_break(broken_block);
                                 let sound_pos = Vec3::new(bx, by, bz);
-                                self.audio.play_sound_3d_varied(break_sound, sound_pos, 0.9);
+                                self.play_world_sound_varied(break_sound, sound_pos, 0.95);
                                 if let Some(client) = &mut self.net_client {
                                     client.send_block_change(target.x, target.y, target.z, 0);
                                 }
@@ -2844,11 +2869,13 @@ impl RustCraftApp {
                     } else {
                         self.break_target = None;
                         self.break_progress = 0.0;
+                        self.dig_sound_timer = 0.0;
                     }
                     }
                 } else {
                     self.break_target = None;
                     self.break_progress = 0.0;
+                    self.dig_sound_timer = 0.0;
                 }
 
                 let interact_right = !self.chat.is_open && self.controls.is_just_pressed(Action::UsePlace);
@@ -2885,7 +2912,7 @@ impl RustCraftApp {
                             self.world.set_block(hit.block_pos, new_block);
                             let door_sound = if new_block == BlockId::DoorOpen { crate::audio::SoundId::DoorOpen } else { crate::audio::SoundId::DoorClose };
                             let sound_pos = Vec3::new(hit.block_pos.x as f32 + 0.5, hit.block_pos.y as f32 + 0.5, hit.block_pos.z as f32 + 0.5);
-                            self.audio.play_sound_3d_varied(door_sound, sound_pos, 0.85);
+                            self.play_world_sound_varied(door_sound, sound_pos, 0.85);
                             let above = hit.block_pos + IVec3::new(0, 1, 0);
                             let below = hit.block_pos - IVec3::new(0, 1, 0);
                             if matches!(self.world.get_block(above), BlockId::Door | BlockId::DoorOpen) {
@@ -2953,7 +2980,7 @@ impl RustCraftApp {
                                         self.world.set_block(place_pos, BlockId::Door);
                                         self.world.set_block(top_pos, BlockId::Door);
                                         let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
-                                        self.audio.play_sound_3d_varied(crate::audio::SoundId::PlaceWood, sound_pos, 0.85);
+                                        self.play_world_sound_varied(crate::audio::SoundId::PlaceWood, sound_pos, 0.85);
                                         if let Some(client) = &mut self.net_client {
                                             client.send_block_change(place_pos.x, place_pos.y, place_pos.z, BlockId::Door.to_u8());
                                             client.send_block_change(top_pos.x, top_pos.y, top_pos.z, BlockId::Door.to_u8());
@@ -2970,7 +2997,7 @@ impl RustCraftApp {
                                     self.world.set_block(place_pos, place_id);
                                     let place_sound = crate::audio::SoundId::from_block_place(place_id);
                                     let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
-                                    self.audio.play_sound_3d_varied(place_sound, sound_pos, 0.85);
+                                    self.play_world_sound_varied(place_sound, sound_pos, 0.85);
                                     if let Some(client) = &mut self.net_client {
                                         client.send_block_change(place_pos.x, place_pos.y, place_pos.z, place_id.to_u8());
                                     }
@@ -3132,9 +3159,10 @@ impl RustCraftApp {
                     i += 1;
                 }
 
-                for exp_pos in self.world.pending_explosions.drain(..) {
+                let pending_explosions: Vec<_> = self.world.pending_explosions.drain(..).collect();
+                for exp_pos in pending_explosions {
                     self.particles.spawn_explosion(exp_pos);
-                    self.audio.play_sound_3d(crate::audio::SoundId::Explosion, exp_pos, 1.0, 1.0);
+                    self.play_world_sound(crate::audio::SoundId::Explosion, exp_pos, 1.0, 1.0);
                     self.mob_manager.apply_explosion(exp_pos, 5.0, 30.0);
                     let dist = (self.camera.position - exp_pos).length();
                     if dist < 6.0 {

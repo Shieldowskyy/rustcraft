@@ -110,8 +110,8 @@ mod tests {
         let mut mixer = AudioMixer::new(48000);
         let sample = synthesize_sound(SoundId::UiClick, 48000);
 
-        // Play sound
-        mixer.play_sample(&sample, SoundCategory::Sfx, 1.0, 1.0, 0.7, 0.7, false);
+        // Play sound with transparent filter (1.0)
+        mixer.play_sample(&sample, SoundCategory::Sfx, 1.0, 1.0, 0.7, 0.7, 1.0, false);
         assert_eq!(mixer.active_voice_count(), 1);
 
         let mut out = [0.0f32; 512]; // 256 stereo frames
@@ -143,6 +143,7 @@ mod tests {
             min_dist: 1.0,
             max_dist: 20.0,
             rolloff: 1.0,
+            occlusion: 0.0,
         };
 
         assert!(q.push(cmd));
@@ -175,9 +176,64 @@ mod tests {
         engine.play_sound(SoundId::UiClick, 1.0, 1.0);
         engine.play_sound_3d(SoundId::StepGrass, Vec3::new(1.0, 2.0, 3.0), 0.8, 1.0);
         engine.play_sound_3d_varied(SoundId::BreakStone, Vec3::new(2.0, 0.0, 2.0), 0.9);
+        engine.play_sound_3d_varied_occluded(SoundId::BreakWood, Vec3::new(3.0, 0.0, 3.0), 0.85, 0.7);
 
         // Cadence update
         engine.update(0.016, Vec3::new(0.0, 50.0, 0.0), 4.0, true, false, crate::world::block::BlockId::Grass);
+    }
+
+    #[test]
+    fn test_spatial_effects_air_absorption_and_occlusion() {
+        let listener = AudioListener::new(Vec3::zero(), Vec3::new(0.0, 0.0, 1.0), Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0));
+
+        // Close unobstructed sound
+        let close_res = listener.calculate_spatial(Vec3::new(0.0, 0.0, 2.0), 1.0, 40.0, 1.0, 0.0);
+        assert!(close_res.filter_alpha > 0.85, "Close sound should have high filter alpha (crisp highs)");
+
+        // Distant unobstructed sound (air absorption test)
+        let far_res = listener.calculate_spatial(Vec3::new(0.0, 0.0, 25.0), 1.0, 40.0, 1.0, 0.0);
+        assert!(far_res.filter_alpha < close_res.filter_alpha, "Far sound should suffer air absorption lowpass");
+
+        // Occluded sound behind solid wall (occlusion test)
+        let occluded_res = listener.calculate_spatial(Vec3::new(0.0, 0.0, 4.0), 1.0, 40.0, 1.0, 1.0);
+        assert!(occluded_res.filter_alpha < 0.15, "Fully occluded sound should be heavily lowpassed (muffled)");
+        let unobstructed_same_dist = listener.calculate_spatial(Vec3::new(0.0, 0.0, 4.0), 1.0, 40.0, 1.0, 0.0);
+        assert!(occluded_res.left_gain < unobstructed_same_dist.left_gain, "Occluded sound gain should be attenuated");
+    }
+
+    #[test]
+    fn test_minecraft_break_and_dig_synthesis() {
+        let sample_rate = 44100;
+
+        // Verify break sound synthesis
+        let break_sounds = [
+            SoundId::BreakStone,
+            SoundId::BreakWood,
+            SoundId::BreakDirt,
+            SoundId::BreakGrass,
+            SoundId::BreakGlass,
+            SoundId::BreakSand,
+        ];
+        for sound in break_sounds {
+            let sample = synthesize_sound(sound, sample_rate);
+            assert!(!sample.data.is_empty(), "{:?} generated empty sample", sound);
+            let energy: f32 = sample.data.iter().map(|s| s * s).sum();
+            assert!(energy > 0.05, "{:?} sample has insufficient energy", sound);
+        }
+
+        // Verify dig sounds
+        let dig_sounds = [
+            SoundId::DigStone,
+            SoundId::DigWood,
+            SoundId::DigDirt,
+            SoundId::DigGrass,
+            SoundId::DigSand,
+        ];
+        for sound in dig_sounds {
+            let sample = synthesize_sound(sound, sample_rate);
+            assert!(!sample.data.is_empty(), "{:?} generated empty sample", sound);
+            assert!(sample.data.len() < sample_rate as usize, "{:?} dig sound too long", sound);
+        }
     }
 }
 

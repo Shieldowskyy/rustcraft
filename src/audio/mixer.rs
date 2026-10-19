@@ -24,6 +24,8 @@ pub struct Voice {
     pub age: u64,
     pub fade_out_samples: u32,
     pub priority: u8,
+    pub filter_alpha: f32,
+    pub filter_state: f32,
 }
 
 impl Default for Voice {
@@ -43,6 +45,8 @@ impl Default for Voice {
             age: 0,
             fade_out_samples: 0,
             priority: 0,
+            filter_alpha: 1.0,
+            filter_state: 0.0,
         }
     }
 }
@@ -73,6 +77,8 @@ impl AudioMixer {
             age: 0,
             fade_out_samples: 0,
             priority: 0,
+            filter_alpha: 1.0,
+            filter_state: 0.0,
         };
 
         Self {
@@ -118,6 +124,7 @@ impl AudioMixer {
         pitch: f32,
         left_pan_gain: f32,
         right_pan_gain: f32,
+        filter_alpha: f32,
         looping: bool,
     ) {
         self.age_counter = self.age_counter.wrapping_add(1);
@@ -161,6 +168,8 @@ impl AudioMixer {
         v.looping = looping;
         v.age = self.age_counter;
         v.fade_out_samples = 0;
+        v.filter_alpha = filter_alpha.clamp(0.005, 1.0);
+        v.filter_state = 0.0;
         v.priority = match category {
             SoundCategory::Ui => 3,
             SoundCategory::Sfx => 2,
@@ -274,7 +283,13 @@ impl AudioMixer {
                 let s0 = sample_data[idx0];
                 let s1 = sample_data[idx1];
                 // Linear interpolation
-                let s = s0 + (s1 - s0) * frac;
+                let mut s = s0 + (s1 - s0) * frac;
+
+                // Atmospheric air absorption and wall acoustic occlusion lowpass filter
+                if v.filter_alpha < 0.999 {
+                    v.filter_state += v.filter_alpha * (s - v.filter_state);
+                    s = v.filter_state;
+                }
 
                 // Smooth gain ramping towards target gain to prevent pops
                 left_gain += (target_l - left_gain) * gain_ramp;

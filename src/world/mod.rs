@@ -2223,6 +2223,87 @@ impl World {
         max_dist
     }
 
+    /// Calculates acoustic occlusion factor in [0.0, 1.0] between a listener and sound emitter.
+    ///
+    /// Traces the 3D line through the voxel grid. Solid blocks (stone, wood, dirt, etc.)
+    /// absorb acoustic energy and cause high-frequency dampening and volume loss.
+    pub fn calculate_acoustic_occlusion(&self, listener: Vec3, emitter: Vec3) -> f32 {
+        let delta = emitter - listener;
+        let dist = delta.length();
+        if dist <= 0.6 {
+            return 0.0;
+        }
+
+        let dir = delta * (1.0 / dist);
+        let mut x = listener.x.floor() as i32;
+        let mut y = listener.y.floor() as i32;
+        let mut z = listener.z.floor() as i32;
+
+        let end_x = emitter.x.floor() as i32;
+        let end_y = emitter.y.floor() as i32;
+        let end_z = emitter.z.floor() as i32;
+
+        let step_x = if dir.x > 0.0 { 1 } else { -1 };
+        let step_y = if dir.y > 0.0 { 1 } else { -1 };
+        let step_z = if dir.z > 0.0 { 1 } else { -1 };
+
+        let t_delta_x = if dir.x.abs() > 1e-8 { 1.0 / dir.x.abs() } else { f32::INFINITY };
+        let t_delta_y = if dir.y.abs() > 1e-8 { 1.0 / dir.y.abs() } else { f32::INFINITY };
+        let t_delta_z = if dir.z.abs() > 1e-8 { 1.0 / dir.z.abs() } else { f32::INFINITY };
+
+        let next_boundary = |p: f32, step: i32| -> f32 {
+            if step > 0 { p.floor() + 1.0 - p } else { p - p.floor() }
+        };
+
+        let mut t_max_x = if dir.x.abs() > 1e-8 { next_boundary(listener.x, step_x) / dir.x.abs() } else { f32::INFINITY };
+        let mut t_max_y = if dir.y.abs() > 1e-8 { next_boundary(listener.y, step_y) / dir.y.abs() } else { f32::INFINITY };
+        let mut t_max_z = if dir.z.abs() > 1e-8 { next_boundary(listener.z, step_z) / dir.z.abs() } else { f32::INFINITY };
+
+        let mut occlusion_accum = 0.0f32;
+        let mut traveled = 0.0f32;
+        let mut steps = 0;
+        const MAX_STEPS: usize = 64;
+
+        while traveled < dist && steps < MAX_STEPS {
+            steps += 1;
+            // Ignore the listener's own voxel and the emitter's own voxel
+            if (x != listener.x.floor() as i32 || y != listener.y.floor() as i32 || z != listener.z.floor() as i32)
+                && (x != end_x || y != end_y || z != end_z)
+            {
+                let block = self.get_block(IVec3::new(x, y, z));
+                if block != BlockId::Air {
+                    let weight = match block {
+                        BlockId::Glass => 0.15,
+                        BlockId::Water => 0.25,
+                        BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves | BlockId::SnowLeaves => 0.12,
+                        BlockId::Wood | BlockId::Planks | BlockId::Door | BlockId::DoorOpen => 0.35,
+                        _ => 0.50, // Dense blocks: Stone, Dirt, Cobblestone, Ores, etc.
+                    };
+                    occlusion_accum += weight;
+                    if occlusion_accum >= 1.0 {
+                        return 1.0;
+                    }
+                }
+            }
+
+            if t_max_x < t_max_y && t_max_x < t_max_z {
+                x += step_x;
+                traveled = t_max_x;
+                t_max_x += t_delta_x;
+            } else if t_max_y < t_max_z {
+                y += step_y;
+                traveled = t_max_y;
+                t_max_y += t_delta_y;
+            } else {
+                z += step_z;
+                traveled = t_max_z;
+                t_max_z += t_delta_z;
+            }
+        }
+
+        occlusion_accum.min(1.0)
+    }
+
     pub fn box_collides(&self, min: Vec3, max: Vec3) -> bool {
         let eps = 1e-4;
         let x0 = min.x.floor() as i32;

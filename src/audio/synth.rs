@@ -86,6 +86,78 @@ impl IirFilter {
     }
 }
 
+/// 2-pole Biquad IIR filter for sharp acoustic resonances (stone cracks, wooden board harmonics).
+#[derive(Clone, Copy)]
+pub struct BiquadFilter {
+    b0: f32,
+    b1: f32,
+    b2: f32,
+    a1: f32,
+    a2: f32,
+    x1: f32,
+    x2: f32,
+    y1: f32,
+    y2: f32,
+}
+
+impl BiquadFilter {
+    pub fn bandpass(center_hz: f32, q: f32, sr: f32) -> Self {
+        let w0 = 2.0 * PI * center_hz.clamp(20.0, sr * 0.48) / sr;
+        let alpha = w0.sin() / (2.0 * q.max(0.1));
+        let b0 = alpha;
+        let b1 = 0.0;
+        let b2 = -alpha;
+        let a0 = 1.0 + alpha;
+        let a1 = -2.0 * w0.cos();
+        let a2 = 1.0 - alpha;
+        Self {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    pub fn lowpass(cutoff_hz: f32, q: f32, sr: f32) -> Self {
+        let w0 = 2.0 * PI * cutoff_hz.clamp(20.0, sr * 0.48) / sr;
+        let alpha = w0.sin() / (2.0 * q.max(0.1));
+        let cos_w0 = w0.cos();
+        let b0 = (1.0 - cos_w0) * 0.5;
+        let b1 = 1.0 - cos_w0;
+        let b2 = (1.0 - cos_w0) * 0.5;
+        let a0 = 1.0 + alpha;
+        let a1 = -2.0 * cos_w0;
+        let a2 = 1.0 - alpha;
+        Self {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    #[inline(always)]
+    pub fn process(&mut self, in_val: f32) -> f32 {
+        let out = self.b0 * in_val + self.b1 * self.x1 + self.b2 * self.x2
+            - self.a1 * self.y1 - self.a2 * self.y2;
+        self.x2 = self.x1;
+        self.x1 = in_val;
+        self.y2 = self.y1;
+        self.y1 = out;
+        out
+    }
+}
+
 /// Synthesizes the standard procedural sound library at a specified sample rate.
 pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
     let sr = sample_rate as f32;
@@ -141,20 +213,20 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::StepGravel => synth_noise_burst(&mut rng, sr, 0.16, 400.0, 2800.0, 1.4, 0.85),
         SoundId::StepWater => synth_water_splash(&mut rng, sr, 0.22, 0.4),
 
-        // Digging (lighter taps)
-        SoundId::DigGrass => synth_noise_burst(&mut rng, sr, 0.08, 1200.0, 3000.0, 1.5, 0.5),
-        SoundId::DigDirt => synth_noise_burst(&mut rng, sr, 0.09, 250.0, 1200.0, 2.0, 0.6),
-        SoundId::DigStone => synth_impact(&mut rng, sr, 0.07, 450.0, 2200.0, 0.01, 0.6),
-        SoundId::DigWood => synth_resonant_knock(sr, 0.08, 260.0, 1.8, 0.6),
-        SoundId::DigSand => synth_noise_burst(&mut rng, sr, 0.10, 500.0, 2000.0, 1.2, 0.5),
+        // Digging (tactile punchy Minecraft taps)
+        SoundId::DigGrass => synth_grass_dig(&mut rng, sr, 0.075, 0.75),
+        SoundId::DigDirt => synth_dirt_dig(&mut rng, sr, 0.08, 0.8),
+        SoundId::DigStone => synth_stone_dig(&mut rng, sr, 0.07, 0.85),
+        SoundId::DigWood => synth_wood_dig(&mut rng, sr, 0.08, 0.8),
+        SoundId::DigSand => synth_sand_dig(&mut rng, sr, 0.085, 0.75),
 
-        // Breaking (rich crumble / shatter)
-        SoundId::BreakGrass => synth_crumble(&mut rng, sr, 0.25, 900.0, 3500.0, 0.8),
-        SoundId::BreakDirt => synth_crumble(&mut rng, sr, 0.28, 200.0, 1100.0, 0.9),
-        SoundId::BreakStone => synth_stone_break(&mut rng, sr, 0.32, 0.95),
-        SoundId::BreakWood => synth_wood_break(&mut rng, sr, 0.30, 0.9),
-        SoundId::BreakGlass => synth_glass_shatter(&mut rng, sr, 0.35, 0.85),
-        SoundId::BreakSand => synth_crumble(&mut rng, sr, 0.26, 400.0, 2200.0, 0.85),
+        // Breaking (authentic Minecraft multi-debris crumple / shatter)
+        SoundId::BreakGrass => synth_grass_break(&mut rng, sr, 0.28, 0.9),
+        SoundId::BreakDirt => synth_dirt_break(&mut rng, sr, 0.30, 0.95),
+        SoundId::BreakStone => synth_stone_break(&mut rng, sr, 0.35, 1.0),
+        SoundId::BreakWood => synth_wood_break(&mut rng, sr, 0.32, 0.95),
+        SoundId::BreakGlass => synth_glass_shatter(&mut rng, sr, 0.38, 0.9),
+        SoundId::BreakSand => synth_sand_break(&mut rng, sr, 0.28, 0.85),
 
         // Placement (solid impact)
         SoundId::PlaceGrass => synth_noise_burst(&mut rng, sr, 0.11, 800.0, 2600.0, 1.8, 0.7),
@@ -269,87 +341,296 @@ fn synth_resonant_knock(sr: f32, duration: f32, base_freq: f32, decay_exp: f32, 
     out
 }
 
-/// Synthesizes multi-stage crumbling noise (break dirt/sand/grass).
-fn synth_crumble(
-    rng: &mut FastRng,
-    sr: f32,
-    duration: f32,
-    hp_cutoff: f32,
-    lp_cutoff: f32,
-    volume: f32,
-) -> Vec<f32> {
-    let count = (sr * duration) as usize;
-    let mut out = Vec::with_capacity(count);
-    let mut hp = IirFilter::highpass(hp_cutoff, sr);
-    let mut lp = IirFilter::lowpass(lp_cutoff, sr);
-
-    for i in 0..count {
-        let t = i as f32 / count as f32;
-        // Dual-crest envelope simulating shattering fragments
-        let env = ((1.0 - t).powf(1.4) * 0.7 + (-(t - 0.25).abs() * 8.0).exp() * 0.3).min(1.0);
-        let raw = rng.next_f32();
-        let filtered = lp.process(hp.process(raw));
-        out.push(filtered * env * volume);
-    }
-    out
-}
-
-/// Stone break with sharp crack and deep rumble.
+/// Minecraft-style stone block break: heavy fracture thump + sharp crack + multi-grain debris scatter.
 fn synth_stone_break(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
-    let count = (sr * duration) as usize;
-    let mut out = Vec::with_capacity(count);
-    let mut hp = IirFilter::highpass(300.0, sr);
-    let mut lp = IirFilter::lowpass(2800.0, sr);
+    let count = (sr * duration.max(0.32)) as usize;
+    let mut out = vec![0.0f32; count];
+    let mut bp_crack = BiquadFilter::bandpass(2400.0, 2.2, sr);
+    let mut bp_rumble = BiquadFilter::bandpass(140.0, 1.5, sr);
+
+    // 1. Initial heavy fracture snap (high impact thump + rock crack)
+    let snap_len = (sr * 0.08) as usize;
     let mut phase = 0.0f32;
-
-    for i in 0..count {
-        let t = i as f32 / count as f32;
-        let env_crack = (1.0 - t).powf(2.0);
-        let env_rumble = (-t * 6.0).exp();
-        phase += 2.0 * PI * (120.0 - t * 40.0) / sr;
-        let rumble = phase.sin() * env_rumble * 0.45;
-        let crack = lp.process(hp.process(rng.next_f32())) * env_crack * 0.8;
-        out.push((rumble + crack) * volume);
+    for i in 0..snap_len.min(count) {
+        let t = i as f32 / sr;
+        let freq = 180.0 - t * 1400.0;
+        phase += 2.0 * PI * freq.max(50.0) / sr;
+        let thump = phase.sin() * (-t * 45.0).exp() * 0.85;
+        let raw_noise = rng.next_f32();
+        let crack = bp_crack.process(raw_noise) * (-t * 60.0).exp() * 1.4;
+        let body = bp_rumble.process(raw_noise) * (-t * 30.0).exp() * 0.6;
+        out[i] += (thump + crack + body) * volume;
     }
+
+    // 2. Debris scatter grains (6 discrete rocky chips scattering)
+    let grain_times = [0.035, 0.070, 0.115, 0.165, 0.220, 0.280];
+    let grain_amps = [0.85, 0.70, 0.55, 0.42, 0.30, 0.18];
+    let grain_freqs = [2800.0, 2100.0, 3200.0, 1800.0, 2500.0, 1500.0];
+
+    for g in 0..grain_times.len() {
+        let start_idx = (grain_times[g] * sr) as usize;
+        let g_len = (sr * 0.035) as usize;
+        let amp = grain_amps[g];
+        let mut g_bp = BiquadFilter::bandpass(grain_freqs[g], 3.0, sr);
+        for i in 0..g_len {
+            let idx = start_idx + i;
+            if idx >= count { break; }
+            let t = i as f32 / g_len as f32;
+            let env = (1.0 - t).powi(2);
+            let s = g_bp.process(rng.next_f32()) * env * amp;
+            out[idx] += s * volume;
+        }
+    }
+
     out
 }
 
-/// Wood break with splintering crunch.
+/// Minecraft-style wood break: hollow board splitting + fibrous splinter crackles.
 fn synth_wood_break(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
-    let count = (sr * duration) as usize;
-    let mut out = Vec::with_capacity(count);
-    let mut hp = IirFilter::highpass(180.0, sr);
-    let mut lp = IirFilter::lowpass(1600.0, sr);
+    let count = (sr * duration.max(0.30)) as usize;
+    let mut out = vec![0.0f32; count];
+    let mut bp_splinter = BiquadFilter::bandpass(1650.0, 1.8, sr);
 
-    for i in 0..count {
-        let t = i as f32 / count as f32;
-        let env = (1.0 - t).powf(1.6);
-        let splinter = if (i % ((sr * 0.04) as usize)) < 12 { 1.5 } else { 0.8 };
-        let noise = lp.process(hp.process(rng.next_f32())) * splinter;
-        out.push(noise * env * volume);
+    // 1. Initial hollow board fracture snap + tone bend
+    let snap_len = (sr * 0.10) as usize;
+    let mut phase1 = 0.0f32;
+    let mut phase2 = 0.0f32;
+    for i in 0..snap_len.min(count) {
+        let t = i as f32 / sr;
+        let freq = (210.0 - t * 800.0).max(90.0);
+        phase1 += 2.0 * PI * freq / sr;
+        phase2 += 2.0 * PI * (freq * 2.1) / sr;
+        let wood_tone = (phase1.sin() * 0.6 + phase2.sin() * 0.4) * (-t * 35.0).exp();
+        let splinter = bp_splinter.process(rng.next_f32()) * (-t * 40.0).exp() * 1.2;
+        out[i] += (wood_tone + splinter) * volume;
     }
+
+    // 2. Fibrous splinter crackles
+    let splinter_times = [0.03, 0.065, 0.11, 0.16, 0.22];
+    let splinter_amps = [0.75, 0.60, 0.45, 0.32, 0.20];
+    let splinter_freqs = [1900.0, 1400.0, 2200.0, 1700.0, 1200.0];
+
+    for s_idx in 0..splinter_times.len() {
+        let start_idx = (splinter_times[s_idx] * sr) as usize;
+        let s_len = (sr * 0.03) as usize;
+        let amp = splinter_amps[s_idx];
+        let mut s_bp = BiquadFilter::bandpass(splinter_freqs[s_idx], 2.5, sr);
+        for i in 0..s_len {
+            let idx = start_idx + i;
+            if idx >= count { break; }
+            let t = i as f32 / s_len as f32;
+            let env = (1.0 - t).powi(2);
+            let s = s_bp.process(rng.next_f32()) * env * amp;
+            out[idx] += s * volume;
+        }
+    }
+
     out
 }
 
-/// Glass shattering with crystalline chimes.
+/// Minecraft-style dirt break: heavy low-frequency thump + tumbling soil clod grains.
+fn synth_dirt_break(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.28)) as usize;
+    let mut out = vec![0.0f32; count];
+    let mut lp = IirFilter::lowpass(850.0, sr);
+    let mut hp = IirFilter::highpass(180.0, sr);
+
+    // Initial soft heavy earthy thud
+    let thud_len = (sr * 0.09) as usize;
+    let mut phase = 0.0f32;
+    for i in 0..thud_len.min(count) {
+        let t = i as f32 / sr;
+        phase += 2.0 * PI * 85.0 / sr;
+        let thud = phase.sin() * (-t * 40.0).exp() * 0.9;
+        let crunch = lp.process(hp.process(rng.next_f32())) * (-t * 35.0).exp() * 1.1;
+        out[i] += (thud + crunch) * volume;
+    }
+
+    // Granular soil clod scatter
+    let clod_times = [0.035, 0.075, 0.12, 0.17, 0.22];
+    let clod_amps = [0.65, 0.50, 0.38, 0.26, 0.15];
+    for c in 0..clod_times.len() {
+        let start_idx = (clod_times[c] * sr) as usize;
+        let c_len = (sr * 0.04) as usize;
+        let mut c_lp = IirFilter::lowpass(650.0, sr);
+        let mut c_hp = IirFilter::highpass(220.0, sr);
+        let amp = clod_amps[c];
+        for i in 0..c_len {
+            let idx = start_idx + i;
+            if idx >= count { break; }
+            let t = i as f32 / c_len as f32;
+            let env = (1.0 - t).powi(2);
+            let s = c_lp.process(c_hp.process(rng.next_f32())) * env * amp;
+            out[idx] += s * volume;
+        }
+    }
+
+    out
+}
+
+/// Minecraft-style grass break: leafy tearing crunch + soft soil base.
+fn synth_grass_break(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.26)) as usize;
+    let mut out = vec![0.0f32; count];
+    let mut hp_leaf = IirFilter::highpass(1400.0, sr);
+    let mut lp_leaf = IirFilter::lowpass(4200.0, sr);
+    let mut lp_earth = IirFilter::lowpass(400.0, sr);
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let leaf_env = (1.0 - t).powf(1.8) * 0.85;
+        let raw = rng.next_f32();
+        let leaf_crunch = lp_leaf.process(hp_leaf.process(raw)) * leaf_env * 1.1;
+        let earth_thump = lp_earth.process(raw) * (-t * 12.0).exp() * 0.45;
+        out[i] = (leaf_crunch + earth_thump) * volume;
+    }
+
+    out
+}
+
+/// Minecraft-style glass shattering: instant crystalline snap + resonant chimes + shard tinkles.
 fn synth_glass_shatter(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
-    let count = (sr * duration) as usize;
-    let mut out = Vec::with_capacity(count);
-    let mut hp = IirFilter::highpass(2500.0, sr);
-    let mut lp = IirFilter::lowpass(9000.0, sr);
+    let count = (sr * duration.max(0.38)) as usize;
+    let mut out = vec![0.0f32; count];
+    let mut hp = IirFilter::highpass(2200.0, sr);
+    let mut lp = IirFilter::lowpass(9500.0, sr);
+
+    // 1. Initial sharp crystal snap transient
+    let snap_len = (sr * 0.015) as usize;
+    for i in 0..snap_len.min(count) {
+        let t = i as f32 / snap_len as f32;
+        let snap = lp.process(hp.process(rng.next_f32())) * (1.0 - t).powi(3) * 1.8;
+        out[i] += snap * volume;
+    }
+
+    // 2. Resonant metallic chimes
+    let chime_len = (sr * 0.32) as usize;
     let mut p1 = 0.0f32;
     let mut p2 = 0.0f32;
     let mut p3 = 0.0f32;
+    for i in 0..chime_len.min(count) {
+        let t = i as f32 / sr;
+        p1 += 2.0 * PI * 3150.0 / sr;
+        p2 += 2.0 * PI * 5200.0 / sr;
+        p3 += 2.0 * PI * 7800.0 / sr;
+        let env = (-t * 12.0).exp();
+        let chimes = (p1.sin() * 0.4 + p2.sin() * 0.35 + p3.sin() * 0.25) * env * 0.7;
+        out[i] += chimes * volume;
+    }
+
+    // 3. Shard tinkles scattering
+    let tinkle_times = [0.03, 0.07, 0.12, 0.17, 0.23, 0.29, 0.34];
+    let tinkle_amps = [0.7, 0.6, 0.5, 0.4, 0.3, 0.22, 0.15];
+    let tinkle_freqs = [4200.0, 6800.0, 3900.0, 8100.0, 5400.0, 7200.0, 4800.0];
+
+    for k in 0..tinkle_times.len() {
+        let start_idx = (tinkle_times[k] * sr) as usize;
+        let t_len = (sr * 0.02) as usize;
+        let mut t_bp = BiquadFilter::bandpass(tinkle_freqs[k], 4.0, sr);
+        let amp = tinkle_amps[k];
+        for i in 0..t_len {
+            let idx = start_idx + i;
+            if idx >= count { break; }
+            let t = i as f32 / t_len as f32;
+            let env = (1.0 - t).powi(2);
+            let s = t_bp.process(rng.next_f32()) * env * amp;
+            out[idx] += s * volume;
+        }
+    }
+
+    out
+}
+
+/// Minecraft-style sand break: soft crumbling collapse + raspy granular friction.
+fn synth_sand_break(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.26)) as usize;
+    let mut out = vec![0.0f32; count];
+    let mut hp = IirFilter::highpass(500.0, sr);
+    let mut lp = IirFilter::lowpass(2800.0, sr);
 
     for i in 0..count {
         let t = i as f32 / count as f32;
-        let env = (1.0 - t).powf(1.8);
-        p1 += 2.0 * PI * 3400.0 / sr;
-        p2 += 2.0 * PI * 4800.0 / sr;
-        p3 += 2.0 * PI * 7200.0 / sr;
-        let chime = (p1.sin() * 0.3 + p2.sin() * 0.3 + p3.sin() * 0.2) * env;
-        let noise = lp.process(hp.process(rng.next_f32())) * env * 0.6;
-        out.push((chime + noise) * volume);
+        let env = (1.0 - t).powf(1.5);
+        let raw = rng.next_f32();
+        let friction = lp.process(hp.process(raw)) * env * 1.1;
+        out[i] = friction * volume;
+    }
+    out
+}
+
+/// Punchy stone digging / hitting tap (pickaxe/fist impact against rock).
+fn synth_stone_dig(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.065)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp = BiquadFilter::bandpass(2400.0, 2.5, sr);
+    let mut phase = 0.0f32;
+    for i in 0..count {
+        let t = i as f32 / sr;
+        phase += 2.0 * PI * 130.0 / sr;
+        let thump = phase.sin() * (-t * 60.0).exp() * 0.7;
+        let crack = bp.process(rng.next_f32()) * (-t * 80.0).exp() * 1.3;
+        out.push((thump + crack) * volume);
+    }
+    out
+}
+
+/// Punchy wood digging / hitting tap (axe/fist hollow knock).
+fn synth_wood_dig(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.075)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp = BiquadFilter::bandpass(1700.0, 2.0, sr);
+    let mut phase = 0.0f32;
+    for i in 0..count {
+        let t = i as f32 / sr;
+        phase += 2.0 * PI * 180.0 / sr;
+        let knock = phase.sin() * (-t * 45.0).exp() * 0.75;
+        let click = bp.process(rng.next_f32()) * (-t * 70.0).exp() * 1.1;
+        out.push((knock + click) * volume);
+    }
+    out
+}
+
+/// Punchy dirt digging / hitting tap (shovel/fist earthy thud).
+fn synth_dirt_dig(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.070)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut lp = IirFilter::lowpass(900.0, sr);
+    let mut hp = IirFilter::highpass(180.0, sr);
+    let mut phase = 0.0f32;
+    for i in 0..count {
+        let t = i as f32 / sr;
+        phase += 2.0 * PI * 95.0 / sr;
+        let thud = phase.sin() * (-t * 50.0).exp() * 0.75;
+        let crunch = lp.process(hp.process(rng.next_f32())) * (-t * 50.0).exp() * 1.0;
+        out.push((thud + crunch) * volume);
+    }
+    out
+}
+
+/// Punchy grass digging / hitting tap (shears/fist leafy rustle).
+fn synth_grass_dig(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.070)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut lp = IirFilter::lowpass(3200.0, sr);
+    let mut hp = IirFilter::highpass(1200.0, sr);
+    for i in 0..count {
+        let t = i as f32 / sr;
+        let snap = lp.process(hp.process(rng.next_f32())) * (-t * 45.0).exp() * 1.1;
+        out.push(snap * volume);
+    }
+    out
+}
+
+/// Punchy sand digging / hitting tap (shovel/fist friction scrape).
+fn synth_sand_dig(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.080)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut lp = IirFilter::lowpass(2400.0, sr);
+    let mut hp = IirFilter::highpass(600.0, sr);
+    for i in 0..count {
+        let t = i as f32 / sr;
+        let scrape = lp.process(hp.process(rng.next_f32())) * (-t * 35.0).exp() * 1.1;
+        out.push(scrape * volume);
     }
     out
 }

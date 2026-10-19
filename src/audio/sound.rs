@@ -170,6 +170,28 @@ impl SoundId {
         }
     }
 
+    /// Determines the block digging/hitting sound.
+    #[inline]
+    pub fn from_block_dig(block: BlockId) -> Self {
+        match block {
+            BlockId::Grass | BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves | BlockId::SnowLeaves => {
+                SoundId::DigGrass
+            }
+            BlockId::Dirt | BlockId::Mud => {
+                SoundId::DigDirt
+            }
+            BlockId::Wood
+            | BlockId::Planks
+            | BlockId::CraftingTable
+            | BlockId::Chest
+            | BlockId::Door
+            | BlockId::DoorOpen => SoundId::DigWood,
+            BlockId::Glass => SoundId::BreakGlass,
+            BlockId::Sand => SoundId::DigSand,
+            _ => SoundId::DigStone,
+        }
+    }
+
     /// Determines the block breaking sound.
     #[inline]
     pub fn from_block_break(block: BlockId) -> Self {

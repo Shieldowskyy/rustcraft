@@ -21,6 +21,7 @@ pub enum AudioCommand {
         min_dist: f32,
         max_dist: f32,
         rolloff: f32,
+        occlusion: f32,
     },
     UpdateListener {
         position: Vec3,
