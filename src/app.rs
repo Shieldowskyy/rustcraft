@@ -298,6 +298,8 @@ pub struct RustCraftApp {
     pub telemetry_timer: f32,
     pub camera_perspective: CameraPerspective,
     pub autotest: Option<crate::gameplay::autotest::AutoTestRunner>,
+    pub audio: crate::audio::AudioEngine,
+    pub was_on_ground: bool,
 
     // Controls toggle states
     pub sprint_toggled: bool,
@@ -405,6 +407,16 @@ impl RustCraftApp {
             (GameState::MainMenu, None)
         };
 
+        let mut audio = crate::audio::AudioEngine::new();
+        audio.set_master_volume(settings.master_volume);
+        audio.set_sfx_volume(settings.sfx_volume);
+        audio.set_music_volume(settings.music_volume);
+        audio.set_ambient_volume(settings.ambient_volume);
+        audio.set_ui_volume(settings.ui_volume);
+        if settings.mute_audio {
+            audio.toggle_mute();
+        }
+
         let app = Self {
             width,
             height,
@@ -497,6 +509,8 @@ impl RustCraftApp {
             profiler_copied_timer: 0.0,
             telemetry_timer: 0.0,
             camera_perspective: CameraPerspective::FirstPerson,
+            audio,
+            was_on_ground: false,
 
             sprint_toggled: false,
             crouch_toggled: false,
@@ -2011,6 +2025,7 @@ impl RustCraftApp {
                 if !self.chat.is_open && self.controls.is_just_pressed(Action::Inventory) {
                     self.crafting_table_open = false;
                     self.state = GameState::Inventory;
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                     out.request_release_mouse = true;
                     self.horiz_velocity = Vec3::zero();
                     self.fly_velocity = Vec3::zero();
@@ -2252,6 +2267,7 @@ impl RustCraftApp {
 
                         if should_jump {
                             self.vertical_velocity = JUMP_SPEED;
+                            self.audio.play_sound(crate::audio::SoundId::PlayerJump, 0.75, 1.0);
                             if is_sprinting && wish_dir.length_sq() > 0.01 {
                                 self.horiz_velocity = self.horiz_velocity + wish_dir * SPRINT_JUMP_BOOST;
                                 self.player.exhaustion += 0.2;
@@ -2263,6 +2279,7 @@ impl RustCraftApp {
 
                     let old_y = self.camera.position.y;
                     let motion = Vec3::new(self.horiz_velocity.x, self.vertical_velocity, self.horiz_velocity.z) * dt;
+                    let prev_grounded = self.was_on_ground;
                     self.on_ground = move_player_with_collision(
                         &self.world,
                         &mut self.camera.position,
@@ -2272,11 +2289,38 @@ impl RustCraftApp {
                         self.current_player_height,
                         is_crouching,
                     );
+                    self.was_on_ground = self.on_ground;
+                    if !prev_grounded && self.on_ground && self.player.fall_distance > 0.4 {
+                        self.audio.play_sound(crate::audio::SoundId::PlayerLand, 0.85, 1.0);
+                    }
                     if self.vertical_velocity < 0.0 && !self.fly_mode && !in_water && !in_lava {
                         self.player.fall_distance += old_y - self.camera.position.y;
                     } else if self.vertical_velocity > 0.0 || self.fly_mode || in_water || in_lava {
                         self.player.fall_distance = 0.0;
                     }
+
+                    // Update audio listener & footstep cadence
+                    let horiz_speed = self.horiz_velocity.length();
+                    let block_below_pos = IVec3::new(
+                        self.camera.position.x.floor() as i32,
+                        (self.camera.position.y - self.current_eye_offset - 0.2).floor() as i32,
+                        self.camera.position.z.floor() as i32,
+                    );
+                    let block_below = self.world.get_block(block_below_pos);
+                    self.audio.update(
+                        dt,
+                        self.camera.position,
+                        horiz_speed,
+                        self.on_ground,
+                        is_sprinting,
+                        block_below,
+                    );
+                    self.audio.update_listener(
+                        self.camera.position,
+                        self.camera.forward(),
+                        self.camera.right(),
+                        self.camera.up(),
+                    );
 
                     // Multiplayer player-to-player collision pushing
                     if let Some(client) = &self.net_client {
@@ -2303,6 +2347,7 @@ impl RustCraftApp {
                         if self.lava_damage_timer >= 0.5 {
                             self.lava_damage_timer = 0.0;
                             if self.player.take_damage(4.0) {
+                                self.audio.play_sound(crate::audio::SoundId::PlayerHurt, 0.9, 1.0);
                                 self.damage_tilt_timer = 0.4;
                                 self.damage_tilt_dir = 1.0;
                                 self.particles.spawn_lava_burn(feet_pos);
@@ -2327,6 +2372,7 @@ impl RustCraftApp {
                                 if self.drown_damage_timer >= 1.0 {
                                     self.drown_damage_timer = 0.0;
                                     if self.player.take_damage(2.0) {
+                                        self.audio.play_sound(crate::audio::SoundId::PlayerHurt, 0.9, 1.0);
                                         self.damage_tilt_timer = 0.4;
                                         self.damage_tilt_dir = 1.0;
                                         self.particles.spawn_drown_bubbles(self.camera.position);
@@ -2377,6 +2423,7 @@ impl RustCraftApp {
                             if self.player.starvation_timer >= 4.0 {
                                 self.player.starvation_timer = 0.0;
                                 if self.player.take_damage(1.0) {
+                                    self.audio.play_sound(crate::audio::SoundId::PlayerHurt, 0.9, 1.0);
                                     self.damage_tilt_timer = 0.4;
                                     self.damage_tilt_dir = 1.0;
                                     crate::log_info!("PLAYER", "Player took 1.0 starvation damage (health: {:.1}/{:.1})", self.player.health, self.player.max_health);
@@ -2402,6 +2449,7 @@ impl RustCraftApp {
                         } else if self.player.fall_distance > 3.0 {
                             let damage = self.player.fall_distance - 3.0;
                             if self.player.take_damage(damage) {
+                                self.audio.play_sound(crate::audio::SoundId::PlayerHurt, 0.9, 1.0);
                                 self.damage_tilt_timer = 0.4;
                                 self.damage_tilt_dir = 1.0;
                                 crate::log_info!("PLAYER", "Player took {:.1} fall damage (health: {:.1}/{:.1})", damage, self.player.health, self.player.max_health);
@@ -2547,6 +2595,9 @@ impl RustCraftApp {
                                 };
 
                                 self.world.set_block(target, BlockId::Air);
+                                let break_sound = crate::audio::SoundId::from_block_break(broken_block);
+                                let sound_pos = Vec3::new(bx, by, bz);
+                                self.audio.play_sound_3d_varied(break_sound, sound_pos, 0.9);
                                 if let Some(client) = &mut self.net_client {
                                     client.send_block_change(target.x, target.y, target.z, 0);
                                 }
@@ -2650,6 +2701,7 @@ impl RustCraftApp {
                         if self.player.can_eat(food_id) {
                             if self.player.eat(food_id) {
                                 ate_food = true;
+                                self.audio.play_sound(crate::audio::SoundId::PlayerEat, 0.8, 1.0);
                                 self.hand_animation = 1.0;
                                 let color = food_id.face_color(Face::Top);
                                 let mouth_pos = self.camera.position + self.camera.forward() * 0.4 - Vec3::new(0.0, 0.2, 0.0);
@@ -2673,6 +2725,9 @@ impl RustCraftApp {
                         if matches!(targeted_block, BlockId::Door | BlockId::DoorOpen) && !is_crouching {
                             let new_block = if targeted_block == BlockId::Door { BlockId::DoorOpen } else { BlockId::Door };
                             self.world.set_block(hit.block_pos, new_block);
+                            let door_sound = if new_block == BlockId::DoorOpen { crate::audio::SoundId::DoorOpen } else { crate::audio::SoundId::DoorClose };
+                            let sound_pos = Vec3::new(hit.block_pos.x as f32 + 0.5, hit.block_pos.y as f32 + 0.5, hit.block_pos.z as f32 + 0.5);
+                            self.audio.play_sound_3d_varied(door_sound, sound_pos, 0.85);
                             let above = hit.block_pos + IVec3::new(0, 1, 0);
                             let below = hit.block_pos - IVec3::new(0, 1, 0);
                             if matches!(self.world.get_block(above), BlockId::Door | BlockId::DoorOpen) {
@@ -2685,6 +2740,7 @@ impl RustCraftApp {
                         } else if targeted_block == BlockId::CraftingTable && !is_crouching {
                             self.crafting_table_open = true;
                             self.state = GameState::Inventory;
+                            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                             out.request_release_mouse = true;
                             self.horiz_velocity = Vec3::zero();
                             self.fly_velocity = Vec3::zero();
@@ -2692,6 +2748,7 @@ impl RustCraftApp {
                         } else if targeted_block == BlockId::Chest && !is_crouching {
                             let _ = self.world.get_or_create_chest(hit.block_pos);
                             self.state = GameState::Chest { pos: hit.block_pos };
+                            self.audio.play_sound(crate::audio::SoundId::ChestOpen, 0.8, 1.0);
                             out.request_release_mouse = true;
                             self.horiz_velocity = Vec3::zero();
                             self.fly_velocity = Vec3::zero();
@@ -2737,6 +2794,8 @@ impl RustCraftApp {
                                     {
                                         self.world.set_block(place_pos, BlockId::Door);
                                         self.world.set_block(top_pos, BlockId::Door);
+                                        let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
+                                        self.audio.play_sound_3d_varied(crate::audio::SoundId::PlaceWood, sound_pos, 0.85);
                                         if let Some(client) = &mut self.net_client {
                                             client.send_block_change(place_pos.x, place_pos.y, place_pos.z, BlockId::Door.to_u8());
                                             client.send_block_change(top_pos.x, top_pos.y, top_pos.z, BlockId::Door.to_u8());
@@ -2751,6 +2810,9 @@ impl RustCraftApp {
                                     }
                                 } else if !block_intersects_player(place_pos, self.camera.position, self.current_eye_offset, self.current_player_height) {
                                     self.world.set_block(place_pos, place_id);
+                                    let place_sound = crate::audio::SoundId::from_block_place(place_id);
+                                    let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
+                                    self.audio.play_sound_3d_varied(place_sound, sound_pos, 0.85);
                                     if let Some(client) = &mut self.net_client {
                                         client.send_block_change(place_pos.x, place_pos.y, place_pos.z, place_id.to_u8());
                                     }
@@ -2899,6 +2961,7 @@ impl RustCraftApp {
                         let remaining = self.player.inventory.add_item(self.items[i].block, self.items[i].count);
                         let picked_up = self.items[i].count - remaining;
                         if picked_up > 0 {
+                            self.audio.play_sound(crate::audio::SoundId::ItemPop, 0.7, 1.0);
                             crate::log_info!("INVENTORY", "Player picked up {}x {:?}", picked_up, self.items[i].block);
                         }
                         if remaining == 0 {
@@ -2913,6 +2976,7 @@ impl RustCraftApp {
 
                 for exp_pos in self.world.pending_explosions.drain(..) {
                     self.particles.spawn_explosion(exp_pos);
+                    self.audio.play_sound_3d(crate::audio::SoundId::Explosion, exp_pos, 1.0, 1.0);
                     self.mob_manager.apply_explosion(exp_pos, 5.0, 30.0);
                     let dist = (self.camera.position - exp_pos).length();
                     if dist < 6.0 {
@@ -2920,6 +2984,7 @@ impl RustCraftApp {
                         if self.player.take_damage(dmg) {
                             self.damage_tilt_timer = 0.4;
                             self.damage_tilt_dir = if exp_pos.x > self.camera.position.x { -1.0 } else { 1.0 };
+                            self.audio.play_sound(crate::audio::SoundId::PlayerHurt, 0.9, 1.0);
                             crate::log_info!("PLAYER", "Player took {:.1} explosion damage (health: {:.1}/{:.1})", dmg, self.player.health, self.player.max_health);
                         }
                     }
@@ -3512,6 +3577,7 @@ impl RustCraftApp {
                     }
                     self.crafting_table_open = false;
                     self.state = GameState::Playing;
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                     out.request_capture_mouse = true;
                     crate::log_info!("MENU", "Closed inventory screen, returning to Playing");
                 }
@@ -3719,6 +3785,7 @@ impl RustCraftApp {
                     }
                     crate::log_info!("MENU", "Closed chest container, returning to Playing");
                     self.state = GameState::Playing;
+                    self.audio.play_sound(crate::audio::SoundId::ChestClose, 0.8, 1.0);
                     out.request_capture_mouse = true;
                 }
 

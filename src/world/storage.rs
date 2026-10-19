@@ -60,13 +60,21 @@ fn fallback_saves_dir() -> std::path::PathBuf {
     }
     #[cfg(any(target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
     {
-        let usb_dir = std::path::PathBuf::from("uda0:/RustCraft/saves");
-        if std::fs::create_dir_all(&usb_dir).is_ok() {
-            return usb_dir;
+        let candidates = [
+            "game:/saves",
+            "Usb0:/RustCraft/saves",
+            "Hdd:/RustCraft/saves",
+            "uda0:/RustCraft/saves",
+            "sda0:/RustCraft/saves",
+            "./saves",
+        ];
+        for path_str in candidates {
+            let dir = std::path::PathBuf::from(path_str);
+            if std::fs::create_dir_all(&dir).is_ok() && is_dir_writable(&dir) {
+                return dir;
+            }
         }
-        let hdd_dir = std::path::PathBuf::from("sda0:/RustCraft/saves");
-        let _ = std::fs::create_dir_all(&hdd_dir);
-        return hdd_dir;
+        return std::path::PathBuf::from("game:/saves");
     }
     #[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
     {

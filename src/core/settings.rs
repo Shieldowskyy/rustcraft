@@ -186,6 +186,20 @@ pub struct GameSettings {
     pub profiler_server_port: u16,
     /// Player display nickname for multiplayer (default: 2 words + 3 digits).
     pub nickname: String,
+
+    // Audio options
+    /// Master volume [0.0, 1.0] (default: 0.8).
+    pub master_volume: f32,
+    /// Sound effects volume [0.0, 1.0] (default: 1.0).
+    pub sfx_volume: f32,
+    /// Music volume [0.0, 1.0] (default: 0.5).
+    pub music_volume: f32,
+    /// Ambient atmosphere volume [0.0, 1.0] (default: 0.7).
+    pub ambient_volume: f32,
+    /// UI sound volume [0.0, 1.0] (default: 1.0).
+    pub ui_volume: f32,
+    /// Mute all game audio (default: false).
+    pub mute_audio: bool,
 }
 
 impl Default for GameSettings {
@@ -222,6 +236,12 @@ impl Default for GameSettings {
             profiler_server: false,
             profiler_server_port: 8080,
             nickname: generate_default_nickname(),
+            master_volume: 0.8,
+            sfx_volume: 1.0,
+            music_volume: 0.5,
+            ambient_volume: 0.7,
+            ui_volume: 1.0,
+            mute_audio: false,
         }
     }
 }
@@ -318,6 +338,14 @@ impl GameSettings {
                     generate_default_nickname()
                 };
 
+                let audio_offset = 35 + if bytes.len() >= 35 { bytes[34] as usize } else { 0 };
+                let master_volume = bytes.get(audio_offset).map(|&b| b as f32 / 100.0).unwrap_or(0.8);
+                let sfx_volume = bytes.get(audio_offset + 1).map(|&b| b as f32 / 100.0).unwrap_or(1.0);
+                let music_volume = bytes.get(audio_offset + 2).map(|&b| b as f32 / 100.0).unwrap_or(0.5);
+                let ambient_volume = bytes.get(audio_offset + 3).map(|&b| b as f32 / 100.0).unwrap_or(0.7);
+                let ui_volume = bytes.get(audio_offset + 4).map(|&b| b as f32 / 100.0).unwrap_or(1.0);
+                let mute_audio = bytes.get(audio_offset + 5).copied().unwrap_or(0) != 0;
+
                 crate::core::i18n::set_language(language);
 
                 return Self {
@@ -342,6 +370,12 @@ impl GameSettings {
                     profiler_server,
                     profiler_server_port,
                     nickname,
+                    master_volume,
+                    sfx_volume,
+                    music_volume,
+                    ambient_volume,
+                    ui_volume,
+                    mute_audio,
                 };
             }
         }
@@ -402,7 +436,45 @@ impl GameSettings {
         bytes.push(nick_len);
         bytes.extend_from_slice(&nick_bytes[..nick_len as usize]);
 
+        bytes.push((self.master_volume.clamp(0.0, 1.0) * 100.0) as u8);
+        bytes.push((self.sfx_volume.clamp(0.0, 1.0) * 100.0) as u8);
+        bytes.push((self.music_volume.clamp(0.0, 1.0) * 100.0) as u8);
+        bytes.push((self.ambient_volume.clamp(0.0, 1.0) * 100.0) as u8);
+        bytes.push((self.ui_volume.clamp(0.0, 1.0) * 100.0) as u8);
+        bytes.push(if self.mute_audio { 1 } else { 0 });
+
         std::fs::write(&path, bytes).map_err(|e| e.to_string())
+    }
+
+    pub fn cycle_master_volume(&mut self, forward: bool) {
+        let step = 0.1;
+        self.master_volume = if forward {
+            if self.master_volume >= 0.95 { 0.0 } else { (self.master_volume + step).min(1.0) }
+        } else {
+            if self.master_volume <= 0.05 { 1.0 } else { (self.master_volume - step).max(0.0) }
+        };
+    }
+
+    pub fn cycle_sfx_volume(&mut self, forward: bool) {
+        let step = 0.1;
+        self.sfx_volume = if forward {
+            if self.sfx_volume >= 0.95 { 0.0 } else { (self.sfx_volume + step).min(1.0) }
+        } else {
+            if self.sfx_volume <= 0.05 { 1.0 } else { (self.sfx_volume - step).max(0.0) }
+        };
+    }
+
+    pub fn cycle_music_volume(&mut self, forward: bool) {
+        let step = 0.1;
+        self.music_volume = if forward {
+            if self.music_volume >= 0.95 { 0.0 } else { (self.music_volume + step).min(1.0) }
+        } else {
+            if self.music_volume <= 0.05 { 1.0 } else { (self.music_volume - step).max(0.0) }
+        };
+    }
+
+    pub fn toggle_mute_audio(&mut self) {
+        self.mute_audio = !self.mute_audio;
     }
 
     pub const PORT_PRESETS: [u16; 4] = [8080, 8088, 9000, 3000];

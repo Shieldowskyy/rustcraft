@@ -143,29 +143,38 @@ def create_xbox_pe(payload, entry_point=DEFAULT_ENTRY_POINT, base_address=DEFAUL
         if elf_entry >= base_address:
             entry_point = elf_entry
 
-        max_end = 0x3000
+        max_file_end = 0x2000
+        max_mem_end = 0x3000
         code_end = 0x2000
         for seg in elf_segs:
             rva = seg['vaddr'] - base_address
-            end = rva + max(seg['filesz'], seg['memsz'])
+            f_end = rva + seg['filesz']
+            m_end = rva + max(seg['filesz'], seg['memsz'])
             if seg['flags'] & 1:  # Executable (PF_X)
-                if end > code_end:
-                    code_end = end
-            if end > max_end:
-                max_end = end
+                if f_end > code_end:
+                    code_end = f_end
+            if f_end > max_file_end:
+                max_file_end = f_end
+            if m_end > max_mem_end:
+                max_mem_end = m_end
 
         code_end_aligned = align_up(code_end, 4096)
-        pe_image = bytearray(align_up(max_end, 4096))
+        text_size = code_end_aligned - 0x1000
+        data_rva = code_end_aligned
+        data_virtual_size = align_up(max_mem_end, 4096) - data_rva
+        data_raw_size = align_up(max(0, max_file_end - data_rva), 512)
+        total_file_size = align_up(data_rva + data_raw_size, 512)
+        image_size = align_up(max_mem_end, 4096)
+
+        pe_image = bytearray(total_file_size)
         for seg in elf_segs:
             rva = seg['vaddr'] - base_address
             if rva + len(seg['data']) <= len(pe_image):
                 pe_image[rva:rva + len(seg['data'])] = seg['data']
+            elif rva < len(pe_image):
+                avail = len(pe_image) - rva
+                pe_image[rva:rva + avail] = seg['data'][:avail]
         code_data = pe_image[0x1000:]
-        text_size = code_end_aligned - 0x1000
-        data_rva = code_end_aligned
-        data_size = align_up(max_end, 4096) - data_rva
-        if data_size == 0:
-            data_size = 0x1000
     else:
         # Check if already a PE (starts with MZ)
         if len(payload) > 64 and payload[:2] == IMAGE_DOS_SIGNATURE:
@@ -173,11 +182,13 @@ def create_xbox_pe(payload, entry_point=DEFAULT_ENTRY_POINT, base_address=DEFAUL
         code_data = payload
         text_size = 0x1000
         data_rva = 0x2000
-        data_size = len(code_data) if len(code_data) > 0x1000 else 0x1000
+        data_raw_size = len(code_data) if len(code_data) > 0x1000 else 0x1000
+        data_virtual_size = data_raw_size
+        code_end_aligned = 0x2000
+        image_size = align_up(0x1000 + len(code_data), 4096)
 
-    code_size = align_up(len(code_data), 512)
-    aligned_code = code_data + b'\x00' * (code_size - len(code_data))
-    image_size = align_up(0x1000 + code_size, 4096)
+    aligned_code = code_data
+    code_size = len(aligned_code)
 
     # 1. DOS Header (64 bytes, Little-Endian standard for PE)
     dos_header = bytearray(64)
@@ -216,8 +227,8 @@ def create_xbox_pe(payload, entry_point=DEFAULT_ENTRY_POINT, base_address=DEFAUL
         IMAGE_NT_OPTIONAL_HDR32_MAGIC, # 0x010B
         1, 0,                          # MajorLinker, MinorLinker
         text_size,                     # SizeOfCode
-        data_size,                     # SizeOfInitializedData
-        0,                             # SizeOfUninitializedData
+        data_raw_size,                 # SizeOfInitializedData
+        data_virtual_size - data_raw_size, # SizeOfUninitializedData
         entry_rva,                     # AddressOfEntryPoint (RVA)
         0x1000,                        # BaseOfCode
         data_rva,                      # BaseOfData
@@ -235,7 +246,7 @@ def create_xbox_pe(payload, entry_point=DEFAULT_ENTRY_POINT, base_address=DEFAUL
         0,                             # DllCharacteristics
         0x00100000,                    # SizeOfStackReserve (1 MB)
         0x00010000,                    # SizeOfStackCommit (64 KB)
-        0x02000000,                    # SizeOfHeapReserve (32 MB)
+        0x04000000,                    # SizeOfHeapReserve (64 MB)
         0x00100000,                    # SizeOfHeapCommit (1 MB)
         0,                             # LoaderFlags
         16                             # NumberOfRvaAndSizes
@@ -259,9 +270,9 @@ def create_xbox_pe(payload, entry_point=DEFAULT_ENTRY_POINT, base_address=DEFAUL
     data_section = struct.pack(
         '<8sIIIIIIHHI',
         b'.data\x00\x00\x00',
-        data_size,                     # VirtualSize
+        data_virtual_size,             # VirtualSize (including BSS in RAM)
         data_rva,                      # VirtualAddress (RVA)
-        align_up(data_size, 512),      # SizeOfRawData
+        data_raw_size,                 # SizeOfRawData (only initialized file bytes)
         data_rva,                      # PointerToRawData
         0, 0, 0, 0,
         PE_SECTION_DATA_FLAGS
@@ -335,9 +346,7 @@ def build_xex(input_data, output_path, title_id=DEFAULT_TITLE_ID, title_name="Ru
     pool.extend(pe_name_aligned)
 
     # 2b. Import Libraries Header (XEX_HEADER_IMPORT_LIBRARIES = 0x000103FF)
-    # Allows Xbox 360 kernel (xboxkrnl.exe) to patch ordinal imports at runtime.
-    # In Xbox 360 XEX specification, each function requires a pair:
-    # [descriptor_addr (record_type=0), thunk_addr (record_type=1)].
+    # Allows Xbox 360 kernel (xboxkrnl.exe) and dashboard (xam.xex) to patch ordinal imports.
     syms = extract_elf_symbols(input_data)
 
     XBOXKRNL_EXPORTS = [
@@ -347,36 +356,64 @@ def build_xex(input_data, output_path, title_id=DEFAULT_TITLE_ID, title_name="Ru
         (90,  "KeDelayExecutionThread"),
         (207, "NtClose"),
         (210, "NtCreateFile"),
+        (223, "NtOpenFile"),
+        (232, "NtQueryInformationFile"),
+        (240, "NtReadFile"),
+        (247, "NtSetInformationFile"),
         (255, "NtWriteFile"),
         (300, "RtlInitAnsiString"),
     ]
 
-    import_slots = []
-    for i, (ord_val, name) in enumerate(XBOXKRNL_EXPORTS):
-        desc_addr = syms.get(f"imp_desc_{name}", 0x82002000 + i * 4)
-        thunk_addr = syms.get(name, syms.get(f"imp_thunk_{name}", 0x82001800 + i * 16))
-        # Record 0: Descriptor variable (4 bytes, type 0)
-        import_slots.append(desc_addr)
-        # Record 1: Executable thunk (16 bytes, type 1)
-        import_slots.append(thunk_addr)
+    XAM_EXPORTS = [
+        (401, "XamInputGetState"),
+    ]
 
-    str_lib = b'xboxkrnl.exe\x00'
-    str_pad = (4 - (len(str_lib) % 4)) % 4
-    str_lib_padded = str_lib + b'\x00' * str_pad
-    str_table_size = len(str_lib_padded)
-    str_table_struct = struct.pack('>II', str_table_size, 1) + str_lib_padded
+    def pad_str(s):
+        b = s.encode('ascii') + b'\x00'
+        pad = (4 - (len(b) % 4)) % 4
+        return b + b'\x00' * pad
 
-    lib_rec_size = 0x28 + len(import_slots) * 4
-    lib_rec = bytearray()
-    lib_rec.extend(struct.pack('>I', lib_rec_size))
-    lib_rec.extend(b'\x00' * 20) # 20 bytes digest
-    lib_rec.extend(struct.pack('>III', 0, 0, 0)) # id, ver, min_ver
-    lib_rec.extend(struct.pack('>HH', 0, len(import_slots))) # name_index = 0, count
-    for addr in import_slots:
-        lib_rec.extend(struct.pack('>I', addr))
+    str_krnl = pad_str("xboxkrnl.exe")
+    str_xam = pad_str("xam.xex")
+    str_table_data = str_krnl + str_xam
+    str_table_struct = struct.pack('>II', len(str_table_data), 2) + str_table_data
 
-    total_import_size = 4 + len(str_table_struct) + len(lib_rec)
-    import_libraries_blob = struct.pack('>I', total_import_size) + str_table_struct + lib_rec
+    # Library 0: xboxkrnl.exe
+    krnl_slots = []
+    for ord_val, name in XBOXKRNL_EXPORTS:
+        desc_addr = syms.get(f"imp_desc_{name}", 0)
+        thunk_addr = syms.get(name, 0)
+        krnl_slots.append(desc_addr)
+        krnl_slots.append(thunk_addr)
+
+    lib_krnl_size = 0x28 + len(krnl_slots) * 4
+    lib_krnl = bytearray()
+    lib_krnl.extend(struct.pack('>I', lib_krnl_size))
+    lib_krnl.extend(b'\x00' * 20)
+    lib_krnl.extend(struct.pack('>III', 0, 0, 0))
+    lib_krnl.extend(struct.pack('>HH', 0, len(krnl_slots)))
+    for addr in krnl_slots:
+        lib_krnl.extend(struct.pack('>I', addr))
+
+    # Library 1: xam.xex
+    xam_slots = []
+    for ord_val, name in XAM_EXPORTS:
+        desc_addr = syms.get(f"imp_desc_{name}", 0)
+        thunk_addr = syms.get(name, 0)
+        xam_slots.append(desc_addr)
+        xam_slots.append(thunk_addr)
+
+    lib_xam_size = 0x28 + len(xam_slots) * 4
+    lib_xam = bytearray()
+    lib_xam.extend(struct.pack('>I', lib_xam_size))
+    lib_xam.extend(b'\x00' * 20)
+    lib_xam.extend(struct.pack('>III', 0, 0, 0))
+    lib_xam.extend(struct.pack('>HH', 1, len(xam_slots)))
+    for addr in xam_slots:
+        lib_xam.extend(struct.pack('>I', addr))
+
+    total_import_size = 4 + len(str_table_struct) + len(lib_krnl) + len(lib_xam)
+    import_libraries_blob = struct.pack('>I', total_import_size) + str_table_struct + lib_krnl + lib_xam
 
     off_import_libraries = len(pool)
     pool.extend(import_libraries_blob)

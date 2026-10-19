@@ -53,8 +53,13 @@ __attribute__((section(".data.imports"), used, aligned(4))) u32 imp_desc_HalRetu
 __attribute__((section(".data.imports"), used, aligned(4))) u32 imp_desc_KeDelayExecutionThread = 0x0000005A;
 __attribute__((section(".data.imports"), used, aligned(4))) u32 imp_desc_NtClose = 0x000000CF;
 __attribute__((section(".data.imports"), used, aligned(4))) u32 imp_desc_NtCreateFile = 0x000000D2;
+__attribute__((section(".data.imports"), used, aligned(4))) u32 imp_desc_NtOpenFile = 0x000000DF;
+__attribute__((section(".data.imports"), used, aligned(4))) u32 imp_desc_NtQueryInformationFile = 0x000000E8;
+__attribute__((section(".data.imports"), used, aligned(4))) u32 imp_desc_NtReadFile = 0x000000F0;
+__attribute__((section(".data.imports"), used, aligned(4))) u32 imp_desc_NtSetInformationFile = 0x000000F7;
 __attribute__((section(".data.imports"), used, aligned(4))) u32 imp_desc_NtWriteFile = 0x000000FF;
 __attribute__((section(".data.imports"), used, aligned(4))) u32 imp_desc_RtlInitAnsiString = 0x0000012C;
+__attribute__((section(".data.imports"), used, aligned(4))) u32 imp_desc_XamInputGetState = 0x00000191;
 
 // ============================================================================
 // 2. Kernel Import Thunks (.text.thunks in executable code)
@@ -132,6 +137,74 @@ u32 NtCreateFile(
 }
 
 __attribute__((section(".text.thunks"), naked, aligned(16)))
+u32 NtOpenFile(
+    void **FileHandle,
+    u32 DesiredAccess,
+    OBJECT_ATTRIBUTES *ObjectAttributes,
+    IO_STATUS_BLOCK *IoStatusBlock,
+    u32 ShareAccess,
+    u32 OpenOptions
+) {
+    __asm__ volatile (
+        ".long 0x010000DF\n\t"
+        ".long 0x00000000\n\t"
+        ".long 0x00000000\n\t"
+        ".long 0x00000000\n\t"
+    );
+}
+
+__attribute__((section(".text.thunks"), naked, aligned(16)))
+u32 NtQueryInformationFile(
+    void *FileHandle,
+    IO_STATUS_BLOCK *IoStatusBlock,
+    void *FileInformation,
+    u32 Length,
+    u32 FileInformationClass
+) {
+    __asm__ volatile (
+        ".long 0x010000E8\n\t"
+        ".long 0x00000000\n\t"
+        ".long 0x00000000\n\t"
+        ".long 0x00000000\n\t"
+    );
+}
+
+__attribute__((section(".text.thunks"), naked, aligned(16)))
+u32 NtReadFile(
+    void *FileHandle,
+    void *Event,
+    void *ApcRoutine,
+    void *ApcContext,
+    IO_STATUS_BLOCK *IoStatusBlock,
+    void *Buffer,
+    u32 Length,
+    LARGE_INTEGER *ByteOffset
+) {
+    __asm__ volatile (
+        ".long 0x010000F0\n\t"
+        ".long 0x00000000\n\t"
+        ".long 0x00000000\n\t"
+        ".long 0x00000000\n\t"
+    );
+}
+
+__attribute__((section(".text.thunks"), naked, aligned(16)))
+u32 NtSetInformationFile(
+    void *FileHandle,
+    IO_STATUS_BLOCK *IoStatusBlock,
+    void *FileInformation,
+    u32 Length,
+    u32 FileInformationClass
+) {
+    __asm__ volatile (
+        ".long 0x010000F7\n\t"
+        ".long 0x00000000\n\t"
+        ".long 0x00000000\n\t"
+        ".long 0x00000000\n\t"
+    );
+}
+
+__attribute__((section(".text.thunks"), naked, aligned(16)))
 u32 NtWriteFile(
     void *FileHandle,
     void *Event,
@@ -158,6 +231,48 @@ void RtlInitAnsiString(ANSI_STRING *DestinationString, const char *SourceString)
         ".long 0x00000000\n\t"
         ".long 0x00000000\n\t"
     );
+}
+
+
+typedef struct _XINPUT_GAMEPAD {
+    u16 wButtons;
+    u8  bLeftTrigger;
+    u8  bRightTrigger;
+    short sThumbLX;
+    short sThumbLY;
+    short sThumbRX;
+    short sThumbRY;
+} XINPUT_GAMEPAD;
+
+typedef struct _XINPUT_STATE {
+    u32 dwPacketNumber;
+    XINPUT_GAMEPAD Gamepad;
+} XINPUT_STATE;
+
+__attribute__((section(".text.thunks"), naked, aligned(16)))
+u32 XamInputGetState(u32 user_index, u32 flags, XINPUT_STATE *state) {
+    __asm__ volatile (
+        ".long 0x01000191\n\t"
+        ".long 0x00000000\n\t"
+        ".long 0x00000000\n\t"
+        ".long 0x00000000\n\t"
+    );
+}
+
+int is_running_under_kernel_c(void) {
+    volatile u32 *thunk = (volatile u32 *)DbgPrint;
+    if (*thunk != 0x01000003) {
+        return 1;
+    }
+    extern u32 imp_desc_DbgPrint;
+    if (imp_desc_DbgPrint != 0x00000003 && (imp_desc_DbgPrint & 0x80000000)) {
+        return 1;
+    }
+    return 0;
+}
+
+static inline int is_running_under_kernel(void) {
+    return is_running_under_kernel_c();
 }
 
 // ============================================================================
@@ -295,6 +410,20 @@ float atan2f(float y, float x) {
         else a -= RC_PI;
     }
     return a;
+}
+
+float asinf(float x) {
+    if (x < -1.0f) x = -1.0f;
+    if (x > 1.0f) x = 1.0f;
+    float denom = sqrtf(1.0f - x * x);
+    if (denom < 1e-7f) {
+        return (x >= 0.0f) ? (RC_PI * 0.5f) : (-RC_PI * 0.5f);
+    }
+    return atan2f(x, denom);
+}
+
+float acosf(float x) {
+    return (RC_PI * 0.5f) - asinf(x);
 }
 
 float expf(float x) {
@@ -468,10 +597,196 @@ int clock_nanosleep(int clk_id, int flags, const timespec_t *rqtp, timespec_t *r
 }
 
 // ----------------------------------------------------------------------------
-// POSIX File I/O & System Calls
+// POSIX File I/O & System Calls via Native xboxkrnl.exe NT Primitives
 // ----------------------------------------------------------------------------
+#define MAX_XBOX_FDS 32
+struct xbox_file_desc {
+    void *handle;
+    i64 offset;
+    int in_use;
+};
+static struct xbox_file_desc g_xbox_fds[MAX_XBOX_FDS];
+
+static void to_xbox_nt_path(const char *in, char *out, u32 out_max) {
+    if (!in || !out || out_max < 16) return;
+    out[0] = '\0';
+    if (in[0] == '\\') {
+        u32 len = strlen(in);
+        if (len >= out_max) len = out_max - 1;
+        memcpy(out, in, len);
+        out[len] = '\0';
+        return;
+    }
+    if (memcmp(in, "uda0:/", 6) == 0 || memcmp(in, "uda0:\\", 6) == 0) {
+        memcpy(out, "\\??\\Usb0:\\", 10);
+        u32 i = 10, j = 6;
+        while (in[j] && i < out_max - 1) {
+            out[i++] = (in[j] == '/') ? '\\' : in[j];
+            j++;
+        }
+        out[i] = '\0';
+        return;
+    }
+    if (memcmp(in, "sda0:/", 6) == 0 || memcmp(in, "sda0:\\", 6) == 0) {
+        memcpy(out, "\\??\\Hdd:\\", 9);
+        u32 i = 9, j = 6;
+        while (in[j] && i < out_max - 1) {
+            out[i++] = (in[j] == '/') ? '\\' : in[j];
+            j++;
+        }
+        out[i] = '\0';
+        return;
+    }
+    if (memcmp(in, "game:", 5) == 0 || memcmp(in, "Usb0:", 5) == 0 || memcmp(in, "Hdd:", 4) == 0) {
+        memcpy(out, "\\??\\", 4);
+        u32 i = 4, j = 0;
+        while (in[j] && i < out_max - 1) {
+            out[i++] = (in[j] == '/') ? '\\' : in[j];
+            j++;
+        }
+        out[i] = '\0';
+        return;
+    }
+    const char *rel = in;
+    if (rel[0] == '.' && (rel[1] == '/' || rel[1] == '\\')) {
+        rel += 2;
+    } else if (rel[0] == '/') {
+        rel += 1;
+    }
+    memcpy(out, "\\??\\game:\\", 10);
+    u32 i = 10, j = 0;
+    while (rel[j] && i < out_max - 1) {
+        out[i++] = (rel[j] == '/') ? '\\' : rel[j];
+        j++;
+    }
+    out[i] = '\0';
+}
+
+int open64(const char *pathname, int flags, ...);
+
+int open(const char *path, int flags, ...) {
+    return open64(path, flags);
+}
+
+int openat64(int dirfd, const char *pathname, int flags, ...) {
+    (void)dirfd;
+    return open64(pathname, flags);
+}
+
+int open64(const char *pathname, int flags, ...) {
+    if (!is_running_under_kernel() || !pathname) return -1;
+
+    int fd = -1;
+    for (int i = 3; i < MAX_XBOX_FDS; i++) {
+        if (!g_xbox_fds[i].in_use) {
+            fd = i;
+            break;
+        }
+    }
+    if (fd < 0) return -1;
+
+    char nt_path[256];
+    to_xbox_nt_path(pathname, nt_path, sizeof(nt_path));
+
+    ANSI_STRING ansi_str;
+    ansi_str.Length = (u16)strlen(nt_path);
+    ansi_str.MaximumLength = ansi_str.Length + 1;
+    ansi_str.Buffer = nt_path;
+
+    OBJECT_ATTRIBUTES obj_attrs;
+    obj_attrs.RootDirectory = (void *)0;
+    obj_attrs.ObjectName = &ansi_str;
+    obj_attrs.Attributes = 0x00000040; // OBJ_CASE_INSENSITIVE
+
+    IO_STATUS_BLOCK io_status;
+    void *handle = (void *)0;
+
+    int is_write = (flags & 0x0001) || (flags & 0x0002);
+    int is_creat = (flags & 0x0040);
+    int is_trunc = (flags & 0x0200);
+
+    u32 desired_access = is_write ? 0xC0100000 : 0x80100000;
+    u32 file_attrs = 0x00000080;
+    u32 share_access = 0x00000003;
+    u32 create_disp = is_trunc ? 5 : (is_creat ? 3 : 1);
+    u32 create_opts = 0x00000060;
+
+    u32 status = NtCreateFile(
+        &handle,
+        desired_access,
+        &obj_attrs,
+        &io_status,
+        (void *)0,
+        file_attrs,
+        share_access,
+        create_disp,
+        create_opts
+    );
+
+    if (status == 0 && handle != (void *)0) {
+        g_xbox_fds[fd].handle = handle;
+        g_xbox_fds[fd].offset = 0;
+        g_xbox_fds[fd].in_use = 1;
+        if (flags & 0x0400) {
+            struct {
+                LARGE_INTEGER alloc_sz;
+                LARGE_INTEGER eof;
+                u32 links;
+                u8 del;
+                u8 dir;
+            } info;
+            IO_STATUS_BLOCK q_io;
+            if (NtQueryInformationFile(handle, &q_io, &info, sizeof(info), 5) == 0) {
+                g_xbox_fds[fd].offset = info.eof.QuadPart;
+            }
+        }
+        return fd;
+    }
+    return -1;
+}
+
+int close(int fd) {
+    if (fd >= 3 && fd < MAX_XBOX_FDS && g_xbox_fds[fd].in_use) {
+        if (g_xbox_fds[fd].handle) {
+            NtClose(g_xbox_fds[fd].handle);
+        }
+        g_xbox_fds[fd].handle = (void *)0;
+        g_xbox_fds[fd].offset = 0;
+        g_xbox_fds[fd].in_use = 0;
+    }
+    return 0;
+}
+
+int read(int fd, void *buf, u32 count) {
+    if (!buf || count == 0) return 0;
+    if (fd >= 3 && fd < MAX_XBOX_FDS && g_xbox_fds[fd].in_use) {
+        IO_STATUS_BLOCK io_status;
+        LARGE_INTEGER offset;
+        offset.QuadPart = g_xbox_fds[fd].offset;
+
+        u32 status = NtReadFile(
+            g_xbox_fds[fd].handle,
+            (void *)0,
+            (void *)0,
+            (void *)0,
+            &io_status,
+            buf,
+            count,
+            &offset
+        );
+
+        if (status == 0 || status == 0x00000103) {
+            g_xbox_fds[fd].offset += io_status.Information;
+            return (int)io_status.Information;
+        }
+        return 0;
+    }
+    return 0;
+}
+
 int write(int fd, const void *buf, u32 count) {
-    if ((fd == 1 || fd == 2) && buf && count > 0) {
+    if (!buf || count == 0) return 0;
+    if (fd == 1 || fd == 2) {
         char tmp[256];
         const char *src = (const char *)buf;
         u32 remaining = count;
@@ -483,6 +798,30 @@ int write(int fd, const void *buf, u32 count) {
             src += chunk;
             remaining -= chunk;
         }
+        return (int)count;
+    }
+
+    if (fd >= 3 && fd < MAX_XBOX_FDS && g_xbox_fds[fd].in_use) {
+        IO_STATUS_BLOCK io_status;
+        LARGE_INTEGER offset;
+        offset.QuadPart = g_xbox_fds[fd].offset;
+
+        u32 status = NtWriteFile(
+            g_xbox_fds[fd].handle,
+            (void *)0,
+            (void *)0,
+            (void *)0,
+            &io_status,
+            buf,
+            count,
+            &offset
+        );
+
+        if (status == 0) {
+            g_xbox_fds[fd].offset += io_status.Information;
+            return (int)io_status.Information;
+        }
+        return -1;
     }
     return (int)count;
 }
@@ -503,15 +842,144 @@ int writev(int fd, const struct iovec *iov, int iovcnt) {
     }
     return total;
 }
-int close(int fd) { return 0; }
-int open(const char *path, int flags, ...) { return -1; }
-int open64(const char *pathname, int flags, ...) { return -1; }
-int openat64(int dirfd, const char *pathname, int flags, ...) { return -1; }
-void *opendir(const char *name) { return (void *)0; }
-int read(int fd, void *buf, u32 count) { return 0; }
-int poll(void *fds, u32 nfds, int timeout) { return 0; }
-int munmap(void *addr, u32 length) { return 0; }
+
+i64 lseek64(int fd, i64 offset, int whence) {
+    if (fd >= 3 && fd < MAX_XBOX_FDS && g_xbox_fds[fd].in_use) {
+        if (whence == 0) {
+            g_xbox_fds[fd].offset = offset;
+        } else if (whence == 1) {
+            g_xbox_fds[fd].offset += offset;
+        } else if (whence == 2) {
+            struct {
+                LARGE_INTEGER alloc_sz;
+                LARGE_INTEGER eof;
+                u32 links;
+                u8 del;
+                u8 dir;
+            } info;
+            IO_STATUS_BLOCK q_io;
+            if (NtQueryInformationFile(g_xbox_fds[fd].handle, &q_io, &info, sizeof(info), 5) == 0) {
+                g_xbox_fds[fd].offset = info.eof.QuadPart + offset;
+            }
+        }
+        return g_xbox_fds[fd].offset;
+    }
+    return 0;
+}
+
+int mkdir(const char *pathname, u32 mode) {
+    (void)mode;
+    if (!pathname || !is_running_under_kernel()) return 0;
+    char nt_path[256];
+    to_xbox_nt_path(pathname, nt_path, sizeof(nt_path));
+
+    ANSI_STRING ansi_str;
+    ansi_str.Length = (u16)strlen(nt_path);
+    ansi_str.MaximumLength = ansi_str.Length + 1;
+    ansi_str.Buffer = nt_path;
+
+    OBJECT_ATTRIBUTES obj_attrs;
+    obj_attrs.RootDirectory = (void *)0;
+    obj_attrs.ObjectName = &ansi_str;
+    obj_attrs.Attributes = 0x00000040;
+
+    IO_STATUS_BLOCK io_status;
+    void *handle = (void *)0;
+
+    u32 status = NtCreateFile(
+        &handle,
+        0xC0100000,
+        &obj_attrs,
+        &io_status,
+        (void *)0,
+        0x00000080,
+        0x00000003,
+        3,
+        0x00000021
+    );
+    if (status == 0 && handle != (void *)0) {
+        NtClose(handle);
+        return 0;
+    }
+    return 0;
+}
+
+struct stat64_layout {
+    u64 st_dev;
+    u64 st_ino;
+    u32 st_mode;
+    u32 st_nlink;
+    u32 st_uid;
+    u32 st_gid;
+    u64 st_rdev;
+    i64 st_size;
+    i64 st_blksize;
+    i64 st_blocks;
+    i64 st_atime;
+    u64 st_atime_nsec;
+    i64 st_mtime;
+    u64 st_mtime_nsec;
+    i64 st_ctime;
+    u64 st_ctime_nsec;
+};
+
+int fstat64(int fd, void *buf) {
+    if (!buf) return -1;
+    memset(buf, 0, sizeof(struct stat64_layout));
+    struct stat64_layout *st = (struct stat64_layout *)buf;
+    if (fd >= 3 && fd < MAX_XBOX_FDS && g_xbox_fds[fd].in_use) {
+        struct {
+            LARGE_INTEGER alloc_sz;
+            LARGE_INTEGER eof;
+            u32 links;
+            u8 del;
+            u8 dir;
+        } info;
+        IO_STATUS_BLOCK q_io;
+        if (NtQueryInformationFile(g_xbox_fds[fd].handle, &q_io, &info, sizeof(info), 5) == 0) {
+            st->st_size = info.eof.QuadPart;
+            st->st_mode = info.dir ? 0040777 : 0100666;
+            st->st_nlink = 1;
+            st->st_blksize = 4096;
+            st->st_blocks = (info.eof.QuadPart + 511) / 512;
+            return 0;
+        }
+    }
+    st->st_mode = 0100666;
+    st->st_nlink = 1;
+    return 0;
+}
+
+int stat64(const char *path, void *buf) {
+    int fd = open64(path, 0);
+    if (fd >= 0) {
+        int res = fstat64(fd, buf);
+        close(fd);
+        return res;
+    }
+    if (buf) {
+        memset(buf, 0, sizeof(struct stat64_layout));
+        struct stat64_layout *st = (struct stat64_layout *)buf;
+        st->st_mode = 0100666;
+    }
+    return -1;
+}
+
+int fstatat64(int dirfd, const char *pathname, void *buf, int flags) {
+    (void)dirfd;
+    (void)flags;
+    return stat64(pathname, buf);
+}
+
+int lstat64(const char *path, void *buf) {
+    return stat64(path, buf);
+}
+
+void *opendir(const char *name) { (void)name; return (void *)0; }
+int poll(void *fds, u32 nfds, int timeout) { (void)fds; (void)nfds; (void)timeout; return 0; }
+int munmap(void *addr, u32 length) { (void)addr; (void)length; return 0; }
 int getrandom(void *buf, u32 buflen, unsigned int flags) {
+    (void)flags;
     if (!buf) return -1;
     u8 *p = (u8 *)buf;
     u64 tb = get_xenon_timebase();
@@ -523,10 +991,10 @@ int getrandom(void *buf, u32 buflen, unsigned int flags) {
 }
 
 long syscall(long number, ...) {
-    if (number == 221 || number == 240) { // sys_futex on 32-bit PowerPC Linux
-        return 0; // Success (futex wait/wake no-op in single-threaded runtime)
+    if (number == 221 || number == 240) {
+        return 0;
     }
-    if (number == 359) { // SYS_getrandom on PowerPC Linux
+    if (number == 359) {
         __builtin_va_list args;
         __builtin_va_start(args, number);
         void *buf = __builtin_va_arg(args, void *);
@@ -538,22 +1006,15 @@ long syscall(long number, ...) {
     return -1;
 }
 
-int chdir(const char *path) { return 0; }
-int chmod(const char *path, u32 mode) { return 0; }
-int fchmodat(int dirfd, const char *pathname, u32 mode, int flags) { return 0; }
-int linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, int flags) { return -1; }
-int mkdir(const char *pathname, u32 mode) { return 0; }
-int rename(const char *oldpath, const char *newpath) { return 0; }
-int renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath) { return 0; }
-int setenv(const char *name, const char *value, int overwrite) { return 0; }
-int symlink(const char *target, const char *linkpath) { return -1; }
-int unlinkat(int dirfd, const char *pathname, int flags) { return 0; }
-
-i64 lseek64(int fd, i64 offset, int whence) { return 0; }
-int fstat64(int fd, void *buf) { if (buf) memset(buf, 0, 128); return 0; }
-int stat64(const char *path, void *buf) { if (buf) memset(buf, 0, 128); return -1; }
-int fstatat64(int dirfd, const char *pathname, void *buf, int flags) { if (buf) memset(buf, 0, 128); return -1; }
-int lstat64(const char *path, void *buf) { if (buf) memset(buf, 0, 128); return -1; }
+int chdir(const char *path) { (void)path; return 0; }
+int chmod(const char *path, u32 mode) { (void)path; (void)mode; return 0; }
+int fchmodat(int dirfd, const char *pathname, u32 mode, int flags) { (void)dirfd; (void)pathname; (void)mode; (void)flags; return 0; }
+int linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, int flags) { (void)olddirfd; (void)oldpath; (void)newdirfd; (void)newpath; (void)flags; return -1; }
+int rename(const char *oldpath, const char *newpath) { (void)oldpath; (void)newpath; return 0; }
+int renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath) { (void)olddirfd; (void)oldpath; (void)newdirfd; (void)newpath; return 0; }
+int setenv(const char *name, const char *value, int overwrite) { (void)name; (void)value; (void)overwrite; return 0; }
+int symlink(const char *target, const char *linkpath) { (void)target; (void)linkpath; return -1; }
+int unlinkat(int dirfd, const char *pathname, int flags) { (void)dirfd; (void)pathname; (void)flags; return 0; }
 int ftruncate64(int fd, i64 length) { return 0; }
 int fsync(int fd) { return 0; }
 int fdatasync(int fd) { return 0; }
@@ -801,22 +1262,6 @@ static int g_xenon_fb_h = 720;
 // In-memory simulated framebuffer for running safely under xboxkrnl.exe
 static u32 g_simulated_fb[1280 * 720] __attribute__((aligned(16)));
 
-int is_running_under_kernel_c(void) {
-    volatile u32 *thunk = (volatile u32 *)DbgPrint;
-    if (*thunk != 0x01000003) {
-        return 1;
-    }
-    extern u32 imp_desc_DbgPrint;
-    if (imp_desc_DbgPrint != 0x00000003 && (imp_desc_DbgPrint & 0x80000000)) {
-        return 1;
-    }
-    return 0;
-}
-
-static inline int is_running_under_kernel(void) {
-    return is_running_under_kernel_c();
-}
-
 void xenon_uart_puts(const char *s) {
     if (!s) return;
     if (is_running_under_kernel()) {
@@ -944,6 +1389,42 @@ int get_controller_data(struct ControllerData *data, int port) {
     for (int i = 0; i < sizeof(struct ControllerData); i++) {
         p[i] = 0;
     }
+
+    if (is_running_under_kernel()) {
+        volatile u32 *xam_thunk = (volatile u32 *)XamInputGetState;
+        if (*xam_thunk != 0x01000191) {
+            XINPUT_STATE xstate;
+            memset(&xstate, 0, sizeof(xstate));
+            u32 res = XamInputGetState((u32)port, 0, &xstate);
+            if (res == 0) {
+                u16 b = xstate.Gamepad.wButtons;
+                data->up    = (b & 0x0001) ? 1 : 0;
+                data->down  = (b & 0x0002) ? 1 : 0;
+                data->left  = (b & 0x0004) ? 1 : 0;
+                data->right = (b & 0x0008) ? 1 : 0;
+                data->start = (b & 0x0010) ? 1 : 0;
+                data->back  = (b & 0x0020) ? 1 : 0;
+                data->s1_z  = (b & 0x0040) ? 1 : 0; // Left stick click
+                data->s2_z  = (b & 0x0080) ? 1 : 0; // Right stick click
+                data->lb    = (b & 0x0100) ? 1 : 0;
+                data->rb    = (b & 0x0200) ? 1 : 0;
+                data->xenon = (b & 0x0400) ? 1 : 0; // Guide / Home button
+                data->a     = (b & 0x1000) ? 1 : 0;
+                data->b     = (b & 0x2000) ? 1 : 0;
+                data->x     = (b & 0x4000) ? 1 : 0;
+                data->y     = (b & 0x8000) ? 1 : 0;
+                data->lt    = xstate.Gamepad.bLeftTrigger;
+                data->rt    = xstate.Gamepad.bRightTrigger;
+                data->s1_x  = xstate.Gamepad.sThumbLX;
+                data->s1_y  = xstate.Gamepad.sThumbLY;
+                data->s2_x  = xstate.Gamepad.sThumbRX;
+                data->s2_y  = xstate.Gamepad.sThumbRY;
+                return 1;
+            }
+        }
+        return 0;
+    }
+
     return 1;
 }
 
@@ -1036,6 +1517,12 @@ void xbox_flush_log_to_disk(void) {
         return;
     }
 
+    // Circuit breaker: limit sweep attempts when running without writable disks (e.g. default Xenia settings)
+    static int s_fail_count = 0;
+    if (s_fail_count >= 2) {
+        return;
+    }
+
     // Try candidate paths in order of preference
     struct {
         const char *path;
@@ -1066,9 +1553,11 @@ void xbox_flush_log_to_disk(void) {
                 memcpy(g_bound_log_path, candidates[i].path, plen + 1);
             }
             DbgPrint("[RustCraft] ✓ Log file successfully created at: %s\n", candidates[i].path);
+            s_fail_count = 0;
             return;
         }
     }
+    s_fail_count++;
 }
 
 void xbox_append_log_c(const char *msg, u32 len) {
