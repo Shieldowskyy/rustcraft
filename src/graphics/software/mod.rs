@@ -390,8 +390,13 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_tab_rects(&self) -> [(i32, i32, i32, i32); 3] {
+    pub fn settings_tab_rects(&self) -> [(i32, i32, i32, i32); 4] {
         crate::ui::settings_tab_rects(self.width, self.height)
+    }
+
+    #[inline(always)]
+    pub fn settings_audio_rects(&self) -> [(i32, i32, i32, i32); 7] {
+        crate::ui::settings_audio_rects(self.width, self.height)
     }
 
     #[inline(always)]

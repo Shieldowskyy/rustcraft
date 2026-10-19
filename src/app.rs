@@ -274,8 +274,9 @@ pub struct RustCraftApp {
     pub save_btn_rects: [(i32, i32, i32, i32); 4],
     pub create_world_rects: [(i32, i32, i32, i32); 6],
     pub settings_tab: usize,
-    pub settings_tab_rects: [(i32, i32, i32, i32); 3],
+    pub settings_tab_rects: [(i32, i32, i32, i32); 4],
     pub settings_rects: [(i32, i32, i32, i32); 13],
+    pub settings_audio_rects: [(i32, i32, i32, i32); 7],
     pub settings_controls_rects: [(i32, i32, i32, i32); 6],
     pub settings_debug_rects: [(i32, i32, i32, i32); 5],
     pub profiler_server: Option<crate::core::profiler_server::ProfilerServer>,
@@ -378,6 +379,7 @@ impl RustCraftApp {
         let create_world_rects = renderer.create_world_rects();
         let settings_tab_rects = renderer.settings_tab_rects();
         let settings_rects = renderer.settings_graphics_rects();
+        let settings_audio_rects = renderer.settings_audio_rects();
         let settings_controls_rects = renderer.settings_controls_rects();
         let settings_debug_rects = renderer.settings_debug_rects();
         let pause_menu_rects = renderer.pause_menu_button_rects();
@@ -488,6 +490,7 @@ impl RustCraftApp {
             create_world_rects,
             settings_tab_rects,
             settings_rects,
+            settings_audio_rects,
             settings_controls_rects,
             settings_debug_rects,
             profiler_server,
@@ -1343,6 +1346,14 @@ impl RustCraftApp {
                                 }
                             }
                         } else if self.settings_tab == 1 {
+                            for (i, &(bx, by, bw, bh)) in self.settings_audio_rects.iter().enumerate() {
+                                if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                                    hovered_opt = Some(i);
+                                    self.settings_hovered_opt = Some(i);
+                                    break;
+                                }
+                            }
+                        } else if self.settings_tab == 2 {
                             for (i, &(bx, by, bw, bh)) in self.settings_controls_rects.iter().enumerate() {
                                 if px >= bx && px < bx + bw && py >= by && py < by + bh {
                                     hovered_opt = Some(i);
@@ -1362,11 +1373,12 @@ impl RustCraftApp {
                     }
                 }
 
-                // Tab switching via keyboard (Tab / 1 / 2 / 3) or Gamepad LB / RB
+                // Tab switching via keyboard (Tab / 1 / 2 / 3 / 4) or Gamepad LB / RB
                 let tab_key_just = (tab_down && !self.prev_tab_down)
                     || (input.key_digits[1] && !self.prev_key_digits[1])
                     || (input.key_digits[2] && !self.prev_key_digits[2])
-                    || (input.key_digits[3] && !self.prev_key_digits[3]);
+                    || (input.key_digits[3] && !self.prev_key_digits[3])
+                    || (input.key_digits[4] && !self.prev_key_digits[4]);
                 let gp_l1_just = input.gp_btn_lb && !self.prev_l1_btn;
                 let gp_r1_just = input.gp_btn_rb && !self.prev_r1_btn;
                 self.prev_l1_btn = input.gp_btn_lb;
@@ -1385,19 +1397,24 @@ impl RustCraftApp {
                     self.settings_tab = 2;
                     self.settings_hovered_opt = Some(0);
                     hovered_opt = Some(0);
+                } else if input.key_digits[4] && !self.prev_key_digits[4] {
+                    self.settings_tab = 3;
+                    self.settings_hovered_opt = Some(0);
+                    hovered_opt = Some(0);
                 } else if tab_key_just || gp_r1_just {
-                    self.settings_tab = (self.settings_tab + 1) % 3;
+                    self.settings_tab = (self.settings_tab + 1) % 4;
                     self.settings_hovered_opt = Some(0);
                     hovered_opt = Some(0);
                 } else if gp_l1_just {
-                    self.settings_tab = (self.settings_tab + 2) % 3;
+                    self.settings_tab = (self.settings_tab + 3) % 4;
                     self.settings_hovered_opt = Some(0);
                     hovered_opt = Some(0);
                 }
 
                 let max_opts = match self.settings_tab {
                     0 => 13,
-                    1 => 6,
+                    1 => 7,
+                    2 => 6,
                     _ => 5,
                 };
 
@@ -1427,7 +1444,7 @@ impl RustCraftApp {
                     }
                 }
                 if self.settings_tab != prev_tab {
-                    crate::log_debug!("SETTINGS", "Switched to tab {} ({})", self.settings_tab, match self.settings_tab { 0 => "Graphics", 1 => "Controls", _ => "Debug" });
+                    crate::log_debug!("SETTINGS", "Switched to tab {} ({})", self.settings_tab, match self.settings_tab { 0 => "Graphics", 1 => "Audio", 2 => "Controls", _ => "Debug" });
                 }
 
                 let click_opt = if (left_click_just && hovered_tab.is_none()) || input.gp_south_just_pressed || (enter_down && !self.prev_enter_down) {
@@ -1632,6 +1649,147 @@ impl RustCraftApp {
                         }
                     }
                 } else if self.settings_tab == 1 {
+                    // AUDIO TAB
+                    if let Some(opt_idx) = click_opt {
+                        match opt_idx {
+                            0 => {
+                                self.settings.cycle_master_volume(true);
+                                self.audio.set_master_volume(self.settings.master_volume);
+                                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                crate::log_info!("SETTINGS", "Master volume changed to {:.0}%", self.settings.master_volume * 100.0);
+                            }
+                            1 => {
+                                self.settings.cycle_sfx_volume(true);
+                                self.audio.set_sfx_volume(self.settings.sfx_volume);
+                                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                crate::log_info!("SETTINGS", "SFX volume changed to {:.0}%", self.settings.sfx_volume * 100.0);
+                            }
+                            2 => {
+                                self.settings.cycle_music_volume(true);
+                                self.audio.set_music_volume(self.settings.music_volume);
+                                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                crate::log_info!("SETTINGS", "Music volume changed to {:.0}%", self.settings.music_volume * 100.0);
+                            }
+                            3 => {
+                                self.settings.cycle_ambient_volume(true);
+                                self.audio.set_ambient_volume(self.settings.ambient_volume);
+                                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                crate::log_info!("SETTINGS", "Ambient volume changed to {:.0}%", self.settings.ambient_volume * 100.0);
+                            }
+                            4 => {
+                                self.settings.cycle_ui_volume(true);
+                                self.audio.set_ui_volume(self.settings.ui_volume);
+                                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                crate::log_info!("SETTINGS", "UI volume changed to {:.0}%", self.settings.ui_volume * 100.0);
+                            }
+                            5 => {
+                                self.settings.toggle_mute_audio();
+                                self.audio.set_muted(self.settings.mute_audio);
+                                if !self.settings.mute_audio {
+                                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                }
+                                crate::log_info!("SETTINGS", "Mute audio changed to {}", self.settings.mute_audio);
+                            }
+                            6 => {
+                                let _ = self.settings.save();
+                                crate::log_info!("SETTINGS", "Saved settings and returned to {:?}", prev);
+                                self.state = match prev {
+                                    PreviousMenu::MainMenu => GameState::MainMenu,
+                                    PreviousMenu::Paused => GameState::Paused,
+                                };
+                            }
+                            _ => {}
+                        }
+                    } else if input.gp_dpad_left_just_pressed || left_key_just {
+                        if let Some(opt_idx) = hovered_opt {
+                            match opt_idx {
+                                0 => {
+                                    self.settings.cycle_master_volume(false);
+                                    self.audio.set_master_volume(self.settings.master_volume);
+                                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                    crate::log_info!("SETTINGS", "Master volume changed to {:.0}%", self.settings.master_volume * 100.0);
+                                }
+                                1 => {
+                                    self.settings.cycle_sfx_volume(false);
+                                    self.audio.set_sfx_volume(self.settings.sfx_volume);
+                                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                    crate::log_info!("SETTINGS", "SFX volume changed to {:.0}%", self.settings.sfx_volume * 100.0);
+                                }
+                                2 => {
+                                    self.settings.cycle_music_volume(false);
+                                    self.audio.set_music_volume(self.settings.music_volume);
+                                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                    crate::log_info!("SETTINGS", "Music volume changed to {:.0}%", self.settings.music_volume * 100.0);
+                                }
+                                3 => {
+                                    self.settings.cycle_ambient_volume(false);
+                                    self.audio.set_ambient_volume(self.settings.ambient_volume);
+                                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                    crate::log_info!("SETTINGS", "Ambient volume changed to {:.0}%", self.settings.ambient_volume * 100.0);
+                                }
+                                4 => {
+                                    self.settings.cycle_ui_volume(false);
+                                    self.audio.set_ui_volume(self.settings.ui_volume);
+                                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                    crate::log_info!("SETTINGS", "UI volume changed to {:.0}%", self.settings.ui_volume * 100.0);
+                                }
+                                5 => {
+                                    self.settings.toggle_mute_audio();
+                                    self.audio.set_muted(self.settings.mute_audio);
+                                    if !self.settings.mute_audio {
+                                        self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                    }
+                                    crate::log_info!("SETTINGS", "Mute audio changed to {}", self.settings.mute_audio);
+                                }
+                                _ => {}
+                            }
+                        }
+                    } else if input.gp_dpad_right_just_pressed || right_key_just {
+                        if let Some(opt_idx) = hovered_opt {
+                            match opt_idx {
+                                0 => {
+                                    self.settings.cycle_master_volume(true);
+                                    self.audio.set_master_volume(self.settings.master_volume);
+                                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                    crate::log_info!("SETTINGS", "Master volume changed to {:.0}%", self.settings.master_volume * 100.0);
+                                }
+                                1 => {
+                                    self.settings.cycle_sfx_volume(true);
+                                    self.audio.set_sfx_volume(self.settings.sfx_volume);
+                                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                    crate::log_info!("SETTINGS", "SFX volume changed to {:.0}%", self.settings.sfx_volume * 100.0);
+                                }
+                                2 => {
+                                    self.settings.cycle_music_volume(true);
+                                    self.audio.set_music_volume(self.settings.music_volume);
+                                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                    crate::log_info!("SETTINGS", "Music volume changed to {:.0}%", self.settings.music_volume * 100.0);
+                                }
+                                3 => {
+                                    self.settings.cycle_ambient_volume(true);
+                                    self.audio.set_ambient_volume(self.settings.ambient_volume);
+                                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                    crate::log_info!("SETTINGS", "Ambient volume changed to {:.0}%", self.settings.ambient_volume * 100.0);
+                                }
+                                4 => {
+                                    self.settings.cycle_ui_volume(true);
+                                    self.audio.set_ui_volume(self.settings.ui_volume);
+                                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                    crate::log_info!("SETTINGS", "UI volume changed to {:.0}%", self.settings.ui_volume * 100.0);
+                                }
+                                5 => {
+                                    self.settings.toggle_mute_audio();
+                                    self.audio.set_muted(self.settings.mute_audio);
+                                    if !self.settings.mute_audio {
+                                        self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                    }
+                                    crate::log_info!("SETTINGS", "Mute audio changed to {}", self.settings.mute_audio);
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                } else if self.settings_tab == 2 {
                     // CONTROLS TAB
                     if let Some(opt_idx) = click_opt {
                         match opt_idx {
@@ -4452,6 +4610,7 @@ impl RustCraftApp {
         self.create_world_rects = self.renderer.create_world_rects();
         self.settings_tab_rects = self.renderer.settings_tab_rects();
         self.settings_rects = self.renderer.settings_graphics_rects();
+        self.settings_audio_rects = self.renderer.settings_audio_rects();
         self.settings_controls_rects = self.renderer.settings_controls_rects();
         self.settings_debug_rects = self.renderer.settings_debug_rects();
         self.pause_menu_rects = self.renderer.pause_menu_button_rects();

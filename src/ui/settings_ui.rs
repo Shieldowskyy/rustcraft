@@ -5,21 +5,40 @@ use crate::core::settings::GameSettings;
 use crate::graphics::font;
 use crate::ui::draw::{draw_text_colored_shadowed, draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color};
 
-/// Computes bounding boxes `(x, y, width, height)` for the 3 tab switch buttons (Graphics, Controls, Debug).
-pub fn settings_tab_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 3] {
-    let tab_w = 156;
+/// Computes bounding boxes `(x, y, width, height)` for the 4 tab switch buttons (Graphics, Audio, Controls, Debug).
+pub fn settings_tab_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 4] {
+    let tab_w = 116;
     let tab_h = 24;
     let spacing = 6;
     let cx = width as i32 / 2;
     let cy = height as i32 / 2;
     let tab_y = cy - 185;
-    let start_x = cx - (tab_w * 3 + spacing * 2) / 2;
+    let start_x = cx - (tab_w * 4 + spacing * 3) / 2;
 
     [
         (start_x, tab_y, tab_w, tab_h),
         (start_x + tab_w + spacing, tab_y, tab_w, tab_h),
         (start_x + (tab_w + spacing) * 2, tab_y, tab_w, tab_h),
+        (start_x + (tab_w + spacing) * 3, tab_y, tab_w, tab_h),
     ]
+}
+
+/// Computes bounding boxes `(x, y, width, height)` for the 7 options in the Audio settings tab.
+pub fn settings_audio_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 7] {
+    let opt_w = 480;
+    let opt_h = 24;
+    let spacing = 7;
+    let cx = width as i32 / 2;
+    let cy = height as i32 / 2;
+    let start_y = cy - 135;
+
+    let mut rects = [(0, 0, 0, 0); 7];
+    for i in 0..6 {
+        rects[i] = (cx - opt_w / 2, start_y + (opt_h + spacing) * i as i32, opt_w, opt_h);
+    }
+    // Save & Back button at index 6 with extra margin
+    rects[6] = (cx - opt_w / 2, start_y + (opt_h + spacing) * 6 + 6, opt_w, opt_h);
+    rects
 }
 
 /// Computes bounding boxes `(x, y, width, height)` for the 13 options in the Graphics settings tab.
@@ -102,9 +121,14 @@ pub fn draw_settings_menu(
     let t_w = font::measure_text(title, 3, 2);
     draw_text_colored_shadowed(buffer, width, height, title, cx - t_w / 2, cy - 220, 3, 2, pack_color(0.95, 0.85, 0.35));
 
-    // Render Tab Buttons (1. Graphics, 2. Controls, 3. Debug)
+    // Render Tab Buttons (1. Graphics, 2. Audio, 3. Controls, 4. Debug)
     let tab_rects = settings_tab_rects(width, height);
-    let tab_labels = [t("settings.tab_graphics"), t("settings.tab_controls"), t("settings.tab_debug")];
+    let tab_labels = [
+        t("settings.tab_graphics"),
+        t("settings.tab_audio"),
+        t("settings.tab_controls"),
+        t("settings.tab_debug"),
+    ];
 
     for (t_idx, (&label, &(bx, by, bw, bh))) in tab_labels.iter().zip(tab_rects.iter()).enumerate() {
         let is_active = active_tab == t_idx;
@@ -219,7 +243,56 @@ pub fn draw_settings_menu(
             }
         }
     } else if active_tab == 1 {
-        // Tab 1: CONTROLS
+        // Tab 1: AUDIO
+        let master_pct = (settings.master_volume * 100.0).round() as i32;
+        let sfx_pct = (settings.sfx_volume * 100.0).round() as i32;
+        let music_pct = (settings.music_volume * 100.0).round() as i32;
+        let ambient_pct = (settings.ambient_volume * 100.0).round() as i32;
+        let ui_pct = (settings.ui_volume * 100.0).round() as i32;
+
+        let options = [
+            t_fmt("settings.master_volume", &[&master_pct.to_string()]),
+            t_fmt("settings.sfx_volume", &[&sfx_pct.to_string()]),
+            t_fmt("settings.music_volume", &[&music_pct.to_string()]),
+            t_fmt("settings.ambient_volume", &[&ambient_pct.to_string()]),
+            t_fmt("settings.ui_volume", &[&ui_pct.to_string()]),
+            t_fmt("settings.mute_audio", &[if settings.mute_audio { on_str } else { off_str }]),
+            t("settings.save_and_back").to_string(),
+        ];
+
+        let rects = settings_audio_rects(width, height);
+
+        for (i, (label, &(bx, by, bw, bh))) in options.iter().zip(rects.iter()).enumerate() {
+            let is_hover = hovered_idx == Some(i);
+
+            let body_color = if is_hover {
+                if i == 6 { pack_color(0.25, 0.45, 0.35) } else { pack_color(0.32, 0.42, 0.60) }
+            } else {
+                if i == 6 { pack_color(0.18, 0.30, 0.22) } else { pack_color(0.20, 0.22, 0.26) }
+            };
+
+            let top_left = if is_hover { pack_color(0.75, 0.85, 1.0) } else { pack_color(0.55, 0.55, 0.60) };
+            let bottom_right = if is_hover { pack_color(0.15, 0.20, 0.35) } else { pack_color(0.10, 0.10, 0.12) };
+
+            fill_rect(buffer, width, height, bx, by, bw, bh, body_color);
+            fill_rect(buffer, width, height, bx, by, bw, 2, top_left);
+            fill_rect(buffer, width, height, bx, by, 2, bh, top_left);
+            fill_rect(buffer, width, height, bx, by + bh - 2, bw, 2, bottom_right);
+            fill_rect(buffer, width, height, bx + bw - 2, by, 2, bh, bottom_right);
+
+            let scale = 2;
+            let tw = font::measure_text(label, scale, 1);
+            let tx = bx + (bw - tw) / 2;
+            let ty = by + (bh - (font::GLYPH_H as i32 * scale)) / 2;
+
+            if is_hover {
+                draw_text_colored_shadowed(buffer, width, height, label, tx, ty, scale, 1, pack_color(1.0, 1.0, 0.3));
+            } else {
+                draw_text_shadowed(buffer, width, height, label, tx, ty, scale, 1);
+            }
+        }
+    } else if active_tab == 2 {
+        // Tab 2: CONTROLS
         let sprint_str = t(settings.sprint_mode.translation_key());
         let sneak_str = t(settings.sneak_mode.translation_key());
         let jump_str = t(settings.jump_mode.translation_key());

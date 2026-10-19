@@ -476,6 +476,13 @@ impl AudioEngine {
         });
     }
 
+    /// Sets the muted state directly.
+    pub fn set_muted(&mut self, muted: bool) {
+        if self.is_muted != muted {
+            self.toggle_mute();
+        }
+    }
+
     /// Checks if audio is currently muted.
     pub fn is_muted(&self) -> bool {
         self.is_muted

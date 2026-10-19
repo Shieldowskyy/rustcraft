@@ -473,6 +473,24 @@ impl GameSettings {
         };
     }
 
+    pub fn cycle_ambient_volume(&mut self, forward: bool) {
+        let step = 0.1;
+        self.ambient_volume = if forward {
+            if self.ambient_volume >= 0.95 { 0.0 } else { (self.ambient_volume + step).min(1.0) }
+        } else {
+            if self.ambient_volume <= 0.05 { 1.0 } else { (self.ambient_volume - step).max(0.0) }
+        };
+    }
+
+    pub fn cycle_ui_volume(&mut self, forward: bool) {
+        let step = 0.1;
+        self.ui_volume = if forward {
+            if self.ui_volume >= 0.95 { 0.0 } else { (self.ui_volume + step).min(1.0) }
+        } else {
+            if self.ui_volume <= 0.05 { 1.0 } else { (self.ui_volume - step).max(0.0) }
+        };
+    }
+
     pub fn toggle_mute_audio(&mut self) {
         self.mute_audio = !self.mute_audio;
     }
