@@ -453,6 +453,10 @@ rustcraft/
 
 ---
 
-## 12. License
+## 12. License & Legal Disclaimer
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+### Disclaimer
+RustCraft is an independent, non-commercial open-source voxel game engine and sandbox recreation developed in Rust. RustCraft is **not** an official Minecraft product and is **not** approved by, affiliated with, endorsed by, or associated with Mojang Studios or Microsoft. All trademarks, service marks, and trade names (including "Minecraft") belong to their respective owners (Mojang Synergies AB / Microsoft Corporation).
+

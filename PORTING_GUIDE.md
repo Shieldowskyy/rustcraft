@@ -155,7 +155,7 @@ This guide provides architectural instructions for porting RustCraft to other op
 
 ## 2. Implementing a New Graphics Backend
 
-All renderers implement the `RenderBackend` trait defined in [`src/graphics/traits.rs`](file:///home/shieldziak/Pobrane/rustcraft/src/graphics/traits.rs):
+All renderers implement the `RenderBackend` trait defined in [`src/graphics/traits.rs`](src/graphics/traits.rs):
 
 ```rust
 pub trait RenderBackend {
@@ -256,7 +256,7 @@ vdpm install psp2cgc-linux
 
 ## 6. Implementing a New Audio Backend
 
-All audio drivers implement the `AudioBackend` trait in [`src/audio/backend/mod.rs`](file:///home/shieldziak/Pobrane/rustcraft/src/audio/backend/mod.rs):
+All audio drivers implement the `AudioBackend` trait in [`src/audio/backend/mod.rs`](src/audio/backend/mod.rs):
 
 ```rust
 pub trait AudioBackend: Send + 'static {
