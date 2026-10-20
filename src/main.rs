@@ -8,7 +8,7 @@ use rustcraft::app::{InputState, RustCraftApp, HEIGHT, WIDTH};
 #[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
 use rustcraft::cli::{parse_log_enabled, parse_profiler_enabled, parse_renderer_choice, parse_seed};
 #[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
-use rustcraft::core::init_logger;
+use rustcraft::core::{init_crash_reporter, init_logger, set_crash_context, CrashReporterConfig};
 #[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
 use rustcraft::platform::gamepad::GamepadManager;
 #[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
@@ -35,9 +35,25 @@ fn main() {
     let log_enabled = parse_log_enabled();
     init_logger(log_enabled);
 
+    let sentry_dsn = rustcraft::cli::parse_sentry_dsn();
+    let sentry_enabled = !rustcraft::cli::parse_sentry_disabled();
+    let _crash_guard = init_crash_reporter(CrashReporterConfig {
+        dsn: sentry_dsn,
+        sentry_enabled,
+        ..Default::default()
+    });
+
+    if rustcraft::cli::parse_crash_test() {
+        rustcraft::log_warn!("TEST", "Manual crash reporter test triggered via --crash-test!");
+        panic!("RustCraft intentional crash test via --crash-test CLI flag");
+    }
+
     if rustcraft::cli::parse_server_mode() {
         let port = rustcraft::cli::parse_server_port();
         let seed = parse_seed();
+        set_crash_context("mode", "dedicated_server");
+        set_crash_context("port", &port.to_string());
+        set_crash_context("seed", &seed.to_string());
         rustcraft::net::run_dedicated_server(port, seed);
         return;
     }
@@ -45,6 +61,11 @@ fn main() {
     let renderer_choice = parse_renderer_choice();
     let seed = parse_seed();
     let profiler_enabled = parse_profiler_enabled();
+
+    set_crash_context("mode", "client");
+    set_crash_context("renderer", renderer_choice);
+    set_crash_context("seed", &seed.to_string());
+    set_crash_context("profiler", &profiler_enabled.to_string());
 
     rustcraft::log_info!("MAIN", "Starting RustCraft (renderer: {}, seed: {}, profiler: {})", renderer_choice, seed, profiler_enabled);
 

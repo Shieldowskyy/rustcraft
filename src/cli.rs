@@ -1,6 +1,6 @@
 //! Command-line argument parsing and random seed generation for RustCraft.
 
-const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan] [--seed NUMBER] [--profiler] [--autotest] [-log] [--server] [--port PORT] [--connect ADDR]";
+const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan] [--seed NUMBER] [--profiler] [--autotest] [-log] [--server] [--port PORT] [--connect ADDR] [--sentry-dsn DSN] [--no-sentry] [--crash-test]";
 
 /// Parses command-line arguments to determine the desired rendering backend.
 ///
@@ -34,6 +34,9 @@ pub fn parse_renderer_choice() -> &'static str {
             "--server" => {},
             "--port" => index += 1,
             "--connect" => index += 1,
+            "--sentry-dsn" => index += 1,
+            "--no-sentry" | "--disable-sentry" => {},
+            "--crash-test" | "--test-panic" => {},
             "--help" | "-h" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -137,6 +140,31 @@ pub fn parse_seed() -> u32 {
         }
     }
     generate_random_seed()
+}
+
+/// Parses `--sentry-dsn <DSN>` CLI option, falling back to `SENTRY_DSN` environment variable.
+pub fn parse_sentry_dsn() -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    for i in 1..args.len() {
+        if args[i] == "--sentry-dsn" {
+            if let Some(val) = args.get(i + 1) {
+                if !val.trim().is_empty() {
+                    return Some(val.trim().to_string());
+                }
+            }
+        }
+    }
+    std::env::var("SENTRY_DSN").ok().filter(|s| !s.trim().is_empty())
+}
+
+/// Parses whether Sentry reporting is explicitly disabled via `--no-sentry` or `--disable-sentry`.
+pub fn parse_sentry_disabled() -> bool {
+    std::env::args().any(|arg| arg == "--no-sentry" || arg == "--disable-sentry")
+}
+
+/// Parses whether a test panic was requested via `--crash-test` or `--test-panic`.
+pub fn parse_crash_test() -> bool {
+    std::env::args().any(|arg| arg == "--crash-test" || arg == "--test-panic")
 }
 
 #[cfg(test)]

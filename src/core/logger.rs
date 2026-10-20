@@ -27,8 +27,10 @@ pub fn is_enabled() -> bool {
     LOGGING_ENABLED.load(Ordering::Relaxed)
 }
 
-/// Prints a structured log message if logging is enabled.
+/// Prints a structured log message if logging is enabled, and feeds breadcrumbs to crash reporter.
 pub fn log(level: &str, target: &str, message: &str) {
+    crate::core::crash_reporter::record_log_entry(level, target, message);
+
     if !is_enabled() {
         return;
     }
@@ -44,14 +46,10 @@ pub fn log(level: &str, target: &str, message: &str) {
 #[macro_export]
 macro_rules! log_info {
     ($target:expr, $($arg:tt)+) => {
-        if $crate::core::logger::is_enabled() {
-            $crate::core::logger::log("INFO", $target, &format!($($arg)+));
-        }
+        $crate::core::logger::log("INFO", $target, &format!($($arg)+));
     };
     ($msg:expr) => {
-        if $crate::core::logger::is_enabled() {
-            $crate::core::logger::log("INFO", "GAME", $msg);
-        }
+        $crate::core::logger::log("INFO", "GAME", $msg);
     };
 }
 
@@ -72,28 +70,20 @@ macro_rules! log_debug {
 #[macro_export]
 macro_rules! log_warn {
     ($target:expr, $($arg:tt)+) => {
-        if $crate::core::logger::is_enabled() {
-            $crate::core::logger::log("WARN", $target, &format!($($arg)+));
-        }
+        $crate::core::logger::log("WARN", $target, &format!($($arg)+));
     };
     ($msg:expr) => {
-        if $crate::core::logger::is_enabled() {
-            $crate::core::logger::log("WARN", "GAME", $msg);
-        }
+        $crate::core::logger::log("WARN", "GAME", $msg);
     };
 }
 
 #[macro_export]
 macro_rules! log_error {
     ($target:expr, $($arg:tt)+) => {
-        if $crate::core::logger::is_enabled() {
-            $crate::core::logger::log("ERROR", $target, &format!($($arg)+));
-        }
+        $crate::core::logger::log("ERROR", $target, &format!($($arg)+));
     };
     ($msg:expr) => {
-        if $crate::core::logger::is_enabled() {
-            $crate::core::logger::log("ERROR", "GAME", $msg);
-        }
+        $crate::core::logger::log("ERROR", "GAME", $msg);
     };
 }
 
