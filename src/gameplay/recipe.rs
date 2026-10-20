@@ -287,10 +287,14 @@ impl RecipeBook {
             Planks, Planks,
         ] => Door * 1));
 
-        // TNT (2x2: Sand + Dirt)
+        // TNT (2x2: Sand + Dirt or Gunpowder + Sand)
         self.add(recipe!(2, 2, [
             Sand, Dirt,
             Dirt, Sand,
+        ] => Tnt * 1));
+        self.add(recipe!(2, 2, [
+            Gunpowder, Sand,
+            Sand, Gunpowder,
         ] => Tnt * 1));
     }
 

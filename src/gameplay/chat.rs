@@ -411,7 +411,8 @@ impl ChatState {
                 self.add_info("/time set <day|noon|night|midnight|number> - Set time");
                 self.add_info("/give <item> [count] - Add items to inventory");
                 self.add_info("/tp <x> <y> <z> - Teleport player");
-                self.add_info("/spawn <pig|cow|chicken> [count] - Spawn mob");
+                self.add_info("/spawn <pig|cow|chicken|zombie|skeleton|creeper> [count] - Spawn mob");
+                self.add_info("/mobs - List all currently spawned mobs in the world");
                 self.add_info("/heal - Restore health and hunger");
                 self.add_info("/kill - Kill the player");
                 self.add_info("/clear [chat] - Clear inventory or chat");
@@ -560,6 +561,9 @@ impl ChatState {
                     "pig" | "swinia" => Some(MobKind::Pig),
                     "cow" | "krowa" => Some(MobKind::Cow),
                     "chicken" | "kurczak" => Some(MobKind::Chicken),
+                    "zombie" | "zombi" => Some(MobKind::Zombie),
+                    "skeleton" | "szkielet" => Some(MobKind::Skeleton),
+                    "creeper" => Some(MobKind::Creeper),
                     _ => None,
                 };
 
@@ -574,7 +578,23 @@ impl ChatState {
                     self.add_success(format!("Spawned {} {:?}(s)", count, kind));
                     crate::log_debug!("Command", "Spawned {} {:?} mobs", count, kind);
                 } else {
-                    self.add_error("Usage: /spawn <pig|cow|chicken> [count]");
+                    self.add_error("Usage: /spawn <pig|cow|chicken|zombie|skeleton|creeper> [count]");
+                }
+            }
+
+            "mobs" | "moblist" | "listmobs" => {
+                self.list_mobs_debug(ctx);
+            }
+
+            "debug" => {
+                let sub = parts.next().unwrap_or("").to_ascii_lowercase();
+                match sub.as_str() {
+                    "mobs" | "moblist" => {
+                        self.list_mobs_debug(ctx);
+                    }
+                    _ => {
+                        self.add_info("Debug commands: /mobs, /debug mobs");
+                    }
                 }
             }
 
@@ -643,6 +663,62 @@ impl ChatState {
             }
         }
     }
+
+    /// Debug helper to display all currently spawned mobs in the world.
+    fn list_mobs_debug(&mut self, ctx: &CommandContext) {
+        let total = ctx.mob_manager.mobs.len();
+        if total == 0 {
+            self.add_info("No mobs currently spawned in the world.");
+            return;
+        }
+
+        let player_pos = ctx.camera.position;
+        self.add_info(format!("=== Spawned Mobs (Total: {}) ===", total));
+
+        let mut pigs = 0;
+        let mut cows = 0;
+        let mut chickens = 0;
+        let mut zombies = 0;
+        let mut skeletons = 0;
+        let mut creepers = 0;
+
+        for mob in &ctx.mob_manager.mobs {
+            match mob.kind {
+                MobKind::Pig => pigs += 1,
+                MobKind::Cow => cows += 1,
+                MobKind::Chicken => chickens += 1,
+                MobKind::Zombie => zombies += 1,
+                MobKind::Skeleton => skeletons += 1,
+                MobKind::Creeper => creepers += 1,
+            }
+            let dist = (mob.pos - player_pos).length();
+            let hostile_tag = if mob.kind.is_hostile() { " [HOSTILE]" } else { "" };
+            self.add_message(
+                format!(
+                    "#{:02} {} at ({:.1}, {:.1}, {:.1}) | Dist: {:.1}m | HP: {:.0}/{:.0}{}",
+                    mob.id,
+                    mob.kind.name(),
+                    mob.pos.x,
+                    mob.pos.y,
+                    mob.pos.z,
+                    dist,
+                    mob.health.max(0.0),
+                    mob.kind.max_health(),
+                    hostile_tag,
+                ),
+                if mob.kind.is_hostile() {
+                    pack_color(1.0, 0.45, 0.45)
+                } else {
+                    pack_color(0.55, 1.0, 0.55)
+                },
+            );
+        }
+
+        self.add_info(format!(
+            "Summary: Pigs: {}, Cows: {}, Chickens: {}, Zombies: {}, Skeletons: {}, Creepers: {}",
+            pigs, cows, chickens, zombies, skeletons, creepers
+        ));
+    }
 }
 
 /// Parses an item/block string into a `BlockId`.
@@ -699,9 +775,11 @@ pub fn parse_block_id(s: &str) -> Option<BlockId> {
         "pig_spawn_egg" | "pig_egg" => Some(BlockId::PigSpawnEgg),
         "cow_spawn_egg" | "cow_egg" => Some(BlockId::CowSpawnEgg),
         "chicken_spawn_egg" | "chicken_egg" => Some(BlockId::ChickenSpawnEgg),
+        "bone" | "kosc" => Some(BlockId::Bone),
+        "gunpowder" | "proch" => Some(BlockId::Gunpowder),
         _ => {
             if let Ok(id) = s.parse::<u8>() {
-                if id > 0 && id <= 60 {
+                if id > 0 && id <= 100 {
                     return Some(BlockId::from_u8(id));
                 }
             }
@@ -737,5 +815,47 @@ mod tests {
         assert_eq!(parse_block_id("cooked_beef"), Some(BlockId::CookedBeef));
         assert_eq!(parse_block_id("apple"), Some(BlockId::Apple));
         assert_eq!(parse_block_id("torch"), Some(BlockId::Torch));
+        assert_eq!(parse_block_id("bone"), Some(BlockId::Bone));
+        assert_eq!(parse_block_id("kosc"), Some(BlockId::Bone));
+        assert_eq!(parse_block_id("gunpowder"), Some(BlockId::Gunpowder));
+        assert_eq!(parse_block_id("proch"), Some(BlockId::Gunpowder));
+    }
+
+    #[test]
+    fn test_chat_mobs_debug_command() {
+        let mut chat = ChatState::new();
+        let mut mob_manager = MobManager::new();
+        mob_manager.spawn_mob(MobKind::Zombie, Vec3::new(10.0, 64.0, 10.0));
+        mob_manager.spawn_mob(MobKind::Skeleton, Vec3::new(15.0, 64.0, 15.0));
+        mob_manager.spawn_mob(MobKind::Creeper, Vec3::new(8.0, 64.0, 8.0));
+
+        let mut player = Player::new();
+        let mut camera = Camera::new(Vec3::new(0.0, 64.0, 0.0));
+        let mut world = World::new();
+        let mut items = Vec::new();
+        let mut particles = ParticleSystem::new();
+        let mut is_flying = false;
+        let mut fly_vel = Vec3::zero();
+        let mut horiz_vel = Vec3::zero();
+        let mut reload_chunks = false;
+
+        let mut ctx = CommandContext {
+            player: &mut player,
+            camera: &mut camera,
+            world: &mut world,
+            mob_manager: &mut mob_manager,
+            items: &mut items,
+            particles: &mut particles,
+            is_flying: &mut is_flying,
+            fly_velocity: &mut fly_vel,
+            horiz_velocity: &mut horiz_vel,
+            reload_chunks_requested: &mut reload_chunks,
+        };
+
+        chat.execute_command("/mobs", &mut ctx);
+        assert!(!chat.messages.is_empty());
+        assert!(chat.messages.iter().any(|m| m.text.contains("Spawned Mobs")));
+        assert!(chat.messages.iter().any(|m| m.text.contains("Zombie")));
+        assert!(chat.messages.iter().any(|m| m.text.contains("Skeleton")));
     }
 }

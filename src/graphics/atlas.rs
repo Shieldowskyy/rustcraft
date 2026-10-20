@@ -1025,6 +1025,17 @@ pub enum TextureId {
     BedTop,
     BedSide,
     Ladder,
+    // Mob Textures (Zombie & Skeleton)
+    ZombieSkin,
+    ZombieFace,
+    ZombieShirt,
+    ZombiePants,
+    SkeletonBone,
+    SkeletonFace,
+    SkeletonBody,
+    CreeperSkin,
+    CreeperFace,
+    Gunpowder,
 }
 
 impl TextureId {
@@ -1434,6 +1445,16 @@ pub struct TextureAtlas {
     pub bed_top: Texture,
     pub bed_side: Texture,
     pub ladder: Texture,
+    pub zombie_skin: Texture,
+    pub zombie_face: Texture,
+    pub zombie_shirt: Texture,
+    pub zombie_pants: Texture,
+    pub skeleton_bone: Texture,
+    pub skeleton_face: Texture,
+    pub skeleton_body: Texture,
+    pub creeper_skin: Texture,
+    pub creeper_face: Texture,
+    pub gunpowder: Texture,
 }
 
 fn diamond_ore() -> Texture {
@@ -2315,6 +2336,149 @@ fn player_shoes() -> Texture {
     speckled([0.20, 0.20, 0.22], 0.04, 505)
 }
 
+fn zombie_skin() -> Texture {
+    speckled([0.31, 0.48, 0.24], 0.08, 401)
+}
+
+fn zombie_face() -> Texture {
+    let mut tex = zombie_skin();
+    let dark_eye = [0.08, 0.12, 0.06];
+    let pupil = [0.02, 0.02, 0.02];
+    let mouth = [0.12, 0.18, 0.09];
+    let dark_nose = [0.18, 0.28, 0.14];
+
+    for dy in 6..8 {
+        tex.texels[dy * TEX_SIZE + 3] = dark_eye;
+        tex.texels[dy * TEX_SIZE + 4] = pupil;
+        tex.texels[dy * TEX_SIZE + 11] = pupil;
+        tex.texels[dy * TEX_SIZE + 12] = dark_eye;
+    }
+    tex.texels[9 * TEX_SIZE + 7] = dark_nose;
+    tex.texels[9 * TEX_SIZE + 8] = dark_nose;
+
+    for x in 5..11 {
+        tex.texels[12 * TEX_SIZE + x] = mouth;
+    }
+    tex
+}
+
+fn zombie_shirt() -> Texture {
+    speckled([0.16, 0.42, 0.44], 0.06, 402)
+}
+
+fn zombie_pants() -> Texture {
+    speckled([0.22, 0.18, 0.42], 0.06, 403)
+}
+
+fn skeleton_bone() -> Texture {
+    speckled([0.84, 0.83, 0.80], 0.06, 501)
+}
+
+fn skeleton_face() -> Texture {
+    let mut tex = skeleton_bone();
+    let eye_socket = [0.10, 0.10, 0.10];
+    let dark_slit = [0.22, 0.22, 0.22];
+
+    for dy in 5..8 {
+        for dx in 3..6 {
+            tex.texels[dy * TEX_SIZE + dx] = eye_socket;
+        }
+        for dx in 10..13 {
+            tex.texels[dy * TEX_SIZE + dx] = eye_socket;
+        }
+    }
+
+    tex.texels[9 * TEX_SIZE + 7] = eye_socket;
+    tex.texels[9 * TEX_SIZE + 8] = eye_socket;
+
+    for x in 4..12 {
+        if x % 2 == 0 {
+            tex.texels[12 * TEX_SIZE + x] = dark_slit;
+            tex.texels[13 * TEX_SIZE + x] = dark_slit;
+        }
+    }
+    tex
+}
+
+fn skeleton_body() -> Texture {
+    let mut tex = skeleton_bone();
+    let shadow = [0.20, 0.20, 0.20];
+    for y in 0..TEX_SIZE {
+        tex.texels[y * TEX_SIZE + 7] = shadow;
+        tex.texels[y * TEX_SIZE + 8] = shadow;
+    }
+    for y in [4, 7, 10, 13] {
+        for x in 2..14 {
+            if x != 7 && x != 8 {
+                tex.texels[y * TEX_SIZE + x] = shadow;
+            }
+        }
+    }
+    tex
+}
+
+fn creeper_skin() -> Texture {
+    let mut tex = speckled([0.22, 0.62, 0.16], 0.18, 601);
+    let lime = [0.38, 0.76, 0.22];
+    let dark = [0.12, 0.38, 0.08];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let r = rand_at(x, y, 602);
+            if r > 0.72 {
+                tex.texels[y * TEX_SIZE + x] = lime;
+            } else if r < 0.28 {
+                tex.texels[y * TEX_SIZE + x] = dark;
+            }
+        }
+    }
+    tex
+}
+
+fn creeper_face() -> Texture {
+    let mut tex = creeper_skin();
+    let black = [0.03, 0.03, 0.03];
+
+    // Left and right eyes (3x3 blocks)
+    for dy in 4..7 {
+        for dx in 3..6 {
+            tex.texels[dy * TEX_SIZE + dx] = black;
+        }
+        for dx in 10..13 {
+            tex.texels[dy * TEX_SIZE + dx] = black;
+        }
+    }
+
+    // Center vertical bridge between eyes
+    for dy in 7..9 {
+        for dx in 7..9 {
+            tex.texels[dy * TEX_SIZE + dx] = black;
+        }
+    }
+
+    // Top mouth bar
+    for dy in 9..11 {
+        for dx in 5..11 {
+            tex.texels[dy * TEX_SIZE + dx] = black;
+        }
+    }
+
+    // Mouth corners dropping down
+    for dy in 11..14 {
+        for dx in 3..6 {
+            tex.texels[dy * TEX_SIZE + dx] = black;
+        }
+        for dx in 10..13 {
+            tex.texels[dy * TEX_SIZE + dx] = black;
+        }
+    }
+
+    tex
+}
+
+fn gunpowder() -> Texture {
+    speckled([0.24, 0.24, 0.26], 0.12, 701)
+}
+
 impl TextureAtlas {
     pub fn generate() -> TextureAtlas {
         Self::generate_with_fancy(true)
@@ -2424,6 +2588,16 @@ impl TextureAtlas {
             bed_top: bed_top(),
             bed_side: bed_side(),
             ladder: ladder(),
+            zombie_skin: zombie_skin(),
+            zombie_face: zombie_face(),
+            zombie_shirt: zombie_shirt(),
+            zombie_pants: zombie_pants(),
+            skeleton_bone: skeleton_bone(),
+            skeleton_face: skeleton_face(),
+            skeleton_body: skeleton_body(),
+            creeper_skin: creeper_skin(),
+            creeper_face: creeper_face(),
+            gunpowder: gunpowder(),
         }
     }
 
@@ -2540,6 +2714,16 @@ impl TextureAtlas {
             TextureId::BedTop => &self.bed_top,
             TextureId::BedSide => &self.bed_side,
             TextureId::Ladder => &self.ladder,
+            TextureId::ZombieSkin => &self.zombie_skin,
+            TextureId::ZombieFace => &self.zombie_face,
+            TextureId::ZombieShirt => &self.zombie_shirt,
+            TextureId::ZombiePants => &self.zombie_pants,
+            TextureId::SkeletonBone => &self.skeleton_bone,
+            TextureId::SkeletonFace => &self.skeleton_face,
+            TextureId::SkeletonBody => &self.skeleton_body,
+            TextureId::CreeperSkin => &self.creeper_skin,
+            TextureId::CreeperFace => &self.creeper_face,
+            TextureId::Gunpowder => &self.gunpowder,
         }
     }
     /// Returns a reference to the texture corresponding to the specified `TextureId`.

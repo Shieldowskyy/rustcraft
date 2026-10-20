@@ -71,6 +71,12 @@ mod tests {
             SoundId::ChickenIdle,
             SoundId::ChickenHurt,
             SoundId::ChickenDeath,
+            SoundId::ZombieIdle,
+            SoundId::ZombieHurt,
+            SoundId::ZombieDeath,
+            SoundId::SkeletonIdle,
+            SoundId::SkeletonHurt,
+            SoundId::SkeletonDeath,
             SoundId::AmbientWind,
             SoundId::AmbientCave,
         ];

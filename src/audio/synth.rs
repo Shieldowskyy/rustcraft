@@ -208,6 +208,15 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::ChickenIdle => 807,
         SoundId::ChickenHurt => 808,
         SoundId::ChickenDeath => 809,
+        SoundId::ZombieIdle => 810,
+        SoundId::ZombieHurt => 811,
+        SoundId::ZombieDeath => 812,
+        SoundId::SkeletonIdle => 813,
+        SoundId::SkeletonHurt => 814,
+        SoundId::SkeletonDeath => 815,
+        SoundId::CreeperHiss => 816,
+        SoundId::CreeperHurt => 817,
+        SoundId::CreeperDeath => 818,
         SoundId::AmbientWind => 701,
         SoundId::AmbientCave => 702,
     });
@@ -262,7 +271,7 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::DoorClose => synth_door_swing(sr, 0.20, false, 0.85),
         SoundId::Explosion => synth_explosion(&mut rng, sr, 1.4, 1.0),
 
-        // Mob sounds (Pig, Cow, Chicken)
+        // Mob sounds (Pig, Cow, Chicken, Zombie, Skeleton)
         SoundId::PigIdle => synth_pig_idle(&mut rng, sr, 0.28, 0.85),
         SoundId::PigHurt => synth_pig_hurt(&mut rng, sr, 0.28, 0.95),
         SoundId::PigDeath => synth_pig_death(&mut rng, sr, 0.65, 1.0),
@@ -272,6 +281,15 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::ChickenIdle => synth_chicken_idle(&mut rng, sr, 0.28, 0.80),
         SoundId::ChickenHurt => synth_chicken_hurt(&mut rng, sr, 0.22, 0.95),
         SoundId::ChickenDeath => synth_chicken_death(&mut rng, sr, 0.55, 1.0),
+        SoundId::ZombieIdle => synth_zombie_idle(&mut rng, sr, 0.85, 0.85),
+        SoundId::ZombieHurt => synth_zombie_hurt(&mut rng, sr, 0.35, 0.95),
+        SoundId::ZombieDeath => synth_zombie_death(&mut rng, sr, 0.95, 1.0),
+        SoundId::SkeletonIdle => synth_skeleton_idle(&mut rng, sr, 0.40, 0.80),
+        SoundId::SkeletonHurt => synth_skeleton_hurt(&mut rng, sr, 0.25, 0.95),
+        SoundId::SkeletonDeath => synth_skeleton_death(&mut rng, sr, 0.70, 1.0),
+        SoundId::CreeperHiss => synth_creeper_hiss(&mut rng, sr, 1.45, 0.90),
+        SoundId::CreeperHurt => synth_creeper_hurt(&mut rng, sr, 0.22, 0.90),
+        SoundId::CreeperDeath => synth_creeper_death(&mut rng, sr, 0.45, 0.95),
 
         // Ambient (loops or long tones)
         SoundId::AmbientWind => synth_wind_loop(&mut rng, sr, 3.0, 0.4),
@@ -1221,5 +1239,196 @@ fn synth_chicken_death(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -
         }
     }
 
+    out
+}
+
+/// Zombie idle: deep eerie Minecraft zombie groan/moan.
+fn synth_zombie_idle(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.6)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp1 = BiquadFilter::bandpass(380.0, 3.0, sr);
+    let mut bp2 = BiquadFilter::bandpass(820.0, 2.5, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let cur_time = i as f32 / sr;
+
+        // Fluctuating low groan pitch: 105 to 135 Hz
+        let pitch_mod = (cur_time * 6.0 * std::f32::consts::PI).sin() * 12.0;
+        let base_freq = 115.0 - t * 25.0 + pitch_mod;
+        phase += 2.0 * std::f32::consts::PI * base_freq / sr;
+
+        // Distorted vocal cord buzz + rasp
+        let buzz = ((phase.sin() * 2.2).clamp(-1.0, 1.0) + (phase * 2.0).sin() * 0.4) * 0.7;
+        let rasp = rng.next_f32() * 0.25;
+        let sound = bp1.process(buzz + rasp) * 1.5 + bp2.process(buzz) * 0.8;
+
+        // Swelling envelope
+        let env = if t < 0.15 {
+            t / 0.15
+        } else if t > 0.75 {
+            (1.0 - t) / 0.25
+        } else {
+            1.0
+        };
+
+        out.push(sound * env * volume);
+    }
+    out
+}
+
+/// Zombie hurt: aggressive guttural grunt.
+fn synth_zombie_hurt(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.28)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp = BiquadFilter::bandpass(450.0, 2.2, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let freq = 170.0 - t * 60.0;
+        phase += 2.0 * std::f32::consts::PI * freq / sr;
+
+        let tone = (phase.sin() * 2.5).clamp(-1.0, 1.0) * 0.8 + rng.next_f32() * 0.3;
+        let sound = bp.process(tone);
+        let env = (-t * 6.0).exp();
+
+        out.push(sound * env * volume * 1.4);
+    }
+    out
+}
+
+/// Zombie death: deep descending death groan collapsing into silence.
+fn synth_zombie_death(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.7)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp = BiquadFilter::bandpass(320.0, 2.0, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let freq = (145.0 - t.powf(0.8) * 85.0).max(45.0);
+        phase += 2.0 * std::f32::consts::PI * freq / sr;
+
+        let tone = (phase.sin() * 2.0).clamp(-1.0, 1.0) * 0.7 + rng.next_f32() * 0.2;
+        let sound = bp.process(tone);
+        let env = (1.0 - t).powf(1.4);
+
+        out.push(sound * env * volume * 1.3);
+    }
+    out
+}
+
+/// Skeleton idle: dry bone rattling clicks.
+fn synth_skeleton_idle(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.35)) as usize;
+    let mut out = vec![0.0f32; count];
+    let clicks = [0.03f32, 0.09f32, 0.16f32, 0.24f32];
+
+    for &ct in &clicks {
+        let start = (ct * sr) as usize;
+        let len = (sr * 0.022) as usize;
+        let mut bp = BiquadFilter::bandpass(2400.0, 4.0, sr);
+        for i in 0..len {
+            let idx = start + i;
+            if idx >= count { break; }
+            let t = i as f32 / len as f32;
+            let imp = if i < 3 { 1.0 } else { rng.next_f32() * 0.4 };
+            let val = bp.process(imp) * (1.0 - t).powi(2);
+            out[idx] += val * volume * 1.5;
+        }
+    }
+    out
+}
+
+/// Skeleton hurt: sharp high-frequency bone crack.
+fn synth_skeleton_hurt(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.20)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp1 = BiquadFilter::bandpass(1900.0, 3.5, sr);
+    let mut bp2 = BiquadFilter::bandpass(3400.0, 4.0, sr);
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let imp = if i < 4 { 1.2 } else { rng.next_f32() * 0.35 };
+        let s = bp1.process(imp) * 0.7 + bp2.process(imp) * 0.6;
+        let env = (-t * 14.0).exp();
+        out.push(s * env * volume * 1.8);
+    }
+    out
+}
+
+/// Skeleton death: crumbling bones collapsing and scattering.
+fn synth_skeleton_death(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.6)) as usize;
+    let mut out = vec![0.0f32; count];
+    let drops = [0.02f32, 0.08f32, 0.15f32, 0.22f32, 0.31f32, 0.42f32];
+
+    for (d_idx, &dt) in drops.iter().enumerate() {
+        let start = (dt * sr) as usize;
+        let len = (sr * 0.035) as usize;
+        let center_freq = 1600.0 + (d_idx as f32 * 320.0);
+        let mut bp = BiquadFilter::bandpass(center_freq, 3.2, sr);
+        let amp = 1.0 - (d_idx as f32 * 0.12);
+
+        for i in 0..len {
+            let idx = start + i;
+            if idx >= count { break; }
+            let t = i as f32 / len as f32;
+            let imp = if i < 3 { 1.0 } else { rng.next_f32() * 0.4 };
+            let val = bp.process(imp) * (1.0 - t).powi(2);
+            out[idx] += val * amp * volume * 1.4;
+        }
+    }
+    out
+}
+
+/// Creeper hiss: prolonged sizzling noise with swelling envelope before detonation.
+fn synth_creeper_hiss(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut hp = IirFilter::highpass(1600.0, sr);
+    let mut lp = IirFilter::lowpass(6800.0, sr);
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let swell = t.powf(0.5) * (0.65 + 0.35 * ((t * 32.0).sin() * 0.5 + 0.5));
+        let raw = rng.next_f32() * 2.0 - 1.0;
+        let s = lp.process(hp.process(raw));
+        out.push(s * swell * volume * 1.2);
+    }
+    out
+}
+
+/// Creeper hurt: quick dry snap and sizzle.
+fn synth_creeper_hurt(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.18)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp = BiquadFilter::bandpass(2100.0, 2.5, sr);
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let imp = if i < 3 { 1.2 } else { rng.next_f32() * 0.4 };
+        let s = bp.process(imp);
+        let env = (-t * 12.0).exp();
+        out.push(s * env * volume * 1.6);
+    }
+    out
+}
+
+/// Creeper death: crunchy descending noise burst.
+fn synth_creeper_death(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.4)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp = BiquadFilter::bandpass(1400.0, 2.0, sr);
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let imp = if i < 5 { 1.5 } else { rng.next_f32() * 0.5 };
+        let s = bp.process(imp);
+        let env = (1.0 - t).powf(1.8);
+        out.push(s * env * volume * 1.5);
+    }
     out
 }

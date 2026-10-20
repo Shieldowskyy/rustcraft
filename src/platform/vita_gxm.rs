@@ -763,6 +763,9 @@ pub const ALL_TEXTURES: &[TextureId] = &[
     TextureId::RawPorkchop, TextureId::CookedPorkchop, TextureId::RawBeef, TextureId::CookedBeef,
     TextureId::Apple, TextureId::IronIngot, TextureId::GoldIngot, TextureId::IronOunce, TextureId::GoldOunce, TextureId::Bone,
     TextureId::DiamondOre, TextureId::DiamondBlock, TextureId::Diamond, TextureId::BedTop, TextureId::BedSide, TextureId::Ladder,
+    TextureId::ZombieSkin, TextureId::ZombieFace, TextureId::ZombieShirt, TextureId::ZombiePants,
+    TextureId::SkeletonBone, TextureId::SkeletonFace, TextureId::SkeletonBody,
+    TextureId::CreeperSkin, TextureId::CreeperFace, TextureId::Gunpowder,
 ];
 
 unsafe fn populate_atlas(pixels: *mut u32, atlas: &TextureAtlas) {
@@ -957,6 +960,16 @@ pub fn atlas_uv(tex_id: TextureId) -> (f32, f32, f32, f32) {
         TextureId::BedTop => 101,
         TextureId::BedSide => 102,
         TextureId::Ladder => 103,
+        TextureId::ZombieSkin => 104,
+        TextureId::ZombieFace => 105,
+        TextureId::ZombieShirt => 106,
+        TextureId::ZombiePants => 107,
+        TextureId::SkeletonBone => 108,
+        TextureId::SkeletonFace => 109,
+        TextureId::SkeletonBody => 110,
+        TextureId::CreeperSkin => 111,
+        TextureId::CreeperFace => 112,
+        TextureId::Gunpowder => 113,
         _ => 0,
     };
     const TILE_NORM: f32 = 1.0 / ATLAS_TILES_PER_ROW as f32;
@@ -2794,6 +2807,224 @@ fn append_mob(
                     tex_bottom: TextureId::ChickenLeg,
                     tex_side: TextureId::ChickenLeg,
                     tex_front: TextureId::ChickenLeg,
+                };
+                append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+            }
+        }
+        MobKind::Zombie => {
+            let body_box = GxmMobBox {
+                center: Vec3::new(0.0, 1.07, 0.0),
+                size: Vec3::new(0.48, 0.70, 0.26),
+                yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::ZombieShirt,
+                tex_bottom: TextureId::ZombiePants,
+                tex_side: TextureId::ZombieShirt,
+                tex_front: TextureId::ZombieShirt,
+            };
+            append_mob_box(&body_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let head_pos = base_pos + Vec3::new(0.0, 1.44, 0.0);
+            let head_yaw = yaw + mob.head_yaw_offset;
+            let head_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.24, 0.0),
+                size: Vec3::new(0.48, 0.48, 0.48),
+                yaw: head_yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: head_pos,
+                tex_top: TextureId::ZombieSkin,
+                tex_bottom: TextureId::ZombieSkin,
+                tex_side: TextureId::ZombieSkin,
+                tex_front: TextureId::ZombieFace,
+            };
+            append_mob_box(&head_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let arm_pitch = -1.45f32;
+            let arm_offsets = [
+                (-0.36f32, 1.36f32),
+                (0.36f32, 1.36f32),
+            ];
+            for &(ax, ay) in &arm_offsets {
+                let rotated_x = ax * yaw.cos();
+                let rotated_z = -ax * yaw.sin();
+                let arm_origin = base_pos + Vec3::new(rotated_x, ay, rotated_z);
+
+                let arm_box = GxmMobBox {
+                    center: Vec3::new(0.0, -0.32, 0.0),
+                    size: Vec3::new(0.24, 0.64, 0.24),
+                    yaw,
+                    pitch: arm_pitch,
+                    roll: roll_angle,
+                    origin: arm_origin,
+                    tex_top: TextureId::ZombieShirt,
+                    tex_bottom: TextureId::ZombieSkin,
+                    tex_side: TextureId::ZombieSkin,
+                    tex_front: TextureId::ZombieSkin,
+                };
+                append_mob_box(&arm_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+            }
+
+            let leg_offsets = [
+                (-0.14f32, leg_swing),
+                (0.14f32, -leg_swing),
+            ];
+            for &(lx, swing) in &leg_offsets {
+                let rotated_x = lx * yaw.cos();
+                let rotated_z = -lx * yaw.sin();
+                let leg_origin = base_pos + Vec3::new(rotated_x, 0.72, rotated_z);
+
+                let leg_box = GxmMobBox {
+                    center: Vec3::new(0.0, -0.36, 0.0),
+                    size: Vec3::new(0.24, 0.72, 0.24),
+                    yaw,
+                    pitch: swing,
+                    roll: roll_angle,
+                    origin: leg_origin,
+                    tex_top: TextureId::ZombiePants,
+                    tex_bottom: TextureId::ZombiePants,
+                    tex_side: TextureId::ZombiePants,
+                    tex_front: TextureId::ZombiePants,
+                };
+                append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+            }
+        }
+        MobKind::Skeleton => {
+            let body_box = GxmMobBox {
+                center: Vec3::new(0.0, 1.07, 0.0),
+                size: Vec3::new(0.44, 0.70, 0.24),
+                yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::SkeletonBone,
+                tex_bottom: TextureId::SkeletonBone,
+                tex_side: TextureId::SkeletonBone,
+                tex_front: TextureId::SkeletonBody,
+            };
+            append_mob_box(&body_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let head_pos = base_pos + Vec3::new(0.0, 1.44, 0.0);
+            let head_yaw = yaw + mob.head_yaw_offset;
+            let head_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.23, 0.0),
+                size: Vec3::new(0.46, 0.46, 0.46),
+                yaw: head_yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: head_pos,
+                tex_top: TextureId::SkeletonBone,
+                tex_bottom: TextureId::SkeletonBone,
+                tex_side: TextureId::SkeletonBone,
+                tex_front: TextureId::SkeletonFace,
+            };
+            append_mob_box(&head_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let arm_pitch = -1.35f32;
+            let arm_offsets = [
+                (-0.32f32, 1.36f32),
+                (0.32f32, 1.36f32),
+            ];
+            for &(ax, ay) in &arm_offsets {
+                let rotated_x = ax * yaw.cos();
+                let rotated_z = -ax * yaw.sin();
+                let arm_origin = base_pos + Vec3::new(rotated_x, ay, rotated_z);
+
+                let arm_box = GxmMobBox {
+                    center: Vec3::new(0.0, -0.32, 0.0),
+                    size: Vec3::new(0.18, 0.64, 0.18),
+                    yaw,
+                    pitch: arm_pitch,
+                    roll: roll_angle,
+                    origin: arm_origin,
+                    tex_top: TextureId::SkeletonBone,
+                    tex_bottom: TextureId::SkeletonBone,
+                    tex_side: TextureId::SkeletonBone,
+                    tex_front: TextureId::SkeletonBone,
+                };
+                append_mob_box(&arm_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+            }
+
+            let leg_offsets = [
+                (-0.13f32, leg_swing),
+                (0.13f32, -leg_swing),
+            ];
+            for &(lx, swing) in &leg_offsets {
+                let rotated_x = lx * yaw.cos();
+                let rotated_z = -lx * yaw.sin();
+                let leg_origin = base_pos + Vec3::new(rotated_x, 0.72, rotated_z);
+
+                let leg_box = GxmMobBox {
+                    center: Vec3::new(0.0, -0.36, 0.0),
+                    size: Vec3::new(0.18, 0.72, 0.18),
+                    yaw,
+                    pitch: swing,
+                    roll: roll_angle,
+                    origin: leg_origin,
+                    tex_top: TextureId::SkeletonBone,
+                    tex_bottom: TextureId::SkeletonBone,
+                    tex_side: TextureId::SkeletonBone,
+                    tex_front: TextureId::SkeletonBone,
+                };
+                append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+            }
+        }
+        MobKind::Creeper => {
+            let swell = if mob.fuse > 0.0 { 1.0 + (mob.fuse / 1.5).min(1.0) * 0.22 } else { 1.0 };
+            let body_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.72 * swell, 0.0),
+                size: Vec3::new(0.44 * swell, 0.72 * swell, 0.24 * swell),
+                yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::CreeperSkin,
+                tex_bottom: TextureId::CreeperSkin,
+                tex_side: TextureId::CreeperSkin,
+                tex_front: TextureId::CreeperSkin,
+            };
+            append_mob_box(&body_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let head_pos = base_pos + Vec3::new(0.0, 1.08 * swell, 0.0);
+            let head_yaw = yaw + mob.head_yaw_offset;
+            let head_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.24 * swell, 0.0),
+                size: Vec3::new(0.48 * swell, 0.48 * swell, 0.48 * swell),
+                yaw: head_yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: head_pos,
+                tex_top: TextureId::CreeperSkin,
+                tex_bottom: TextureId::CreeperSkin,
+                tex_side: TextureId::CreeperSkin,
+                tex_front: TextureId::CreeperFace,
+            };
+            append_mob_box(&head_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let leg_offsets = [
+                (-0.13f32, 0.14f32, leg_swing),
+                (0.13f32, 0.14f32, -leg_swing),
+                (-0.13f32, -0.14f32, -leg_swing),
+                (0.13f32, -0.14f32, leg_swing),
+            ];
+            for &(lx, lz, swing) in &leg_offsets {
+                let rotated_x = lx * yaw.cos() + lz * yaw.sin();
+                let rotated_z = -lx * yaw.sin() + lz * yaw.cos();
+                let leg_origin = base_pos + Vec3::new(rotated_x * swell, 0.36 * swell, rotated_z * swell);
+
+                let leg_box = GxmMobBox {
+                    center: Vec3::new(0.0, -0.18 * swell, 0.0),
+                    size: Vec3::new(0.22 * swell, 0.36 * swell, 0.22 * swell),
+                    yaw,
+                    pitch: swing,
+                    roll: roll_angle,
+                    origin: leg_origin,
+                    tex_top: TextureId::CreeperSkin,
+                    tex_bottom: TextureId::CreeperSkin,
+                    tex_side: TextureId::CreeperSkin,
+                    tex_front: TextureId::CreeperSkin,
                 };
                 append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
             }

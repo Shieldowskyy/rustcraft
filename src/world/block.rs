@@ -127,6 +127,10 @@ pub enum BlockId {
     StoneStairs,
     /// Ladder for climbing vertical walls
     Ladder,
+    /// Bone dropped by skeletons
+    Bone,
+    /// Gunpowder dropped by creepers
+    Gunpowder,
 }
 
 impl BlockId {
@@ -209,6 +213,8 @@ impl BlockId {
             75 => BlockId::WoodenStairs,
             76 => BlockId::StoneStairs,
             77 => BlockId::Ladder,
+            78 => BlockId::Bone,
+            79 => BlockId::Gunpowder,
             _ => BlockId::Air,
         }
     }
@@ -293,6 +299,8 @@ impl BlockId {
             BlockId::WoodenStairs => 75,
             BlockId::StoneStairs => 76,
             BlockId::Ladder => 77,
+            BlockId::Bone => 78,
+            BlockId::Gunpowder => 79,
         }
     }
 
@@ -338,6 +346,8 @@ impl BlockId {
                 | BlockId::GoldAxe
                 | BlockId::GoldShovel
                 | BlockId::GoldSword
+                | BlockId::Bone
+                | BlockId::Gunpowder
         )
     }
 
@@ -756,6 +766,8 @@ impl BlockId {
             BlockId::WoodenStairs => "drewniane schody",
             BlockId::StoneStairs => "kamienne schody",
             BlockId::Ladder => "drabina",
+            BlockId::Bone => "kosc",
+            BlockId::Gunpowder => "proch",
         }
     }
 
@@ -843,6 +855,8 @@ impl BlockId {
             BlockId::IronPickaxe | BlockId::IronAxe | BlockId::IronShovel | BlockId::IronSword => [0.85, 0.85, 0.88],
             BlockId::GoldPickaxe | BlockId::GoldAxe | BlockId::GoldShovel | BlockId::GoldSword => [0.95, 0.85, 0.25],
             BlockId::DiamondPickaxe | BlockId::DiamondAxe | BlockId::DiamondShovel | BlockId::DiamondSword => [0.25, 0.90, 0.95],
+            BlockId::Bone => [0.88, 0.88, 0.84],
+            BlockId::Gunpowder => [0.28, 0.28, 0.28],
             BlockId::Air => [0.0, 0.0, 0.0],
         }
     }
@@ -934,6 +948,8 @@ impl BlockId {
                 _ => TextureId::BedSide,
             },
             BlockId::Ladder => TextureId::Ladder,
+            BlockId::Bone => TextureId::Bone,
+            BlockId::Gunpowder => TextureId::Gunpowder,
             _ => TextureId::Planks,
         }
     }

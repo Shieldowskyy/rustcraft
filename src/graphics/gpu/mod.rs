@@ -1153,6 +1153,16 @@ impl VulkanContext {
             TextureId::BedTop => 108,
             TextureId::BedSide => 109,
             TextureId::Ladder => 110,
+            TextureId::ZombieSkin => 111,
+            TextureId::ZombieFace => 112,
+            TextureId::ZombieShirt => 113,
+            TextureId::ZombiePants => 114,
+            TextureId::SkeletonBone => 115,
+            TextureId::SkeletonFace => 116,
+            TextureId::SkeletonBody => 117,
+            TextureId::CreeperSkin => 118,
+            TextureId::CreeperFace => 119,
+            TextureId::Gunpowder => 120,
         }
     }
 
@@ -1269,6 +1279,16 @@ impl VulkanContext {
             108 => TextureId::BedTop,
             109 => TextureId::BedSide,
             110 => TextureId::Ladder,
+            111 => TextureId::ZombieSkin,
+            112 => TextureId::ZombieFace,
+            113 => TextureId::ZombieShirt,
+            114 => TextureId::ZombiePants,
+            115 => TextureId::SkeletonBone,
+            116 => TextureId::SkeletonFace,
+            117 => TextureId::SkeletonBody,
+            118 => TextureId::CreeperSkin,
+            119 => TextureId::CreeperFace,
+            120 => TextureId::Gunpowder,
             _ => TextureId::CraftingTableFront,
         }
     }

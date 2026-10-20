@@ -1402,7 +1402,13 @@ impl Renderer {
     pub fn draw_mob(&mut self, mob: &crate::gameplay::mob::Mob, camera: &Camera, view_proj: &Mat4) {
         use crate::gameplay::mob::MobKind;
 
-        let hurt_tint = if mob.hurt_timer > 0.0 { 0.7 } else { 0.0 };
+        let hurt_tint = if mob.hurt_timer > 0.0 {
+            0.7
+        } else if mob.kind == MobKind::Creeper && mob.fuse > 0.0 && ((mob.fuse * 9.0) as i32 % 2 == 1) {
+            0.85
+        } else {
+            0.0
+        };
         let death_t = (mob.death_timer / 0.8).clamp(0.0, 1.0);
         let roll_angle = death_t * std::f32::consts::FRAC_PI_2;
 
@@ -1705,6 +1711,224 @@ impl Renderer {
                         tex_bottom: TextureId::ChickenLeg,
                         tex_side: TextureId::ChickenLeg,
                         tex_front: TextureId::ChickenLeg,
+                    };
+                    self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
+                }
+            }
+            MobKind::Zombie => {
+                let body_box = MobBox {
+                    center: Vec3::new(0.0, 1.07, 0.0),
+                    size: Vec3::new(0.48, 0.70, 0.26),
+                    yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: base_pos,
+                    tex_top: TextureId::ZombieShirt,
+                    tex_bottom: TextureId::ZombiePants,
+                    tex_side: TextureId::ZombieShirt,
+                    tex_front: TextureId::ZombieShirt,
+                };
+                self.draw_mob_box(&body_box, hurt_tint, camera_pos, view_proj);
+
+                let head_pos = base_pos + Vec3::new(0.0, 1.44, 0.0);
+                let head_yaw = yaw + mob.head_yaw_offset;
+                let head_box = MobBox {
+                    center: Vec3::new(0.0, 0.24, 0.0),
+                    size: Vec3::new(0.48, 0.48, 0.48),
+                    yaw: head_yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: head_pos,
+                    tex_top: TextureId::ZombieSkin,
+                    tex_bottom: TextureId::ZombieSkin,
+                    tex_side: TextureId::ZombieSkin,
+                    tex_front: TextureId::ZombieFace,
+                };
+                self.draw_mob_box(&head_box, hurt_tint, camera_pos, view_proj);
+
+                let arm_pitch = -1.45f32;
+                let arm_offsets = [
+                    (-0.36f32, 1.36f32),
+                    (0.36f32, 1.36f32),
+                ];
+                for &(ax, ay) in &arm_offsets {
+                    let rotated_x = ax * yaw.cos();
+                    let rotated_z = -ax * yaw.sin();
+                    let arm_origin = base_pos + Vec3::new(rotated_x, ay, rotated_z);
+
+                    let arm_box = MobBox {
+                        center: Vec3::new(0.0, -0.32, 0.0),
+                        size: Vec3::new(0.24, 0.64, 0.24),
+                        yaw,
+                        pitch: arm_pitch,
+                        roll: roll_angle,
+                        origin: arm_origin,
+                        tex_top: TextureId::ZombieShirt,
+                        tex_bottom: TextureId::ZombieSkin,
+                        tex_side: TextureId::ZombieSkin,
+                        tex_front: TextureId::ZombieSkin,
+                    };
+                    self.draw_mob_box(&arm_box, hurt_tint, camera_pos, view_proj);
+                }
+
+                let leg_offsets = [
+                    (-0.14f32, leg_swing),
+                    (0.14f32, -leg_swing),
+                ];
+                for &(lx, swing) in &leg_offsets {
+                    let rotated_x = lx * yaw.cos();
+                    let rotated_z = -lx * yaw.sin();
+                    let leg_origin = base_pos + Vec3::new(rotated_x, 0.72, rotated_z);
+
+                    let leg_box = MobBox {
+                        center: Vec3::new(0.0, -0.36, 0.0),
+                        size: Vec3::new(0.24, 0.72, 0.24),
+                        yaw,
+                        pitch: swing,
+                        roll: roll_angle,
+                        origin: leg_origin,
+                        tex_top: TextureId::ZombiePants,
+                        tex_bottom: TextureId::ZombiePants,
+                        tex_side: TextureId::ZombiePants,
+                        tex_front: TextureId::ZombiePants,
+                    };
+                    self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
+                }
+            }
+            MobKind::Skeleton => {
+                let body_box = MobBox {
+                    center: Vec3::new(0.0, 1.07, 0.0),
+                    size: Vec3::new(0.44, 0.70, 0.24),
+                    yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: base_pos,
+                    tex_top: TextureId::SkeletonBone,
+                    tex_bottom: TextureId::SkeletonBone,
+                    tex_side: TextureId::SkeletonBone,
+                    tex_front: TextureId::SkeletonBody,
+                };
+                self.draw_mob_box(&body_box, hurt_tint, camera_pos, view_proj);
+
+                let head_pos = base_pos + Vec3::new(0.0, 1.44, 0.0);
+                let head_yaw = yaw + mob.head_yaw_offset;
+                let head_box = MobBox {
+                    center: Vec3::new(0.0, 0.23, 0.0),
+                    size: Vec3::new(0.46, 0.46, 0.46),
+                    yaw: head_yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: head_pos,
+                    tex_top: TextureId::SkeletonBone,
+                    tex_bottom: TextureId::SkeletonBone,
+                    tex_side: TextureId::SkeletonBone,
+                    tex_front: TextureId::SkeletonFace,
+                };
+                self.draw_mob_box(&head_box, hurt_tint, camera_pos, view_proj);
+
+                let arm_pitch = -1.35f32;
+                let arm_offsets = [
+                    (-0.32f32, 1.36f32),
+                    (0.32f32, 1.36f32),
+                ];
+                for &(ax, ay) in &arm_offsets {
+                    let rotated_x = ax * yaw.cos();
+                    let rotated_z = -ax * yaw.sin();
+                    let arm_origin = base_pos + Vec3::new(rotated_x, ay, rotated_z);
+
+                    let arm_box = MobBox {
+                        center: Vec3::new(0.0, -0.32, 0.0),
+                        size: Vec3::new(0.18, 0.64, 0.18),
+                        yaw,
+                        pitch: arm_pitch,
+                        roll: roll_angle,
+                        origin: arm_origin,
+                        tex_top: TextureId::SkeletonBone,
+                        tex_bottom: TextureId::SkeletonBone,
+                        tex_side: TextureId::SkeletonBone,
+                        tex_front: TextureId::SkeletonBone,
+                    };
+                    self.draw_mob_box(&arm_box, hurt_tint, camera_pos, view_proj);
+                }
+
+                let leg_offsets = [
+                    (-0.13f32, leg_swing),
+                    (0.13f32, -leg_swing),
+                ];
+                for &(lx, swing) in &leg_offsets {
+                    let rotated_x = lx * yaw.cos();
+                    let rotated_z = -lx * yaw.sin();
+                    let leg_origin = base_pos + Vec3::new(rotated_x, 0.72, rotated_z);
+
+                    let leg_box = MobBox {
+                        center: Vec3::new(0.0, -0.36, 0.0),
+                        size: Vec3::new(0.18, 0.72, 0.18),
+                        yaw,
+                        pitch: swing,
+                        roll: roll_angle,
+                        origin: leg_origin,
+                        tex_top: TextureId::SkeletonBone,
+                        tex_bottom: TextureId::SkeletonBone,
+                        tex_side: TextureId::SkeletonBone,
+                        tex_front: TextureId::SkeletonBone,
+                    };
+                    self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
+                }
+            }
+            MobKind::Creeper => {
+                let swell = if mob.fuse > 0.0 { 1.0 + (mob.fuse / 1.5).min(1.0) * 0.22 } else { 1.0 };
+                let body_box = MobBox {
+                    center: Vec3::new(0.0, 0.72 * swell, 0.0),
+                    size: Vec3::new(0.44 * swell, 0.72 * swell, 0.24 * swell),
+                    yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: base_pos,
+                    tex_top: TextureId::CreeperSkin,
+                    tex_bottom: TextureId::CreeperSkin,
+                    tex_side: TextureId::CreeperSkin,
+                    tex_front: TextureId::CreeperSkin,
+                };
+                self.draw_mob_box(&body_box, hurt_tint, camera_pos, view_proj);
+
+                let head_pos = base_pos + Vec3::new(0.0, 1.08 * swell, 0.0);
+                let head_yaw = yaw + mob.head_yaw_offset;
+                let head_box = MobBox {
+                    center: Vec3::new(0.0, 0.24 * swell, 0.0),
+                    size: Vec3::new(0.48 * swell, 0.48 * swell, 0.48 * swell),
+                    yaw: head_yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: head_pos,
+                    tex_top: TextureId::CreeperSkin,
+                    tex_bottom: TextureId::CreeperSkin,
+                    tex_side: TextureId::CreeperSkin,
+                    tex_front: TextureId::CreeperFace,
+                };
+                self.draw_mob_box(&head_box, hurt_tint, camera_pos, view_proj);
+
+                let leg_offsets = [
+                    (-0.13f32, 0.14f32, leg_swing),
+                    (0.13f32, 0.14f32, -leg_swing),
+                    (-0.13f32, -0.14f32, -leg_swing),
+                    (0.13f32, -0.14f32, leg_swing),
+                ];
+                for &(lx, lz, swing) in &leg_offsets {
+                    let rotated_x = lx * yaw.cos() + lz * yaw.sin();
+                    let rotated_z = -lx * yaw.sin() + lz * yaw.cos();
+                    let leg_origin = base_pos + Vec3::new(rotated_x * swell, 0.36 * swell, rotated_z * swell);
+
+                    let leg_box = MobBox {
+                        center: Vec3::new(0.0, -0.18 * swell, 0.0),
+                        size: Vec3::new(0.22 * swell, 0.36 * swell, 0.22 * swell),
+                        yaw,
+                        pitch: swing,
+                        roll: roll_angle,
+                        origin: leg_origin,
+                        tex_top: TextureId::CreeperSkin,
+                        tex_bottom: TextureId::CreeperSkin,
+                        tex_side: TextureId::CreeperSkin,
+                        tex_front: TextureId::CreeperSkin,
                     };
                     self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
                 }
@@ -2539,11 +2763,12 @@ impl Renderer {
             + forward * 0.72
             + right * (0.48 + swing)
             + up * (-0.36 + bob);
-        let arm_pos = hand_pos - right * 0.08 - up * 0.10 + forward * 0.03;
-        // Always draw arm
-        self.draw_cube_3d(arm_pos, right, up, forward, [0.085, 0.085, 0.12], TextureId::Dirt, view_proj);
-        // Draw held tool, torch or block
-        if let Some(id) = block_id {
+
+        // When holding no item (bare hand), draw the player's arm
+        if block_id.is_none() {
+            let arm_pos = hand_pos - right * 0.08 - up * 0.10 + forward * 0.03;
+            self.draw_cube_3d(arm_pos, right, up, forward, [0.085, 0.085, 0.12], TextureId::PlayerSkin, view_proj);
+        } else if let Some(id) = block_id {
             let block = crate::world::block::BlockId::from_u8(id);
             if block == crate::world::block::BlockId::Torch {
                 let swing_pitch = attack * 0.45;
@@ -2570,10 +2795,25 @@ impl Renderer {
 
                 self.draw_meat_3d(block, meat_origin, meat_right, meat_up, meat_forward, 1.0, view_proj);
             } else {
+                // Held block: positioned far enough forward so it never penetrates the camera or near clipping plane
+                let block_forward_dist = 0.92 + attack * 0.06;
+                let block_pos = camera.position
+                    + forward * block_forward_dist
+                    + right * (0.44 + swing * 0.4)
+                    + up * (-0.35 + bob * 0.4);
+
+                // Rotate block in classic Minecraft isometric view: yaw ~35 deg, pitch ~22 deg
+                let block_yaw = -0.62f32;
+                let block_pitch = 0.38f32;
+                let b_forward = (forward * block_pitch.cos() - up * block_pitch.sin()).normalized();
+                let b_up = (up * block_pitch.cos() + forward * block_pitch.sin()).normalized();
+                let b_right = (right * block_yaw.cos() + b_forward * block_yaw.sin()).normalized();
+                let b_fwd = (b_forward * block_yaw.cos() - right * block_yaw.sin()).normalized();
+
                 let top_tex = block.texture_id(crate::world::block::Face::Top);
                 let side_tex = block.texture_id(crate::world::block::Face::North);
                 let bot_tex = block.texture_id(crate::world::block::Face::Bottom);
-                self.draw_multitex_cube_3d(hand_pos, right, up, forward, [0.13, 0.13, 0.13], top_tex, bot_tex, side_tex, view_proj);
+                self.draw_multitex_cube_3d(block_pos, b_right, b_up, b_fwd, [0.095, 0.095, 0.095], top_tex, bot_tex, side_tex, view_proj);
             }
         }
     }

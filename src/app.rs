@@ -2993,7 +2993,9 @@ impl RustCraftApp {
                             );
                             self.mob_manager.spawn_mob(mob_kind, spawn_pos);
                             self.particles.spawn_mob_hit(spawn_pos);
-                            self.play_world_sound_varied(mob_kind.idle_sound(), spawn_pos, 0.9);
+                            if let Some(snd) = mob_kind.idle_sound() {
+                                self.play_world_sound_varied(snd, spawn_pos, 0.9);
+                            }
                             self.hand_animation = 1.0;
                             crate::log_info!("WORLD", "Spawned mob {:?} via egg at ({:.1}, {:.1}, {:.1})", mob_kind, spawn_pos.x, spawn_pos.y, spawn_pos.z);
                             if self.player.gamemode == GameMode::Survival {
@@ -3114,8 +3116,8 @@ impl RustCraftApp {
                             self.horiz_velocity.z += push_z * 3.0;
                         }
 
-                        // Hostile mob attack
-                        if mob.kind.is_hostile() && dist_sq < 1.4 * 1.4 && (mob.pos.y - self.camera.position.y).abs() < 1.8 {
+                        // Hostile mob attack (creepers do not melee, they explode)
+                        if mob.kind.is_hostile() && mob.kind != crate::gameplay::mob::MobKind::Creeper && dist_sq < 1.4 * 1.4 && (mob.pos.y - self.camera.position.y).abs() < 1.8 {
                             if self.player.take_damage(2.0) {
                                 self.damage_tilt_timer = 0.4;
                                 self.damage_tilt_dir = if mob.pos.x > self.camera.position.x { -1.0 } else { 1.0 };
@@ -3123,6 +3125,9 @@ impl RustCraftApp {
                             }
                         }
                     }
+                }
+                for exp_pos in self.mob_manager.pending_explosions.drain(..) {
+                    self.world.explode(exp_pos.floor_to_ivec(), 3.5);
                 }
                 for poof_pos in self.mob_manager.dying_poofs.drain(..) {
                     self.particles.spawn_mob_death_poof(poof_pos);

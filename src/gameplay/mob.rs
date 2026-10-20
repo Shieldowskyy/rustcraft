@@ -8,6 +8,9 @@ pub enum MobKind {
     Pig,
     Cow,
     Chicken,
+    Zombie,
+    Skeleton,
+    Creeper,
 }
 
 impl MobKind {
@@ -16,6 +19,9 @@ impl MobKind {
             MobKind::Pig => 10.0,
             MobKind::Cow => 10.0,
             MobKind::Chicken => 4.0,
+            MobKind::Zombie => 20.0,
+            MobKind::Skeleton => 20.0,
+            MobKind::Creeper => 20.0,
         }
     }
 
@@ -24,6 +30,9 @@ impl MobKind {
             MobKind::Pig => 0.4,
             MobKind::Cow => 0.45,
             MobKind::Chicken => 0.25,
+            MobKind::Zombie => 0.35,
+            MobKind::Skeleton => 0.30,
+            MobKind::Creeper => 0.30,
         }
     }
 
@@ -32,6 +41,9 @@ impl MobKind {
             MobKind::Pig => 0.85,
             MobKind::Cow => 1.35,
             MobKind::Chicken => 0.70,
+            MobKind::Zombie => 1.85,
+            MobKind::Skeleton => 1.85,
+            MobKind::Creeper => 1.70,
         }
     }
 
@@ -39,6 +51,7 @@ impl MobKind {
     pub fn is_hostile(&self) -> bool {
         match self {
             MobKind::Pig | MobKind::Cow | MobKind::Chicken => false,
+            MobKind::Zombie | MobKind::Skeleton | MobKind::Creeper => true,
         }
     }
 
@@ -48,14 +61,20 @@ impl MobKind {
             MobKind::Pig => "Pig",
             MobKind::Cow => "Cow",
             MobKind::Chicken => "Chicken",
+            MobKind::Zombie => "Zombie",
+            MobKind::Skeleton => "Skeleton",
+            MobKind::Creeper => "Creeper",
         }
     }
 
-    pub fn idle_sound(&self) -> crate::audio::SoundId {
+    pub fn idle_sound(&self) -> Option<crate::audio::SoundId> {
         match self {
-            MobKind::Pig => crate::audio::SoundId::PigIdle,
-            MobKind::Cow => crate::audio::SoundId::CowIdle,
-            MobKind::Chicken => crate::audio::SoundId::ChickenIdle,
+            MobKind::Pig => Some(crate::audio::SoundId::PigIdle),
+            MobKind::Cow => Some(crate::audio::SoundId::CowIdle),
+            MobKind::Chicken => Some(crate::audio::SoundId::ChickenIdle),
+            MobKind::Zombie => Some(crate::audio::SoundId::ZombieIdle),
+            MobKind::Skeleton => Some(crate::audio::SoundId::SkeletonIdle),
+            MobKind::Creeper => None,
         }
     }
 
@@ -64,6 +83,9 @@ impl MobKind {
             MobKind::Pig => crate::audio::SoundId::PigHurt,
             MobKind::Cow => crate::audio::SoundId::CowHurt,
             MobKind::Chicken => crate::audio::SoundId::ChickenHurt,
+            MobKind::Zombie => crate::audio::SoundId::ZombieHurt,
+            MobKind::Skeleton => crate::audio::SoundId::SkeletonHurt,
+            MobKind::Creeper => crate::audio::SoundId::CreeperHurt,
         }
     }
 
@@ -72,6 +94,9 @@ impl MobKind {
             MobKind::Pig => crate::audio::SoundId::PigDeath,
             MobKind::Cow => crate::audio::SoundId::CowDeath,
             MobKind::Chicken => crate::audio::SoundId::ChickenDeath,
+            MobKind::Zombie => crate::audio::SoundId::ZombieDeath,
+            MobKind::Skeleton => crate::audio::SoundId::SkeletonDeath,
+            MobKind::Creeper => crate::audio::SoundId::CreeperDeath,
         }
     }
 }
@@ -98,6 +123,8 @@ pub struct Mob {
     pub despawn_pending: bool,
     pub ambient_sound_timer: f32,
     pub pending_sound: Option<crate::audio::SoundId>,
+    pub fuse: f32,
+    pub is_ignited: bool,
 }
 
 impl Mob {
@@ -124,6 +151,8 @@ impl Mob {
             despawn_pending: false,
             ambient_sound_timer: initial_ambient,
             pending_sound: None,
+            fuse: 0.0,
+            is_ignited: false,
         }
     }
 
@@ -169,7 +198,7 @@ impl Mob {
         }
     }
 
-    pub fn update(&mut self, dt: f32, world: &World, rng: &mut u32) {
+    pub fn update(&mut self, dt: f32, world: &World, rng: &mut u32, player_pos: Option<Vec3>) {
         let rand_f32 = |state: &mut u32| -> f32 {
             *state = state.wrapping_mul(1664525).wrapping_add(1013904223);
             (*state as f32) / (u32::MAX as f32)
@@ -180,7 +209,7 @@ impl Mob {
             if self.ambient_sound_timer <= 0.0 {
                 self.ambient_sound_timer = 7.0 + rand_f32(rng) * 9.0;
                 if self.pending_sound.is_none() {
-                    self.pending_sound = Some(self.kind.idle_sound());
+                    self.pending_sound = self.kind.idle_sound();
                 }
             }
         }
@@ -235,27 +264,93 @@ impl Mob {
             }
         }
 
+        // Sunlight burning for undead hostile mobs (Zombie, Skeleton)
+        if (self.kind == MobKind::Zombie || self.kind == MobKind::Skeleton) && world.sunlight_factor() > 0.65 {
+            let ix = self.pos.x.floor() as i32;
+            let iy = (self.pos.y + self.kind.height()).ceil() as i32;
+            let iz = self.pos.z.floor() as i32;
+            let mut covered = false;
+            for y in iy..=64 {
+                let blk = world.get_block(IVec3::new(ix, y, iz));
+                if blk.is_solid() || blk == BlockId::Leaves || blk == BlockId::SnowLeaves {
+                    covered = true;
+                    break;
+                }
+            }
+            if !covered && self.hurt_timer <= 0.0 {
+                self.take_damage(2.0, Vec3::new(0.0, 0.5, 0.0));
+            }
+        }
+
         if self.panic_timer > 0.0 {
             self.panic_timer = (self.panic_timer - dt).max(0.0);
         }
 
-        self.ai_timer -= dt;
-        if self.ai_timer <= 0.0 {
-            if self.panic_timer > 0.0 {
-                self.ai_state_is_moving = true;
-                self.target_yaw += (rand_f32(rng) - 0.5) * 1.6;
-                self.ai_timer = 0.4 + rand_f32(rng) * 0.5;
-            } else {
-                let roll = rand_f32(rng);
-                if roll < 0.45 {
-                    self.ai_state_is_moving = false;
-                    self.ai_timer = 2.0 + rand_f32(rng) * 3.5;
-                    self.head_yaw_offset = (rand_f32(rng) - 0.5) * 0.8;
-                } else {
+        let mut pursuing_player = false;
+        if self.kind.is_hostile() {
+            if let Some(target) = player_pos {
+                let dx = target.x - self.pos.x;
+                let dz = target.z - self.pos.z;
+                let dy = (target.y - self.pos.y).abs();
+                let dist_sq = dx * dx + dz * dz;
+
+                if self.kind == MobKind::Creeper {
+                    let total_dist_sq = dist_sq + (target.y - self.pos.y) * (target.y - self.pos.y);
+                    if total_dist_sq < 3.2 * 3.2 {
+                        if !self.is_ignited {
+                            self.is_ignited = true;
+                            self.pending_sound = Some(crate::audio::SoundId::CreeperHiss);
+                        }
+                        self.fuse += dt;
+                        if self.fuse >= 1.5 {
+                            self.is_dead = true;
+                            self.despawn_pending = true;
+                        }
+                    } else if total_dist_sq > 5.5 * 5.5 {
+                        self.is_ignited = false;
+                        self.fuse = (self.fuse - dt * 1.5).max(0.0);
+                    } else if self.is_ignited {
+                        self.fuse += dt;
+                        if self.fuse >= 1.5 {
+                            self.is_dead = true;
+                            self.despawn_pending = true;
+                        }
+                    }
+
+                    if dist_sq < 24.0 * 24.0 && dy < 12.0 && !self.is_dead {
+                        pursuing_player = true;
+                        self.target_yaw = dx.atan2(dz);
+                        self.ai_state_is_moving = self.fuse <= 0.0 || total_dist_sq > 2.8 * 2.8;
+                        self.head_yaw_offset = 0.0;
+                    }
+                } else if dist_sq < 24.0 * 24.0 && dy < 12.0 {
+                    pursuing_player = true;
+                    self.target_yaw = dx.atan2(dz);
                     self.ai_state_is_moving = true;
-                    self.target_yaw = rand_f32(rng) * PI * 2.0;
-                    self.ai_timer = 1.5 + rand_f32(rng) * 3.0;
-                    self.head_yaw_offset = (rand_f32(rng) - 0.5) * 0.2;
+                    self.head_yaw_offset = 0.0;
+                }
+            }
+        }
+
+        if !pursuing_player {
+            self.ai_timer -= dt;
+            if self.ai_timer <= 0.0 {
+                if self.panic_timer > 0.0 {
+                    self.ai_state_is_moving = true;
+                    self.target_yaw += (rand_f32(rng) - 0.5) * 1.6;
+                    self.ai_timer = 0.4 + rand_f32(rng) * 0.5;
+                } else {
+                    let roll = rand_f32(rng);
+                    if roll < 0.45 {
+                        self.ai_state_is_moving = false;
+                        self.ai_timer = 2.0 + rand_f32(rng) * 3.5;
+                        self.head_yaw_offset = (rand_f32(rng) - 0.5) * 0.8;
+                    } else {
+                        self.ai_state_is_moving = true;
+                        self.target_yaw = rand_f32(rng) * PI * 2.0;
+                        self.ai_timer = 1.5 + rand_f32(rng) * 3.0;
+                        self.head_yaw_offset = (rand_f32(rng) - 0.5) * 0.2;
+                    }
                 }
             }
         }
@@ -263,11 +358,13 @@ impl Mob {
         let mut diff = self.target_yaw - self.yaw;
         while diff > PI { diff -= PI * 2.0; }
         while diff < -PI { diff += PI * 2.0; }
-        let turn_speed = if self.panic_timer > 0.0 { 10.0 } else { 4.0 };
+        let turn_speed = if self.panic_timer > 0.0 || pursuing_player { 10.0 } else { 4.0 };
         self.yaw += diff * (turn_speed * dt).min(1.0);
 
         let move_speed = if self.panic_timer > 0.0 {
             3.8
+        } else if pursuing_player {
+            2.6
         } else if self.ai_state_is_moving {
             1.4
         } else {
@@ -279,7 +376,7 @@ impl Mob {
             let target_vel_x = forward.x * move_speed;
             let target_vel_z = forward.z * move_speed;
 
-            let accel = if self.ai_state_is_moving { 12.0 } else { 16.0 };
+            let accel = if self.ai_state_is_moving || pursuing_player { 12.0 } else { 16.0 };
             self.velocity.x += (target_vel_x - self.velocity.x) * (accel * dt).min(1.0);
             self.velocity.z += (target_vel_z - self.velocity.z) * (accel * dt).min(1.0);
         } else {
@@ -293,7 +390,7 @@ impl Mob {
             self.velocity.y = max_fall_speed;
         }
 
-        if self.on_ground && (self.ai_state_is_moving || self.panic_timer > 0.0) {
+        if self.on_ground && (self.ai_state_is_moving || self.panic_timer > 0.0 || pursuing_player) {
             let forward = Vec3::new(self.yaw.sin(), 0.0, self.yaw.cos());
             let hw = self.kind.half_width();
             let check_dist = hw + 0.35;
@@ -412,6 +509,7 @@ pub struct MobManager {
     rng_state: u32,
     pub dying_poofs: Vec<Vec3>,
     pub dying_drops: Vec<MobDrop>,
+    pub pending_explosions: Vec<Vec3>,
 }
 
 impl MobManager {
@@ -423,6 +521,7 @@ impl MobManager {
             rng_state: 987654321,
             dying_poofs: Vec::new(),
             dying_drops: Vec::new(),
+            pending_explosions: Vec::new(),
         }
     }
 
@@ -437,7 +536,11 @@ impl MobManager {
         let mut rng = self.rng_state;
 
         for mob in &mut self.mobs {
-            mob.update(dt, world, &mut rng);
+            let was_exploding = mob.kind == MobKind::Creeper && mob.fuse >= 1.5;
+            mob.update(dt, world, &mut rng, Some(player_pos));
+            if mob.kind == MobKind::Creeper && mob.fuse >= 1.5 && !was_exploding {
+                self.pending_explosions.push(mob.center_pos());
+            }
 
             let dist_sq = (mob.pos.x - player_pos.x) * (mob.pos.x - player_pos.x)
                 + (mob.pos.z - player_pos.z) * (mob.pos.z - player_pos.z);
@@ -483,6 +586,39 @@ impl MobManager {
                                 count: feather_count,
                             });
                         }
+                        MobKind::Zombie => {
+                            let meat_count = 1 + (m.id % 2) as u8; // 1-2 raw beef
+                            self.dying_drops.push(MobDrop {
+                                pos: m.center_pos(),
+                                block: BlockId::RawBeef,
+                                count: meat_count,
+                            });
+                            if m.id % 6 == 0 {
+                                self.dying_drops.push(MobDrop {
+                                    pos: m.center_pos() + Vec3::new(0.05, 0.1, 0.05),
+                                    block: BlockId::IronIngot,
+                                    count: 1,
+                                });
+                            }
+                        }
+                        MobKind::Skeleton => {
+                            let bone_count = 1 + (m.id % 3) as u8; // 1-3 bones
+                            self.dying_drops.push(MobDrop {
+                                pos: m.center_pos(),
+                                block: BlockId::Bone,
+                                count: bone_count,
+                            });
+                        }
+                        MobKind::Creeper => {
+                            if m.fuse < 1.45 {
+                                let gunpowder_count = 1 + (m.id % 2) as u8; // 1-2 gunpowder
+                                self.dying_drops.push(MobDrop {
+                                    pos: m.center_pos(),
+                                    block: BlockId::Gunpowder,
+                                    count: gunpowder_count,
+                                });
+                            }
+                        }
                     }
                 }
                 false
@@ -527,7 +663,7 @@ impl MobManager {
     }
 
     fn try_natural_spawn(&mut self, world: &World, player_pos: Vec3, rng: &mut u32) {
-        const MAX_NEARBY_MOBS: usize = 8;
+        const MAX_NEARBY_MOBS: usize = 16;
         if self.mobs.len() >= MAX_NEARBY_MOBS {
             return;
         }
@@ -537,42 +673,99 @@ impl MobManager {
             (*state as f32) / (u32::MAX as f32)
         };
 
-        if rand_f32(rng) > 0.40 {
+        if rand_f32(rng) > 0.50 {
             return;
         }
 
+        let is_night = world.sunlight_factor() < 0.45;
         let angle = rand_f32(rng) * PI * 2.0;
-        let dist = 18.0 + rand_f32(rng) * 24.0;
+        let dist = 16.0 + rand_f32(rng) * 26.0;
         let target_x = (player_pos.x + angle.cos() * dist).floor() as i32;
         let target_z = (player_pos.z + angle.sin() * dist).floor() as i32;
 
-        let mut surface_y = None;
-        for y in (1..62).rev() {
-            let block = world.get_block(IVec3::new(target_x, y, target_z));
-            if block == BlockId::Grass {
+        // 1. Try spawning in caves around player's Y level
+        let mut cave_spawn = None;
+        let py = player_pos.y.floor() as i32;
+        let y_min = (py - 14).clamp(2, 58);
+        let y_max = (py + 8).clamp(3, 60);
+
+        for y in y_min..=y_max {
+            let floor_block = world.get_block(IVec3::new(target_x, y, target_z));
+            if floor_block.is_solid() && floor_block != BlockId::Lava && floor_block != BlockId::Water {
                 let above1 = world.get_block(IVec3::new(target_x, y + 1, target_z));
                 let above2 = world.get_block(IVec3::new(target_x, y + 2, target_z));
                 if above1 == BlockId::Air && above2 == BlockId::Air {
-                    surface_y = Some(y + 1);
-                    break;
+                    // Check if there is a ceiling above (i.e. inside a cave / underground)
+                    let mut has_roof = false;
+                    for cy in (y + 3)..=63 {
+                        if world.get_block(IVec3::new(target_x, cy, target_z)).is_solid() {
+                            has_roof = true;
+                            break;
+                        }
+                    }
+                    if has_roof {
+                        cave_spawn = Some(y + 1);
+                        break;
+                    }
                 }
-            } else if block != BlockId::Air && block != BlockId::Leaves && block != BlockId::SnowLeaves {
-                break;
             }
         }
 
-        if let Some(sy) = surface_y {
+        if let Some(cy) = cave_spawn {
+            // Cave spawn: Always hostile mobs (Zombie / Skeleton / Creeper) day or night
             let roll = rand_f32(rng);
-            let kind = if roll < 0.33 {
-                MobKind::Pig
-            } else if roll < 0.66 {
-                MobKind::Cow
+            let kind = if roll < 0.45 {
+                MobKind::Zombie
+            } else if roll < 0.75 {
+                MobKind::Skeleton
             } else {
-                MobKind::Chicken
+                MobKind::Creeper
             };
-
-            let spawn_pos = Vec3::new(target_x as f32 + 0.5, sy as f32, target_z as f32 + 0.5);
+            let spawn_pos = Vec3::new(target_x as f32 + 0.5, cy as f32, target_z as f32 + 0.5);
             self.spawn_mob(kind, spawn_pos);
+            return;
+        }
+
+        // 2. Surface spawn (from top down)
+        let mut surface_y = None;
+        for y in (1..63).rev() {
+            let block = world.get_block(IVec3::new(target_x, y, target_z));
+            if block.is_solid() && block != BlockId::Leaves && block != BlockId::SnowLeaves {
+                let above1 = world.get_block(IVec3::new(target_x, y + 1, target_z));
+                let above2 = world.get_block(IVec3::new(target_x, y + 2, target_z));
+                if above1 == BlockId::Air && above2 == BlockId::Air {
+                    surface_y = Some((y + 1, block));
+                    break;
+                }
+            }
+        }
+
+        if let Some((sy, block_below)) = surface_y {
+            if is_night {
+                // Surface night spawn: Hostile mobs (Zombie / Skeleton / Creeper)
+                let roll = rand_f32(rng);
+                let kind = if roll < 0.45 {
+                    MobKind::Zombie
+                } else if roll < 0.75 {
+                    MobKind::Skeleton
+                } else {
+                    MobKind::Creeper
+                };
+                let spawn_pos = Vec3::new(target_x as f32 + 0.5, sy as f32, target_z as f32 + 0.5);
+                self.spawn_mob(kind, spawn_pos);
+            } else if block_below == BlockId::Grass {
+                // Surface day spawn: Peaceful mobs (Pig, Cow, Chicken) on grass
+                let roll = rand_f32(rng);
+                let kind = if roll < 0.35 {
+                    MobKind::Pig
+                } else if roll < 0.70 {
+                    MobKind::Cow
+                } else {
+                    MobKind::Chicken
+                };
+                let spawn_pos = Vec3::new(target_x as f32 + 0.5, sy as f32, target_z as f32 + 0.5);
+                self.spawn_mob(kind, spawn_pos);
+            }
         }
     }
 
@@ -666,10 +859,19 @@ mod tests {
 
     #[test]
     fn test_all_mob_kinds_sound_mapping() {
-        let kinds = [MobKind::Pig, MobKind::Cow, MobKind::Chicken];
+        let kinds = [
+            MobKind::Pig,
+            MobKind::Cow,
+            MobKind::Chicken,
+            MobKind::Zombie,
+            MobKind::Skeleton,
+            MobKind::Creeper,
+        ];
         for kind in kinds {
             let mut mob = Mob::new(42, kind, Vec3::zero());
-            assert_eq!(kind.idle_sound().category(), crate::audio::SoundCategory::Sfx);
+            if let Some(snd) = kind.idle_sound() {
+                assert_eq!(snd.category(), crate::audio::SoundCategory::Sfx);
+            }
             assert_eq!(kind.hurt_sound().category(), crate::audio::SoundCategory::Sfx);
             assert_eq!(kind.death_sound().category(), crate::audio::SoundCategory::Sfx);
 

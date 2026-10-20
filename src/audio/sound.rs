@@ -96,6 +96,15 @@ pub enum SoundId {
     ChickenIdle,
     ChickenHurt,
     ChickenDeath,
+    ZombieIdle,
+    ZombieHurt,
+    ZombieDeath,
+    SkeletonIdle,
+    SkeletonHurt,
+    SkeletonDeath,
+    CreeperHiss,
+    CreeperHurt,
+    CreeperDeath,
 
     // Atmospheric & Ambient
     AmbientWind,
@@ -150,7 +159,16 @@ impl SoundId {
             | SoundId::CowDeath
             | SoundId::ChickenIdle
             | SoundId::ChickenHurt
-            | SoundId::ChickenDeath => SoundCategory::Sfx,
+            | SoundId::ChickenDeath
+            | SoundId::ZombieIdle
+            | SoundId::ZombieHurt
+            | SoundId::ZombieDeath
+            | SoundId::SkeletonIdle
+            | SoundId::SkeletonHurt
+            | SoundId::SkeletonDeath
+            | SoundId::CreeperHiss
+            | SoundId::CreeperHurt
+            | SoundId::CreeperDeath => SoundCategory::Sfx,
 
             SoundId::UiClick | SoundId::UiHover => SoundCategory::Ui,
 
