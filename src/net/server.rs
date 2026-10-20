@@ -10,6 +10,20 @@ use std::time::{Duration, Instant};
 
 use crate::net::protocol::*;
 
+#[allow(unused_macros)]
+macro_rules! println {
+    ($($arg:tt)*) => {
+        $crate::server_info!($($arg)*)
+    };
+}
+
+#[allow(unused_macros)]
+macro_rules! eprintln {
+    ($($arg:tt)*) => {
+        $crate::server_error!($($arg)*)
+    };
+}
+
 struct ConnectedClient {
     id: u32,
     stream: TcpStream,
@@ -49,6 +63,8 @@ pub struct ServerConfig {
     pub difficulty: String,
     pub view_distance: u32,
     pub spawn_pos: (f32, f32, f32),
+    pub logs_dir: String,
+    pub max_log_size_mb: u64,
 }
 
 impl Default for ServerConfig {
@@ -63,6 +79,8 @@ impl Default for ServerConfig {
             difficulty: "normal".to_string(),
             view_distance: 8,
             spawn_pos: (8.5, 65.0, 8.5),
+            logs_dir: "logs".to_string(),
+            max_log_size_mb: 20,
         }
     }
 }
@@ -128,6 +146,14 @@ impl ServerConfig {
                                     cfg.spawn_pos.2 = z;
                                 }
                             }
+                            "logs-dir" => {
+                                cfg.logs_dir = val.to_string();
+                            }
+                            "max-log-size-mb" => {
+                                if let Ok(mb) = val.parse::<u64>() {
+                                    cfg.max_log_size_mb = mb;
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -151,7 +177,9 @@ impl ServerConfig {
              view-distance={}\n\
              spawn-x={:.1}\n\
              spawn-y={:.1}\n\
-             spawn-z={:.1}\n",
+             spawn-z={:.1}\n\
+             logs-dir={}\n\
+             max-log-size-mb={}\n",
             default_cfg.server_port,
             default_cfg.level_seed,
             default_cfg.motd,
@@ -163,6 +191,8 @@ impl ServerConfig {
             default_cfg.spawn_pos.0,
             default_cfg.spawn_pos.1,
             default_cfg.spawn_pos.2,
+            default_cfg.logs_dir,
+            default_cfg.max_log_size_mb,
         );
         let _ = std::fs::write(path, props);
         println!("[SERVER] Created default configuration file at '{}'", path);
@@ -193,10 +223,6 @@ pub fn bind_server_listener(preferred_port: u16) -> Result<(TcpListener, u16), S
 
 /// Dedicated server entrypoint, invoked when rustcraft is started with `--server`.
 pub fn run_dedicated_server(preferred_port: u16, seed: u32) {
-    println!("============================================================");
-    println!("           RustCraft Dedicated Multiplayer Server           ");
-    println!("============================================================");
-
     let mut config = ServerConfig::load_or_create("server.properties");
     if preferred_port != DEFAULT_SERVER_PORT {
         config.server_port = preferred_port;
@@ -204,6 +230,14 @@ pub fn run_dedicated_server(preferred_port: u16, seed: u32) {
     if seed != 0 {
         config.level_seed = seed;
     }
+
+    let logs_dir = std::env::var("RUSTCRAFT_LOGS_DIR").unwrap_or_else(|_| config.logs_dir.clone());
+    let max_log_size_bytes = config.max_log_size_mb * 1024 * 1024;
+    let _ = crate::net::server_log::init_server_logger_with_max_size(&logs_dir, max_log_size_bytes);
+
+    println!("============================================================");
+    println!("           RustCraft Dedicated Multiplayer Server           ");
+    println!("============================================================");
 
     let (listener, port) = match bind_server_listener(config.server_port) {
         Ok(res) => res,
@@ -585,6 +619,7 @@ pub fn run_dedicated_server(preferred_port: u16, seed: u32) {
         });
     }
     println!("[SERVER] Goodbye!");
+    crate::net::server_log::shutdown_server_logger();
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -30,6 +30,7 @@ pub fn is_enabled() -> bool {
 /// Prints a structured log message if logging is enabled, and feeds breadcrumbs to crash reporter.
 pub fn log(level: &str, target: &str, message: &str) {
     crate::core::crash_reporter::record_log_entry(level, target, message);
+    crate::net::server_log::log_from_core(level, target, message);
 
     if !is_enabled() {
         return;
