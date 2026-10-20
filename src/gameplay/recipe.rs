@@ -9,6 +9,76 @@ pub struct Recipe {
     pub result: ItemStack,
 }
 
+#[macro_export]
+macro_rules! recipe_slot {
+    (_) => {
+        None
+    };
+    ($item:ident) => {
+        Some($crate::world::block::BlockId::$item)
+    };
+}
+
+/// Declarative macro for defining crafting recipes concisely.
+///
+/// # Examples
+/// ```ignore
+/// // 1x1 crafting:
+/// recipe!(Wood => Planks * 4);
+///
+/// // Shaped 2D crafting grid:
+/// recipe!(2x2: [
+///     Planks, Planks,
+///     Planks, Planks,
+/// ] => CraftingTable * 1);
+///
+/// // Grid with empty slots (_):
+/// recipe!(3x3: [
+///     Planks, Planks, Planks,
+///     Planks, _,      Planks,
+///     Planks, Planks, Planks,
+/// ] => Chest * 1);
+/// ```
+#[macro_export]
+macro_rules! recipe {
+    // 1x1 shorthand: recipe!(Wood => Planks * 4)
+    ($input:ident => $result:ident * $count:expr) => {
+        $crate::gameplay::recipe::Recipe {
+            width: 1,
+            height: 1,
+            pattern: vec![Some($crate::world::block::BlockId::$input)],
+            result: $crate::gameplay::inventory::ItemStack {
+                block: $crate::world::block::BlockId::$result,
+                count: $count,
+            },
+        }
+    };
+
+    // Shaped 2D grid: recipe!(3, 3, [A, B, C, ...] => Result * Count)
+    ($w:expr, $h:expr, [ $($item:tt),* $(,)? ] => $result:ident * $count:expr) => {
+        $crate::gameplay::recipe::Recipe {
+            width: $w,
+            height: $h,
+            pattern: vec![ $( $crate::recipe_slot!($item) ),* ],
+            result: $crate::gameplay::inventory::ItemStack {
+                block: $crate::world::block::BlockId::$result,
+                count: $count,
+            },
+        }
+    };
+}
+
+impl Recipe {
+    pub fn new(width: usize, height: usize, pattern: Vec<Option<BlockId>>, result: BlockId, count: u8) -> Self {
+        Self {
+            width,
+            height,
+            pattern,
+            result: ItemStack { block: result, count },
+        }
+    }
+}
+
 pub struct RecipeBook {
     recipes: Vec<Recipe>,
 }
@@ -20,452 +90,208 @@ impl RecipeBook {
         book
     }
 
+    /// Add a recipe to the recipe book.
+    pub fn add(&mut self, recipe: Recipe) {
+        self.recipes.push(recipe);
+    }
+
+    /// Read-only access to all registered recipes.
+    pub fn recipes(&self) -> &[Recipe] {
+        &self.recipes
+    }
+
     fn register_default_recipes(&mut self) {
-        // 1x Wood -> 4x Planks (1x1)
-        self.recipes.push(Recipe {
-            width: 1,
-            height: 1,
-            pattern: vec![Some(BlockId::Wood)],
-            result: ItemStack { block: BlockId::Planks, count: 4 },
-        });
+        // --- 1x1 Basic Crafting ---
+        self.add(recipe!(Wood => Planks * 4));
 
-        // 2x Planks (vertical 1x2) -> 4x Stick
-        self.recipes.push(Recipe {
-            width: 1,
-            height: 2,
-            pattern: vec![
-                Some(BlockId::Planks),
-                Some(BlockId::Planks),
-            ],
-            result: ItemStack { block: BlockId::Stick, count: 4 },
-        });
+        // --- 1x2 Vertical Recipes ---
+        self.add(recipe!(1, 2, [Planks, Planks] => Stick * 4));
+        self.add(recipe!(1, 2, [CoalOre, Stick] => Torch * 4));
 
-        // 1x CoalOre over 1x Stick (vertical 1x2) -> 4x Torch
-        self.recipes.push(Recipe {
-            width: 1,
-            height: 2,
-            pattern: vec![
-                Some(BlockId::CoalOre),
-                Some(BlockId::Stick),
-            ],
-            result: ItemStack { block: BlockId::Torch, count: 4 },
-        });
+        // --- 2x2 Crafting Grid ---
+        self.add(recipe!(2, 2, [
+            Planks, Planks,
+            Planks, Planks,
+        ] => CraftingTable * 1));
 
-        // 4x Planks (2x2) -> 1x CraftingTable
-        self.recipes.push(Recipe {
-            width: 2,
-            height: 2,
-            pattern: vec![
-                Some(BlockId::Planks), Some(BlockId::Planks),
-                Some(BlockId::Planks), Some(BlockId::Planks),
-            ],
-            result: ItemStack { block: BlockId::CraftingTable, count: 1 },
-        });
+        // --- Cooking over Heat / Torches ---
+        self.add(recipe!(1, 2, [RawPorkchop, CoalOre] => CookedPorkchop * 1));
+        self.add(recipe!(1, 2, [RawBeef, CoalOre] => CookedBeef * 1));
+        self.add(recipe!(1, 2, [RawPorkchop, Torch] => CookedPorkchop * 1));
+        self.add(recipe!(1, 2, [RawBeef, Torch] => CookedBeef * 1));
 
-        // 1x RawPorkchop over 1x CoalOre (vertical 1x2) -> 1x CookedPorkchop
-        self.recipes.push(Recipe {
-            width: 1,
-            height: 2,
-            pattern: vec![
-                Some(BlockId::RawPorkchop),
-                Some(BlockId::CoalOre),
-            ],
-            result: ItemStack { block: BlockId::CookedPorkchop, count: 1 },
-        });
+        // --- 3x3 Hollow Rings (Storage & Processing) ---
+        self.add(recipe!(3, 3, [
+            Planks, Planks, Planks,
+            Planks, _,      Planks,
+            Planks, Planks, Planks,
+        ] => Chest * 1));
 
-        // 1x RawBeef over 1x CoalOre (vertical 1x2) -> 1x CookedBeef
-        self.recipes.push(Recipe {
-            width: 1,
-            height: 2,
-            pattern: vec![
-                Some(BlockId::RawBeef),
-                Some(BlockId::CoalOre),
-            ],
-            result: ItemStack { block: BlockId::CookedBeef, count: 1 },
-        });
+        self.add(recipe!(3, 3, [
+            Stone, Stone, Stone,
+            Stone, _,     Stone,
+            Stone, Stone, Stone,
+        ] => Furnace * 1));
 
-        // 1x RawPorkchop over 1x Torch (vertical 1x2) -> 1x CookedPorkchop
-        self.recipes.push(Recipe {
-            width: 1,
-            height: 2,
-            pattern: vec![
-                Some(BlockId::RawPorkchop),
-                Some(BlockId::Torch),
-            ],
-            result: ItemStack { block: BlockId::CookedPorkchop, count: 1 },
-        });
+        self.add(recipe!(3, 3, [
+            IronOunce, IronOunce, IronOunce,
+            IronOunce, _,         IronOunce,
+            IronOunce, IronOunce, IronOunce,
+        ] => IronIngot * 1));
+        self.add(recipe!(IronIngot => IronOunce * 8));
 
-        // 1x RawBeef over 1x Torch (vertical 1x2) -> 1x CookedBeef
-        self.recipes.push(Recipe {
-            width: 1,
-            height: 2,
-            pattern: vec![
-                Some(BlockId::RawBeef),
-                Some(BlockId::Torch),
-            ],
-            result: ItemStack { block: BlockId::CookedBeef, count: 1 },
-        });
+        self.add(recipe!(3, 3, [
+            GoldOunce, GoldOunce, GoldOunce,
+            GoldOunce, _,         GoldOunce,
+            GoldOunce, GoldOunce, GoldOunce,
+        ] => GoldIngot * 1));
+        self.add(recipe!(GoldIngot => GoldOunce * 8));
 
-        // Chest (3x3 ring: 8 Planks)
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 3,
-            pattern: vec![
-                Some(BlockId::Planks), Some(BlockId::Planks), Some(BlockId::Planks),
-                Some(BlockId::Planks), None,                  Some(BlockId::Planks),
-                Some(BlockId::Planks), Some(BlockId::Planks), Some(BlockId::Planks),
-            ],
-            result: ItemStack { block: BlockId::Chest, count: 1 },
-        });
+        // --- 3x3 Solid Metal/Mineral Blocks (and reverse decrafting) ---
+        self.add(recipe!(3, 3, [
+            IronIngot, IronIngot, IronIngot,
+            IronIngot, IronIngot, IronIngot,
+            IronIngot, IronIngot, IronIngot,
+        ] => IronBlock * 1));
+        self.add(recipe!(IronBlock => IronIngot * 9));
 
-        // Furnace (3x3 ring: 8 Stone)
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 3,
-            pattern: vec![
-                Some(BlockId::Stone), Some(BlockId::Stone), Some(BlockId::Stone),
-                Some(BlockId::Stone), None,                 Some(BlockId::Stone),
-                Some(BlockId::Stone), Some(BlockId::Stone), Some(BlockId::Stone),
-            ],
-            result: ItemStack { block: BlockId::Furnace, count: 1 },
-        });
+        self.add(recipe!(3, 3, [
+            GoldIngot, GoldIngot, GoldIngot,
+            GoldIngot, GoldIngot, GoldIngot,
+            GoldIngot, GoldIngot, GoldIngot,
+        ] => GoldBlock * 1));
+        self.add(recipe!(GoldBlock => GoldIngot * 9));
 
-        // 8x Iron Ounces (3x3 ring: 8 Ounces) -> 1x Iron Ingot
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 3,
-            pattern: vec![
-                Some(BlockId::IronOunce), Some(BlockId::IronOunce), Some(BlockId::IronOunce),
-                Some(BlockId::IronOunce), None,                    Some(BlockId::IronOunce),
-                Some(BlockId::IronOunce), Some(BlockId::IronOunce), Some(BlockId::IronOunce),
-            ],
-            result: ItemStack { block: BlockId::IronIngot, count: 1 },
-        });
+        // --- 3x3 Solid Blocks ---
+        self.add(recipe!(3, 3, [
+            CoalOre, CoalOre, CoalOre,
+            CoalOre, CoalOre, CoalOre,
+            CoalOre, CoalOre, CoalOre,
+        ] => CoalBlock * 1));
+        self.add(recipe!(CoalBlock => CoalOre * 9));
 
-        // 1x Iron Ingot (1x1) -> 8x Iron Ounces
-        self.recipes.push(Recipe {
-            width: 1,
-            height: 1,
-            pattern: vec![Some(BlockId::IronIngot)],
-            result: ItemStack { block: BlockId::IronOunce, count: 8 },
-        });
+        self.add(recipe!(3, 3, [
+            Diamond, Diamond, Diamond,
+            Diamond, Diamond, Diamond,
+            Diamond, Diamond, Diamond,
+        ] => DiamondBlock * 1));
+        self.add(recipe!(DiamondBlock => Diamond * 9));
 
-        // 8x Gold Ounces (3x3 ring: 8 Ounces) -> 1x Gold Ingot
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 3,
-            pattern: vec![
-                Some(BlockId::GoldOunce), Some(BlockId::GoldOunce), Some(BlockId::GoldOunce),
-                Some(BlockId::GoldOunce), None,                    Some(BlockId::GoldOunce),
-                Some(BlockId::GoldOunce), Some(BlockId::GoldOunce), Some(BlockId::GoldOunce),
-            ],
-            result: ItemStack { block: BlockId::GoldIngot, count: 1 },
-        });
-
-        // 1x Gold Ingot (1x1) -> 8x Gold Ounces
-        self.recipes.push(Recipe {
-            width: 1,
-            height: 1,
-            pattern: vec![Some(BlockId::GoldIngot)],
-            result: ItemStack { block: BlockId::GoldOunce, count: 8 },
-        });
-
-        // 9x Iron Ingots (3x3 full) -> 1x Iron Block
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 3,
-            pattern: vec![
-                Some(BlockId::IronIngot), Some(BlockId::IronIngot), Some(BlockId::IronIngot),
-                Some(BlockId::IronIngot), Some(BlockId::IronIngot), Some(BlockId::IronIngot),
-                Some(BlockId::IronIngot), Some(BlockId::IronIngot), Some(BlockId::IronIngot),
-            ],
-            result: ItemStack { block: BlockId::IronBlock, count: 1 },
-        });
-
-        // 1x Iron Block (1x1) -> 9x Iron Ingots
-        self.recipes.push(Recipe {
-            width: 1,
-            height: 1,
-            pattern: vec![Some(BlockId::IronBlock)],
-            result: ItemStack { block: BlockId::IronIngot, count: 9 },
-        });
-
-        // 9x Gold Ingots (3x3 full) -> 1x Gold Block
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 3,
-            pattern: vec![
-                Some(BlockId::GoldIngot), Some(BlockId::GoldIngot), Some(BlockId::GoldIngot),
-                Some(BlockId::GoldIngot), Some(BlockId::GoldIngot), Some(BlockId::GoldIngot),
-                Some(BlockId::GoldIngot), Some(BlockId::GoldIngot), Some(BlockId::GoldIngot),
-            ],
-            result: ItemStack { block: BlockId::GoldBlock, count: 1 },
-        });
-
-        // 1x Gold Block (1x1) -> 9x Gold Ingots
-        self.recipes.push(Recipe {
-            width: 1,
-            height: 1,
-            pattern: vec![Some(BlockId::GoldBlock)],
-            result: ItemStack { block: BlockId::GoldIngot, count: 9 },
-        });
-
-        // 9x Coal Ore (3x3 full) -> 1x Coal Block
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 3,
-            pattern: vec![
-                Some(BlockId::CoalOre), Some(BlockId::CoalOre), Some(BlockId::CoalOre),
-                Some(BlockId::CoalOre), Some(BlockId::CoalOre), Some(BlockId::CoalOre),
-                Some(BlockId::CoalOre), Some(BlockId::CoalOre), Some(BlockId::CoalOre),
-            ],
-            result: ItemStack { block: BlockId::CoalBlock, count: 1 },
-        });
-
-        // 1x Coal Block (1x1) -> 9x Coal Ore
-        self.recipes.push(Recipe {
-            width: 1,
-            height: 1,
-            pattern: vec![Some(BlockId::CoalBlock)],
-            result: ItemStack { block: BlockId::CoalOre, count: 9 },
-        });
-
-        // 9x Diamond (3x3) -> 1x Diamond Block
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 3,
-            pattern: vec![
-                Some(BlockId::Diamond), Some(BlockId::Diamond), Some(BlockId::Diamond),
-                Some(BlockId::Diamond), Some(BlockId::Diamond), Some(BlockId::Diamond),
-                Some(BlockId::Diamond), Some(BlockId::Diamond), Some(BlockId::Diamond),
-            ],
-            result: ItemStack { block: BlockId::DiamondBlock, count: 1 },
-        });
-
-        // 1x Diamond Block (1x1) -> 9x Diamond
-        self.recipes.push(Recipe {
-            width: 1,
-            height: 1,
-            pattern: vec![Some(BlockId::DiamondBlock)],
-            result: ItemStack { block: BlockId::Diamond, count: 9 },
-        });
-
-        // Shovels (1x3: Material over 2 Sticks)
-        let shovel_materials = [
-            (BlockId::Planks, BlockId::WoodenShovel),
-            (BlockId::Stone, BlockId::StoneShovel),
-            (BlockId::IronIngot, BlockId::IronShovel),
-            (BlockId::GoldIngot, BlockId::GoldShovel),
-            (BlockId::Diamond, BlockId::DiamondShovel),
+        // --- Tools (Tiered Material Loops) ---
+        let tool_materials = [
+            (BlockId::Planks, BlockId::WoodenShovel, BlockId::WoodenSword, BlockId::WoodenPickaxe, BlockId::WoodenAxe),
+            (BlockId::Stone, BlockId::StoneShovel, BlockId::StoneSword, BlockId::StonePickaxe, BlockId::StoneAxe),
+            (BlockId::IronIngot, BlockId::IronShovel, BlockId::IronSword, BlockId::IronPickaxe, BlockId::IronAxe),
+            (BlockId::GoldIngot, BlockId::GoldShovel, BlockId::GoldSword, BlockId::GoldPickaxe, BlockId::GoldAxe),
+            (BlockId::Diamond, BlockId::DiamondShovel, BlockId::DiamondSword, BlockId::DiamondPickaxe, BlockId::DiamondAxe),
         ];
-        for (mat, tool) in shovel_materials {
-            self.recipes.push(Recipe {
-                width: 1,
-                height: 3,
-                pattern: vec![
-                    Some(mat),
-                    Some(BlockId::Stick),
-                    Some(BlockId::Stick),
-                ],
-                result: ItemStack { block: tool, count: 1 },
-            });
-        }
 
-        // Swords (1x3: 2 Materials over Stick)
-        let sword_materials = [
-            (BlockId::Planks, BlockId::WoodenSword),
-            (BlockId::Stone, BlockId::StoneSword),
-            (BlockId::IronIngot, BlockId::IronSword),
-            (BlockId::GoldIngot, BlockId::GoldSword),
-            (BlockId::Diamond, BlockId::DiamondSword),
-        ];
-        for (mat, tool) in sword_materials {
-            self.recipes.push(Recipe {
-                width: 1,
-                height: 3,
-                pattern: vec![
-                    Some(mat),
-                    Some(mat),
-                    Some(BlockId::Stick),
-                ],
-                result: ItemStack { block: tool, count: 1 },
-            });
-        }
+        for (mat, shovel, sword, pick, axe) in tool_materials {
+            // Shovels (1x3: Material over 2 Sticks)
+            self.add(Recipe::new(
+                1, 3,
+                vec![Some(mat), Some(BlockId::Stick), Some(BlockId::Stick)],
+                shovel, 1,
+            ));
 
-        // Pickaxes (3x3: 3 Materials on top, 2 Sticks below center)
-        let pick_materials = [
-            (BlockId::Planks, BlockId::WoodenPickaxe),
-            (BlockId::Stone, BlockId::StonePickaxe),
-            (BlockId::IronIngot, BlockId::IronPickaxe),
-            (BlockId::GoldIngot, BlockId::GoldPickaxe),
-            (BlockId::Diamond, BlockId::DiamondPickaxe),
-        ];
-        for (mat, tool) in pick_materials {
-            self.recipes.push(Recipe {
-                width: 3,
-                height: 3,
-                pattern: vec![
+            // Swords (1x3: 2 Materials over Stick)
+            self.add(Recipe::new(
+                1, 3,
+                vec![Some(mat), Some(mat), Some(BlockId::Stick)],
+                sword, 1,
+            ));
+
+            // Pickaxes (3x3: 3 Materials on top, 2 Sticks below center)
+            self.add(Recipe::new(
+                3, 3,
+                vec![
                     Some(mat), Some(mat), Some(mat),
                     None, Some(BlockId::Stick), None,
                     None, Some(BlockId::Stick), None,
                 ],
-                result: ItemStack { block: tool, count: 1 },
-            });
-        }
+                pick, 1,
+            ));
 
-        // Axes (2x3: 3 Materials corner, 2 Sticks) - right and left variants
-        let axe_materials = [
-            (BlockId::Planks, BlockId::WoodenAxe),
-            (BlockId::Stone, BlockId::StoneAxe),
-            (BlockId::IronIngot, BlockId::IronAxe),
-            (BlockId::GoldIngot, BlockId::GoldAxe),
-            (BlockId::Diamond, BlockId::DiamondAxe),
-        ];
-        for (mat, tool) in axe_materials {
-            // Right-facing axe
-            self.recipes.push(Recipe {
-                width: 2,
-                height: 3,
-                pattern: vec![
+            // Axes (2x3: 3 Materials corner, 2 Sticks) - Right-facing
+            self.add(Recipe::new(
+                2, 3,
+                vec![
                     Some(mat), Some(mat),
                     Some(mat), Some(BlockId::Stick),
                     None, Some(BlockId::Stick),
                 ],
-                result: ItemStack { block: tool, count: 1 },
-            });
-            // Left-facing axe
-            self.recipes.push(Recipe {
-                width: 2,
-                height: 3,
-                pattern: vec![
+                axe, 1,
+            ));
+
+            // Axes (2x3: 3 Materials corner, 2 Sticks) - Left-facing
+            self.add(Recipe::new(
+                2, 3,
+                vec![
                     Some(mat), Some(mat),
                     Some(BlockId::Stick), Some(mat),
                     Some(BlockId::Stick), None,
                 ],
-                result: ItemStack { block: tool, count: 1 },
-            });
+                axe, 1,
+            ));
         }
 
-        // Bed (3x2: 3 Feathers over 3 Planks)
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 2,
-            pattern: vec![
-                Some(BlockId::Feather), Some(BlockId::Feather), Some(BlockId::Feather),
-                Some(BlockId::Planks), Some(BlockId::Planks), Some(BlockId::Planks),
-            ],
-            result: ItemStack { block: BlockId::Bed, count: 1 },
-        });
+        // --- Architectural & Decorative Blocks ---
+        // Beds (3x2: 3 Feathers or Leaves over 3 Planks)
+        self.add(recipe!(3, 2, [
+            Feather, Feather, Feather,
+            Planks,  Planks,  Planks,
+        ] => Bed * 1));
+        self.add(recipe!(3, 2, [
+            Leaves, Leaves, Leaves,
+            Planks, Planks, Planks,
+        ] => Bed * 1));
 
-        // Bed alternate (3x2: 3 Leaves over 3 Planks)
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 2,
-            pattern: vec![
-                Some(BlockId::Leaves), Some(BlockId::Leaves), Some(BlockId::Leaves),
-                Some(BlockId::Planks), Some(BlockId::Planks), Some(BlockId::Planks),
-            ],
-            result: ItemStack { block: BlockId::Bed, count: 1 },
-        });
+        // Slabs (3x1: 3 Planks/Stone horizontal -> 6 Slabs)
+        self.add(recipe!(3, 1, [Planks, Planks, Planks] => WoodenSlab * 6));
+        self.add(recipe!(3, 1, [Stone, Stone, Stone] => StoneSlab * 6));
 
-        // Wooden Slabs (3x1: 3 Planks horizontal -> 6 WoodenSlab)
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 1,
-            pattern: vec![
-                Some(BlockId::Planks), Some(BlockId::Planks), Some(BlockId::Planks),
-            ],
-            result: ItemStack { block: BlockId::WoodenSlab, count: 6 },
-        });
+        // Stairs (3x3 stair shape -> 4 Stairs, both orientations)
+        self.add(recipe!(3, 3, [
+            Planks, _,      _,
+            Planks, Planks, _,
+            Planks, Planks, Planks,
+        ] => WoodenStairs * 4));
+        self.add(recipe!(3, 3, [
+            _,      _,      Planks,
+            _,      Planks, Planks,
+            Planks, Planks, Planks,
+        ] => WoodenStairs * 4));
 
-        // Stone Slabs (3x1: 3 Stone horizontal -> 6 StoneSlab)
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 1,
-            pattern: vec![
-                Some(BlockId::Stone), Some(BlockId::Stone), Some(BlockId::Stone),
-            ],
-            result: ItemStack { block: BlockId::StoneSlab, count: 6 },
-        });
+        self.add(recipe!(3, 3, [
+            Stone, _,     _,
+            Stone, Stone, _,
+            Stone, Stone, Stone,
+        ] => StoneStairs * 4));
+        self.add(recipe!(3, 3, [
+            _,     _,     Stone,
+            _,     Stone, Stone,
+            Stone, Stone, Stone,
+        ] => StoneStairs * 4));
 
-        // Wooden Stairs (3x3 stair shape -> 4 WoodenStairs)
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 3,
-            pattern: vec![
-                Some(BlockId::Planks), None, None,
-                Some(BlockId::Planks), Some(BlockId::Planks), None,
-                Some(BlockId::Planks), Some(BlockId::Planks), Some(BlockId::Planks),
-            ],
-            result: ItemStack { block: BlockId::WoodenStairs, count: 4 },
-        });
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 3,
-            pattern: vec![
-                None, None, Some(BlockId::Planks),
-                None, Some(BlockId::Planks), Some(BlockId::Planks),
-                Some(BlockId::Planks), Some(BlockId::Planks), Some(BlockId::Planks),
-            ],
-            result: ItemStack { block: BlockId::WoodenStairs, count: 4 },
-        });
+        // Ladder (3x3: H-shape of Sticks -> 3 Ladders)
+        self.add(recipe!(3, 3, [
+            Stick, _,     Stick,
+            Stick, Stick, Stick,
+            Stick, _,     Stick,
+        ] => Ladder * 3));
 
-        // Stone Stairs (3x3 stair shape -> 4 StoneStairs)
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 3,
-            pattern: vec![
-                Some(BlockId::Stone), None, None,
-                Some(BlockId::Stone), Some(BlockId::Stone), None,
-                Some(BlockId::Stone), Some(BlockId::Stone), Some(BlockId::Stone),
-            ],
-            result: ItemStack { block: BlockId::StoneStairs, count: 4 },
-        });
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 3,
-            pattern: vec![
-                None, None, Some(BlockId::Stone),
-                None, Some(BlockId::Stone), Some(BlockId::Stone),
-                Some(BlockId::Stone), Some(BlockId::Stone), Some(BlockId::Stone),
-            ],
-            result: ItemStack { block: BlockId::StoneStairs, count: 4 },
-        });
-
-        // Ladder (3x3: H-shape of Sticks -> 3 Ladder)
-        self.recipes.push(Recipe {
-            width: 3,
-            height: 3,
-            pattern: vec![
-                Some(BlockId::Stick), None, Some(BlockId::Stick),
-                Some(BlockId::Stick), Some(BlockId::Stick), Some(BlockId::Stick),
-                Some(BlockId::Stick), None, Some(BlockId::Stick),
-            ],
-            result: ItemStack { block: BlockId::Ladder, count: 3 },
-        });
-
-        // Doors (2x3: 6 Planks)
-        self.recipes.push(Recipe {
-            width: 2,
-            height: 3,
-            pattern: vec![
-                Some(BlockId::Planks), Some(BlockId::Planks),
-                Some(BlockId::Planks), Some(BlockId::Planks),
-                Some(BlockId::Planks), Some(BlockId::Planks),
-            ],
-            result: ItemStack { block: BlockId::Door, count: 1 },
-        });
+        // Doors (2x3: 6 Planks -> 1 Door)
+        self.add(recipe!(2, 3, [
+            Planks, Planks,
+            Planks, Planks,
+            Planks, Planks,
+        ] => Door * 1));
 
         // TNT (2x2: Sand + Dirt)
-        self.recipes.push(Recipe {
-            width: 2,
-            height: 2,
-            pattern: vec![
-                Some(BlockId::Sand), Some(BlockId::Dirt),
-                Some(BlockId::Dirt), Some(BlockId::Sand),
-            ],
-            result: ItemStack { block: BlockId::Tnt, count: 1 },
-        });
+        self.add(recipe!(2, 2, [
+            Sand, Dirt,
+            Dirt, Sand,
+        ] => Tnt * 1));
     }
 
     pub fn match_grid(&self, grid: &[Option<ItemStack>], grid_w: usize, grid_h: usize) -> Option<ItemStack> {
@@ -835,5 +661,37 @@ mod tests {
             book.match_grid(&ladder_grid, 3, 3),
             Some(ItemStack { block: BlockId::Ladder, count: 3 })
         );
+    }
+
+    #[test]
+    fn test_recipe_macro_and_custom_addition() {
+        let mut book = RecipeBook::new();
+        let initial_count = book.recipes().len();
+
+        // 1x1 test
+        let custom_1x1 = recipe!(Dirt => Grass * 2);
+        assert_eq!(custom_1x1.width, 1);
+        assert_eq!(custom_1x1.height, 1);
+        assert_eq!(custom_1x1.pattern, vec![Some(BlockId::Dirt)]);
+        assert_eq!(custom_1x1.result, ItemStack { block: BlockId::Grass, count: 2 });
+
+        // Shaped 2x2 with slot wildcard _
+        let custom_2x2 = recipe!(2, 2, [
+            Dirt, _,
+            _,    Dirt,
+        ] => Sand * 4);
+        assert_eq!(custom_2x2.width, 2);
+        assert_eq!(custom_2x2.height, 2);
+        assert_eq!(custom_2x2.pattern, vec![Some(BlockId::Dirt), None, None, Some(BlockId::Dirt)]);
+        assert_eq!(custom_2x2.result, ItemStack { block: BlockId::Sand, count: 4 });
+
+        book.add(custom_2x2);
+        assert_eq!(book.recipes().len(), initial_count + 1);
+
+        let grid = [
+            Some(ItemStack { block: BlockId::Dirt, count: 1 }), None,
+            None, Some(ItemStack { block: BlockId::Dirt, count: 1 }),
+        ];
+        assert_eq!(book.match_grid(&grid, 2, 2), Some(ItemStack { block: BlockId::Sand, count: 4 }));
     }
 }
