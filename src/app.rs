@@ -2380,6 +2380,7 @@ impl RustCraftApp {
 
                     let target_horiz = wish_dir * (if in_lava { SWIM_SPEED * 0.55 } else if in_water { SWIM_SPEED } else { move_speed });
                     let on_ice = feet_block == BlockId::Ice;
+                    let in_ladder = feet_block == BlockId::Ladder || eye_block == BlockId::Ladder;
                     let damping = if in_lava {
                         12.0
                     } else if in_water {
@@ -2392,7 +2393,18 @@ impl RustCraftApp {
                     let t_horiz = 1.0 - (-damping * dt).exp();
                     self.horiz_velocity = self.horiz_velocity.lerp(target_horiz, t_horiz);
 
-                    if in_lava {
+                    if in_ladder {
+                        self.player.fall_distance = 0.0;
+                        if !self.chat.is_open && self.controls.is_active(Action::Jump) {
+                            self.vertical_velocity = 3.5;
+                        } else if is_crouching {
+                            self.vertical_velocity = 0.0;
+                        } else if wish_dir.length_sq() > 0.01 {
+                            self.vertical_velocity = 2.4;
+                        } else {
+                            self.vertical_velocity = -1.2;
+                        }
+                    } else if in_lava {
                         self.vertical_velocity -= 2.5 * dt;
                         if self.vertical_velocity < -1.8 {
                             self.vertical_velocity = -1.8;
@@ -2799,6 +2811,8 @@ impl RustCraftApp {
                                             Some(BlockId::Door)
                                         } else if matches!(broken_block, BlockId::FurnaceLit) {
                                             Some(BlockId::Furnace)
+                                        } else if matches!(broken_block, BlockId::DiamondOre) {
+                                            Some(BlockId::Diamond)
                                         } else {
                                             Some(broken_block)
                                         };
@@ -2945,6 +2959,20 @@ impl RustCraftApp {
                             self.horiz_velocity = Vec3::zero();
                             self.fly_velocity = Vec3::zero();
                             crate::log_info!("MENU", "Opened furnace container at ({}, {}, {})", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
+                        } else if targeted_block == BlockId::Bed && !is_crouching {
+                            self.player.spawn_point = Some(hit.block_pos);
+                            let is_night = self.world.time_of_day > 260.0 || self.world.time_of_day < 90.0;
+                            if is_night {
+                                self.world.time_of_day = 120.0;
+                                self.player.health = (self.player.health + 4.0).min(self.player.max_health);
+                                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.8, 1.0);
+                                self.chat.add_message("Przespano noc. Punkt odrodzenia ustawiony!".to_string(), crate::ui::pack_color(0.9, 0.9, 0.3));
+                                crate::log_info!("PLAYER", "Player slept in bed at ({}, {}, {}). Time set to morning.", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
+                            } else {
+                                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.6, 1.2);
+                                self.chat.add_message("Punkt odrodzenia ustawiony! Mozesz spac tylko w nocy.".to_string(), crate::ui::pack_color(0.9, 0.9, 0.3));
+                                crate::log_info!("PLAYER", "Spawn point set to bed at ({}, {}, {}). Day time, cannot sleep.", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
+                            }
                         } else if let Some(mob_kind) = BlockId::from_u8(selected_block_id).spawn_mob_kind() {
                             let spawn_pos = Vec3::new(
                                 hit.block_pos.x as f32 + 0.5 + hit.normal.x as f32 * 0.5,
@@ -3498,10 +3526,23 @@ impl RustCraftApp {
                         let biome_key = match biome {
                             "MOUNTAINS" => "biome.mountains",
                             "SNOW" => "biome.snow",
+                            "SNOWY TAIGA" => "biome.snowy_taiga",
+                            "SNOWY TUNDRA" => "biome.snowy_tundra",
+                            "ICE SPIKES" => "biome.ice_spikes",
+                            "TAIGA" => "biome.taiga",
                             "DESERT" => "biome.desert",
+                            "BADLANDS" => "biome.badlands",
                             "OCEAN" => "biome.ocean",
+                            "DEEP OCEAN" => "biome.deep_ocean",
+                            "MUSHROOM ISLAND" => "biome.mushroom_island",
                             "CHERRY GROVE" => "biome.cherry_grove",
+                            "AUTUMN FOREST" => "biome.autumn_forest",
+                            "DARK FOREST" => "biome.dark_forest",
+                            "BIRCH FOREST" => "biome.birch_forest",
+                            "JUNGLE" => "biome.jungle",
                             "SAVANNA" => "biome.savanna",
+                            "SWAMP" => "biome.swamp",
+                            "MEADOW" => "biome.meadow",
                             "FOREST" => "biome.forest",
                             _ => "biome.plains",
                         };
@@ -4339,7 +4380,12 @@ impl RustCraftApp {
                             self.player.air = self.player.max_air;
                             self.player.head_underwater = false;
                             self.drown_damage_timer = 0.0;
-                            self.camera.position = self.world.player_position;
+                            let spawn_pos = if let Some(sp) = self.player.spawn_point {
+                                Vec3::new(sp.x as f32 + 0.5, sp.y as f32 + 1.0, sp.z as f32 + 0.5)
+                            } else {
+                                self.world.player_position
+                            };
+                            self.camera.position = spawn_pos;
                             self.camera.pitch = 0.0;
                             self.vertical_velocity = 0.0;
                             self.horiz_velocity = Vec3::zero();

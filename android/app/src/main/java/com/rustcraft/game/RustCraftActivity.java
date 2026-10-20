@@ -1,9 +1,12 @@
 package com.rustcraft.game;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.os.Build;
 import android.os.Bundle;
+import android.text.InputType;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.InputDevice;
 import android.view.KeyEvent;
@@ -14,20 +17,26 @@ import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.view.inputmethod.BaseInputConnection;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
 
 import java.io.File;
 
 /**
  * Main Android Activity hosting the RustCraft native engine.
  * Provides fullscreen immersive layout, surface lifecycle management,
- * high-performance render loop thread, and multi-touch/gamepad event dispatching.
+ * high-performance render loop thread, dynamic aspect-ratio scaling,
+ * software keyboard (IME) integration, and multi-touch/gamepad event dispatching.
  */
 public class RustCraftActivity extends Activity implements SurfaceHolder.Callback {
     private static final String TAG = "RustCraftActivity";
 
-    private SurfaceView surfaceView;
+    private GameSurfaceView surfaceView;
     private RenderThread renderThread;
     private boolean isSurfaceReady = false;
+    private volatile boolean isKeyboardVisible = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,15 +55,26 @@ public class RustCraftActivity extends Activity implements SurfaceHolder.Callbac
         // Apply sticky immersive fullscreen
         hideSystemUI();
 
+        // Calculate optimal render resolution matching device aspect ratio
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int screenW = Math.max(dm.widthPixels, dm.heightPixels);
+        int screenH = Math.min(dm.widthPixels, dm.heightPixels);
+
+        // Standard render height is 540p (crisp retro aesthetic, locked 60 FPS)
+        int renderH = 540;
+        int renderW = Math.max(960, Math.round(540.0f * ((float) screenW / (float) screenH)));
+        // Align to 4-pixel multiple for optimal memory alignment
+        renderW = (renderW + 3) & ~3;
+
         // Initialize Native Engine
         File internalFilesDir = getFilesDir();
-        Log.i(TAG, "Initializing RustCraft with internal storage: " + internalFilesDir.getAbsolutePath());
-        boolean initOk = RustCraftNative.nativeInit(960, 540, 1337, internalFilesDir.getAbsolutePath());
+        Log.i(TAG, "Initializing RustCraft (" + renderW + "x" + renderH + ") with saves at: " + internalFilesDir.getAbsolutePath());
+        boolean initOk = RustCraftNative.nativeInit(renderW, renderH, 1337, internalFilesDir.getAbsolutePath());
         if (!initOk) {
             Log.e(TAG, "Failed to initialize RustCraft native engine!");
         }
 
-        surfaceView = new SurfaceView(this);
+        surfaceView = new GameSurfaceView(this);
         surfaceView.getHolder().addCallback(this);
         surfaceView.setFocusable(true);
         surfaceView.setFocusableInTouchMode(true);
@@ -90,6 +110,27 @@ public class RustCraftActivity extends Activity implements SurfaceHolder.Callbac
         if (hasFocus) {
             hideSystemUI();
         }
+    }
+
+    // --- Soft Keyboard (IME) Management ---
+
+    public void setKeyboardVisible(final boolean visible) {
+        if (isKeyboardVisible == visible) {
+            return;
+        }
+        isKeyboardVisible = visible;
+        runOnUiThread(() -> {
+            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null && surfaceView != null) {
+                if (visible) {
+                    surfaceView.requestFocus();
+                    imm.showSoftInput(surfaceView, InputMethodManager.SHOW_FORCED);
+                } else {
+                    imm.hideSoftInputFromWindow(surfaceView.getWindowToken(), 0);
+                    hideSystemUI();
+                }
+            }
+        });
     }
 
     // --- SurfaceHolder.Callback ---
@@ -158,11 +199,19 @@ public class RustCraftActivity extends Activity implements SurfaceHolder.Callbac
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (isKeyboardVisible) {
+                // If keyboard is active, back button dismisses chat
+                setKeyboardVisible(false);
+                RustCraftNative.nativeKeyEvent(111, true); // Escape
+                RustCraftNative.nativeKeyEvent(111, false);
+                return true;
+            }
             // Back button acts as Pause / Menu / Escape
             RustCraftNative.nativeKeyEvent(111, true);
             RustCraftNative.nativeKeyEvent(111, false);
             return true;
         }
+
         RustCraftNative.nativeKeyEvent(keyCode, true);
         return super.onKeyDown(keyCode, event);
     }
@@ -175,8 +224,26 @@ public class RustCraftActivity extends Activity implements SurfaceHolder.Callbac
 
     @Override
     public boolean onGenericMotionEvent(MotionEvent event) {
-        if ((event.getSource() & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) {
-            // Gamepad stick axes can also be forwarded if desired
+        if ((event.getSource() & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
+                || (event.getSource() & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD) {
+            float lx = event.getAxisValue(MotionEvent.AXIS_X);
+            float ly = event.getAxisValue(MotionEvent.AXIS_Y);
+            float rx = event.getAxisValue(MotionEvent.AXIS_Z);
+            float ry = event.getAxisValue(MotionEvent.AXIS_RZ);
+
+            float lt = event.getAxisValue(MotionEvent.AXIS_LTRIGGER);
+            if (lt == 0.0f) {
+                lt = event.getAxisValue(MotionEvent.AXIS_BRAKE);
+            }
+            float rt = event.getAxisValue(MotionEvent.AXIS_RTRIGGER);
+            if (rt == 0.0f) {
+                rt = event.getAxisValue(MotionEvent.AXIS_GAS);
+            }
+
+            float hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X);
+            float hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y);
+
+            RustCraftNative.nativeAxisEvent(lx, ly, rx, ry, lt, rt, hatX, hatY);
             return true;
         }
         return super.onGenericMotionEvent(event);
@@ -187,6 +254,7 @@ public class RustCraftActivity extends Activity implements SurfaceHolder.Callbac
     @Override
     protected void onPause() {
         super.onPause();
+        setKeyboardVisible(false);
         RustCraftNative.nativeSaveAndPause();
     }
 
@@ -194,6 +262,62 @@ public class RustCraftActivity extends Activity implements SurfaceHolder.Callbac
     protected void onDestroy() {
         super.onDestroy();
         RustCraftNative.nativeDestroy();
+    }
+
+    /**
+     * Custom SurfaceView supporting full Android Software Keyboard (IME) input.
+     */
+    private class GameSurfaceView extends SurfaceView {
+        public GameSurfaceView(Context context) {
+            super(context);
+        }
+
+        @Override
+        public boolean onCheckIsTextEditor() {
+            return true;
+        }
+
+        @Override
+        public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+            outAttrs.actionLabel = null;
+            outAttrs.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+            outAttrs.imeOptions = EditorInfo.IME_ACTION_DONE | EditorInfo.IME_FLAG_NO_FULLSCREEN;
+            return new BaseInputConnection(this, false) {
+                @Override
+                public boolean commitText(CharSequence text, int newCursorPosition) {
+                    if (text != null && text.length() > 0) {
+                        RustCraftNative.nativeTextInput(text.toString());
+                    }
+                    return true;
+                }
+
+                @Override
+                public boolean deleteSurroundingText(int beforeLength, int afterLength) {
+                    for (int i = 0; i < beforeLength; i++) {
+                        RustCraftNative.nativeKeyEvent(KeyEvent.KEYCODE_DEL, true);
+                        RustCraftNative.nativeKeyEvent(KeyEvent.KEYCODE_DEL, false);
+                    }
+                    return true;
+                }
+
+                @Override
+                public boolean sendKeyEvent(KeyEvent event) {
+                    if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                        if (event.getKeyCode() == KeyEvent.KEYCODE_ENTER) {
+                            RustCraftNative.nativeKeyEvent(KeyEvent.KEYCODE_ENTER, true);
+                            RustCraftNative.nativeKeyEvent(KeyEvent.KEYCODE_ENTER, false);
+                            setKeyboardVisible(false);
+                            return true;
+                        } else if (event.getKeyCode() == KeyEvent.KEYCODE_DEL) {
+                            RustCraftNative.nativeKeyEvent(KeyEvent.KEYCODE_DEL, true);
+                            RustCraftNative.nativeKeyEvent(KeyEvent.KEYCODE_DEL, false);
+                            return true;
+                        }
+                    }
+                    return super.sendKeyEvent(event);
+                }
+            };
+        }
     }
 
     /**
@@ -217,7 +341,13 @@ public class RustCraftActivity extends Activity implements SurfaceHolder.Callbac
                     float dt = (now - lastTime) / 1_000_000_000.0f;
                     lastTime = now;
 
-                    RustCraftNative.nativeStep(dt);
+                    int flags = RustCraftNative.nativeStep(dt);
+
+                    // Check if chat prompt is open (Bit 0)
+                    boolean chatActive = (flags & 1) != 0;
+                    if (chatActive != isKeyboardVisible) {
+                        setKeyboardVisible(chatActive);
+                    }
 
                     long frameTimeNs = System.nanoTime() - now;
                     long sleepNs = targetFrameNs - frameTimeNs;

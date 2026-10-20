@@ -1018,6 +1018,13 @@ pub enum TextureId {
     PlayerShirtFront,
     PlayerPants,
     PlayerShoes,
+    // Diamond, Bed & Architecture
+    DiamondOre,
+    DiamondBlock,
+    Diamond,
+    BedTop,
+    BedSide,
+    Ladder,
 }
 
 impl TextureId {
@@ -1421,6 +1428,161 @@ pub struct TextureAtlas {
     pub player_shirt_front: Texture,
     pub player_pants: Texture,
     pub player_shoes: Texture,
+    pub diamond_ore: Texture,
+    pub diamond_block: Texture,
+    pub diamond: Texture,
+    pub bed_top: Texture,
+    pub bed_side: Texture,
+    pub ladder: Texture,
+}
+
+fn diamond_ore() -> Texture {
+    let mut tex = stone();
+    let diamond_base = [0.22, 0.88, 0.92];
+    let diamond_hi = [0.65, 0.98, 1.00];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let n = rand_at(x, y, 771);
+            if n > 0.80 {
+                let col = if n > 0.92 { diamond_hi } else { diamond_base };
+                tex.texels[y * TEX_SIZE + x] = mix(tex.texels[y * TEX_SIZE + x], col, 0.92);
+            }
+        }
+    }
+    tex
+}
+
+fn diamond_block() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let base = [0.32, 0.88, 0.92];
+    let dark = [0.18, 0.65, 0.72];
+    let hi = [0.75, 0.98, 1.00];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let is_border = x == 0 || x == TEX_SIZE - 1 || y == 0 || y == TEX_SIZE - 1;
+            let n = rand_at(x, y, 882);
+            let col = if is_border {
+                dark
+            } else if n > 0.82 {
+                hi
+            } else if n < 0.25 {
+                dark
+            } else {
+                base
+            };
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
+fn diamond() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let base = [0.28, 0.85, 0.90];
+    let hi = [0.82, 0.98, 1.00];
+    let shadow = [0.12, 0.52, 0.60];
+    let border = [0.08, 0.35, 0.42];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let dx = (x as f32 - 7.5).abs();
+            let dy = y as f32 - 7.5;
+            let inside = if dy < 0.0 {
+                dx + dy.abs() * 0.8 <= 5.0
+            } else {
+                dx + dy * 0.9 <= 5.0
+            };
+            if inside {
+                let n = rand_at(x, y, 991);
+                let col = if dx + dy.abs() >= 4.5 {
+                    border
+                } else if n > 0.75 {
+                    hi
+                } else if dy > 1.5 {
+                    shadow
+                } else {
+                    base
+                };
+                texels[y * TEX_SIZE + x] = col;
+            }
+        }
+    }
+    Texture { texels }
+}
+
+fn bed_top() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let pillow_base = [0.90, 0.90, 0.92];
+    let pillow_shade = [0.78, 0.78, 0.82];
+    let blanket_base = [0.82, 0.16, 0.16];
+    let blanket_dark = [0.65, 0.10, 0.10];
+    let blanket_light = [0.92, 0.25, 0.25];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let n = rand_at(x, y, 412);
+            if y < 5 {
+                let is_edge = x == 0 || x == TEX_SIZE - 1 || y == 0 || y == 4;
+                let col = if is_edge || n > 0.75 { pillow_shade } else { pillow_base };
+                texels[y * TEX_SIZE + x] = col;
+            } else {
+                let col = if y == 5 || n < 0.2 {
+                    blanket_dark
+                } else if n > 0.8 {
+                    blanket_light
+                } else {
+                    blanket_base
+                };
+                texels[y * TEX_SIZE + x] = col;
+            }
+        }
+    }
+    Texture { texels }
+}
+
+fn bed_side() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let wood = [0.55, 0.38, 0.20];
+    let wood_dark = [0.38, 0.24, 0.12];
+    let blanket = [0.82, 0.16, 0.16];
+    let pillow = [0.88, 0.88, 0.90];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let is_leg = (x <= 1 || x >= 14) && y < 6;
+            let n = rand_at(x, y, 513);
+            let col = if y < 4 || is_leg {
+                if n > 0.6 { wood_dark } else { wood }
+            } else if y >= 11 && x < 5 {
+                pillow
+            } else {
+                if n > 0.6 { [0.70, 0.12, 0.12] } else { blanket }
+            };
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
+fn ladder() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let wood_light = [0.65, 0.45, 0.25];
+    let wood_dark = [0.42, 0.28, 0.14];
+    let nail = [0.20, 0.20, 0.22];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let is_rail = (x >= 2 && x <= 4) || (x >= 11 && x <= 13);
+            let is_rung = (y % 4 == 1 || y % 4 == 2) && x >= 4 && x <= 11;
+            let is_nail = (x == 3 || x == 12) && (y % 4 == 1);
+            let n = rand_at(x, y, 614);
+            let col = if is_nail {
+                nail
+            } else if is_rail || is_rung {
+                if n > 0.5 { wood_light } else { wood_dark }
+            } else {
+                [0.0, 0.0, 0.0]
+            };
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
 }
 
 fn chest_top() -> Texture {
@@ -2256,6 +2418,12 @@ impl TextureAtlas {
             player_shirt_front: player_shirt_front(),
             player_pants: player_pants(),
             player_shoes: player_shoes(),
+            diamond_ore: diamond_ore(),
+            diamond_block: diamond_block(),
+            diamond: diamond(),
+            bed_top: bed_top(),
+            bed_side: bed_side(),
+            ladder: ladder(),
         }
     }
 
@@ -2366,6 +2534,12 @@ impl TextureAtlas {
             TextureId::PlayerShirtFront => &self.player_shirt_front,
             TextureId::PlayerPants => &self.player_pants,
             TextureId::PlayerShoes => &self.player_shoes,
+            TextureId::DiamondOre => &self.diamond_ore,
+            TextureId::DiamondBlock => &self.diamond_block,
+            TextureId::Diamond => &self.diamond,
+            TextureId::BedTop => &self.bed_top,
+            TextureId::BedSide => &self.bed_side,
+            TextureId::Ladder => &self.ladder,
         }
     }
     /// Returns a reference to the texture corresponding to the specified `TextureId`.

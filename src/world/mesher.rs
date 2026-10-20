@@ -450,6 +450,22 @@ pub fn build_subchunk_mesh_internal(
                     emit_door(&mut solid_tris, wx, wy, wz, true, cache);
                     continue;
                 }
+                if block == BlockId::Bed {
+                    emit_bed(&mut solid_tris, wx, wy, wz, cache);
+                    continue;
+                }
+                if block == BlockId::WoodenSlab || block == BlockId::StoneSlab {
+                    emit_slab(&mut solid_tris, wx, wy, wz, block, cache);
+                    continue;
+                }
+                if block == BlockId::WoodenStairs || block == BlockId::StoneStairs {
+                    emit_stairs(&mut solid_tris, wx, wy, wz, block, cache);
+                    continue;
+                }
+                if block == BlockId::Ladder {
+                    emit_ladder(&mut solid_tris, wx, wy, wz, cache);
+                    continue;
+                }
 
                 let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
                 let is_trans = matches!(block, BlockId::Water | BlockId::Glass);
@@ -582,6 +598,22 @@ pub fn build_chunk_mesh_from_job(job: &ChunkMeshJob) -> Vec<Triangle> {
                         }
                         if block == BlockId::DoorOpen {
                             emit_door(&mut sub_solid, wx, wy, wz, true, &cache);
+                            continue;
+                        }
+                        if block == BlockId::Bed {
+                            emit_bed(&mut sub_solid, wx, wy, wz, &cache);
+                            continue;
+                        }
+                        if block == BlockId::WoodenSlab || block == BlockId::StoneSlab {
+                            emit_slab(&mut sub_solid, wx, wy, wz, block, &cache);
+                            continue;
+                        }
+                        if block == BlockId::WoodenStairs || block == BlockId::StoneStairs {
+                            emit_stairs(&mut sub_solid, wx, wy, wz, block, &cache);
+                            continue;
+                        }
+                        if block == BlockId::Ladder {
+                            emit_ladder(&mut sub_solid, wx, wy, wz, &cache);
                             continue;
                         }
 
@@ -867,6 +899,154 @@ fn emit_door(
     }
 }
 
+fn emit_box(
+    tris: &mut Vec<Triangle>,
+    x0: f32, y0: f32, z0: f32,
+    x1: f32, y1: f32, z1: f32,
+    top_tex: TextureId,
+    side_tex: TextureId,
+    bottom_tex: TextureId,
+    sky: f32,
+    block_l: f32,
+) {
+    let c000 = Vec3::new(x0, y0, z0);
+    let c100 = Vec3::new(x1, y0, z0);
+    let c010 = Vec3::new(x0, y1, z0);
+    let c110 = Vec3::new(x1, y1, z0);
+    let c001 = Vec3::new(x0, y0, z1);
+    let c101 = Vec3::new(x1, y0, z1);
+    let c011 = Vec3::new(x0, y1, z1);
+    let c111 = Vec3::new(x1, y1, z1);
+
+    let mut quad = |a: Vec3, b: Vec3, c: Vec3, d: Vec3, tex: TextureId, shade: f32| {
+        let va = Vertex { pos: a, uv: (0.0, 1.0), ao: shade, sky_light: sky, block_light: block_l };
+        let vb = Vertex { pos: b, uv: (1.0, 1.0), ao: shade, sky_light: sky, block_light: block_l };
+        let vc = Vertex { pos: c, uv: (1.0, 0.0), ao: shade, sky_light: sky, block_light: block_l };
+        let vd = Vertex { pos: d, uv: (0.0, 0.0), ao: shade, sky_light: sky, block_light: block_l };
+        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture: tex });
+        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture: tex });
+    };
+
+    // Top
+    quad(c010, c011, c111, c110, top_tex, 1.0);
+    // North (-Z)
+    quad(c100, c000, c010, c110, side_tex, 0.85);
+    // South (+Z)
+    quad(c001, c101, c111, c011, side_tex, 0.85);
+    // East (+X)
+    quad(c101, c100, c110, c111, side_tex, 0.70);
+    // West (-X)
+    quad(c000, c001, c011, c010, side_tex, 0.70);
+    // Bottom
+    quad(c001, c000, c100, c101, bottom_tex, 0.50);
+}
+
+fn emit_slab(
+    tris: &mut Vec<Triangle>,
+    wx: i32, wy: i32, wz: i32,
+    block: BlockId,
+    cache: &ChunkNeighborCache,
+) {
+    let lx = wx - cache.base_x;
+    let lz = wz - cache.base_z;
+    let sky = cache.sample_sky_light(lx, wy, lz);
+    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.25, wz as f32 + 0.5);
+    let tex = if block == BlockId::StoneSlab { TextureId::Stone } else { TextureId::Planks };
+    emit_box(
+        tris,
+        wx as f32, wy as f32, wz as f32,
+        wx as f32 + 1.0, wy as f32 + 0.5, wz as f32 + 1.0,
+        tex, tex, tex, sky, block_l,
+    );
+}
+
+fn emit_bed(
+    tris: &mut Vec<Triangle>,
+    wx: i32, wy: i32, wz: i32,
+    cache: &ChunkNeighborCache,
+) {
+    let lx = wx - cache.base_x;
+    let lz = wz - cache.base_z;
+    let sky = cache.sample_sky_light(lx, wy, lz);
+    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.25, wz as f32 + 0.5);
+    emit_box(
+        tris,
+        wx as f32, wy as f32, wz as f32,
+        wx as f32 + 1.0, wy as f32 + 0.5625, wz as f32 + 1.0,
+        TextureId::BedTop, TextureId::BedSide, TextureId::Planks, sky, block_l,
+    );
+}
+
+fn emit_stairs(
+    tris: &mut Vec<Triangle>,
+    wx: i32, wy: i32, wz: i32,
+    block: BlockId,
+    cache: &ChunkNeighborCache,
+) {
+    let lx = wx - cache.base_x;
+    let lz = wz - cache.base_z;
+    let sky = cache.sample_sky_light(lx, wy, lz);
+    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.5, wz as f32 + 0.5);
+    let tex = if block == BlockId::StoneStairs { TextureId::Stone } else { TextureId::Planks };
+    // Lower full base step (0.0 .. 0.5)
+    emit_box(
+        tris,
+        wx as f32, wy as f32, wz as f32,
+        wx as f32 + 1.0, wy as f32 + 0.5, wz as f32 + 1.0,
+        tex, tex, tex, sky, block_l,
+    );
+    // Upper back step (0.5 .. 1.0, z in 0.0 .. 0.5)
+    emit_box(
+        tris,
+        wx as f32, wy as f32 + 0.5, wz as f32,
+        wx as f32 + 1.0, wy as f32 + 1.0, wz as f32 + 0.5,
+        tex, tex, tex, sky, block_l,
+    );
+}
+
+fn emit_ladder(
+    tris: &mut Vec<Triangle>,
+    wx: i32, wy: i32, wz: i32,
+    cache: &ChunkNeighborCache,
+) {
+    let lx = wx - cache.base_x;
+    let lz = wz - cache.base_z;
+    let sky = cache.sample_sky_light(lx, wy, lz);
+    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.5, wz as f32 + 0.5);
+    let tex = TextureId::Ladder;
+
+    let north_solid = cache.sample_block(lx, wy, lz - 1).is_solid();
+    let south_solid = cache.sample_block(lx, wy, lz + 1).is_solid();
+    let west_solid = cache.sample_block(lx - 1, wy, lz).is_solid();
+
+    let x = wx as f32;
+    let y = wy as f32;
+    let z = wz as f32;
+
+    let mut quad = |a: Vec3, b: Vec3, c: Vec3, d: Vec3, shade: f32| {
+        let va = Vertex { pos: a, uv: (0.0, 1.0), ao: shade, sky_light: sky, block_light: block_l };
+        let vb = Vertex { pos: b, uv: (1.0, 1.0), ao: shade, sky_light: sky, block_light: block_l };
+        let vc = Vertex { pos: c, uv: (1.0, 0.0), ao: shade, sky_light: sky, block_light: block_l };
+        let vd = Vertex { pos: d, uv: (0.0, 0.0), ao: shade, sky_light: sky, block_light: block_l };
+        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture: tex });
+        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture: tex });
+    };
+
+    if north_solid {
+        let z_pos = z + 0.05;
+        quad(Vec3::new(x + 1.0, y, z_pos), Vec3::new(x, y, z_pos), Vec3::new(x, y + 1.0, z_pos), Vec3::new(x + 1.0, y + 1.0, z_pos), 0.95);
+    } else if south_solid {
+        let z_pos = z + 0.95;
+        quad(Vec3::new(x, y, z_pos), Vec3::new(x + 1.0, y, z_pos), Vec3::new(x + 1.0, y + 1.0, z_pos), Vec3::new(x, y + 1.0, z_pos), 0.95);
+    } else if west_solid {
+        let x_pos = x + 0.05;
+        quad(Vec3::new(x_pos, y, z), Vec3::new(x_pos, y, z + 1.0), Vec3::new(x_pos, y + 1.0, z + 1.0), Vec3::new(x_pos, y + 1.0, z), 0.90);
+    } else {
+        let x_pos = x + 0.95;
+        quad(Vec3::new(x_pos, y, z + 1.0), Vec3::new(x_pos, y, z), Vec3::new(x_pos, y + 1.0, z), Vec3::new(x_pos, y + 1.0, z + 1.0), 0.90);
+    }
+}
+
 #[inline(always)]
 fn vertex_ao(side1: bool, side2: bool, corner: bool) -> f32 {
     let count = side1 as u8 + side2 as u8 + (corner && !(side1 && side2)) as u8;
@@ -901,31 +1081,31 @@ fn emit_face(
         let (biome, _) = get_biome_at(wx, wz, cache.seed);
         match face {
             Face::Top => match biome {
-                Biome::Swamp => TextureId::GrassTopSwamp,
-                Biome::Savanna | Biome::Desert => TextureId::GrassTopSavanna,
-                Biome::CherryGrove => TextureId::GrassTopCherry,
+                Biome::Swamp | Biome::DarkForest => TextureId::GrassTopSwamp,
+                Biome::Savanna | Biome::Desert | Biome::Badlands => TextureId::GrassTopSavanna,
+                Biome::CherryGrove | Biome::Meadow => TextureId::GrassTopCherry,
                 Biome::AutumnForest => TextureId::GrassTopAutumn,
-                Biome::SnowyTaiga | Biome::Mountain => TextureId::GrassTopTaiga,
+                Biome::SnowyTaiga | Biome::Mountain | Biome::Taiga | Biome::IceSpikes => TextureId::GrassTopTaiga,
                 _ => TextureId::GrassTop,
             },
             Face::Bottom => TextureId::Dirt,
             _ => match biome {
-                Biome::Swamp => TextureId::GrassSideSwamp,
-                Biome::Savanna | Biome::Desert => TextureId::GrassSideSavanna,
-                Biome::CherryGrove => TextureId::GrassSideCherry,
+                Biome::Swamp | Biome::DarkForest => TextureId::GrassSideSwamp,
+                Biome::Savanna | Biome::Desert | Biome::Badlands => TextureId::GrassSideSavanna,
+                Biome::CherryGrove | Biome::Meadow => TextureId::GrassSideCherry,
                 Biome::AutumnForest => TextureId::GrassSideAutumn,
-                Biome::SnowyTaiga | Biome::Mountain => TextureId::GrassSideTaiga,
+                Biome::SnowyTaiga | Biome::Mountain | Biome::Taiga | Biome::IceSpikes => TextureId::GrassSideTaiga,
                 _ => TextureId::GrassSide,
             },
         }
     } else if block == BlockId::Leaves {
         let (biome, _) = get_biome_at(wx, wz, cache.seed);
         match biome {
-            Biome::Swamp => TextureId::LeavesSwamp,
-            Biome::Savanna | Biome::Desert => TextureId::LeavesSavanna,
+            Biome::Swamp | Biome::DarkForest => TextureId::LeavesSwamp,
+            Biome::Savanna | Biome::Desert | Biome::Badlands => TextureId::LeavesSavanna,
             Biome::CherryGrove => TextureId::CherryLeaves,
             Biome::AutumnForest => TextureId::AutumnLeaves,
-            Biome::SnowyTaiga => TextureId::SnowLeaves,
+            Biome::SnowyTaiga | Biome::IceSpikes => TextureId::SnowLeaves,
             _ => TextureId::Leaves,
         }
     } else {

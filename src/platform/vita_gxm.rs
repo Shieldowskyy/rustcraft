@@ -762,6 +762,7 @@ pub const ALL_TEXTURES: &[TextureId] = &[
     TextureId::PigSpawnEgg, TextureId::CowSpawnEgg, TextureId::ChickenSpawnEgg,
     TextureId::RawPorkchop, TextureId::CookedPorkchop, TextureId::RawBeef, TextureId::CookedBeef,
     TextureId::Apple, TextureId::IronIngot, TextureId::GoldIngot, TextureId::IronOunce, TextureId::GoldOunce, TextureId::Bone,
+    TextureId::DiamondOre, TextureId::DiamondBlock, TextureId::Diamond, TextureId::BedTop, TextureId::BedSide, TextureId::Ladder,
 ];
 
 unsafe fn populate_atlas(pixels: *mut u32, atlas: &TextureAtlas) {
@@ -950,6 +951,13 @@ pub fn atlas_uv(tex_id: TextureId) -> (f32, f32, f32, f32) {
         TextureId::IronOunce => 95,
         TextureId::GoldOunce => 96,
         TextureId::Bone => 97,
+        TextureId::DiamondOre => 98,
+        TextureId::DiamondBlock => 99,
+        TextureId::Diamond => 100,
+        TextureId::BedTop => 101,
+        TextureId::BedSide => 102,
+        TextureId::Ladder => 103,
+        _ => 0,
     };
     const TILE_NORM: f32 = 1.0 / ATLAS_TILES_PER_ROW as f32;
     let col = tile_idx % ATLAS_TILES_PER_ROW;

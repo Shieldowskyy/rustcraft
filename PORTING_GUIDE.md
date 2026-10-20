@@ -86,23 +86,25 @@ This guide provides architectural instructions for porting RustCraft to other op
   ```
   Prerequisites: VitaSDK at `/usr/local/vitasdk`, Rust target `armv7-sony-vita-newlibeabihf`,
 ### Android (ARM64 / ARMv7 / x86_64) — Implemented
-* **Status**: Fully implemented. Native JNI + ANativeWindow hardware-accelerated surface rendering.
+* **Status**: Fully implemented. Native JNI + ANativeWindow surface rendering, low-latency AAudio streaming, soft keyboard IME, and gamepad support.
 * **Target triples**: `aarch64-linux-android` (primary), `armv7-linux-androideabi`, `x86_64-linux-android`.
 * **Platform layer** (`src/platform/android.rs`):
-  * Hardware surface blit via `ANativeWindow_lock` / `ANativeWindow_unlockAndPost` with automatic resolution scaling to fullscreen.
+  * Hardware surface blit via `ANativeWindow_lock` / `ANativeWindow_unlockAndPost` with dynamic aspect-ratio render geometry (no distortion or stretching on 20:9 / 21:9 displays).
+  * Low-latency AAudio native driver (`src/audio/backend/android.rs`) with dynamic `libaaudio.so` loading for real-time procedural polyphonic sound synthesis.
+  * System software keyboard (IME) integration with automatic show/hide when opening the chat / command prompt, supporting text commitment, backspace, and submit.
   * Multi-touch virtual controls overlay:
     * Left virtual joystick / D-Pad (forward, backward, left, right movement).
     * Right camera look drag with smooth velocity scaling.
-    * On-screen action buttons: `[JUMP]`, `[SNEAK]`, `[MINE]`, `[PLACE]`.
+    * On-screen action buttons: `[JUMP]`, `[SNEAK]`, `[MINE]`, `[PLACE]` anchored dynamically to screen edge.
     * Top toolbar: `[PAUSE]`, `[INV]`, `[FLY]`, `[CAM]`, `[CHAT]`.
     * Bottom hotbar direct slot touch selection.
     * Direct touch clicks in all menus, crafting table, chests, furnaces, and inventory screens.
-  * Physical hardware support: USB/Bluetooth gamepads and keyboards via Android KeyEvents & MotionEvents.
+  * Physical hardware support: USB/Bluetooth gamepads (analog sticks, triggers, buttons) and keyboards via Android KeyEvents & MotionEvents.
   * Logging: Native diagnostics piped to Android Logcat (`__android_log_write`) under tag `RustCraftNative`.
 * **Storage**: App internal storage (`/data/data/com.rustcraft.game/files/saves`) configured via `set_custom_save_dir`.
 * **Android Project & Packaging** (`android/`):
   * Standalone lean Android application (`com.rustcraft.game`).
-  * `RustCraftActivity.java` with sticky immersive fullscreen mode, cutout/notch handling, and 60 FPS render loop thread.
+  * `RustCraftActivity.java` with sticky immersive fullscreen mode, cutout/notch handling, dynamic aspect ratio calculation, IME bridge, and 60 FPS render loop thread.
   * Adaptive voxel block icon and AndroidManifest configured for gaming.
 * **Build**:
   ```bash

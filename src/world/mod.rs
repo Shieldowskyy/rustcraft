@@ -54,7 +54,7 @@ impl Chunk {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Biome {
     DeepOcean,
     Ocean,
@@ -68,6 +68,14 @@ pub enum Biome {
     Savanna,
     Desert,
     Mountain,
+    Jungle,
+    Badlands,
+    DarkForest,
+    Taiga,
+    BirchForest,
+    IceSpikes,
+    MushroomIsland,
+    Meadow,
 }
 
 #[inline(always)]
@@ -76,37 +84,74 @@ pub fn get_biome_at(wx: i32, wz: i32, seed: u32) -> (Biome, f32) {
     let continentalness = fractal_noise2(wx as f32 * 0.0012, wz as f32 * 0.0012, seed.wrapping_add(2500), 4, 0.5);
     let temp = fractal_noise2(wx as f32 * 0.0010, wz as f32 * 0.0010, seed.wrapping_add(500), 4, 0.5);
     let humidity = fractal_noise2(wx as f32 * 0.0010, wz as f32 * 0.0010, seed.wrapping_add(1500), 4, 0.5);
+    let rarity = fractal_noise2(wx as f32 * 0.0014, wz as f32 * 0.0014, seed.wrapping_add(4500), 4, 0.5);
 
     let biome = if continentalness < -0.38 {
-        Biome::DeepOcean
+        // Deep ocean: rare Mushroom Island
+        if rarity > 0.38 {
+            Biome::MushroomIsland
+        } else {
+            Biome::DeepOcean
+        }
     } else if continentalness < -0.16 {
-        Biome::Ocean
+        // Ocean: very rare Mushroom Island on the ocean boundary
+        if continentalness < -0.28 && rarity > 0.40 {
+            Biome::MushroomIsland
+        } else {
+            Biome::Ocean
+        }
     } else if continentalness > 0.36 {
-        Biome::Mountain
+        // Mountain region: Meadow on the lower foothills / slopes with temperate climate
+        if continentalness < 0.45 && temp > -0.05 && temp < 0.22 && humidity > -0.05 {
+            Biome::Meadow
+        } else {
+            Biome::Mountain
+        }
     } else if temp < -0.18 {
-        if humidity > 0.05 {
+        // Cold / Snowy zones
+        if temp < -0.25 && rarity > 0.32 {
+            // Ice Spikes: rare spikes of ice in frozen lands
+            Biome::IceSpikes
+        } else if humidity > 0.05 {
             Biome::SnowyTaiga
         } else {
             Biome::SnowyTundra
         }
     } else if temp < -0.01 {
-        if humidity > 0.04 {
+        // Cold-temperate zone
+        if humidity > 0.16 {
             Biome::AutumnForest
+        } else if humidity > -0.05 {
+            Biome::Taiga // non-snowy coniferous taiga
         } else {
             Biome::Plains
         }
     } else if temp < 0.22 {
+        // Temperate zone
         if humidity > 0.28 {
-            Biome::Swamp
+            if rarity > 0.16 {
+                Biome::DarkForest // dense dark oak canopy
+            } else {
+                Biome::Swamp
+            }
         } else if humidity > 0.10 {
-            Biome::Forest
+            if rarity < -0.18 {
+                Biome::BirchForest // light birch forest
+            } else {
+                Biome::Forest
+            }
         } else if humidity > -0.04 && temp > 0.09 {
             Biome::CherryGrove
         } else {
             Biome::Plains
         }
     } else {
-        if humidity < -0.08 {
+        // Hot / Arid & Tropical zones (temp >= 0.22)
+        if humidity > 0.22 {
+            Biome::Jungle // hot and humid tropical jungle
+        } else if humidity < -0.18 && rarity > 0.12 {
+            Biome::Badlands // rare hot terracotta mesa canyon
+        } else if humidity < -0.08 {
             Biome::Desert
         } else if humidity < 0.16 {
             Biome::Savanna
@@ -124,15 +169,27 @@ pub fn get_height_at(wx: i32, wz: i32, seed: u32, biome: Biome, continentalness:
     let h = match biome {
         Biome::DeepOcean => 6.0 + n * 3.0,
         Biome::Ocean => 13.0 + n * 4.0,
+        Biome::MushroomIsland => 23.0 + n * 3.0,
         Biome::Swamp => 20.0 + n * 2.5,
         Biome::Mountain => {
             let m_extra = ((continentalness - 0.36) / 0.64).clamp(0.0, 1.0);
             36.0 + n * 10.0 + m_extra * 18.0
         }
+        Biome::Meadow => {
+            let m_extra = ((continentalness - 0.36) / 0.10).clamp(0.0, 1.0);
+            31.0 + n * 6.0 + m_extra * 6.0
+        }
+        Biome::Badlands => {
+            let base = 32.0 + n * 8.0;
+            (base / 3.0).floor() * 3.0 + 1.0
+        }
         Biome::Desert => 25.0 + n * 8.0,
         Biome::Savanna => 26.0 + n * 5.0,
+        Biome::Jungle => 29.0 + n * 11.0,
+        Biome::DarkForest => 27.0 + n * 7.0,
+        Biome::BirchForest => 28.0 + n * 9.0,
         Biome::AutumnForest | Biome::Forest | Biome::CherryGrove => 28.0 + n * 10.0,
-        Biome::SnowyTaiga | Biome::SnowyTundra | Biome::Plains => 27.0 + n * 10.0,
+        Biome::Taiga | Biome::SnowyTaiga | Biome::SnowyTundra | Biome::IceSpikes | Biome::Plains => 27.0 + n * 10.0,
     };
     (h as i32).clamp(1, CHUNK_SIZE_Y - 4)
 }
@@ -149,6 +206,13 @@ impl Chunk {
             AcaciaTree(i32, i32, i32),
             SwampTree(i32, i32, i32),
             AutumnTree(i32, i32, i32),
+            JungleTree(i32, i32, i32, i32),
+            JungleBush(i32, i32, i32),
+            DarkOakTree(i32, i32, i32),
+            BirchTree(i32, i32, i32),
+            IceSpike(i32, i32, i32, i32),
+            HugeRedMushroom(i32, i32, i32),
+            HugeBrownMushroom(i32, i32, i32),
         }
         let mut decorations = Vec::new();
 
@@ -169,13 +233,13 @@ impl Chunk {
         let mut struct_exclusion = (100, -100, 100, -100);
 
         if center_height > 22 && center_height < CHUNK_SIZE_Y - 14 {
-            if c_biome == Biome::Desert && (chunk_hash % 71 == 0) {
+            if (c_biome == Biome::Desert || c_biome == Biome::Badlands) && (chunk_hash % 71 == 0) {
                 structure = Some(Structure::DesertWell(8, center_height, 8));
                 struct_exclusion = (4, 12, 4, 12);
-            } else if (c_biome == Biome::Mountain || c_biome == Biome::SnowyTundra) && (chunk_hash % 67 == 0) {
+            } else if (c_biome == Biome::Mountain || c_biome == Biome::SnowyTundra || c_biome == Biome::Taiga) && (chunk_hash % 67 == 0) {
                 structure = Some(Structure::StoneRuins(8, center_height, 8));
                 struct_exclusion = (3, 13, 3, 13);
-            } else if (c_biome == Biome::Forest || c_biome == Biome::AutumnForest) && (chunk_hash % 79 == 0) {
+            } else if (c_biome == Biome::Forest || c_biome == Biome::AutumnForest || c_biome == Biome::DarkForest || c_biome == Biome::BirchForest) && (chunk_hash % 79 == 0) {
                 structure = Some(Structure::ForestCabin(8, center_height, 8));
                 struct_exclusion = (3, 13, 3, 13);
             }
@@ -211,8 +275,8 @@ impl Chunk {
 
                     let block = if y > height {
                         if y <= 20 {
-                            if (biome == Biome::SnowyTaiga || biome == Biome::SnowyTundra) && y == 20 {
-                                BlockId::Snow
+                            if (biome == Biome::SnowyTaiga || biome == Biome::SnowyTundra || biome == Biome::IceSpikes) && y == 20 {
+                                BlockId::Ice
                             } else {
                                 BlockId::Water
                             }
@@ -225,8 +289,12 @@ impl Chunk {
                             Biome::Swamp => {
                                 if height <= 20 { BlockId::Mud } else { BlockId::Grass }
                             }
+                            Biome::MushroomIsland => BlockId::Mud,
                             Biome::Desert => BlockId::Sand,
-                            Biome::SnowyTaiga | Biome::SnowyTundra => BlockId::Snow,
+                            Biome::Badlands => {
+                                if (height / 2) % 3 == 0 { BlockId::Sand } else if (height / 2) % 3 == 1 { BlockId::Stone } else { BlockId::Mud }
+                            }
+                            Biome::SnowyTaiga | Biome::SnowyTundra | Biome::IceSpikes => BlockId::Snow,
                             Biome::Mountain => {
                                 if height >= 48 {
                                     BlockId::Snow
@@ -247,9 +315,31 @@ impl Chunk {
                     } else if y > height - 4 {
                         match biome {
                             Biome::DeepOcean | Biome::Ocean | Biome::Desert => BlockId::Sand,
-                            Biome::Swamp => BlockId::Mud,
+                            Biome::Badlands => {
+                                if (y / 2) % 3 == 0 { BlockId::Sand } else if (y / 2) % 3 == 1 { BlockId::Stone } else { BlockId::Mud }
+                            }
+                            Biome::Swamp | Biome::MushroomIsland => BlockId::Mud,
+                            Biome::IceSpikes => {
+                                if y > height - 2 { BlockId::Snow } else { BlockId::Ice }
+                            }
                             Biome::Mountain if height >= 38 => BlockId::Stone,
                             _ => if height <= 21 { BlockId::Sand } else { BlockId::Dirt },
+                        }
+                    } else if biome == Biome::Badlands && y >= 14 {
+                        let ore_h = hash_coords_3d(wx, y, wz, seed);
+                        if ore_h % 37 == 0 {
+                            BlockId::CoalOre
+                        } else if ore_h % 67 == 0 && y < 30 {
+                            BlockId::IronOre
+                        } else if ore_h % 127 == 0 && y < 20 {
+                            BlockId::GoldOre
+                        } else {
+                            match (y / 2) % 4 {
+                                0 => BlockId::Sand,
+                                1 => BlockId::Stone,
+                                2 => BlockId::Mud,
+                                _ => BlockId::Stone,
+                            }
                         }
                     } else {
                         let ore_h = hash_coords_3d(wx, y, wz, seed);
@@ -257,6 +347,10 @@ impl Chunk {
                             BlockId::CoalOre
                         } else if ore_h % 67 == 0 && y < 30 {
                             BlockId::IronOre
+                        } else if ore_h % 127 == 0 && y < 20 {
+                            BlockId::GoldOre
+                        } else if ore_h % 199 == 0 && y < 14 {
+                            BlockId::DiamondOre
                         } else {
                             BlockId::Stone
                         }
@@ -292,14 +386,31 @@ impl Chunk {
                                     decorations.push(Decoration::Cactus(lx, height + 1, lz, c_height));
                                 }
                             }
+                            Biome::Badlands => {
+                                if h % 181 == 0 {
+                                    let c_height = 2 + (h % 2) as i32;
+                                    decorations.push(Decoration::Cactus(lx, height + 1, lz, c_height));
+                                }
+                            }
                             Biome::SnowyTaiga => {
                                 if h % 97 == 0 {
+                                    decorations.push(Decoration::PineTree(lx, height + 1, lz));
+                                }
+                            }
+                            Biome::Taiga => {
+                                if h % 59 == 0 {
                                     decorations.push(Decoration::PineTree(lx, height + 1, lz));
                                 }
                             }
                             Biome::SnowyTundra => {
                                 if h % 233 == 0 {
                                     decorations.push(Decoration::PineTree(lx, height + 1, lz));
+                                }
+                            }
+                            Biome::IceSpikes => {
+                                if h % 47 == 0 {
+                                    let spike_h = 7 + (h % 9) as i32;
+                                    decorations.push(Decoration::IceSpike(lx, height + 1, lz, spike_h));
                                 }
                             }
                             Biome::AutumnForest => {
@@ -310,6 +421,35 @@ impl Chunk {
                             Biome::Forest => {
                                 if h % 43 == 0 {
                                     decorations.push(Decoration::Tree(lx, height + 1, lz));
+                                }
+                            }
+                            Biome::BirchForest => {
+                                if h % 41 == 0 {
+                                    decorations.push(Decoration::BirchTree(lx, height + 1, lz));
+                                }
+                            }
+                            Biome::DarkForest => {
+                                if h % 29 == 0 {
+                                    decorations.push(Decoration::DarkOakTree(lx, height + 1, lz));
+                                } else if h % 83 == 0 {
+                                    decorations.push(Decoration::HugeRedMushroom(lx, height + 1, lz));
+                                } else if h % 89 == 0 {
+                                    decorations.push(Decoration::HugeBrownMushroom(lx, height + 1, lz));
+                                }
+                            }
+                            Biome::Jungle => {
+                                if h % 43 == 0 {
+                                    let j_height = 10 + (h % 7) as i32;
+                                    decorations.push(Decoration::JungleTree(lx, height + 1, lz, j_height));
+                                } else if h % 31 == 0 {
+                                    decorations.push(Decoration::JungleBush(lx, height + 1, lz));
+                                }
+                            }
+                            Biome::MushroomIsland => {
+                                if h % 37 == 0 {
+                                    decorations.push(Decoration::HugeRedMushroom(lx, height + 1, lz));
+                                } else if h % 41 == 0 {
+                                    decorations.push(Decoration::HugeBrownMushroom(lx, height + 1, lz));
                                 }
                             }
                             Biome::CherryGrove => {
@@ -329,6 +469,11 @@ impl Chunk {
                             }
                             Biome::Plains => {
                                 if h % 149 == 0 {
+                                    decorations.push(Decoration::Tree(lx, height + 1, lz));
+                                }
+                            }
+                            Biome::Meadow => {
+                                if h % 199 == 0 {
                                     decorations.push(Decoration::Tree(lx, height + 1, lz));
                                 }
                             }
@@ -357,6 +502,13 @@ impl Chunk {
                 Decoration::AcaciaTree(lx, base_y, lz) => place_acacia_tree(&mut blocks, lx, base_y, lz),
                 Decoration::SwampTree(lx, base_y, lz) => place_swamp_tree(&mut blocks, lx, base_y, lz),
                 Decoration::AutumnTree(lx, base_y, lz) => place_autumn_tree(&mut blocks, lx, base_y, lz),
+                Decoration::JungleTree(lx, base_y, lz, h) => place_jungle_tree(&mut blocks, lx, base_y, lz, h),
+                Decoration::JungleBush(lx, base_y, lz) => place_jungle_bush(&mut blocks, lx, base_y, lz),
+                Decoration::DarkOakTree(lx, base_y, lz) => place_dark_oak_tree(&mut blocks, lx, base_y, lz),
+                Decoration::BirchTree(lx, base_y, lz) => place_birch_tree(&mut blocks, lx, base_y, lz),
+                Decoration::IceSpike(lx, base_y, lz, h) => place_ice_spike(&mut blocks, lx, base_y, lz, h),
+                Decoration::HugeRedMushroom(lx, base_y, lz) => place_huge_red_mushroom(&mut blocks, lx, base_y, lz),
+                Decoration::HugeBrownMushroom(lx, base_y, lz) => place_huge_brown_mushroom(&mut blocks, lx, base_y, lz),
             }
         }
 
@@ -596,6 +748,212 @@ fn place_autumn_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
                     if blocks[idx] == BlockId::Air.to_u8() {
                         blocks[idx] = BlockId::AutumnLeaves.to_u8();
                     }
+                }
+            }
+        }
+    }
+}
+
+/// Jungle tree: tall trunk reaching into the sky with a massive umbrella canopy
+fn place_jungle_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32, trunk_height: i32) {
+    for dy in 0..trunk_height {
+        let y = base_y + dy;
+        if y >= 0 && y < CHUNK_SIZE_Y {
+            blocks[Chunk::index(lx, y, lz)] = BlockId::Wood.to_u8();
+        }
+    }
+    for dy in -1..=2i32 {
+        let r = match dy {
+            -1 => 2i32,
+            0 => 3i32,
+            1 => 3i32,
+            _ => 1i32,
+        };
+        for dx in -r..=r {
+            for dz in -r..=r {
+                let x = lx + dx;
+                let y = base_y + trunk_height + dy;
+                let z = lz + dz;
+                if x < 0 || x >= CHUNK_SIZE_X || z < 0 || z >= CHUNK_SIZE_Z || y < 0 || y >= CHUNK_SIZE_Y {
+                    continue;
+                }
+                if dx * dx + dz * dz <= r * r + 1 {
+                    let idx = Chunk::index(x, y, z);
+                    if blocks[idx] == BlockId::Air.to_u8() {
+                        blocks[idx] = BlockId::Leaves.to_u8();
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Jungle bush: short ground bush with a single wood core and dense leaves
+fn place_jungle_bush(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
+    if base_y >= 0 && base_y < CHUNK_SIZE_Y {
+        blocks[Chunk::index(lx, base_y, lz)] = BlockId::Wood.to_u8();
+    }
+    for dx in -1..=1 {
+        for dz in -1..=1 {
+            for dy in 0..=1 {
+                let x = lx + dx;
+                let y = base_y + dy;
+                let z = lz + dz;
+                if x < 0 || x >= CHUNK_SIZE_X || z < 0 || z >= CHUNK_SIZE_Z || y < 0 || y >= CHUNK_SIZE_Y {
+                    continue;
+                }
+                let idx = Chunk::index(x, y, z);
+                if blocks[idx] == BlockId::Air.to_u8() {
+                    blocks[idx] = BlockId::Leaves.to_u8();
+                }
+            }
+        }
+    }
+}
+
+/// Dark Oak tree: thick trunk with wide, dense roof canopy that blocks the sky
+fn place_dark_oak_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
+    let trunk_height = 5;
+    for dy in 0..trunk_height {
+        let y = base_y + dy;
+        if y >= 0 && y < CHUNK_SIZE_Y {
+            blocks[Chunk::index(lx, y, lz)] = BlockId::Wood.to_u8();
+        }
+    }
+    for dy in 0..=2i32 {
+        let r = if dy == 2 { 2i32 } else { 3i32 };
+        for dx in -r..=r {
+            for dz in -r..=r {
+                let x = lx + dx;
+                let y = base_y + trunk_height - 1 + dy;
+                let z = lz + dz;
+                if x < 0 || x >= CHUNK_SIZE_X || z < 0 || z >= CHUNK_SIZE_Z || y < 0 || y >= CHUNK_SIZE_Y {
+                    continue;
+                }
+                let idx = Chunk::index(x, y, z);
+                if blocks[idx] == BlockId::Air.to_u8() {
+                    blocks[idx] = BlockId::Leaves.to_u8();
+                }
+            }
+        }
+    }
+}
+
+/// Birch tree: slender trunk with light, elegant foliage
+fn place_birch_tree(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
+    let trunk_height = 5;
+    for dy in 0..trunk_height {
+        let y = base_y + dy;
+        if y >= 0 && y < CHUNK_SIZE_Y {
+            blocks[Chunk::index(lx, y, lz)] = BlockId::Wood.to_u8();
+        }
+    }
+    for dy in 0..=2i32 {
+        let r = if dy == 2 { 1i32 } else { 2i32 };
+        for dx in -r..=r {
+            for dz in -r..=r {
+                let x = lx + dx;
+                let y = base_y + trunk_height - 1 + dy;
+                let z = lz + dz;
+                if x < 0 || x >= CHUNK_SIZE_X || z < 0 || z >= CHUNK_SIZE_Z || y < 0 || y >= CHUNK_SIZE_Y {
+                    continue;
+                }
+                if dx.abs() + dz.abs() <= r + 1 {
+                    let idx = Chunk::index(x, y, z);
+                    if blocks[idx] == BlockId::Air.to_u8() {
+                        blocks[idx] = BlockId::Leaves.to_u8();
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Ice Spike: tall sharp spire of pure ice with a snow tip
+fn place_ice_spike(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32, height: i32) {
+    for dy in 0..height {
+        let y = base_y + dy;
+        if y < 0 || y >= CHUNK_SIZE_Y {
+            continue;
+        }
+        let radius = if dy < height / 3 {
+            2i32
+        } else if dy < (height * 2) / 3 {
+            1i32
+        } else {
+            0i32
+        };
+        for dx in -radius..=radius {
+            for dz in -radius..=radius {
+                if dx * dx + dz * dz <= radius * radius + 1 {
+                    let x = lx + dx;
+                    let z = lz + dz;
+                    if x >= 0 && x < CHUNK_SIZE_X && z >= 0 && z < CHUNK_SIZE_Z {
+                        let idx = Chunk::index(x, y, z);
+                        blocks[idx] = BlockId::Ice.to_u8();
+                    }
+                }
+            }
+        }
+    }
+    let tip_y = base_y + height;
+    if tip_y >= 0 && tip_y < CHUNK_SIZE_Y && lx >= 0 && lx < CHUNK_SIZE_X && lz >= 0 && lz < CHUNK_SIZE_Z {
+        blocks[Chunk::index(lx, tip_y, lz)] = BlockId::Snow.to_u8();
+    }
+}
+
+/// Giant Red Mushroom: white stalk with rounded red umbrella cap
+fn place_huge_red_mushroom(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
+    let stem_height = 5;
+    for dy in 0..stem_height {
+        let y = base_y + dy;
+        if y >= 0 && y < CHUNK_SIZE_Y {
+            blocks[Chunk::index(lx, y, lz)] = BlockId::Snow.to_u8();
+        }
+    }
+    for dy in 0..=2i32 {
+        let r = if dy == 2 { 1i32 } else { 2i32 };
+        for dx in -r..=r {
+            for dz in -r..=r {
+                let x = lx + dx;
+                let y = base_y + stem_height - 1 + dy;
+                let z = lz + dz;
+                if x < 0 || x >= CHUNK_SIZE_X || z < 0 || z >= CHUNK_SIZE_Z || y < 0 || y >= CHUNK_SIZE_Y {
+                    continue;
+                }
+                if dy == 0 && (dx.abs() != r && dz.abs() != r) {
+                    continue;
+                }
+                let idx = Chunk::index(x, y, z);
+                if blocks[idx] == BlockId::Air.to_u8() {
+                    blocks[idx] = BlockId::AutumnLeaves.to_u8();
+                }
+            }
+        }
+    }
+}
+
+/// Giant Brown Mushroom: white stalk with wide flat saucer cap
+fn place_huge_brown_mushroom(blocks: &mut [u8], lx: i32, base_y: i32, lz: i32) {
+    let stem_height = 4;
+    for dy in 0..stem_height {
+        let y = base_y + dy;
+        if y >= 0 && y < CHUNK_SIZE_Y {
+            blocks[Chunk::index(lx, y, lz)] = BlockId::Snow.to_u8();
+        }
+    }
+    let y = base_y + stem_height;
+    if y >= 0 && y < CHUNK_SIZE_Y {
+        for dx in -2..=2 {
+            for dz in -2..=2 {
+                let x = lx + dx;
+                let z = lz + dz;
+                if x < 0 || x >= CHUNK_SIZE_X || z < 0 || z >= CHUNK_SIZE_Z {
+                    continue;
+                }
+                let idx = Chunk::index(x, y, z);
+                if blocks[idx] == BlockId::Air.to_u8() {
+                    blocks[idx] = BlockId::Mud.to_u8();
                 }
             }
         }
@@ -916,7 +1274,7 @@ impl World {
             let wx = x + 8;
             let wz = z + 8;
             let (biome, cont) = get_biome_at(wx, wz, seed);
-            if !matches!(biome, Biome::DeepOcean | Biome::Ocean | Biome::Swamp) {
+            if !matches!(biome, Biome::DeepOcean | Biome::Ocean | Biome::Swamp | Biome::MushroomIsland) {
                 let height = get_height_at(wx, wz, seed, biome, cont);
                 if height >= 24 {
                     return Vec3::new(wx as f32 + 0.5, (height + 3) as f32 + 0.1, wz as f32 + 0.5);
@@ -1499,27 +1857,29 @@ impl World {
     /// Returns the biome name at world coordinates (wx, wz) using the same
     /// logic as chunk generation.
     pub fn biome_name_at(&self, wx: i32, wz: i32) -> &'static str {
-        let seed = self.seed;
-        let temp           = crate::core::noise::fractal_noise2(wx as f32 * 0.006, wz as f32 * 0.006, seed.wrapping_add(500),  3, 0.5);
-        let humidity       = crate::core::noise::fractal_noise2(wx as f32 * 0.006, wz as f32 * 0.006, seed.wrapping_add(1500), 3, 0.5);
-        let mountain_factor= crate::core::noise::fractal_noise2(wx as f32 * 0.008, wz as f32 * 0.008, seed.wrapping_add(2500), 3, 0.5);
-
-        let is_mountain = mountain_factor > 0.32;
-        let is_snowy    = !is_mountain && temp < -0.18;
-        let is_desert   = !is_mountain && !is_snowy && temp > 0.28 && humidity < -0.05;
-        let is_ocean    = !is_mountain && !is_snowy && !is_desert && humidity > -0.25 && temp > -0.05 && temp < 0.12 && mountain_factor < -0.15;
-        let is_cherry   = !is_mountain && !is_snowy && !is_desert && !is_ocean && temp > 0.10 && temp < 0.28 && humidity > 0.22;
-        let is_savanna  = !is_mountain && !is_snowy && !is_desert && !is_ocean && !is_cherry && temp > 0.18 && humidity < 0.05;
-        let is_forest   = !is_mountain && !is_snowy && !is_desert && !is_ocean && !is_cherry && !is_savanna && humidity > 0.15;
-
-        if is_mountain   { "MOUNTAINS" }
-        else if is_snowy { "SNOW" }
-        else if is_desert{ "DESERT" }
-        else if is_ocean { "OCEAN" }
-        else if is_cherry{ "CHERRY GROVE" }
-        else if is_savanna{"SAVANNA" }
-        else if is_forest{ "FOREST" }
-        else             { "PLAINS" }
+        let (biome, _) = get_biome_at(wx, wz, self.seed);
+        match biome {
+            Biome::DeepOcean => "DEEP OCEAN",
+            Biome::Ocean => "OCEAN",
+            Biome::MushroomIsland => "MUSHROOM ISLAND",
+            Biome::IceSpikes => "ICE SPIKES",
+            Biome::SnowyTaiga => "SNOWY TAIGA",
+            Biome::SnowyTundra => "SNOWY TUNDRA",
+            Biome::Taiga => "TAIGA",
+            Biome::Desert => "DESERT",
+            Biome::Badlands => "BADLANDS",
+            Biome::Savanna => "SAVANNA",
+            Biome::Jungle => "JUNGLE",
+            Biome::Swamp => "SWAMP",
+            Biome::Meadow => "MEADOW",
+            Biome::Plains => "PLAINS",
+            Biome::BirchForest => "BIRCH FOREST",
+            Biome::Forest => "FOREST",
+            Biome::DarkForest => "DARK FOREST",
+            Biome::AutumnForest => "AUTUMN FOREST",
+            Biome::CherryGrove => "CHERRY GROVE",
+            Biome::Mountain => "MOUNTAINS",
+        }
     }
 
     /// Checks whether the camera view frustum is completely blocked by an opaque solid block immediately in front.
@@ -2332,8 +2692,15 @@ impl World {
 
                 if let Some(chunk) = cached_chunk {
                     for y in y0..=y1 {
-                        if chunk.get_local(lx, y, lz).is_solid() {
-                            return true;
+                        let b = chunk.get_local(lx, y, lz);
+                        if b.is_solid() {
+                            if b.is_half_block() {
+                                if min.y < y as f32 + 0.5 {
+                                    return true;
+                                }
+                            } else {
+                                return true;
+                            }
                         }
                     }
                 }
@@ -2468,6 +2835,50 @@ mod tests {
         assert_eq!(loaded_player.hotbar[4].unwrap().count, 16);
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_all_new_biomes_generation_and_rarity() {
+        use std::collections::HashMap;
+
+        let seed = 424242;
+        let mut biome_counts: HashMap<Biome, u32> = HashMap::new();
+
+        // Sample a wide 4000x4000 block area
+        for x in (-2000..=2000).step_by(40) {
+            for z in (-2000..=2000).step_by(40) {
+                let (biome, _) = get_biome_at(x, z, seed);
+                *biome_counts.entry(biome).or_insert(0) += 1;
+            }
+        }
+
+        // Verify that all 8 requested biomes generate in the world
+        assert!(biome_counts.contains_key(&Biome::Jungle), "Jungle must generate");
+        assert!(biome_counts.contains_key(&Biome::Badlands), "Badlands must generate");
+        assert!(biome_counts.contains_key(&Biome::DarkForest), "DarkForest must generate");
+        assert!(biome_counts.contains_key(&Biome::Taiga), "Taiga must generate");
+        assert!(biome_counts.contains_key(&Biome::BirchForest), "BirchForest must generate");
+        assert!(biome_counts.contains_key(&Biome::IceSpikes), "IceSpikes must generate");
+        assert!(biome_counts.contains_key(&Biome::MushroomIsland), "MushroomIsland must generate");
+        assert!(biome_counts.contains_key(&Biome::Meadow), "Meadow must generate");
+
+        // Verify rarity: MushroomIsland and IceSpikes should be much rarer than common biomes like Plains / Forest / Taiga
+        let mushroom_count = *biome_counts.get(&Biome::MushroomIsland).unwrap_or(&0);
+        let icespikes_count = *biome_counts.get(&Biome::IceSpikes).unwrap_or(&0);
+        let plains_count = *biome_counts.get(&Biome::Plains).unwrap_or(&0);
+        let forest_count = *biome_counts.get(&Biome::Forest).unwrap_or(&0);
+        let taiga_count = *biome_counts.get(&Biome::Taiga).unwrap_or(&0);
+
+        assert!(mushroom_count < plains_count, "Mushroom Island should be much rarer than Plains");
+        assert!(mushroom_count < forest_count, "Mushroom Island should be much rarer than Forest");
+        assert!(icespikes_count < taiga_count, "Ice Spikes should be rarer than Taiga");
+    }
+
+    #[test]
+    fn test_biome_name_at_all_biomes() {
+        let world = World::new_with_seed(123);
+        let name = world.biome_name_at(0, 0);
+        assert!(!name.is_empty());
     }
 }
 

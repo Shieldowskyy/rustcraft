@@ -8,6 +8,7 @@
 //! - Windows: WinMM WaveOut (`winmm.dll`) -> Null sink.
 //! - macOS: CoreAudio / Null sink.
 
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use std::ffi::c_void;
 use super::AudioBackend;
 

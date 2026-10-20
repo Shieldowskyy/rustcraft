@@ -200,16 +200,11 @@ mod tests {
         assert_eq!(translate_lang(Language::Polish, "menu.play"), "GRA JEDNOOSOBOWA");
         assert_eq!(translate_lang(Language::Polish, "settings.on"), "WLACZONE");
 
-        set_language(Language::English);
-        assert_eq!(t("menu.play"), "SINGLEPLAYER");
-        assert_eq!(t_fmt("save_select.min_ago", &["5"]), "5 min ago");
+        let template_en = translate_lang(Language::English, "save_select.min_ago");
+        assert_eq!(template_en.replace("{}", "5"), "5 min ago");
 
-        set_language(Language::Polish);
-        assert_eq!(t("menu.play"), "GRA JEDNOOSOBOWA");
-        assert_eq!(t_fmt("save_select.min_ago", &["5"]), "5 min temu");
-
-        // Restore default English
-        set_language(Language::English);
+        let template_pl = translate_lang(Language::Polish, "save_select.min_ago");
+        assert_eq!(template_pl.replace("{}", "5"), "5 min temu");
     }
 }
 

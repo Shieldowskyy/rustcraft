@@ -128,13 +128,28 @@ pub struct TouchTracker {
     pub btn_cam_just: bool,
     pub selected_hotbar: Option<u8>,
 
-    // Movement vector from joystick
+    // Movement vector from virtual joystick
     pub move_forward: bool,
     pub move_backward: bool,
     pub move_left: bool,
     pub move_right: bool,
     pub stick_x: f32,
     pub stick_y: f32,
+
+    // Physical gamepad analog axes
+    pub gp_axis_lx: f32,
+    pub gp_axis_ly: f32,
+    pub gp_axis_rx: f32,
+    pub gp_axis_ry: f32,
+    pub gp_axis_lt: f32,
+    pub gp_axis_rt: f32,
+    pub gp_axis_hat_x: f32,
+    pub gp_axis_hat_y: f32,
+
+    // Text input & keys from Android IME / physical keyboard
+    pub pending_typed_chars: Vec<char>,
+    pub key_backspace_just: bool,
+    pub key_enter_just: bool,
 }
 
 impl TouchTracker {
@@ -150,11 +165,13 @@ impl TouchTracker {
         y: f32,
         screen_w: f32,
         screen_h: f32,
+        frame_w: f32,
+        frame_h: f32,
         in_menu: bool,
     ) {
-        // Map native screen coordinates to RustCraft virtual 960x540 frame
-        let norm_x = if screen_w > 0.0 { (x / screen_w) * (WIDTH as f32) } else { x };
-        let norm_y = if screen_h > 0.0 { (y / screen_h) * (HEIGHT as f32) } else { y };
+        // Map native screen coordinates to RustCraft virtual render frame
+        let norm_x = if screen_w > 0.0 { (x / screen_w) * frame_w } else { x };
+        let norm_y = if screen_h > 0.0 { (y / screen_h) * frame_h } else { y };
 
         let masked_action = action & 0xFF;
 
@@ -170,7 +187,7 @@ impl TouchTracker {
                 }
 
                 // Check UI / Virtual buttons
-                let role = self.classify_touch_down(norm_x, norm_y);
+                let role = self.classify_touch_down(norm_x, norm_y, frame_w, frame_h);
                 self.apply_role_press(role);
                 self.roles.insert(pointer_id, role);
             }
@@ -233,33 +250,33 @@ impl TouchTracker {
         }
     }
 
-    fn classify_touch_down(&self, x: f32, y: f32) -> TouchRole {
+    fn classify_touch_down(&self, x: f32, y: f32, w: f32, h: f32) -> TouchRole {
         // 1. Top bar buttons:
         // Menu / Pause button (center top)
-        if (WIDTH as f32 * 0.5 - 35.0..=WIDTH as f32 * 0.5 + 35.0).contains(&x) && y <= 45.0 {
+        if (w * 0.5 - 40.0..=w * 0.5 + 40.0).contains(&x) && y <= 48.0 {
             return TouchRole::MenuButton;
         }
         // Inventory button (top right)
-        if x >= WIDTH as f32 - 75.0 && y <= 45.0 {
+        if x >= w - 85.0 && y <= 48.0 {
             return TouchRole::InventoryButton;
         }
         // Chat button (top left)
-        if (20.0..=80.0).contains(&x) && y <= 45.0 {
+        if (20.0..=80.0).contains(&x) && y <= 48.0 {
             return TouchRole::ChatButton;
         }
         // Fly button
-        if (90.0..=150.0).contains(&x) && y <= 45.0 {
+        if (90.0..=150.0).contains(&x) && y <= 48.0 {
             return TouchRole::FlyButton;
         }
         // Camera perspective button
-        if (160.0..=220.0).contains(&x) && y <= 45.0 {
+        if (160.0..=220.0).contains(&x) && y <= 48.0 {
             return TouchRole::CamButton;
         }
 
         // 2. Hotbar slots (bottom center)
         let hotbar_w = 9.0 * 36.0;
-        let hotbar_left = (WIDTH as f32 - hotbar_w) * 0.5;
-        let hotbar_top = HEIGHT as f32 - 42.0;
+        let hotbar_left = (w - hotbar_w) * 0.5;
+        let hotbar_top = h - 42.0;
         if (hotbar_left..=hotbar_left + hotbar_w).contains(&x) && y >= hotbar_top {
             let slot = ((x - hotbar_left) / 36.0).floor() as u8;
             if slot < 9 {
@@ -267,26 +284,26 @@ impl TouchTracker {
             }
         }
 
-        // 3. Action buttons (right side)
+        // 3. Action buttons (right side, anchored to right edge)
         // Jump Button
-        if (x - 880.0).powi(2) + (y - 390.0).powi(2) <= 45.0 * 45.0 {
+        if (x - (w - 80.0)).powi(2) + (y - (h - 150.0)).powi(2) <= 45.0 * 45.0 {
             return TouchRole::JumpButton;
         }
         // Sneak Button
-        if (x - 880.0).powi(2) + (y - 480.0).powi(2) <= 38.0 * 38.0 {
+        if (x - (w - 80.0)).powi(2) + (y - (h - 60.0)).powi(2) <= 38.0 * 38.0 {
             return TouchRole::SneakButton;
         }
         // Mine / Attack Button
-        if (x - 780.0).powi(2) + (y - 390.0).powi(2) <= 45.0 * 45.0 {
+        if (x - (w - 180.0)).powi(2) + (y - (h - 150.0)).powi(2) <= 45.0 * 45.0 {
             return TouchRole::MineButton;
         }
         // Place / Use Button
-        if (x - 780.0).powi(2) + (y - 480.0).powi(2) <= 42.0 * 42.0 {
+        if (x - (w - 180.0)).powi(2) + (y - (h - 60.0)).powi(2) <= 42.0 * 42.0 {
             return TouchRole::PlaceButton;
         }
 
         // 4. Movement Joystick (left half of screen, bottom area)
-        if x < 400.0 && y > 180.0 {
+        if x < w * 0.42 && y > 150.0 {
             return TouchRole::MovementJoystick { origin_x: x, origin_y: y };
         }
 
@@ -339,16 +356,19 @@ impl TouchTracker {
         let active_green = pack_color(0.4, 1.0, 0.4);
         let active_yellow = pack_color(1.0, 0.85, 0.3);
 
+        let w_i32 = width as i32;
+        let h_i32 = height as i32;
+
         // --- Top Bar Buttons ---
-        // Pause / Menu
-        fill_rect_alpha(buffer, width, height, (width / 2) as i32 - 35, 10, 70, 26, 0x000000, 0.55);
-        draw_text_shadowed(buffer, width, height, "PAUSE", (width / 2) as i32 - 20, 16, 1, 1);
+        // Pause / Menu (Center)
+        fill_rect_alpha(buffer, width, height, w_i32 / 2 - 35, 10, 70, 26, 0x000000, 0.55);
+        draw_text_shadowed(buffer, width, height, "PAUSE", w_i32 / 2 - 20, 16, 1, 1);
 
-        // Inventory
-        fill_rect_alpha(buffer, width, height, width as i32 - 75, 10, 65, 26, 0x000000, 0.55);
-        draw_text_shadowed(buffer, width, height, "INV", width as i32 - 52, 16, 1, 1);
+        // Inventory (Right)
+        fill_rect_alpha(buffer, width, height, w_i32 - 75, 10, 65, 26, 0x000000, 0.55);
+        draw_text_shadowed(buffer, width, height, "INV", w_i32 - 52, 16, 1, 1);
 
-        // Chat
+        // Chat (Left)
         fill_rect_alpha(buffer, width, height, 20, 10, 60, 26, 0x000000, 0.55);
         draw_text_shadowed(buffer, width, height, "CHAT", 35, 16, 1, 1);
 
@@ -362,40 +382,48 @@ impl TouchTracker {
 
         // --- Action Buttons (Right) ---
         // Jump Button
-        fill_rect_alpha(buffer, width, height, 845, 355, 70, 70, 0x000000, 0.60);
+        let jump_x = w_i32 - 115;
+        let jump_y = h_i32 - 185;
+        fill_rect_alpha(buffer, width, height, jump_x, jump_y, 70, 70, 0x000000, 0.60);
         if self.btn_jump {
-            draw_text_colored_shadowed(buffer, width, height, "JUMP", 860, 385, 1, 1, active_green);
+            draw_text_colored_shadowed(buffer, width, height, "JUMP", jump_x + 15, jump_y + 30, 1, 1, active_green);
         } else {
-            draw_text_shadowed(buffer, width, height, "JUMP", 860, 385, 1, 1);
+            draw_text_shadowed(buffer, width, height, "JUMP", jump_x + 15, jump_y + 30, 1, 1);
         }
 
         // Sneak Button
-        fill_rect_alpha(buffer, width, height, 850, 450, 60, 60, 0x000000, 0.60);
+        let sneak_x = w_i32 - 110;
+        let sneak_y = h_i32 - 90;
+        fill_rect_alpha(buffer, width, height, sneak_x, sneak_y, 60, 60, 0x000000, 0.60);
         if self.btn_sneak {
-            draw_text_colored_shadowed(buffer, width, height, "SNEAK", 860, 475, 1, 1, active_green);
+            draw_text_colored_shadowed(buffer, width, height, "SNEAK", sneak_x + 10, sneak_y + 25, 1, 1, active_green);
         } else {
-            draw_text_shadowed(buffer, width, height, "SNEAK", 860, 475, 1, 1);
+            draw_text_shadowed(buffer, width, height, "SNEAK", sneak_x + 10, sneak_y + 25, 1, 1);
         }
 
         // Mine / Attack Button
-        fill_rect_alpha(buffer, width, height, 745, 355, 70, 70, 0x000000, 0.60);
+        let mine_x = w_i32 - 215;
+        let mine_y = h_i32 - 185;
+        fill_rect_alpha(buffer, width, height, mine_x, mine_y, 70, 70, 0x000000, 0.60);
         if self.btn_mine {
-            draw_text_colored_shadowed(buffer, width, height, "MINE", 763, 385, 1, 1, active_yellow);
+            draw_text_colored_shadowed(buffer, width, height, "MINE", mine_x + 18, mine_y + 30, 1, 1, active_yellow);
         } else {
-            draw_text_shadowed(buffer, width, height, "MINE", 763, 385, 1, 1);
+            draw_text_shadowed(buffer, width, height, "MINE", mine_x + 18, mine_y + 30, 1, 1);
         }
 
         // Place / Use Button
-        fill_rect_alpha(buffer, width, height, 750, 450, 60, 60, 0x000000, 0.60);
+        let place_x = w_i32 - 210;
+        let place_y = h_i32 - 90;
+        fill_rect_alpha(buffer, width, height, place_x, place_y, 60, 60, 0x000000, 0.60);
         if self.btn_place {
-            draw_text_colored_shadowed(buffer, width, height, "PLACE", 760, 475, 1, 1, active_yellow);
+            draw_text_colored_shadowed(buffer, width, height, "PLACE", place_x + 10, place_y + 25, 1, 1, active_yellow);
         } else {
-            draw_text_shadowed(buffer, width, height, "PLACE", 760, 475, 1, 1);
+            draw_text_shadowed(buffer, width, height, "PLACE", place_x + 10, place_y + 25, 1, 1);
         }
 
         // --- Movement D-Pad (Left) ---
         let dpad_cx = 120;
-        let dpad_cy = 400;
+        let dpad_cy = h_i32 - 140;
 
         // Up (W)
         fill_rect_alpha(buffer, width, height, dpad_cx - 20, dpad_cy - 65, 40, 40, 0x000000, 0.55);
@@ -455,7 +483,7 @@ unsafe impl Sync for AndroidGameContext {}
 static GAME_INSTANCE: Mutex<Option<AndroidGameContext>> = Mutex::new(None);
 
 // ============================================================================
-// 4. JNI Exported Functions (Called by Java / Kotlin Activity)
+// 4. JNI Exported Functions (Called by Java Activity)
 // ============================================================================
 
 #[no_mangle]
@@ -509,7 +537,11 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeInit
 
     if let Ok(mut lock) = GAME_INSTANCE.lock() {
         *lock = Some(ctx);
-        android_log(ANDROID_LOG_INFO, "RustCraftNative", "nativeInit successful!");
+        android_log(
+            ANDROID_LOG_INFO,
+            "RustCraftNative",
+            &format!("nativeInit successful! Resolution: {}x{}", render_w, render_h),
+        );
         JNI_TRUE
     } else {
         android_log(ANDROID_LOG_ERROR, "RustCraftNative", "Failed to acquire GAME_INSTANCE lock");
@@ -582,20 +614,50 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
 
     let in_menu = !matches!(ctx.app.state, GameState::Playing);
 
+    // Combine virtual movement joystick and physical gamepad analog stick
+    let mut stick_x = ctx.touch_tracker.stick_x;
+    let mut stick_y = ctx.touch_tracker.stick_y;
+    if ctx.touch_tracker.gp_axis_lx.abs() > 0.15 || ctx.touch_tracker.gp_axis_ly.abs() > 0.15 {
+        stick_x = ctx.touch_tracker.gp_axis_lx;
+        stick_y = ctx.touch_tracker.gp_axis_ly;
+    }
+
+    let move_fwd = ctx.touch_tracker.move_forward || stick_y < -0.3;
+    let move_back = ctx.touch_tracker.move_backward || stick_y > 0.3;
+    let move_l = ctx.touch_tracker.move_left || stick_x < -0.3;
+    let move_r = ctx.touch_tracker.move_right || stick_x > 0.3;
+
+    // Physical gamepad right stick camera rotation
+    if ctx.touch_tracker.gp_axis_rx.abs() > 0.15 {
+        ctx.touch_tracker.mouse_dx += ctx.touch_tracker.gp_axis_rx * 14.0;
+    }
+    if ctx.touch_tracker.gp_axis_ry.abs() > 0.15 {
+        ctx.touch_tracker.mouse_dy += ctx.touch_tracker.gp_axis_ry * 14.0;
+    }
+
+    let is_mine = ctx.touch_tracker.btn_mine || ctx.touch_tracker.gp_axis_rt > 0.4;
+    let is_place = ctx.touch_tracker.btn_place || ctx.touch_tracker.gp_axis_lt > 0.4;
+
+    // Drain queued text input from software keyboard
+    let typed_chars = std::mem::take(&mut ctx.touch_tracker.pending_typed_chars);
+    let key_enter = ctx.touch_tracker.key_enter_just;
+    let key_backspace = ctx.touch_tracker.key_backspace_just;
+    ctx.touch_tracker.key_enter_just = false;
+    ctx.touch_tracker.key_backspace_just = false;
+
     // Build InputState from touch controls & gamepads
     let mut input = InputState {
         mouse_dx: ctx.touch_tracker.mouse_dx,
         mouse_dy: ctx.touch_tracker.mouse_dy,
         mouse_pos: ctx.touch_tracker.primary_touch_pos,
-        mouse_left: ctx.touch_tracker.btn_mine
-            || (in_menu && ctx.touch_tracker.primary_touch_down),
-        mouse_right: ctx.touch_tracker.btn_place,
+        mouse_left: is_mine || (in_menu && ctx.touch_tracker.primary_touch_down),
+        mouse_right: is_place,
         scroll_delta: 0.0,
 
-        key_w: ctx.touch_tracker.move_forward,
-        key_s: ctx.touch_tracker.move_backward,
-        key_a: ctx.touch_tracker.move_left,
-        key_d: ctx.touch_tracker.move_right,
+        key_w: move_fwd,
+        key_s: move_back,
+        key_a: move_l,
+        key_d: move_r,
         key_space: ctx.touch_tracker.btn_jump,
         key_shift: ctx.touch_tracker.btn_sneak,
         key_ctrl: false,
@@ -611,26 +673,26 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
         key_m: false,
         key_f3: false,
         key_f5: ctx.touch_tracker.btn_cam_just,
-        key_enter: false,
+        key_enter,
         key_up: false,
         key_down: false,
         key_left: false,
         key_right: false,
         key_n: false,
         key_del: false,
-        key_backspace: false,
+        key_backspace,
         key_tab: false,
         key_t: ctx.touch_tracker.btn_chat_just,
         key_slash: false,
         key_digits: [false; 10],
-        typed_chars: Vec::new(),
+        typed_chars,
 
-        gp_left_stick_x: ctx.touch_tracker.stick_x,
-        gp_left_stick_y: ctx.touch_tracker.stick_y,
-        gp_right_stick_x: 0.0,
-        gp_right_stick_y: 0.0,
-        gp_left_trigger: if ctx.touch_tracker.btn_place { 1.0 } else { 0.0 },
-        gp_right_trigger: if ctx.touch_tracker.btn_mine { 1.0 } else { 0.0 },
+        gp_left_stick_x: stick_x,
+        gp_left_stick_y: stick_y,
+        gp_right_stick_x: ctx.touch_tracker.gp_axis_rx,
+        gp_right_stick_y: ctx.touch_tracker.gp_axis_ry,
+        gp_left_trigger: if is_place { 1.0 } else { 0.0 },
+        gp_right_trigger: if is_mine { 1.0 } else { 0.0 },
         gp_btn_south: ctx.touch_tracker.btn_jump,
         gp_btn_east: ctx.touch_tracker.btn_sneak,
         gp_btn_west: false,
@@ -641,10 +703,10 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
         gp_btn_r3: false,
         gp_btn_start: ctx.touch_tracker.btn_menu_just,
         gp_btn_select: false,
-        gp_dpad_up: false,
-        gp_dpad_down: false,
-        gp_dpad_left: false,
-        gp_dpad_right: false,
+        gp_dpad_up: ctx.touch_tracker.gp_axis_hat_y < -0.5,
+        gp_dpad_down: ctx.touch_tracker.gp_axis_hat_y > 0.5,
+        gp_dpad_left: ctx.touch_tracker.gp_axis_hat_x < -0.5,
+        gp_dpad_right: ctx.touch_tracker.gp_axis_hat_x > 0.5,
 
         gp_south_just_pressed: false,
         gp_east_just_pressed: false,
@@ -727,7 +789,18 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
         }
     }
 
-    0
+    // Return status flags to Java:
+    // Bit 0 (1): Chat prompt is active (show soft keyboard)
+    // Bit 1 (2): In menu state
+    let mut flags: i32 = 0;
+    if ctx.app.chat.is_open {
+        flags |= 1;
+    }
+    if in_menu {
+        flags |= 2;
+    }
+
+    flags
 }
 
 #[no_mangle]
@@ -746,10 +819,88 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeTouc
             let in_menu = !matches!(ctx.app.state, GameState::Playing);
 
             ctx.touch_tracker.handle_touch_event(
-                action, pointer_id, x, y, screen_w, screen_h, in_menu,
+                action,
+                pointer_id,
+                x,
+                y,
+                screen_w,
+                screen_h,
+                ctx.width as f32,
+                ctx.height as f32,
+                in_menu,
             );
         }
     }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeAxisEvent(
+    _env: *mut JNIEnv,
+    _class: jclass,
+    axis_x: jfloat,
+    axis_y: jfloat,
+    axis_z: jfloat,
+    axis_rz: jfloat,
+    axis_lt: jfloat,
+    axis_rt: jfloat,
+    axis_hat_x: jfloat,
+    axis_hat_y: jfloat,
+) {
+    if let Ok(mut lock) = GAME_INSTANCE.lock() {
+        if let Some(ctx) = lock.as_mut() {
+            ctx.touch_tracker.gp_axis_lx = axis_x;
+            ctx.touch_tracker.gp_axis_ly = axis_y;
+            ctx.touch_tracker.gp_axis_rx = axis_z;
+            ctx.touch_tracker.gp_axis_ry = axis_rz;
+            ctx.touch_tracker.gp_axis_lt = axis_lt;
+            ctx.touch_tracker.gp_axis_rt = axis_rt;
+            ctx.touch_tracker.gp_axis_hat_x = axis_hat_x;
+            ctx.touch_tracker.gp_axis_hat_y = axis_hat_y;
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeTextInput(
+    env: *mut JNIEnv,
+    _class: jclass,
+    text: jstring,
+) {
+    if text.is_null() {
+        return;
+    }
+    if let Some(get_utf_chars) = (**env).GetStringUTFChars {
+        if let Some(release_utf_chars) = (**env).ReleaseStringUTFChars {
+            let c_str_ptr = get_utf_chars(env, text, std::ptr::null_mut());
+            if !c_str_ptr.is_null() {
+                if let Ok(input_str) = CStr::from_ptr(c_str_ptr).to_str() {
+                    if let Ok(mut lock) = GAME_INSTANCE.lock() {
+                        if let Some(ctx) = lock.as_mut() {
+                            for ch in input_str.chars() {
+                                ctx.touch_tracker.pending_typed_chars.push(ch);
+                            }
+                        }
+                    }
+                }
+                release_utf_chars(env, text, c_str_ptr);
+            }
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeIsTextInputActive(
+    _env: *mut JNIEnv,
+    _class: jclass,
+) -> jboolean {
+    if let Ok(lock) = GAME_INSTANCE.lock() {
+        if let Some(ctx) = lock.as_ref() {
+            if ctx.app.chat.is_open {
+                return JNI_TRUE;
+            }
+        }
+    }
+    JNI_FALSE
 }
 
 #[no_mangle]
@@ -759,11 +910,16 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeKeyE
     key_code: jint,
     is_down: jboolean,
 ) {
-    // Physical keyboard / Bluetooth gamepad key events
+    // Android key codes mapping
     const KEYCODE_DPAD_UP: i32 = 19;
     const KEYCODE_DPAD_DOWN: i32 = 20;
     const KEYCODE_DPAD_LEFT: i32 = 21;
     const KEYCODE_DPAD_RIGHT: i32 = 22;
+    const KEYCODE_ENTER: i32 = 66;
+    const KEYCODE_DEL: i32 = 67;
+    const KEYCODE_FORWARD_DEL: i32 = 112;
+    const KEYCODE_NUMPAD_ENTER: i32 = 160;
+
     const KEYCODE_BUTTON_A: i32 = 96;
     const KEYCODE_BUTTON_B: i32 = 97;
     const KEYCODE_BUTTON_X: i32 = 99;
@@ -771,12 +927,17 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeKeyE
     const KEYCODE_BUTTON_L1: i32 = 102;
     const KEYCODE_BUTTON_R1: i32 = 103;
     const KEYCODE_BUTTON_START: i32 = 108;
+    const KEYCODE_BUTTON_SELECT: i32 = 109;
     const KEYCODE_ESCAPE: i32 = 111;
+
     const KEYCODE_W: i32 = 51;
     const KEYCODE_A: i32 = 29;
     const KEYCODE_S: i32 = 47;
     const KEYCODE_D: i32 = 32;
     const KEYCODE_SPACE: i32 = 62;
+    const KEYCODE_E: i32 = 33;
+    const KEYCODE_T: i32 = 48;
+    const KEYCODE_SLASH: i32 = 76;
 
     if let Ok(mut lock) = GAME_INSTANCE.lock() {
         if let Some(ctx) = lock.as_mut() {
@@ -790,14 +951,29 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeKeyE
                 KEYCODE_BUTTON_B => ctx.touch_tracker.btn_sneak = down,
                 KEYCODE_BUTTON_R1 => ctx.touch_tracker.btn_mine = down,
                 KEYCODE_BUTTON_L1 => ctx.touch_tracker.btn_place = down,
+                KEYCODE_ENTER | KEYCODE_NUMPAD_ENTER => {
+                    if down {
+                        ctx.touch_tracker.key_enter_just = true;
+                    }
+                }
+                KEYCODE_DEL | KEYCODE_FORWARD_DEL => {
+                    if down {
+                        ctx.touch_tracker.key_backspace_just = true;
+                    }
+                }
                 KEYCODE_ESCAPE | KEYCODE_BUTTON_START => {
                     if down {
                         ctx.touch_tracker.btn_menu_just = true;
                     }
                 }
-                KEYCODE_BUTTON_Y => {
+                KEYCODE_BUTTON_Y | KEYCODE_E => {
                     if down {
                         ctx.touch_tracker.btn_inv_just = true;
+                    }
+                }
+                KEYCODE_T => {
+                    if down {
+                        ctx.touch_tracker.btn_chat_just = true;
                     }
                 }
                 _ => {}

@@ -44,8 +44,16 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::IronBlock,
             BlockId::GoldOre,
             BlockId::GoldBlock,
+            BlockId::DiamondOre,
+            BlockId::DiamondBlock,
             BlockId::Bedrock,
             BlockId::Planks,
+            BlockId::WoodenSlab,
+            BlockId::StoneSlab,
+            BlockId::WoodenStairs,
+            BlockId::StoneStairs,
+            BlockId::Ladder,
+            BlockId::Bed,
             BlockId::Chest,
             BlockId::Furnace,
             BlockId::FurnaceLit,
@@ -60,21 +68,32 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::WoodenPickaxe,
             BlockId::StonePickaxe,
             BlockId::IronPickaxe,
+            BlockId::GoldPickaxe,
+            BlockId::DiamondPickaxe,
             BlockId::WoodenAxe,
             BlockId::StoneAxe,
             BlockId::IronAxe,
+            BlockId::GoldAxe,
+            BlockId::DiamondAxe,
             BlockId::WoodenShovel,
             BlockId::StoneShovel,
             BlockId::IronShovel,
+            BlockId::GoldShovel,
+            BlockId::DiamondShovel,
             BlockId::WoodenSword,
             BlockId::StoneSword,
             BlockId::IronSword,
+            BlockId::GoldSword,
+            BlockId::DiamondSword,
             BlockId::Stick,
             BlockId::Torch,
             BlockId::IronOunce,
             BlockId::IronIngot,
             BlockId::GoldOunce,
             BlockId::GoldIngot,
+            BlockId::Diamond,
+            BlockId::Bed,
+            BlockId::Ladder,
             BlockId::RawPorkchop,
             BlockId::CookedPorkchop,
             BlockId::RawBeef,
@@ -113,10 +132,18 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::IronBlock,
             BlockId::GoldOre,
             BlockId::GoldBlock,
+            BlockId::DiamondOre,
+            BlockId::DiamondBlock,
             BlockId::Water,
             BlockId::Bedrock,
             BlockId::Lava,
             BlockId::Planks,
+            BlockId::WoodenSlab,
+            BlockId::StoneSlab,
+            BlockId::WoodenStairs,
+            BlockId::StoneStairs,
+            BlockId::Ladder,
+            BlockId::Bed,
             BlockId::Chest,
             BlockId::Furnace,
             BlockId::FurnaceLit,
@@ -128,6 +155,7 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::IronIngot,
             BlockId::GoldOunce,
             BlockId::GoldIngot,
+            BlockId::Diamond,
             BlockId::RawPorkchop,
             BlockId::CookedPorkchop,
             BlockId::RawBeef,
@@ -145,15 +173,23 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             BlockId::WoodenPickaxe,
             BlockId::StonePickaxe,
             BlockId::IronPickaxe,
+            BlockId::GoldPickaxe,
+            BlockId::DiamondPickaxe,
             BlockId::WoodenAxe,
             BlockId::StoneAxe,
             BlockId::IronAxe,
+            BlockId::GoldAxe,
+            BlockId::DiamondAxe,
             BlockId::WoodenShovel,
             BlockId::StoneShovel,
             BlockId::IronShovel,
+            BlockId::GoldShovel,
+            BlockId::DiamondShovel,
             BlockId::WoodenSword,
             BlockId::StoneSword,
             BlockId::IronSword,
+            BlockId::GoldSword,
+            BlockId::DiamondSword,
         ],
         _ => &[],
     }
@@ -835,6 +871,18 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                 pack_color(0.40, 0.40, 0.42), // shadow
                 pack_color(0.24, 0.24, 0.26), // outline
             ),
+            BlockId::GoldPickaxe | BlockId::GoldAxe | BlockId::GoldShovel | BlockId::GoldSword => (
+                pack_color(1.00, 0.95, 0.40), // glint
+                pack_color(0.95, 0.80, 0.20), // highlight
+                pack_color(0.80, 0.65, 0.10), // base
+                pack_color(0.50, 0.38, 0.05), // shadow
+            ),
+            BlockId::DiamondPickaxe | BlockId::DiamondAxe | BlockId::DiamondShovel | BlockId::DiamondSword => (
+                pack_color(0.75, 1.00, 1.00), // glint
+                pack_color(0.35, 0.90, 0.90), // highlight
+                pack_color(0.18, 0.72, 0.75), // base
+                pack_color(0.08, 0.45, 0.48), // shadow
+            ),
             _ => (
                 // Iron
                 pack_color(1.00, 1.00, 1.00), // glint
@@ -853,7 +901,7 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                 px(buffer, i, 16 - i, wood_dark);
             }
         }
-        BlockId::WoodenSword | BlockId::StoneSword | BlockId::IronSword => {
+        BlockId::WoodenSword | BlockId::StoneSword | BlockId::IronSword | BlockId::GoldSword | BlockId::DiamondSword => {
             let (c_glint, c_hi, c_base, c_shadow) = get_mat_colors(block);
             // Pommel
             px(buffer, 2, 13, wood_dark);
@@ -883,7 +931,7 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
             px(buffer, 12, 2, c_glint);
             px(buffer, 13, 3, c_shadow);
         }
-        BlockId::WoodenPickaxe | BlockId::StonePickaxe | BlockId::IronPickaxe => {
+        BlockId::WoodenPickaxe | BlockId::StonePickaxe | BlockId::IronPickaxe | BlockId::GoldPickaxe | BlockId::DiamondPickaxe => {
             let (c_glint, c_hi, c_base, c_shadow) = get_mat_colors(block);
             // Handle
             for i in 2..=10 {
@@ -919,7 +967,7 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
             px(buffer, 10, 7, c_shadow);
             px(buffer, 9, 8, c_shadow);
         }
-        BlockId::WoodenAxe | BlockId::StoneAxe | BlockId::IronAxe => {
+        BlockId::WoodenAxe | BlockId::StoneAxe | BlockId::IronAxe | BlockId::GoldAxe | BlockId::DiamondAxe => {
             let (c_glint, c_hi, c_base, c_shadow) = get_mat_colors(block);
             // Handle
             for i in 2..=11 {
@@ -946,7 +994,7 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
             px(buffer, 7, 6, c_base);
             px(buffer, 8, 6, c_shadow);
         }
-        BlockId::WoodenShovel | BlockId::StoneShovel | BlockId::IronShovel => {
+        BlockId::WoodenShovel | BlockId::StoneShovel | BlockId::IronShovel | BlockId::GoldShovel | BlockId::DiamondShovel => {
             let (c_glint, c_hi, c_base, c_shadow) = get_mat_colors(block);
             // Grip topper
             px(buffer, 1, 13, wood_light);
@@ -1382,6 +1430,146 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                 }
             }
         }
+        BlockId::Diamond => {
+            let outline = pack_color(0.05, 0.35, 0.38);
+            let glint = pack_color(0.88, 1.00, 1.00);
+            let hi = pack_color(0.40, 0.92, 0.94);
+            let base = pack_color(0.20, 0.75, 0.80);
+            let sh = pack_color(0.10, 0.52, 0.58);
+
+            for ly in 3..=13 {
+                for lx in 3..=12 {
+                    let in_shape = match ly {
+                        3 => lx >= 6 && lx <= 9,
+                        4 => lx >= 5 && lx <= 10,
+                        5 => lx >= 4 && lx <= 11,
+                        6..=7 => lx >= 3 && lx <= 12,
+                        8 => lx >= 4 && lx <= 11,
+                        9 => lx >= 5 && lx <= 10,
+                        10 => lx >= 6 && lx <= 9,
+                        11 => lx >= 6 && lx <= 9,
+                        12 => lx >= 7 && lx <= 8,
+                        13 => lx == 7 || lx == 8,
+                        _ => false,
+                    };
+                    if in_shape {
+                        let is_border = ly == 3 || ly == 13 || (ly == 6 && (lx == 3 || lx == 12)) || (ly == 7 && (lx == 3 || lx == 12)) || (ly == 12 && (lx == 7 || lx == 8));
+                        if is_border {
+                            px(buffer, lx, ly, outline);
+                        } else if ly <= 5 && lx >= 6 && lx <= 8 {
+                            px(buffer, lx, ly, glint);
+                        } else if lx <= 6 {
+                            px(buffer, lx, ly, hi);
+                        } else if lx >= 10 || ly >= 10 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+            px(buffer, 6, 4, glint);
+            px(buffer, 7, 4, glint);
+            px(buffer, 5, 5, glint);
+            px(buffer, 7, 6, hi);
+            px(buffer, 8, 6, base);
+        }
+        BlockId::Bed => {
+            let wood = pack_color(0.45, 0.28, 0.12);
+            let white = pack_color(0.92, 0.92, 0.94);
+            let red = pack_color(0.80, 0.15, 0.15);
+            let red_sh = pack_color(0.55, 0.10, 0.10);
+            let frame = pack_color(0.30, 0.18, 0.08);
+
+            // Legs
+            px(buffer, 2, 13, frame);
+            px(buffer, 2, 14, frame);
+            px(buffer, 13, 13, frame);
+            px(buffer, 13, 14, frame);
+
+            // Base wood frame
+            for lx in 2..=13 {
+                px(buffer, lx, 11, wood);
+                px(buffer, lx, 12, frame);
+            }
+            // Pillow on left
+            for ly in 8..=10 {
+                for lx in 2..=5 {
+                    px(buffer, lx, ly, white);
+                }
+            }
+            // Red blanket on right
+            for ly in 8..=10 {
+                for lx in 6..=13 {
+                    px(buffer, lx, ly, if ly == 10 { red_sh } else { red });
+                }
+            }
+            // Headboard post
+            px(buffer, 1, 6, frame);
+            px(buffer, 1, 7, frame);
+            px(buffer, 1, 8, frame);
+            px(buffer, 1, 9, frame);
+            px(buffer, 1, 10, frame);
+            px(buffer, 1, 11, frame);
+        }
+        BlockId::Ladder => {
+            let wood_rail = pack_color(0.48, 0.32, 0.16);
+            let rail_hi = pack_color(0.65, 0.45, 0.24);
+            let rung = pack_color(0.58, 0.40, 0.20);
+            let rung_sh = pack_color(0.35, 0.22, 0.10);
+
+            // Rails
+            for ly in 1..=14 {
+                px(buffer, 3, ly, rail_hi);
+                px(buffer, 4, ly, wood_rail);
+                px(buffer, 11, ly, rail_hi);
+                px(buffer, 12, ly, wood_rail);
+            }
+            // Rungs
+            for &ry in &[3, 6, 9, 12] {
+                for lx in 5..=10 {
+                    px(buffer, lx, ry, rung);
+                    px(buffer, lx, ry + 1, rung_sh);
+                }
+            }
+        }
+        BlockId::WoodenSlab | BlockId::StoneSlab => {
+            let color = block.face_color(Face::Top);
+            let packed = pack_color(color[0], color[1], color[2]);
+            let top_highlight = pack_color((color[0] * 1.25).min(1.0), (color[1] * 1.25).min(1.0), (color[2] * 1.25).min(1.0));
+            let shadow = pack_color(color[0] * 0.65, color[1] * 0.65, color[2] * 0.65);
+            let dark_border = pack_color(color[0] * 0.40, color[1] * 0.40, color[2] * 0.40);
+
+            let half_h = size / 2;
+            let start_y = y + half_h;
+            fill_rect(buffer, buf_w, buf_h, x, start_y, size, half_h, packed);
+            fill_rect(buffer, buf_w, buf_h, x, start_y, size, 2, top_highlight);
+            fill_rect(buffer, buf_w, buf_h, x, start_y, 2, half_h, top_highlight);
+            fill_rect(buffer, buf_w, buf_h, x, start_y + half_h - 2, size, 2, shadow);
+            fill_rect(buffer, buf_w, buf_h, x + size - 2, start_y, 2, half_h, shadow);
+            fill_rect(buffer, buf_w, buf_h, x, start_y + half_h - 1, size, 1, dark_border);
+            fill_rect(buffer, buf_w, buf_h, x + size - 1, start_y, 1, half_h, dark_border);
+        }
+        BlockId::WoodenStairs | BlockId::StoneStairs => {
+            let color = block.face_color(Face::Top);
+            let packed = pack_color(color[0], color[1], color[2]);
+            let top_highlight = pack_color((color[0] * 1.25).min(1.0), (color[1] * 1.25).min(1.0), (color[2] * 1.25).min(1.0));
+            let shadow = pack_color(color[0] * 0.65, color[1] * 0.65, color[2] * 0.65);
+            let dark_border = pack_color(color[0] * 0.40, color[1] * 0.40, color[2] * 0.40);
+
+            let half = size / 2;
+            fill_rect(buffer, buf_w, buf_h, x, y + half, size, half, packed);
+            fill_rect(buffer, buf_w, buf_h, x, y, half, half, packed);
+
+            fill_rect(buffer, buf_w, buf_h, x, y, half, 2, top_highlight);
+            fill_rect(buffer, buf_w, buf_h, x, y, 2, size, top_highlight);
+            fill_rect(buffer, buf_w, buf_h, x + half, y + half, half, 2, top_highlight);
+
+            fill_rect(buffer, buf_w, buf_h, x + half - 2, y, 2, half, shadow);
+            fill_rect(buffer, buf_w, buf_h, x + size - 2, y + half, 2, half, shadow);
+            fill_rect(buffer, buf_w, buf_h, x, y + size - 1, size, 1, dark_border);
+            fill_rect(buffer, buf_w, buf_h, x + size - 1, y + half, 1, half, dark_border);
+        }
         _ => {
             // High-detail 3D beveled block
             let color = block.face_color(Face::Top);
@@ -1425,10 +1613,17 @@ mod tests {
         assert!(tab1.contains(&BlockId::ChickenSpawnEgg));
 
         let tab2 = creative_tab_blocks(2);
-        assert_eq!(tab2.len(), 59);
+        assert_eq!(tab2.len(), 76);
         assert!(tab2.contains(&BlockId::Grass));
         assert!(tab2.contains(&BlockId::Torch));
         assert!(tab2.contains(&BlockId::IronSword));
+        assert!(tab2.contains(&BlockId::DiamondSword));
+        assert!(tab2.contains(&BlockId::DiamondPickaxe));
+        assert!(tab2.contains(&BlockId::Diamond));
+        assert!(tab2.contains(&BlockId::Bed));
+        assert!(tab2.contains(&BlockId::Ladder));
+        assert!(tab2.contains(&BlockId::WoodenSlab));
+        assert!(tab2.contains(&BlockId::WoodenStairs));
         assert!(tab2.contains(&BlockId::RawPorkchop));
         assert!(tab2.contains(&BlockId::CookedBeef));
         assert!(tab2.contains(&BlockId::RawChicken));

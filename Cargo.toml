@@ -5,7 +5,7 @@ edition = "2021"
 
 [lib]
 name = "rustcraft"
-crate-type = ["staticlib", "rlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 path = "src/lib.rs"
 
 [[bin]]

@@ -230,11 +230,33 @@ impl RecipeBook {
             result: ItemStack { block: BlockId::CoalOre, count: 9 },
         });
 
+        // 9x Diamond (3x3) -> 1x Diamond Block
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 3,
+            pattern: vec![
+                Some(BlockId::Diamond), Some(BlockId::Diamond), Some(BlockId::Diamond),
+                Some(BlockId::Diamond), Some(BlockId::Diamond), Some(BlockId::Diamond),
+                Some(BlockId::Diamond), Some(BlockId::Diamond), Some(BlockId::Diamond),
+            ],
+            result: ItemStack { block: BlockId::DiamondBlock, count: 1 },
+        });
+
+        // 1x Diamond Block (1x1) -> 9x Diamond
+        self.recipes.push(Recipe {
+            width: 1,
+            height: 1,
+            pattern: vec![Some(BlockId::DiamondBlock)],
+            result: ItemStack { block: BlockId::Diamond, count: 9 },
+        });
+
         // Shovels (1x3: Material over 2 Sticks)
         let shovel_materials = [
             (BlockId::Planks, BlockId::WoodenShovel),
             (BlockId::Stone, BlockId::StoneShovel),
             (BlockId::IronIngot, BlockId::IronShovel),
+            (BlockId::GoldIngot, BlockId::GoldShovel),
+            (BlockId::Diamond, BlockId::DiamondShovel),
         ];
         for (mat, tool) in shovel_materials {
             self.recipes.push(Recipe {
@@ -254,6 +276,8 @@ impl RecipeBook {
             (BlockId::Planks, BlockId::WoodenSword),
             (BlockId::Stone, BlockId::StoneSword),
             (BlockId::IronIngot, BlockId::IronSword),
+            (BlockId::GoldIngot, BlockId::GoldSword),
+            (BlockId::Diamond, BlockId::DiamondSword),
         ];
         for (mat, tool) in sword_materials {
             self.recipes.push(Recipe {
@@ -273,6 +297,8 @@ impl RecipeBook {
             (BlockId::Planks, BlockId::WoodenPickaxe),
             (BlockId::Stone, BlockId::StonePickaxe),
             (BlockId::IronIngot, BlockId::IronPickaxe),
+            (BlockId::GoldIngot, BlockId::GoldPickaxe),
+            (BlockId::Diamond, BlockId::DiamondPickaxe),
         ];
         for (mat, tool) in pick_materials {
             self.recipes.push(Recipe {
@@ -292,6 +318,8 @@ impl RecipeBook {
             (BlockId::Planks, BlockId::WoodenAxe),
             (BlockId::Stone, BlockId::StoneAxe),
             (BlockId::IronIngot, BlockId::IronAxe),
+            (BlockId::GoldIngot, BlockId::GoldAxe),
+            (BlockId::Diamond, BlockId::DiamondAxe),
         ];
         for (mat, tool) in axe_materials {
             // Right-facing axe
@@ -317,6 +345,104 @@ impl RecipeBook {
                 result: ItemStack { block: tool, count: 1 },
             });
         }
+
+        // Bed (3x2: 3 Feathers over 3 Planks)
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 2,
+            pattern: vec![
+                Some(BlockId::Feather), Some(BlockId::Feather), Some(BlockId::Feather),
+                Some(BlockId::Planks), Some(BlockId::Planks), Some(BlockId::Planks),
+            ],
+            result: ItemStack { block: BlockId::Bed, count: 1 },
+        });
+
+        // Bed alternate (3x2: 3 Leaves over 3 Planks)
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 2,
+            pattern: vec![
+                Some(BlockId::Leaves), Some(BlockId::Leaves), Some(BlockId::Leaves),
+                Some(BlockId::Planks), Some(BlockId::Planks), Some(BlockId::Planks),
+            ],
+            result: ItemStack { block: BlockId::Bed, count: 1 },
+        });
+
+        // Wooden Slabs (3x1: 3 Planks horizontal -> 6 WoodenSlab)
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 1,
+            pattern: vec![
+                Some(BlockId::Planks), Some(BlockId::Planks), Some(BlockId::Planks),
+            ],
+            result: ItemStack { block: BlockId::WoodenSlab, count: 6 },
+        });
+
+        // Stone Slabs (3x1: 3 Stone horizontal -> 6 StoneSlab)
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 1,
+            pattern: vec![
+                Some(BlockId::Stone), Some(BlockId::Stone), Some(BlockId::Stone),
+            ],
+            result: ItemStack { block: BlockId::StoneSlab, count: 6 },
+        });
+
+        // Wooden Stairs (3x3 stair shape -> 4 WoodenStairs)
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 3,
+            pattern: vec![
+                Some(BlockId::Planks), None, None,
+                Some(BlockId::Planks), Some(BlockId::Planks), None,
+                Some(BlockId::Planks), Some(BlockId::Planks), Some(BlockId::Planks),
+            ],
+            result: ItemStack { block: BlockId::WoodenStairs, count: 4 },
+        });
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 3,
+            pattern: vec![
+                None, None, Some(BlockId::Planks),
+                None, Some(BlockId::Planks), Some(BlockId::Planks),
+                Some(BlockId::Planks), Some(BlockId::Planks), Some(BlockId::Planks),
+            ],
+            result: ItemStack { block: BlockId::WoodenStairs, count: 4 },
+        });
+
+        // Stone Stairs (3x3 stair shape -> 4 StoneStairs)
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 3,
+            pattern: vec![
+                Some(BlockId::Stone), None, None,
+                Some(BlockId::Stone), Some(BlockId::Stone), None,
+                Some(BlockId::Stone), Some(BlockId::Stone), Some(BlockId::Stone),
+            ],
+            result: ItemStack { block: BlockId::StoneStairs, count: 4 },
+        });
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 3,
+            pattern: vec![
+                None, None, Some(BlockId::Stone),
+                None, Some(BlockId::Stone), Some(BlockId::Stone),
+                Some(BlockId::Stone), Some(BlockId::Stone), Some(BlockId::Stone),
+            ],
+            result: ItemStack { block: BlockId::StoneStairs, count: 4 },
+        });
+
+        // Ladder (3x3: H-shape of Sticks -> 3 Ladder)
+        self.recipes.push(Recipe {
+            width: 3,
+            height: 3,
+            pattern: vec![
+                Some(BlockId::Stick), None, Some(BlockId::Stick),
+                Some(BlockId::Stick), Some(BlockId::Stick), Some(BlockId::Stick),
+                Some(BlockId::Stick), None, Some(BlockId::Stick),
+            ],
+            result: ItemStack { block: BlockId::Ladder, count: 3 },
+        });
 
         // Doors (2x3: 6 Planks)
         self.recipes.push(Recipe {
@@ -614,6 +740,100 @@ mod tests {
         assert_eq!(
             book.match_grid(&decraft_coal, 2, 2),
             Some(ItemStack { block: BlockId::CoalOre, count: 9 })
+        );
+    }
+
+    #[test]
+    fn test_diamond_recipes_and_architecture() {
+        let book = RecipeBook::new();
+
+        // 9x Diamond -> Diamond Block
+        let dia_block_grid = [
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&dia_block_grid, 3, 3),
+            Some(ItemStack { block: BlockId::DiamondBlock, count: 1 })
+        );
+
+        // 1x Diamond Block -> 9x Diamond
+        let decraft_dia = [
+            Some(ItemStack { block: BlockId::DiamondBlock, count: 1 }), None,
+            None, None,
+        ];
+        assert_eq!(
+            book.match_grid(&decraft_dia, 2, 2),
+            Some(ItemStack { block: BlockId::Diamond, count: 9 })
+        );
+
+        // Diamond Pickaxe (3 Diamonds + 2 Sticks)
+        let dia_pick_grid = [
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            None,
+            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            None,
+            None,
+            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            None,
+        ];
+        assert_eq!(
+            book.match_grid(&dia_pick_grid, 3, 3),
+            Some(ItemStack { block: BlockId::DiamondPickaxe, count: 1 })
+        );
+
+        // Bed (3 Feathers over 3 Planks)
+        let bed_grid = [
+            None, None, None,
+            Some(ItemStack { block: BlockId::Feather, count: 1 }),
+            Some(ItemStack { block: BlockId::Feather, count: 1 }),
+            Some(ItemStack { block: BlockId::Feather, count: 1 }),
+            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&bed_grid, 3, 3),
+            Some(ItemStack { block: BlockId::Bed, count: 1 })
+        );
+
+        // Wooden Slab (3 Planks horizontal -> 6 Wooden Slabs)
+        let slab_grid = [
+            None, None, None,
+            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            None, None, None,
+        ];
+        assert_eq!(
+            book.match_grid(&slab_grid, 3, 3),
+            Some(ItemStack { block: BlockId::WoodenSlab, count: 6 })
+        );
+
+        // Ladder (7 Sticks in H shape -> 3 Ladders)
+        let ladder_grid = [
+            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            None,
+            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            None,
+            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&ladder_grid, 3, 3),
+            Some(ItemStack { block: BlockId::Ladder, count: 3 })
         );
     }
 }

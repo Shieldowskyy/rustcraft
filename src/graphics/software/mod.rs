@@ -2181,6 +2181,8 @@ impl Renderer {
             BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword => TextureId::Planks,
             BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword => TextureId::Stone,
             BlockId::IronPickaxe | BlockId::IronAxe | BlockId::IronShovel | BlockId::IronSword => TextureId::IronOre,
+            BlockId::GoldPickaxe | BlockId::GoldAxe | BlockId::GoldShovel | BlockId::GoldSword => TextureId::GoldBlock,
+            BlockId::DiamondPickaxe | BlockId::DiamondAxe | BlockId::DiamondShovel | BlockId::DiamondSword => TextureId::DiamondBlock,
             _ => TextureId::WoodSide,
         };
         let handle_tex = TextureId::WoodSide;
@@ -2198,7 +2200,7 @@ impl Renderer {
                     view_proj,
                 );
             }
-            BlockId::WoodenSword | BlockId::StoneSword | BlockId::IronSword => {
+            BlockId::WoodenSword | BlockId::StoneSword | BlockId::IronSword | BlockId::GoldSword | BlockId::DiamondSword => {
                 // Pommel
                 self.draw_cube_3d(
                     pos - tool_up * (0.16 * scale),
@@ -2250,7 +2252,7 @@ impl Renderer {
                     view_proj,
                 );
             }
-            BlockId::WoodenPickaxe | BlockId::StonePickaxe | BlockId::IronPickaxe => {
+            BlockId::WoodenPickaxe | BlockId::StonePickaxe | BlockId::IronPickaxe | BlockId::GoldPickaxe | BlockId::DiamondPickaxe => {
                 // Handle
                 self.draw_cube_3d(
                     pos,
@@ -2301,7 +2303,7 @@ impl Renderer {
                     view_proj,
                 );
             }
-            BlockId::WoodenAxe | BlockId::StoneAxe | BlockId::IronAxe => {
+            BlockId::WoodenAxe | BlockId::StoneAxe | BlockId::IronAxe | BlockId::GoldAxe | BlockId::DiamondAxe => {
                 // Handle
                 self.draw_cube_3d(
                     pos,
@@ -2343,7 +2345,7 @@ impl Renderer {
                     view_proj,
                 );
             }
-            BlockId::WoodenShovel | BlockId::StoneShovel | BlockId::IronShovel => {
+            BlockId::WoodenShovel | BlockId::StoneShovel | BlockId::IronShovel | BlockId::GoldShovel | BlockId::DiamondShovel => {
                 // Handle
                 self.draw_cube_3d(
                     pos,

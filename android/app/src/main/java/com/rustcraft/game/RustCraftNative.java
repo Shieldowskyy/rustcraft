@@ -13,7 +13,7 @@ public class RustCraftNative {
     /**
      * Initializes the RustCraft game engine state machine.
      *
-     * @param width Internal render buffer width (e.g. 960).
+     * @param width Internal render buffer width (e.g. 960 or dynamic aspect ratio width).
      * @param height Internal render buffer height (e.g. 540).
      * @param seed World generation seed.
      * @param internalFilesDir Absolute path to the app's internal files directory for saves.
@@ -31,7 +31,7 @@ public class RustCraftNative {
      * Advances game simulation and renders a frame directly to ANativeWindow.
      *
      * @param dt Delta time in seconds (or 0.0 to auto-measure).
-     * @return 0 on success.
+     * @return Status bitmask: Bit 0 (1) = Chat active / text input requested, Bit 1 (2) = Menu active.
      */
     public static native int nativeStep(float dt);
 
@@ -39,6 +39,21 @@ public class RustCraftNative {
      * Dispatches touch down, move, or up events to the multi-touch virtual controls system.
      */
     public static native void nativeTouchEvent(int action, int pointerId, float x, float y, float screenW, float screenH);
+
+    /**
+     * Dispatches physical gamepad analog sticks, triggers, and D-pad axes.
+     */
+    public static native void nativeAxisEvent(float axisX, float axisY, float axisZ, float axisRz, float axisLt, float axisRt, float axisHatX, float axisHatY);
+
+    /**
+     * Dispatches typed text from Android software keyboard / IME into the active chat prompt.
+     */
+    public static native void nativeTextInput(String text);
+
+    /**
+     * Checks if text input (chat/command prompt) is currently waiting for keyboard input.
+     */
+    public static native boolean nativeIsTextInputActive();
 
     /**
      * Dispatches hardware keyboard or gamepad button events.
