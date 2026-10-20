@@ -3293,9 +3293,17 @@ fn raster_scanline_simd_4x(
                     let block = (l0 * a.block_light_over_w + l1 * b.block_light_over_w + l2 * c.block_light_over_w) * depth;
 
                     let sky_lit = sky * daylight;
-                    let lr = (sky_lit + block * 1.35).clamp(0.06, 1.1) * ao;
-                    let lg = (sky_lit + block * 1.15).clamp(0.06, 1.0) * ao;
-                    let lb = (sky_lit * 0.95 + block * 0.80).clamp(0.06, 1.0) * ao;
+                    let natural_r = 1.14 * sky_lit;
+                    let natural_g = 1.12 * sky_lit;
+                    let natural_b = 1.10 * sky_lit;
+
+                    let torch_r = 1.30 * block;
+                    let torch_g = 0.88 * block;
+                    let torch_b = 0.42 * block;
+
+                    let lr = ((natural_r + torch_r + 0.045) * ao).clamp(0.04, 1.35);
+                    let lg = ((natural_g + torch_g + 0.045) * ao).clamp(0.04, 1.35);
+                    let lb = ((natural_b + torch_b + 0.055) * ao).clamp(0.04, 1.35);
 
                     let mut r = texel[0] * lr;
                     let mut g = texel[1] * lg;
@@ -3390,9 +3398,17 @@ fn raster_scanline_pixel(
                 let block = (l0 * a.block_light_over_w + l1 * b.block_light_over_w + l2 * c.block_light_over_w) * depth;
 
                 let sky_lit = sky * daylight;
-                let lr = (sky_lit + block * 1.35).clamp(0.06, 1.1) * ao;
-                let lg = (sky_lit + block * 1.15).clamp(0.06, 1.0) * ao;
-                let lb = (sky_lit * 0.95 + block * 0.80).clamp(0.06, 1.0) * ao;
+                let natural_r = 1.14 * sky_lit;
+                let natural_g = 1.12 * sky_lit;
+                let natural_b = 1.10 * sky_lit;
+
+                let torch_r = 1.30 * block;
+                let torch_g = 0.88 * block;
+                let torch_b = 0.42 * block;
+
+                let lr = ((natural_r + torch_r + 0.045) * ao).clamp(0.04, 1.35);
+                let lg = ((natural_g + torch_g + 0.045) * ao).clamp(0.04, 1.35);
+                let lb = ((natural_b + torch_b + 0.055) * ao).clamp(0.04, 1.35);
 
                 let mut r = texel[0] * lr;
                 let mut g = texel[1] * lg;

@@ -185,8 +185,8 @@ pub struct ChunkNeighborCache<'a> {
     pub base_x: i32,
     pub base_z: i32,
     pub seed: u32,
-    pub heightmap: [u8; 16 * 16],
-    pub leaf_heightmap: [u8; 16 * 16],
+    pub heightmap: [u8; 18 * 18],
+    pub leaf_heightmap: [u8; 18 * 18],
     pub lights: Vec<LightSource>,
     pub fluid_map: Option<&'a std::collections::HashMap<IVec3, u8>>,
 }
@@ -208,29 +208,6 @@ impl<'a> ChunkNeighborCache<'a> {
         let base_x = cx * CHUNK_SIZE_X;
         let base_z = cz * CHUNK_SIZE_Z;
 
-        let mut heightmap = [0u8; 16 * 16];
-        let mut leaf_heightmap = [0u8; 16 * 16];
-        let blocks = chunk.blocks.as_slice();
-        for lx in 0..CHUNK_SIZE_X {
-            for lz in 0..CHUNK_SIZE_Z {
-                let mut h = 0u8;
-                let mut leaf_h = 0u8;
-                for ly in (0..CHUNK_SIZE_Y).rev() {
-                    let b = BlockId::from_u8(blocks[((lx << 10) | (ly << 4) | lz) as usize]);
-                    if b.is_leaf() && leaf_h == 0 {
-                        leaf_h = (ly + 1) as u8;
-                    }
-                    if b.is_opaque() {
-                        h = (ly + 1) as u8;
-                        break;
-                    }
-                }
-                let idx = ((lx << 4) | lz) as usize;
-                heightmap[idx] = h;
-                leaf_heightmap[idx] = leaf_h;
-            }
-        }
-
         let mut lights = Vec::new();
         for &t_pos in &world.torches {
             let dx = (t_pos.x - (base_x + 8)).abs();
@@ -244,8 +221,8 @@ impl<'a> ChunkNeighborCache<'a> {
             }
         }
 
-        Self {
-            center_blocks: blocks,
+        let mut cache = Self {
+            center_blocks: chunk.blocks.as_slice(),
             east_blocks,
             west_blocks,
             south_blocks,
@@ -257,27 +234,18 @@ impl<'a> ChunkNeighborCache<'a> {
             base_x,
             base_z,
             seed: world.seed,
-            heightmap,
-            leaf_heightmap,
+            heightmap: [0u8; 18 * 18],
+            leaf_heightmap: [0u8; 18 * 18],
             lights,
             fluid_map: None,
-        }
-    }
+        };
 
-    pub fn from_job(job: &'a ChunkMeshJob) -> Self {
-        let (cx, cz) = job.key;
-        let base_x = cx * CHUNK_SIZE_X;
-        let base_z = cz * CHUNK_SIZE_Z;
-
-        let mut heightmap = [0u8; 16 * 16];
-        let mut leaf_heightmap = [0u8; 16 * 16];
-        let blocks = job.center_blocks.as_slice();
-        for lx in 0..CHUNK_SIZE_X {
-            for lz in 0..CHUNK_SIZE_Z {
+        for lx in -1..=16 {
+            for lz in -1..=16 {
                 let mut h = 0u8;
                 let mut leaf_h = 0u8;
                 for ly in (0..CHUNK_SIZE_Y).rev() {
-                    let b = BlockId::from_u8(blocks[((lx << 10) | (ly << 4) | lz) as usize]);
+                    let b = cache.sample_block(lx, ly, lz);
                     if b.is_leaf() && leaf_h == 0 {
                         leaf_h = (ly + 1) as u8;
                     }
@@ -286,14 +254,22 @@ impl<'a> ChunkNeighborCache<'a> {
                         break;
                     }
                 }
-                let idx = ((lx << 4) | lz) as usize;
-                heightmap[idx] = h;
-                leaf_heightmap[idx] = leaf_h;
+                let idx = ((lx + 1) * 18 + (lz + 1)) as usize;
+                cache.heightmap[idx] = h;
+                cache.leaf_heightmap[idx] = leaf_h;
             }
         }
 
-        Self {
-            center_blocks: blocks,
+        cache
+    }
+
+    pub fn from_job(job: &'a ChunkMeshJob) -> Self {
+        let (cx, cz) = job.key;
+        let base_x = cx * CHUNK_SIZE_X;
+        let base_z = cz * CHUNK_SIZE_Z;
+
+        let mut cache = Self {
+            center_blocks: job.center_blocks.as_slice(),
             east_blocks: job.east_blocks.as_deref(),
             west_blocks: job.west_blocks.as_deref(),
             south_blocks: job.south_blocks.as_deref(),
@@ -305,11 +281,33 @@ impl<'a> ChunkNeighborCache<'a> {
             base_x,
             base_z,
             seed: job.seed,
-            heightmap,
-            leaf_heightmap,
+            heightmap: [0u8; 18 * 18],
+            leaf_heightmap: [0u8; 18 * 18],
             lights: job.lights.clone(),
             fluid_map: Some(&job.fluid_map),
+        };
+
+        for lx in -1..=16 {
+            for lz in -1..=16 {
+                let mut h = 0u8;
+                let mut leaf_h = 0u8;
+                for ly in (0..CHUNK_SIZE_Y).rev() {
+                    let b = cache.sample_block(lx, ly, lz);
+                    if b.is_leaf() && leaf_h == 0 {
+                        leaf_h = (ly + 1) as u8;
+                    }
+                    if b.is_opaque() {
+                        h = (ly + 1) as u8;
+                        break;
+                    }
+                }
+                let idx = ((lx + 1) * 18 + (lz + 1)) as usize;
+                cache.heightmap[idx] = h;
+                cache.leaf_heightmap[idx] = leaf_h;
+            }
         }
+
+        cache
     }
 
     #[inline(always)]
@@ -361,25 +359,67 @@ impl<'a> ChunkNeighborCache<'a> {
     }
 
     #[inline(always)]
-    pub fn sample_sky_light(&self, lx: i32, ly: i32, lz: i32) -> f32 {
-        if (lx as u32) < 16 && (lz as u32) < 16 {
-            let idx = ((lx << 4) | lz) as usize;
-            let opaque_h = self.heightmap[idx] as i32;
-            let leaf_h = self.leaf_heightmap[idx] as i32;
+    pub fn get_heights(&self, lx: i32, lz: i32) -> (i32, i32) {
+        if lx >= -1 && lx <= 16 && lz >= -1 && lz <= 16 {
+            let idx = ((lx + 1) * 18 + (lz + 1)) as usize;
+            (self.heightmap[idx] as i32, self.leaf_heightmap[idx] as i32)
+        } else {
+            (0, 0)
+        }
+    }
 
-            if ly >= opaque_h {
-                if leaf_h > 0 && ly < leaf_h {
-                    0.88 // Soft natural shadow under tree canopy
-                } else {
-                    1.0  // Full direct sunlight
-                }
+    #[inline(always)]
+    pub fn sample_sky_light(&self, lx: i32, ly: i32, lz: i32) -> f32 {
+        let (opaque_h, leaf_h) = self.get_heights(lx, lz);
+        if ly >= opaque_h {
+            if leaf_h > 0 && ly < leaf_h {
+                0.85 // Soft natural shadow under tree canopy
             } else {
-                let depth = (opaque_h - ly).max(1);
-                (0.55 * (0.82f32).powi(depth)).clamp(0.08, 0.55)
+                1.0  // Full direct sunlight
             }
         } else {
-            1.0
+            let depth = (opaque_h - ly).max(1);
+            if depth >= 8 {
+                0.0 // Pitch black in deep caves without torches
+            } else {
+                let factor = 1.0 - (depth as f32 / 8.0);
+                0.35 * factor * factor
+            }
         }
+    }
+
+    #[inline]
+    pub fn is_light_occluded(&self, from: IVec3, to_x: i32, to_y: i32, to_z: i32) -> bool {
+        let dx = to_x - from.x;
+        let dy = to_y - from.y;
+        let dz = to_z - from.z;
+        let steps = dx.abs().max(dy.abs()).max(dz.abs());
+        if steps <= 1 {
+            return false;
+        }
+        let inv_steps = 1.0 / steps as f32;
+        let step_x = dx as f32 * inv_steps;
+        let step_y = dy as f32 * inv_steps;
+        let step_z = dz as f32 * inv_steps;
+
+        let mut cur_x = from.x as f32 + 0.5;
+        let mut cur_y = from.y as f32 + 0.5;
+        let mut cur_z = from.z as f32 + 0.5;
+
+        for _ in 1..steps {
+            cur_x += step_x;
+            cur_y += step_y;
+            cur_z += step_z;
+            let bx = cur_x.floor() as i32;
+            let by = cur_y.floor() as i32;
+            let bz = cur_z.floor() as i32;
+            let lx = bx - self.base_x;
+            let lz = bz - self.base_z;
+            if self.solid_at(lx, by, lz) {
+                return true;
+            }
+        }
+        false
     }
 
     #[inline(always)]
@@ -396,9 +436,15 @@ impl<'a> ChunkNeighborCache<'a> {
             let r = light.radius;
             if d_sq < r * r {
                 let dist = d_sq.sqrt();
-                let l = (1.0 - dist / r) * light.intensity;
+                let t = (1.0 - dist / r).max(0.0);
+                // Cubic Hermite smoothstep curve for natural soft falloff
+                let falloff = t * t * (3.0 - 2.0 * t);
+                let l = falloff * light.intensity;
                 if l > max_l {
-                    max_l = l;
+                    // Check if light is occluded by solid obstacle
+                    if !self.is_light_occluded(light.pos, wx.floor() as i32, wy.floor() as i32, wz.floor() as i32) {
+                        max_l = l;
+                    }
                 }
             }
         }
@@ -1058,6 +1104,42 @@ fn vertex_ao(side1: bool, side2: bool, corner: bool) -> f32 {
     }
 }
 
+#[inline(always)]
+fn vertex_light_and_ao(
+    center_sky: f32,
+    center_block: f32,
+    s1: (bool, f32, f32),
+    s2: (bool, f32, f32),
+    corner: (bool, f32, f32),
+) -> (f32, f32, f32) {
+    let ao = vertex_ao(s1.0, s2.0, corner.0);
+    if s1.0 && s2.0 {
+        (ao, center_sky, center_block)
+    } else {
+        let mut count = 1.0f32;
+        let mut sum_sky = center_sky;
+        let mut sum_block = center_block;
+
+        if !s1.0 {
+            sum_sky += s1.1;
+            sum_block += s1.2;
+            count += 1.0;
+        }
+        if !s2.0 {
+            sum_sky += s2.1;
+            sum_block += s2.2;
+            count += 1.0;
+        }
+        if !corner.0 && (!s1.0 || !s2.0) {
+            sum_sky += corner.1;
+            sum_block += corner.2;
+            count += 1.0;
+        }
+
+        (ao, sum_sky / count, sum_block / count)
+    }
+}
+
 #[inline]
 fn emit_face(
     tris: &mut Vec<Triangle>,
@@ -1142,69 +1224,90 @@ fn emit_face(
     let c011 = Vec3::new(x,       top_y, z + 1.0);
     let c111 = Vec3::new(x + 1.0, top_y, z + 1.0);
 
-    let s = |dx: i32, dy: i32, dz: i32| cache.solid_at(lx + dx, wy + dy, lz + dz);
-
-    let (a, ao_a, b, ao_b, c, ao_c, d, ao_d) = match face {
-        Face::Top => (
-            c010, vertex_ao(s(-1,1,0), s(0,1,-1), s(-1,1,-1)),
-            c011, vertex_ao(s(-1,1,0), s(0,1, 1), s(-1,1, 1)),
-            c111, vertex_ao(s( 1,1,0), s(0,1, 1), s( 1,1, 1)),
-            c110, vertex_ao(s( 1,1,0), s(0,1,-1), s( 1,1,-1)),
-        ),
-        Face::Bottom => (
-            c001, vertex_ao(s(-1,-1,0), s(0,-1, 1), s(-1,-1, 1)),
-            c000, vertex_ao(s(-1,-1,0), s(0,-1,-1), s(-1,-1,-1)),
-            c100, vertex_ao(s( 1,-1,0), s(0,-1,-1), s( 1,-1,-1)),
-            c101, vertex_ao(s( 1,-1,0), s(0,-1, 1), s( 1,-1, 1)),
-        ),
-        Face::North => (
-            c100, vertex_ao(s( 1,0,-1), s(0,-1,-1), s( 1,-1,-1)),
-            c000, vertex_ao(s(-1,0,-1), s(0,-1,-1), s(-1,-1,-1)),
-            c010, vertex_ao(s(-1,0,-1), s(0, 1,-1), s(-1, 1,-1)),
-            c110, vertex_ao(s( 1,0,-1), s(0, 1,-1), s( 1, 1,-1)),
-        ),
-        Face::South => (
-            c001, vertex_ao(s(-1,0,1), s(0,-1,1), s(-1,-1,1)),
-            c101, vertex_ao(s( 1,0,1), s(0,-1,1), s( 1,-1,1)),
-            c111, vertex_ao(s( 1,0,1), s(0, 1,1), s( 1, 1,1)),
-            c011, vertex_ao(s(-1,0,1), s(0, 1,1), s(-1, 1,1)),
-        ),
-        Face::East => (
-            c101, vertex_ao(s(1,0, 1), s(1,-1,0), s(1,-1, 1)),
-            c100, vertex_ao(s(1,0,-1), s(1,-1,0), s(1,-1,-1)),
-            c110, vertex_ao(s(1,0,-1), s(1, 1,0), s(1, 1,-1)),
-            c111, vertex_ao(s(1,0, 1), s(1, 1,0), s(1, 1, 1)),
-        ),
-        Face::West => (
-            c000, vertex_ao(s(-1,0,-1), s(-1,-1,0), s(-1,-1,-1)),
-            c001, vertex_ao(s(-1,0, 1), s(-1,-1,0), s(-1,-1, 1)),
-            c011, vertex_ao(s(-1,0, 1), s(-1, 1,0), s(-1, 1, 1)),
-            c010, vertex_ao(s(-1,0,-1), s(-1, 1,0), s(-1, 1,-1)),
-        ),
+    let sample_cell = |dx: i32, dy: i32, dz: i32| -> (bool, f32, f32) {
+        let is_solid = cache.solid_at(lx + dx, wy + dy, lz + dz);
+        let n_lx = lx + dx;
+        let n_ly = wy + dy;
+        let n_lz = lz + dz;
+        let sky = if is_solid {
+            0.0
+        } else {
+            cache.sample_sky_light(n_lx, n_ly, n_lz)
+        };
+        let block_l = if is_solid {
+            0.0
+        } else {
+            cache.sample_block_light(
+                wx as f32 + dx as f32 + 0.5,
+                wy as f32 + dy as f32 + 0.5,
+                wz as f32 + dz as f32 + 0.5,
+            )
+        };
+        (is_solid, sky, block_l)
     };
 
     let n = face.normal();
-    let neighbor_lx = lx + n.x;
-    let neighbor_ly = wy + n.y;
-    let neighbor_lz = lz + n.z;
-    let face_sky_light = cache.sample_sky_light(neighbor_lx, neighbor_ly, neighbor_lz);
-    let face_block_light = if block == BlockId::Lava {
+    let center_cell = sample_cell(n.x, n.y, n.z);
+    let center_sky = center_cell.1;
+    let center_block = if block == BlockId::Lava {
         1.0
     } else {
-        cache.sample_block_light(
-            wx as f32 + 0.5 + n.x as f32 * 0.5,
-            wy as f32 + 0.5 + n.y as f32 * 0.5,
-            wz as f32 + 0.5 + n.z as f32 * 0.5,
-        )
+        center_cell.2
     };
 
-    let va = Vertex { pos: a, uv: (0.0, 1.0), ao: shade * ao_a, sky_light: face_sky_light, block_light: face_block_light };
-    let vb = Vertex { pos: b, uv: (1.0, 1.0), ao: shade * ao_b, sky_light: face_sky_light, block_light: face_block_light };
-    let vc = Vertex { pos: c, uv: (1.0, 0.0), ao: shade * ao_c, sky_light: face_sky_light, block_light: face_block_light };
-    let vd = Vertex { pos: d, uv: (0.0, 0.0), ao: shade * ao_d, sky_light: face_sky_light, block_light: face_block_light };
+    let (a, (ao_a, sky_a, blk_a), b, (ao_b, sky_b, blk_b), c, (ao_c, sky_c, blk_c), d, (ao_d, sky_d, blk_d)) = match face {
+        Face::Top => (
+            c010, vertex_light_and_ao(center_sky, center_block, sample_cell(-1,1,0), sample_cell(0,1,-1), sample_cell(-1,1,-1)),
+            c011, vertex_light_and_ao(center_sky, center_block, sample_cell(-1,1,0), sample_cell(0,1, 1), sample_cell(-1,1, 1)),
+            c111, vertex_light_and_ao(center_sky, center_block, sample_cell( 1,1,0), sample_cell(0,1, 1), sample_cell( 1,1, 1)),
+            c110, vertex_light_and_ao(center_sky, center_block, sample_cell( 1,1,0), sample_cell(0,1,-1), sample_cell( 1,1,-1)),
+        ),
+        Face::Bottom => (
+            c001, vertex_light_and_ao(center_sky, center_block, sample_cell(-1,-1,0), sample_cell(0,-1, 1), sample_cell(-1,-1, 1)),
+            c000, vertex_light_and_ao(center_sky, center_block, sample_cell(-1,-1,0), sample_cell(0,-1,-1), sample_cell(-1,-1,-1)),
+            c100, vertex_light_and_ao(center_sky, center_block, sample_cell( 1,-1,0), sample_cell(0,-1,-1), sample_cell( 1,-1,-1)),
+            c101, vertex_light_and_ao(center_sky, center_block, sample_cell( 1,-1,0), sample_cell(0,-1, 1), sample_cell( 1,-1, 1)),
+        ),
+        Face::North => (
+            c100, vertex_light_and_ao(center_sky, center_block, sample_cell( 1,0,-1), sample_cell(0,-1,-1), sample_cell( 1,-1,-1)),
+            c000, vertex_light_and_ao(center_sky, center_block, sample_cell(-1,0,-1), sample_cell(0,-1,-1), sample_cell(-1,-1,-1)),
+            c010, vertex_light_and_ao(center_sky, center_block, sample_cell(-1,0,-1), sample_cell(0, 1,-1), sample_cell(-1, 1,-1)),
+            c110, vertex_light_and_ao(center_sky, center_block, sample_cell( 1,0,-1), sample_cell(0, 1,-1), sample_cell( 1, 1,-1)),
+        ),
+        Face::South => (
+            c001, vertex_light_and_ao(center_sky, center_block, sample_cell(-1,0,1), sample_cell(0,-1,1), sample_cell(-1,-1,1)),
+            c101, vertex_light_and_ao(center_sky, center_block, sample_cell( 1,0,1), sample_cell(0,-1,1), sample_cell( 1,-1,1)),
+            c111, vertex_light_and_ao(center_sky, center_block, sample_cell( 1,0,1), sample_cell(0, 1,1), sample_cell( 1, 1,1)),
+            c011, vertex_light_and_ao(center_sky, center_block, sample_cell(-1,0,1), sample_cell(0, 1,1), sample_cell(-1, 1,1)),
+        ),
+        Face::East => (
+            c101, vertex_light_and_ao(center_sky, center_block, sample_cell(1,0, 1), sample_cell(1,-1,0), sample_cell(1,-1, 1)),
+            c100, vertex_light_and_ao(center_sky, center_block, sample_cell(1,0,-1), sample_cell(1,-1,0), sample_cell(1,-1,-1)),
+            c110, vertex_light_and_ao(center_sky, center_block, sample_cell(1,0,-1), sample_cell(1, 1,0), sample_cell(1, 1,-1)),
+            c111, vertex_light_and_ao(center_sky, center_block, sample_cell(1,0, 1), sample_cell(1, 1,0), sample_cell(1, 1, 1)),
+        ),
+        Face::West => (
+            c000, vertex_light_and_ao(center_sky, center_block, sample_cell(-1,0,-1), sample_cell(-1,-1,0), sample_cell(-1,-1,-1)),
+            c001, vertex_light_and_ao(center_sky, center_block, sample_cell(-1,0, 1), sample_cell(-1,-1,0), sample_cell(-1,-1, 1)),
+            c011, vertex_light_and_ao(center_sky, center_block, sample_cell(-1,0, 1), sample_cell(-1, 1,0), sample_cell(-1, 1, 1)),
+            c010, vertex_light_and_ao(center_sky, center_block, sample_cell(-1,0,-1), sample_cell(-1, 1,0), sample_cell(-1, 1,-1)),
+        ),
+    };
 
-    tris.push(Triangle { v0: va, v1: vb, v2: vc, texture });
-    tris.push(Triangle { v0: va, v1: vc, v2: vd, texture });
+    let va = Vertex { pos: a, uv: (0.0, 1.0), ao: shade * ao_a, sky_light: sky_a, block_light: blk_a };
+    let vb = Vertex { pos: b, uv: (1.0, 1.0), ao: shade * ao_b, sky_light: sky_b, block_light: blk_b };
+    let vc = Vertex { pos: c, uv: (1.0, 0.0), ao: shade * ao_c, sky_light: sky_c, block_light: blk_c };
+    let vd = Vertex { pos: d, uv: (0.0, 0.0), ao: shade * ao_d, sky_light: sky_d, block_light: blk_d };
+
+    let light_ac = ao_a + ao_c;
+    let light_bd = ao_b + ao_d;
+    if light_ac < light_bd {
+        tris.push(Triangle { v0: vb, v1: vc, v2: vd, texture });
+        tris.push(Triangle { v0: vb, v1: vd, v2: va, texture });
+    } else {
+        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture });
+        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture });
+    }
 }
 
 #[cfg(test)]
@@ -1275,5 +1378,76 @@ mod tests {
                 assert!(v.uv.1 >= 0.0 && v.uv.1 <= 1.0, "UV Y coordinate out of 1:1 range: {}", v.uv.1);
             }
         }
+    }
+
+    #[test]
+    fn test_light_occlusion_and_smooth_lighting() {
+        let mut world = World::new();
+        let mut chunk = Chunk {
+            cx: 0,
+            cz: 0,
+            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
+            dirty: false,
+        };
+        // Floor at y=0
+        for x in 0..16 {
+            for z in 0..16 {
+                chunk.set_local(x, 0, z, BlockId::Stone);
+            }
+        }
+        // Wall at x=5 from y=1..5
+        for y in 1..=4 {
+            for z in 0..16 {
+                chunk.set_local(5, y, z, BlockId::Stone);
+            }
+        }
+        world.chunks.insert((0, 0), chunk);
+
+        // Torch at (3, 2, 8) - west side of the wall
+        world.torches.insert(IVec3::new(3, 2, 8));
+
+        let cache = ChunkNeighborCache::new(world.chunks.get(&(0, 0)).unwrap(), &world);
+
+        // Light in front of torch (4, 2, 8) should be lit (> 0.5)
+        let light_near = cache.sample_block_light(4.5, 2.5, 8.5);
+        assert!(light_near > 0.5, "Light near torch should be bright, got {}", light_near);
+
+        // Light on the other side of the wall (6, 2, 8) must be occluded (0.0)
+        let light_behind_wall = cache.sample_block_light(6.5, 2.5, 8.5);
+        assert_eq!(light_behind_wall, 0.0, "Light behind stone wall should be 0.0 (occluded), got {}", light_behind_wall);
+    }
+
+    #[test]
+    fn test_chunk_boundary_sky_light() {
+        let mut world = World::new();
+        let mut chunk_west = Chunk {
+            cx: -1,
+            cz: 0,
+            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
+            dirty: false,
+        };
+        // In west chunk, column at lx=15 (adjacent to center chunk lx=0) has terrain up to y=20
+        for y in 0..=20 {
+            chunk_west.set_local(15, y, 5, BlockId::Stone);
+        }
+        world.chunks.insert((-1, 0), chunk_west);
+
+        let chunk_center = Chunk {
+            cx: 0,
+            cz: 0,
+            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
+            dirty: false,
+        };
+        world.chunks.insert((0, 0), chunk_center);
+
+        let cache = ChunkNeighborCache::new(world.chunks.get(&(0, 0)).unwrap(), &world);
+
+        // At lx = -1, lz = 5, ly = 5 (deep below y=20 terrain), sky light should be dark (0.0), NOT 1.0
+        let sky = cache.sample_sky_light(-1, 5, 5);
+        assert_eq!(sky, 0.0, "Deep underground at chunk boundary should be 0.0 sky light, got {}", sky);
+
+        // At lx = -1, lz = 5, ly = 25 (above y=20 terrain), sky light should be full (1.0)
+        let sky_above = cache.sample_sky_light(-1, 25, 5);
+        assert_eq!(sky_above, 1.0, "Above terrain at chunk boundary should be 1.0 sky light, got {}", sky_above);
     }
 }

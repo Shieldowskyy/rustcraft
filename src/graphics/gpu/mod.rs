@@ -127,11 +127,19 @@ fn world_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
     let daylight = globals.camera_pitch.w;
-    let sky_lit = input.sky_light * daylight;
-    let lr = clamp(sky_lit + input.block_light * 1.35, 0.06, 1.1) * input.ao;
-    let lg = clamp(sky_lit + input.block_light * 1.15, 0.06, 1.0) * input.ao;
-    let lb = clamp(sky_lit * 0.95 + input.block_light * 0.80, 0.06, 1.0) * input.ao;
-    let lit = base_rgb * vec3<f32>(lr, lg, lb);
+    let sky_ambient = mix(vec3<f32>(0.05, 0.07, 0.14), globals.sky_bot.xyz, clamp(daylight * 1.1, 0.0, 1.0));
+    let sun_color = mix(vec3<f32>(0.14, 0.18, 0.28), vec3<f32>(1.06, 0.98, 0.88), clamp(daylight, 0.0, 1.0));
+    let sky_factor = pow(input.sky_light, 1.25);
+    let natural_light = (sun_color * 0.85 + sky_ambient * 0.35) * (sky_factor * daylight);
+
+    let torch_color = vec3<f32>(1.30, 0.88, 0.42);
+    let block_factor = pow(input.block_light, 1.15);
+    let torch_light = torch_color * block_factor;
+
+    let cave_ambient = vec3<f32>(0.045, 0.045, 0.055);
+
+    let total_light = (natural_light + torch_light + cave_ambient) * input.ao;
+    let lit = base_rgb * clamp(total_light, vec3<f32>(0.04), vec3<f32>(1.35));
     let max_fog_dist = select(globals.camera_pitch.z, 180.0, globals.camera_pitch.z <= 0.0);
     let fog_t = clamp((distance_to_camera - max_fog_dist * 0.45) / (max_fog_dist * 0.55), 0.0, 1.0) * globals.camera_pitch.y;
     let fog_col = globals.fog_color.xyz;
