@@ -86,6 +86,17 @@ pub enum SoundId {
     DoorClose,
     Explosion,
 
+    // Mob sounds (Idle, Hurt, Death)
+    PigIdle,
+    PigHurt,
+    PigDeath,
+    CowIdle,
+    CowHurt,
+    CowDeath,
+    ChickenIdle,
+    ChickenHurt,
+    ChickenDeath,
+
     // Atmospheric & Ambient
     AmbientWind,
     AmbientCave,
@@ -130,7 +141,16 @@ impl SoundId {
             | SoundId::ChestClose
             | SoundId::DoorOpen
             | SoundId::DoorClose
-            | SoundId::Explosion => SoundCategory::Sfx,
+            | SoundId::Explosion
+            | SoundId::PigIdle
+            | SoundId::PigHurt
+            | SoundId::PigDeath
+            | SoundId::CowIdle
+            | SoundId::CowHurt
+            | SoundId::CowDeath
+            | SoundId::ChickenIdle
+            | SoundId::ChickenHurt
+            | SoundId::ChickenDeath => SoundCategory::Sfx,
 
             SoundId::UiClick | SoundId::UiHover => SoundCategory::Ui,
 

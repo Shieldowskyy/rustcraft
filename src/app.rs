@@ -584,6 +584,17 @@ impl RustCraftApp {
         self.audio.play_sound_3d_varied_occluded(sound_id, pos, volume, occlusion);
     }
 
+    /// Flushes and plays any pending mob sound effects (ambient vocalizations, hurt cries, death sounds)
+    /// spatialized in 3D with acoustic voxel occlusion.
+    pub fn process_mob_sounds(&mut self) {
+        for i in 0..self.mob_manager.mobs.len() {
+            if let Some(snd) = self.mob_manager.mobs[i].pending_sound.take() {
+                let pos = self.mob_manager.mobs[i].center_pos();
+                self.play_world_sound_varied(snd, pos, 0.90);
+            }
+        }
+    }
+
     fn raycast_remote_player(&self, origin: Vec3, dir: Vec3, max_reach: f32) -> Option<(u32, Vec3)> {
         let client = self.net_client.as_ref()?;
         let dir = dir.normalized();
@@ -2725,6 +2736,7 @@ impl RustCraftApp {
                             self.break_progress = 0.0;
                             crate::log_info!("COMBAT", "Player attacked mob {:?} dealing {:.1} damage (remaining HP: {:.1})", mob.kind, dmg, mob.health);
                             entity_hit = true;
+                            self.process_mob_sounds();
                         }
                     }
 
@@ -2981,6 +2993,7 @@ impl RustCraftApp {
                             );
                             self.mob_manager.spawn_mob(mob_kind, spawn_pos);
                             self.particles.spawn_mob_hit(spawn_pos);
+                            self.play_world_sound_varied(mob_kind.idle_sound(), spawn_pos, 0.9);
                             self.hand_animation = 1.0;
                             crate::log_info!("WORLD", "Spawned mob {:?} via egg at ({:.1}, {:.1}, {:.1})", mob_kind, spawn_pos.x, spawn_pos.y, spawn_pos.z);
                             if self.player.gamemode == GameMode::Survival {
@@ -3081,6 +3094,7 @@ impl RustCraftApp {
 
                 let mobs_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
                 self.mob_manager.update(dt, &self.world, self.camera.position);
+                self.process_mob_sounds();
                 for mob in &mut self.mob_manager.mobs {
                     if !mob.is_dead {
                         let dx = self.camera.position.x - mob.pos.x;
@@ -3192,6 +3206,7 @@ impl RustCraftApp {
                     self.particles.spawn_explosion(exp_pos);
                     self.play_world_sound(crate::audio::SoundId::Explosion, exp_pos, 1.0, 1.0);
                     self.mob_manager.apply_explosion(exp_pos, 5.0, 30.0);
+                    self.process_mob_sounds();
                     let dist = (self.camera.position - exp_pos).length();
                     if dist < 6.0 {
                         let dmg = (1.0 - dist / 6.0) * 18.0;

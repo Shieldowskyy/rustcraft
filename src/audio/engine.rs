@@ -63,7 +63,7 @@ impl AudioEngine {
     /// Creates and initializes the audio engine with procedural soundbank synthesis.
     pub fn new() -> Self {
         let sample_rate = 48000;
-        let mut soundbank = HashMap::with_capacity(36);
+        let mut soundbank = HashMap::with_capacity(48);
 
         // Pre-synthesize all standard game sounds into memory at startup (< 2ms)
         let all_sounds = [
@@ -104,6 +104,15 @@ impl AudioEngine {
             SoundId::DoorOpen,
             SoundId::DoorClose,
             SoundId::Explosion,
+            SoundId::PigIdle,
+            SoundId::PigHurt,
+            SoundId::PigDeath,
+            SoundId::CowIdle,
+            SoundId::CowHurt,
+            SoundId::CowDeath,
+            SoundId::ChickenIdle,
+            SoundId::ChickenHurt,
+            SoundId::ChickenDeath,
             SoundId::AmbientWind,
             SoundId::AmbientCave,
         ];

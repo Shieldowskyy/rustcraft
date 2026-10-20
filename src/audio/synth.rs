@@ -199,6 +199,15 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::DoorOpen => 606,
         SoundId::DoorClose => 607,
         SoundId::Explosion => 608,
+        SoundId::PigIdle => 801,
+        SoundId::PigHurt => 802,
+        SoundId::PigDeath => 803,
+        SoundId::CowIdle => 804,
+        SoundId::CowHurt => 805,
+        SoundId::CowDeath => 806,
+        SoundId::ChickenIdle => 807,
+        SoundId::ChickenHurt => 808,
+        SoundId::ChickenDeath => 809,
         SoundId::AmbientWind => 701,
         SoundId::AmbientCave => 702,
     });
@@ -252,6 +261,17 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::DoorOpen => synth_door_swing(sr, 0.22, true, 0.85),
         SoundId::DoorClose => synth_door_swing(sr, 0.20, false, 0.85),
         SoundId::Explosion => synth_explosion(&mut rng, sr, 1.4, 1.0),
+
+        // Mob sounds (Pig, Cow, Chicken)
+        SoundId::PigIdle => synth_pig_idle(&mut rng, sr, 0.28, 0.85),
+        SoundId::PigHurt => synth_pig_hurt(&mut rng, sr, 0.28, 0.95),
+        SoundId::PigDeath => synth_pig_death(&mut rng, sr, 0.65, 1.0),
+        SoundId::CowIdle => synth_cow_idle(&mut rng, sr, 1.05, 0.85),
+        SoundId::CowHurt => synth_cow_hurt(&mut rng, sr, 0.36, 0.95),
+        SoundId::CowDeath => synth_cow_death(&mut rng, sr, 0.90, 1.0),
+        SoundId::ChickenIdle => synth_chicken_idle(&mut rng, sr, 0.28, 0.80),
+        SoundId::ChickenHurt => synth_chicken_hurt(&mut rng, sr, 0.22, 0.95),
+        SoundId::ChickenDeath => synth_chicken_death(&mut rng, sr, 0.55, 1.0),
 
         // Ambient (loops or long tones)
         SoundId::AmbientWind => synth_wind_loop(&mut rng, sr, 3.0, 0.4),
@@ -834,5 +854,372 @@ fn synth_cave_chord(sr: f32, duration: f32, volume: f32) -> Vec<f32> {
         let s = (p1.sin() * 0.45 + p2.sin() * 0.3 + p3.sin() * 0.25) * env;
         out.push(s * volume);
     }
+    out
+}
+
+/// Pig ambient idle snort / grunt: throaty low nasal burst with AM roughness.
+fn synth_pig_idle(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.25)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp1 = BiquadFilter::bandpass(480.0, 2.5, sr);
+    let mut bp2 = BiquadFilter::bandpass(1100.0, 2.0, sr);
+    let mut lp_breath = IirFilter::lowpass(750.0, sr);
+    let mut hp_breath = IirFilter::highpass(220.0, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let cur_time = i as f32 / sr;
+        // Pitch drops slightly: 135 Hz down to 110 Hz
+        let freq = 135.0 - t * 25.0;
+        phase += 2.0 * PI * freq / sr;
+
+        // Snort roughness modulation (28 Hz)
+        let roughness = 0.45 + 0.55 * (cur_time * 28.0 * 2.0 * PI).sin();
+
+        // Buzzy harmonic vocal source
+        let vocal_source = (phase.sin() * 0.5 + (phase * 2.0).sin() * 0.3 + (phase * 3.0).sin() * 0.2) * roughness;
+        let formant = bp1.process(vocal_source) * 0.6 + bp2.process(vocal_source) * 0.4;
+
+        // Breathy nasal turbulence
+        let raw_noise = rng.next_f32();
+        let breath = hp_breath.process(lp_breath.process(raw_noise)) * roughness * 0.25;
+
+        // Envelope: quick attack (0.02s), exponential decay
+        let env = if cur_time < 0.02 {
+            cur_time / 0.02
+        } else {
+            (-t * 5.0).exp()
+        };
+
+        out.push((formant * 1.8 + breath) * env * volume);
+    }
+    out
+}
+
+/// Pig hurt squeal: sharp, piercing, high-pitched screech with rapid FM vibrato.
+fn synth_pig_hurt(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.24)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp = BiquadFilter::bandpass(900.0, 2.8, sr);
+    let mut hp_screech = IirFilter::highpass(1600.0, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let cur_time = i as f32 / sr;
+
+        // Pitch trajectory: starts at 780 Hz, leaps to 920 Hz, then slides to 640 Hz
+        let base_freq = if t < 0.25 {
+            780.0 + (t / 0.25) * 140.0
+        } else {
+            920.0 - ((t - 0.25) / 0.75) * 280.0
+        };
+
+        // Fast FM squeal vibrato (38 Hz)
+        let vib = (cur_time * 38.0 * 2.0 * PI).sin() * 40.0;
+        let freq = (base_freq + vib).max(200.0);
+        phase += 2.0 * PI * freq / sr;
+
+        // Saturated harmonics for piercing bite
+        let tone = (phase.sin() * 2.0).clamp(-1.0, 1.0) * 0.65 + (phase * 2.0).sin() * 0.35;
+        let filtered_tone = bp.process(tone);
+
+        // Breath squeak
+        let noise = hp_screech.process(rng.next_f32()) * 0.18;
+
+        // Sharp immediate attack (0.008s), exponential decay
+        let env = if cur_time < 0.008 {
+            cur_time / 0.008
+        } else {
+            (-t * 9.5).exp()
+        };
+
+        out.push((filtered_tone * 1.6 + noise) * env * volume);
+    }
+    out
+}
+
+/// Pig death cry: agonizing long dying squeal sliding from panic high to deep throat death rattle.
+fn synth_pig_death(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.60)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp1 = BiquadFilter::bandpass(950.0, 2.4, sr);
+    let mut bp2 = BiquadFilter::bandpass(450.0, 2.0, sr);
+    let mut lp_rattle = IirFilter::lowpass(650.0, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let cur_time = i as f32 / sr;
+
+        // Screams high for first 0.15s, then agonizing downward slide to 220 Hz
+        let base_freq = if cur_time < 0.15 {
+            920.0 + (cur_time / 0.15) * 60.0
+        } else {
+            let rel = (cur_time - 0.15) / (duration - 0.15);
+            980.0 - rel.powf(0.85) * 740.0
+        };
+
+        // Agonized panic vibrato and rattle
+        let vib = (cur_time * 26.0 * 2.0 * PI).sin() * 55.0;
+        phase += 2.0 * PI * (base_freq + vib).max(120.0) / sr;
+
+        let tone = (phase.sin() * 1.8).clamp(-1.0, 1.0) * 0.6 + (phase * 2.0).sin() * 0.4;
+        let formant = bp1.process(tone) * (1.0 - t * 0.5) + bp2.process(tone) * (t * 0.7);
+
+        // Death rattle noise increases towards end
+        let rattle = lp_rattle.process(rng.next_f32()) * (t * 0.35);
+
+        let env = if cur_time < 0.01 {
+            cur_time / 0.01
+        } else {
+            (1.0 - t).powf(1.4)
+        };
+
+        out.push((formant * 1.5 + rattle) * env * volume);
+    }
+    out
+}
+
+/// Cow ambient idle moo: warm, deep, resonant bovine vocalization ("Mmm-Ooooo").
+fn synth_cow_idle(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.95)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp1 = BiquadFilter::bandpass(380.0, 2.2, sr);
+    let mut bp2 = BiquadFilter::bandpass(780.0, 2.0, sr);
+    let mut lp_closed = BiquadFilter::lowpass(320.0, 1.4, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let cur_time = i as f32 / sr;
+
+        // Cow moo pitch: starts ~120 Hz, rises slightly to 132 Hz during open moo, then settles to 105 Hz
+        let freq = if t < 0.20 {
+            118.0 + (t / 0.20) * 14.0
+        } else {
+            132.0 - ((t - 0.20) / 0.80) * 27.0
+        };
+
+        // Gentle bovine vocal vibrato (4.2 Hz)
+        let vib = (cur_time * 4.2 * 2.0 * PI).sin() * 3.5;
+        phase += 2.0 * PI * (freq + vib) / sr;
+
+        // Harmonic series (warm buzzy vocal cords)
+        let vocal_cords = phase.sin() * 0.55
+            + (phase * 2.0).sin() * 0.28
+            + (phase * 3.0).sin() * 0.12
+            + (phase * 4.0).sin() * 0.05;
+
+        // Transition from closed mouth "Mmm" (first 0.18s) to open mouth "Oooo"
+        let open_blend = ((cur_time - 0.12) / 0.18).clamp(0.0, 1.0);
+        let closed_sound = lp_closed.process(vocal_cords);
+        let open_sound = bp1.process(vocal_cords) * 0.65 + bp2.process(vocal_cords) * 0.35;
+        let vocal = closed_sound * (1.0 - open_blend) + open_sound * open_blend * 1.5;
+
+        // Gentle breathiness
+        let breath = (rng.next_f32() * 0.05) * open_blend;
+
+        // Envelope: smooth rise over 0.15s, sustained body, gentle fade out
+        let env = if cur_time < 0.15 {
+            (cur_time / 0.15).powf(0.8)
+        } else if t > 0.70 {
+            ((1.0 - t) / 0.30).powf(1.5)
+        } else {
+            1.0
+        };
+
+        out.push((vocal * 1.6 + breath) * env * volume);
+    }
+    out
+}
+
+/// Cow hurt: sudden painful low-mid grunt / hurt groan.
+fn synth_cow_hurt(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.32)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp = BiquadFilter::bandpass(420.0, 2.0, sr);
+    let mut lp = IirFilter::lowpass(600.0, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let cur_time = i as f32 / sr;
+
+        // Sudden hurt downward pitch sweep: 195 Hz -> 105 Hz
+        let freq = 195.0 - t * 90.0;
+        phase += 2.0 * PI * freq / sr;
+
+        let tone = (phase.sin() * 1.6).clamp(-1.0, 1.0) * 0.6 + (phase * 2.0).sin() * 0.4;
+        let filtered = bp.process(tone);
+        let grunt_noise = lp.process(rng.next_f32()) * 0.25;
+
+        // Sudden attack (0.015s), fast decay
+        let env = if cur_time < 0.015 {
+            cur_time / 0.015
+        } else {
+            (-t * 8.5).exp()
+        };
+
+        out.push((filtered * 1.7 + grunt_noise) * env * volume);
+    }
+    out
+}
+
+/// Cow death: deep, mournful dying bovine groan.
+fn synth_cow_death(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.85)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp1 = BiquadFilter::bandpass(360.0, 1.8, sr);
+    let mut lp_sub = IirFilter::lowpass(180.0, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let cur_time = i as f32 / sr;
+
+        // Deep descending groan: 145 Hz sliding down to 60 Hz
+        let freq = (145.0 - t.powf(0.8) * 85.0).max(50.0);
+        let vib = (cur_time * 3.5 * 2.0 * PI).sin() * 4.0;
+        phase += 2.0 * PI * (freq + vib) / sr;
+
+        let tone = phase.sin() * 0.6 + (phase * 2.0).sin() * 0.3 + (phase * 3.0).sin() * 0.1;
+        let vocal = bp1.process(tone);
+        let death_sub = lp_sub.process(rng.next_f32()) * (0.3 * (1.0 - t));
+
+        let env = if cur_time < 0.02 {
+            cur_time / 0.02
+        } else {
+            (1.0 - t).powf(1.6)
+        };
+
+        out.push((vocal * 1.8 + death_sub) * env * volume);
+    }
+    out
+}
+
+/// Chicken idle cluck: authentic double cluck ("bok... bawk!").
+fn synth_chicken_idle(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.26)) as usize;
+    let mut out = vec![0.0f32; count];
+
+    // Two rapid clucks at t = 0.0 and t = 0.11
+    let cluck_starts = [0.0f32, 0.11f32];
+    let cluck_freqs = [(740.0, 480.0), (660.0, 390.0)];
+    let cluck_durs = [0.07f32, 0.09f32];
+
+    for idx in 0..2 {
+        let start_sample = (cluck_starts[idx] * sr) as usize;
+        let dur_samples = (cluck_durs[idx] * sr) as usize;
+        let (f_start, f_end) = cluck_freqs[idx];
+        let mut bp = BiquadFilter::bandpass(620.0, 3.2, sr);
+        let mut phase = 0.0f32;
+
+        for s in 0..dur_samples {
+            let out_idx = start_sample + s;
+            if out_idx >= count { break; }
+            let t = s as f32 / dur_samples as f32;
+            let cur_time = s as f32 / sr;
+
+            let freq = f_start - t * (f_start - f_end);
+            phase += 2.0 * PI * freq / sr;
+
+            // Beak click at start (first 0.006s)
+            let click = if cur_time < 0.006 {
+                rng.next_f32() * 0.4 * (1.0 - cur_time / 0.006)
+            } else {
+                0.0
+            };
+
+            let tone = phase.sin() * 0.8 + (phase * 2.0).sin() * 0.2;
+            let vocal = bp.process(tone);
+            let env = (1.0 - t).powf(1.8);
+
+            out[out_idx] += (vocal * 1.5 + click) * env * volume;
+        }
+    }
+
+    out
+}
+
+/// Chicken hurt: sharp, loud distress squawk!
+fn synth_chicken_hurt(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.20)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp = BiquadFilter::bandpass(1050.0, 2.5, sr);
+    let mut hp_flutter = IirFilter::highpass(1800.0, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let cur_time = i as f32 / sr;
+
+        // Downward distress chirp: 1200 Hz down to 620 Hz
+        let base_freq = 1200.0 - t * 580.0;
+        let flutter = (cur_time * 48.0 * 2.0 * PI).sin() * 50.0;
+        let freq = (base_freq + flutter).max(250.0);
+        phase += 2.0 * PI * freq / sr;
+
+        let tone = (phase.sin() * 1.8).clamp(-1.0, 1.0) * 0.7 + (phase * 2.0).sin() * 0.3;
+        let vocal = bp.process(tone);
+        let flutter_noise = hp_flutter.process(rng.next_f32()) * 0.22;
+
+        let env = if cur_time < 0.008 {
+            cur_time / 0.008
+        } else {
+            (-t * 11.0).exp()
+        };
+
+        out.push((vocal * 1.6 + flutter_noise) * env * volume);
+    }
+    out
+}
+
+/// Chicken death: frantic squawk with fluttering wings dying out.
+fn synth_chicken_death(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.52)) as usize;
+    let mut out = vec![0.0f32; count];
+
+    // 1. Initial dying screech (0.0 to 0.32s)
+    let cry_len = (sr * 0.32) as usize;
+    let mut bp = BiquadFilter::bandpass(980.0, 2.2, sr);
+    let mut phase = 0.0f32;
+    for i in 0..cry_len.min(count) {
+        let t = i as f32 / cry_len as f32;
+        let cur_time = i as f32 / sr;
+        let freq = (1300.0 - t.powf(0.8) * 920.0).max(200.0);
+        phase += 2.0 * PI * freq / sr;
+
+        let tone = (phase.sin() * 1.8).clamp(-1.0, 1.0) * 0.75;
+        let vocal = bp.process(tone);
+        let env = if cur_time < 0.01 {
+            cur_time / 0.01
+        } else {
+            (1.0 - t).powf(1.8)
+        };
+        out[i] += vocal * env * volume * 1.4;
+    }
+
+    // 2. Wing flapping noise puffs (at t = 0.06, 0.16, 0.26, 0.36)
+    let flap_times = [0.06f32, 0.16f32, 0.26f32, 0.36f32];
+    let flap_amps = [0.55f32, 0.45f32, 0.35f32, 0.20f32];
+    for f in 0..flap_times.len() {
+        let start_idx = (flap_times[f] * sr) as usize;
+        let f_len = (sr * 0.045) as usize;
+        let mut lp_flap = IirFilter::lowpass(800.0, sr);
+        let mut hp_flap = IirFilter::highpass(220.0, sr);
+        let amp = flap_amps[f];
+
+        for i in 0..f_len {
+            let idx = start_idx + i;
+            if idx >= count { break; }
+            let t = i as f32 / f_len as f32;
+            let env = (1.0 - t).powi(2);
+            let s = lp_flap.process(hp_flap.process(rng.next_f32())) * env * amp;
+            out[idx] += s * volume;
+        }
+    }
+
     out
 }

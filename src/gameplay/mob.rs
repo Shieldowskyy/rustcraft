@@ -50,6 +50,30 @@ impl MobKind {
             MobKind::Chicken => "Chicken",
         }
     }
+
+    pub fn idle_sound(&self) -> crate::audio::SoundId {
+        match self {
+            MobKind::Pig => crate::audio::SoundId::PigIdle,
+            MobKind::Cow => crate::audio::SoundId::CowIdle,
+            MobKind::Chicken => crate::audio::SoundId::ChickenIdle,
+        }
+    }
+
+    pub fn hurt_sound(&self) -> crate::audio::SoundId {
+        match self {
+            MobKind::Pig => crate::audio::SoundId::PigHurt,
+            MobKind::Cow => crate::audio::SoundId::CowHurt,
+            MobKind::Chicken => crate::audio::SoundId::ChickenHurt,
+        }
+    }
+
+    pub fn death_sound(&self) -> crate::audio::SoundId {
+        match self {
+            MobKind::Pig => crate::audio::SoundId::PigDeath,
+            MobKind::Cow => crate::audio::SoundId::CowDeath,
+            MobKind::Chicken => crate::audio::SoundId::ChickenDeath,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -72,11 +96,14 @@ pub struct Mob {
     pub target_yaw: f32,
     pub panic_timer: f32,
     pub despawn_pending: bool,
+    pub ambient_sound_timer: f32,
+    pub pending_sound: Option<crate::audio::SoundId>,
 }
 
 impl Mob {
     pub fn new(id: u32, kind: MobKind, pos: Vec3) -> Self {
         let max_hp = kind.max_health();
+        let initial_ambient = 3.0 + ((id.wrapping_mul(2654435761) % 1000) as f32 / 1000.0) * 8.0;
         Mob {
             id,
             kind,
@@ -95,6 +122,8 @@ impl Mob {
             target_yaw: 0.0,
             panic_timer: 0.0,
             despawn_pending: false,
+            ambient_sound_timer: initial_ambient,
+            pending_sound: None,
         }
     }
 
@@ -134,6 +163,9 @@ impl Mob {
             self.health = 0.0;
             self.is_dead = true;
             self.death_timer = 0.0;
+            self.pending_sound = Some(self.kind.death_sound());
+        } else {
+            self.pending_sound = Some(self.kind.hurt_sound());
         }
     }
 
@@ -142,6 +174,16 @@ impl Mob {
             *state = state.wrapping_mul(1664525).wrapping_add(1013904223);
             (*state as f32) / (u32::MAX as f32)
         };
+
+        if !self.is_dead {
+            self.ambient_sound_timer -= dt;
+            if self.ambient_sound_timer <= 0.0 {
+                self.ambient_sound_timer = 7.0 + rand_f32(rng) * 9.0;
+                if self.pending_sound.is_none() {
+                    self.pending_sound = Some(self.kind.idle_sound());
+                }
+            }
+        }
 
         if self.hurt_timer > 0.0 {
             self.hurt_timer = (self.hurt_timer - dt).max(0.0);
@@ -598,4 +640,44 @@ fn ray_aabb_intersect(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f
     }
 
     Some(if t_min >= 0.0 { t_min } else { t_max })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::SoundId;
+
+    #[test]
+    fn test_mob_sounds_damage_and_death() {
+        let mut pig = Mob::new(1, MobKind::Pig, Vec3::new(0.0, 10.0, 0.0));
+        assert_eq!(pig.pending_sound, None);
+
+        // Non-fatal hit
+        pig.take_damage(3.0, Vec3::new(0.0, 0.0, 1.0));
+        assert_eq!(pig.pending_sound, Some(SoundId::PigHurt));
+        assert!(!pig.is_dead);
+        let _ = pig.pending_sound.take();
+
+        // Fatal hit
+        pig.take_damage(100.0, Vec3::new(0.0, 0.0, 1.0));
+        assert_eq!(pig.pending_sound, Some(SoundId::PigDeath));
+        assert!(pig.is_dead);
+    }
+
+    #[test]
+    fn test_all_mob_kinds_sound_mapping() {
+        let kinds = [MobKind::Pig, MobKind::Cow, MobKind::Chicken];
+        for kind in kinds {
+            let mut mob = Mob::new(42, kind, Vec3::zero());
+            assert_eq!(kind.idle_sound().category(), crate::audio::SoundCategory::Sfx);
+            assert_eq!(kind.hurt_sound().category(), crate::audio::SoundCategory::Sfx);
+            assert_eq!(kind.death_sound().category(), crate::audio::SoundCategory::Sfx);
+
+            mob.take_damage(1.0, Vec3::zero());
+            assert_eq!(mob.pending_sound, Some(kind.hurt_sound()));
+
+            mob.take_damage(999.0, Vec3::zero());
+            assert_eq!(mob.pending_sound, Some(kind.death_sound()));
+        }
+    }
 }
