@@ -1,7 +1,7 @@
 # RustCraft — Cross-Platform Voxel Sandbox Engine
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
-[![Lines of Code](https://img.shields.io/badge/lines%20of%20code-47k-blue.svg)](#code-statistics--lines-of-code)
+[![Lines of Code](https://img.shields.io/badge/lines%20of%20code-49.6k-blue.svg)](#code-statistics--lines-of-code)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20FreeBSD%20%7C%20Android%20%7C%20Xbox%20360%20%7C%20ARM64%20%7C%20ARMv7%20%7C%20ARMv6%20%7C%20RISC--V%20%7C%20x86__32%20%7C%20Win__ARM64%20%7C%20PS%20Vita%20%7C%20WASM-brightgreen.svg)]()
 
@@ -438,18 +438,18 @@ rustcraft/
 
 | Subsystem / Directory | Description | Lines of Code |
 |---|---|---|
-| **`src/graphics/`** | Software Rayon rasterizer, WGPU backend, Camera, Font, Texture atlas | ~7,460 |
-| **`src/platform/`** | Xbox 360, PS Vita (GXM GPU), Android NDK, Windows, X11 mouse, Gamepad | ~6,910 |
-| **`src/world/`** | Voxel storage, 20 biomes, terrain generation, chunk meshing, tile entities | ~5,890 |
+| **`src/graphics/`** | Software Rayon rasterizer, WGPU backend, Camera, Font, Texture atlas | ~7,930 |
+| **`src/platform/`** | Xbox 360, PS Vita (GXM GPU), Android NDK, Windows, X11 mouse, Gamepad | ~7,140 |
+| **`src/world/`** | Voxel storage, 20 biomes, terrain generation, chunk meshing, tile entities | ~6,080 |
 | **`src/ui/`** | HUD, inventory, craft grids, menus, touch controls, audio settings | ~5,130 |
 | **`src/core/`** | Math (Vec3/Mat4), noise, settings, profiler, crash reporter & Sentry, i18n | ~4,930 |
-| **`src/app.rs`** | Core engine loop, state machine, input handling & audio integration | ~4,720 |
-| **`src/gameplay/`** | AutoTest bot AI, physics/collision, inventory, crafting, mobs, chat | ~4,420 |
-| **`src/audio/`** | 64-voice polyphonic mixer, procedural synthesis, 3D spatial sound, backends | ~3,630 |
-| **`src/net/`** | Multiplayer networking protocol, packet serialization & LAN discovery | ~2,350 |
+| **`src/app.rs`** | Core engine loop, state machine, input handling & audio integration | ~4,740 |
+| **`src/gameplay/`** | AutoTest bot AI, physics/collision, inventory, crafting, mobs, chat | ~4,690 |
+| **`src/audio/`** | 64-voice polyphonic mixer, procedural synthesis, 3D spatial sound, backends | ~4,300 |
+| **`src/net/`** | Multiplayer networking protocol, packet serialization & LAN discovery | ~2,810 |
 | **`Root & Entry Points`** | `main.rs`, `web.rs` (WASM), `cli.rs`, `build.rs`, `lib.rs` | ~1,100 |
 | **`src/engine/`** | Modular engine traits, platform backend interfaces, bitmap fonts | ~760 |
-| **Total Rust Source** | **Complete Rust codebase (zero external engine dependencies)** | **~47,300 LOC** |
+| **Total Rust Source** | **Complete Rust codebase (zero external engine dependencies)** | **~49,600 LOC** |
 
 ---
 
