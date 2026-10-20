@@ -230,6 +230,7 @@ Save file paths per platform:
 | WebAssembly | In-memory / IndexedDB (platform-specific hook) |
 | PlayStation Vita | `ux0:data/RustCraft/rustcraft_world_NN.bin` |
 | Android | `/data/data/com.rustcraft.game/files/saves/` |
+| Microsoft Xbox 360 | `uda0:/RustCraft/saves/` (USB) / `sda0:/RustCraft/saves/` (HDD) |
 
 ---
 
@@ -250,3 +251,36 @@ To install `psp2cgc` on Linux:
 ```bash
 vdpm install psp2cgc-linux
 ```
+
+---
+
+## 6. Implementing a New Audio Backend
+
+All audio drivers implement the `AudioBackend` trait in [`src/audio/backend/mod.rs`](file:///home/shieldziak/Pobrane/rustcraft/src/audio/backend/mod.rs):
+
+```rust
+pub trait AudioBackend: Send + 'static {
+    /// Backend identifier ("pulse", "alsa", "waveout", "aaudio", "vita", "xbox360", "wasm", "null")
+    fn name(&self) -> &'static str;
+
+    /// Output stream sample rate (e.g., 44100 or 48000 Hz)
+    fn sample_rate(&self) -> u32;
+
+    /// Number of output channels (typically 2 for stereo)
+    fn channels(&self) -> u32;
+
+    /// Pause / resume audio stream
+    fn pause(&mut self) -> Result<(), AudioError>;
+    fn resume(&mut self) -> Result<(), AudioError>;
+}
+```
+
+### Steps to Implement an Audio Backend for a New Platform:
+1. **Create Submodule**:
+   Create `src/audio/backend/<platform>.rs` and add `#[cfg(...)]` conditional compilation in `src/audio/backend/mod.rs`.
+2. **Buffer Stream Callback**:
+   Hook into the OS/hardware audio output callback (e.g. AAudio stream callback, DirectSound buffer, SceAudioOut port).
+3. **Pull PCM Frames**:
+   In the audio callback thread, pull rendered 32-bit float stereo samples from `AudioEngine` mixer buffer or the lock-free ring buffer.
+4. **Dynamic Library Loading**:
+   For platforms where audio shared libraries might not always be present or have multiple alternatives (e.g. Android `libaaudio.so`, Linux Pulse vs ALSA), prefer dynamic library resolution with graceful fallback to `NullBackend`.

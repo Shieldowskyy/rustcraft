@@ -12,9 +12,13 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
 | **New Mob Type** | `src/gameplay/mob.rs` | Add variant to `MobKind`, define bounding boxes & AI tick, add draw call in software renderer. |
 | **New UI Screen / Element** | `src/ui/` (`hud.rs`, `menu.rs`, `inventory_ui.rs`) | Use functions in `src/ui/draw.rs` (`fill_rect_alpha`, `draw_text_shadowed`). |
 | **Player / Physics / Movement** | `src/gameplay/physics.rs`, `player.rs` | Physics uses AABB sweeps. Maintain step-up and crouching checks. |
-| **World Generation / Biomes** | `src/world/mod.rs` (in `Chunk::generate`) | Uses `fractal_noise2` from `src/core/noise.rs`. |
+| **World Generation / Biomes** | `src/world/mod.rs` (in `Chunk::generate`) | 20 biomes via noise axes in `get_biome_at()`. Uses `src/core/noise.rs`. |
+| **Procedural Sound / Audio** | `src/audio/synth.rs`, `src/audio/sound.rs` | Synthesize waveform in `synth.rs`, trigger via `AudioEngine::play_sound` or `play_spatial_sound`. |
+| **Audio Platform Backend** | `src/audio/backend/` | Implement `AudioBackend` trait with ring buffer / hardware output stream. |
+| **Crash Reporter & Sentry** | `src/core/crash_reporter.rs`, `src/cli.rs` | Global panic hook, dumps system state/breadcrumbs, optional Sentry upload. |
+| **Multiplayer / Networking** | `src/net/` (`protocol.rs`, `server.rs`, `client.rs`) | UDP packet serialization, entity sync, LAN broadcast discovery. |
 | **New Graphics Backend** | `src/graphics/traits.rs`, `src/graphics/gpu/` | Implement `RenderBackend` trait. |
-| **Platform / OS Input Hook** | `src/platform/mouse_capture.rs` | Keep OS-specific code guarded by `#[cfg(target_os = ...)]`. |
+| **Platform / OS Input Hook** | `src/platform/` (`android.rs`, `xbox360.rs`, `mouse_capture.rs`) | Keep OS-specific code guarded by `#[cfg(target_os = ...)]`. |
 
 ---
 
@@ -31,6 +35,18 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
 3. **Texture Atlas**: If the block has a new texture, open `src/graphics/atlas.rs`:
    - Add variant to `pub enum TextureId`
    - In `TextureAtlas::generate()`, add procedural texture drawing into the texture array slot.
+4. **Crafting & Smelting**: Add recipes in `src/gameplay/recipe.rs` and smelting in `src/world/tile_entity.rs`.
+
+### How to Add a New Procedural Sound Effect
+1. Open `src/audio/sound.rs` and add a variant to `pub enum SoundId`.
+2. Open `src/audio/synth.rs` and implement waveform synthesis (e.g. noise bandpass, frequency envelopes, white noise bursts).
+3. Trigger from gameplay/app code via `audio.play_spatial_sound(SoundId::..., pos)` for 3D attenuated audio, or `audio.play_sound(SoundId::...)` for UI/global sounds.
+
+### How to Add a New Biome
+1. Open `src/world/mod.rs` and add variant to `pub enum Biome`.
+2. Map noise axes in `get_biome_at(wx, wz, seed)` (continentalness, temperature, humidity).
+3. In `Chunk::generate()`, define surface/subsurface blocks, height variations, and flora/structures (`decorations.push(...)`).
+4. Add display name in `World::biome_name_at()`.
 
 ### How to Add a New Mob
 1. Open `src/gameplay/mob.rs`:
@@ -38,6 +54,11 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
    - Define its hitbox dimensions and AI behavior in `Mob::update()`.
 2. Open `src/graphics/software/mod.rs`:
    - In `Renderer::draw_mob()`, match on the new `MobKind` and define the 3D box hierarchy (head, body, limbs) with corresponding rotations and texture IDs.
+
+### How to Work with Crash Reporter & Sentry
+1. **Breadcrumbs**: Use `crate::core::logger::record_breadcrumb(category, message)` before risky operations.
+2. **Testing**: Run `cargo run --release -- --crash-test` to test panic trapping and crash dump output.
+3. **Sentry Target**: Pass `--sentry-dsn <DSN>` or set `SENTRY_DSN` environment variable. Disable with `--no-sentry`.
 
 ### How to Add a New UI Component
 1. Open `src/ui/hud.rs` (or create a new file in `src/ui/` and export in `src/ui/mod.rs`).

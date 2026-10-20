@@ -92,6 +92,14 @@ Silnik posiada wbudowany moduł aktywnego logowania zdarzeń oraz ekran diagnost
 
 ---
 
+## 🔊 Silnik Audio i Generacja Świata na Xbox 360
+
+* **Proceduralna synteza dźwięku (Zero Asset I/O):** Dźwięki kroków, niszczenia/stawiania bloków, skoków i interfejsu są w 100% syntetyzowane w locie przez 64-głosowy polifoniczny mikser audio (`src/audio/backend/xbox360.rs`). Eliminuje to opóźnienia odczytu plików WAV/OGG z pamięci USB.
+* **Dźwięk przestrzenny 3D:** Pełna symulacja tłumienia odległościowego, okluzji akustycznej przez bloki terenu oraz absorpcji wysokich częstotliwości w powietrzu.
+* **20 biomów i 78 bloków:** Wersja Xbox 360 posiada kompletny zestaw 20 proceduralnych biomów (w tym Dżungla, Badlands, Ciemny Las, Tajga, Kolce Lodu, Wyspa Grzybowa) oraz 78 bloków i przedmiotów (diamentowy i złoty ekwipunek, schodki, półpłytki, łóżka, drabiny).
+
+---
+
 ## 🖥️ Testowanie na komputerze PC (Emulator Xenia)
 
 Jeżeli chcesz przetestować wygenerowany plik `default.xex` na komputerze:
