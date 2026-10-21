@@ -1,5 +1,4 @@
-//! Cross-platform gamepad polling and event abstraction using `gilrs`.
-
+use gilrs::ff::{BaseEffect, BaseEffectType, Effect, EffectBuilder, Replay, Ticks};
 use gilrs::{Axis, Button, Event, EventType, Gilrs};
 
 /// Gamepad manager tracking analog axes, button states, deadzones,
@@ -10,6 +9,48 @@ pub struct GamepadManager {
     prev_state: GamepadState,
     deadzone: f32,
     stick_repeat_timer: f32,
+    active_effect: Option<Effect>,
+}
+
+impl GamepadManager {
+    pub fn rumble(&mut self, strong: f32, weak: f32, duration_ms: u32) {
+        if let Some(gilrs) = &mut self.gilrs {
+            let strong_mag = (strong.clamp(0.0, 1.0) * 65535.0) as u16;
+            let weak_mag = (weak.clamp(0.0, 1.0) * 65535.0) as u16;
+            let duration = Ticks::from_ms(duration_ms.max(20));
+
+            let support_ff: Vec<_> = gilrs
+                .gamepads()
+                .filter_map(|(id, gp)| if gp.is_ff_supported() { Some(id) } else { None })
+                .collect();
+
+            if support_ff.is_empty() {
+                return;
+            }
+
+            let mut builder = EffectBuilder::new();
+            if strong_mag > 0 {
+                builder.add_effect(BaseEffect {
+                    kind: BaseEffectType::Strong { magnitude: strong_mag },
+                    scheduling: Replay { play_for: duration, ..Default::default() },
+                    ..Default::default()
+                });
+            }
+            if weak_mag > 0 {
+                builder.add_effect(BaseEffect {
+                    kind: BaseEffectType::Weak { magnitude: weak_mag },
+                    scheduling: Replay { play_for: duration, ..Default::default() },
+                    ..Default::default()
+                });
+            }
+
+            builder.gamepads(&support_ff);
+            if let Ok(effect) = builder.finish(gilrs) {
+                let _ = effect.play();
+                self.active_effect = Some(effect);
+            }
+        }
+    }
 }
 
 /// Instantaneous gamepad hardware state.
@@ -84,6 +125,7 @@ impl GamepadManager {
             prev_state: GamepadState::default(),
             deadzone: 0.16,
             stick_repeat_timer: 0.0,
+            active_effect: None,
         }
     }
 

@@ -56,6 +56,7 @@ pub fn draw_main_menu(
     hovered_idx: Option<usize>,
     nickname: &str,
     nick_hovered: bool,
+    is_gamepad_active: bool,
 ) {
     let cx = width as i32 / 2;
     // Clear screen to prevent ghost frames from other menus
@@ -116,7 +117,11 @@ pub fn draw_main_menu(
         }
     }
 
-    let footer = crate::core::i18n::t("menu.controls");
+    let footer = if is_gamepad_active {
+        crate::core::i18n::t("menu.controls_gamepad")
+    } else {
+        crate::core::i18n::t("menu.controls")
+    };
     let fw = font::measure_text(footer, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, footer, cx - fw / 2, 470, 1, 1, pack_color(0.6, 0.65, 0.75));
 }

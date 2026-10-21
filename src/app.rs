@@ -196,6 +196,14 @@ pub struct InputState {
     pub gp_left_trigger_just_pressed: bool,
 
     pub is_mouse_captured: bool,
+    pub gp_connected: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RumbleRequest {
+    pub strong: f32,
+    pub weak: f32,
+    pub duration_ms: u32,
 }
 
 pub struct AppOutput {
@@ -204,6 +212,8 @@ pub struct AppOutput {
     pub quit_requested: bool,
     pub is_playing: bool,
     pub title: String,
+    pub rumble_request: Option<RumbleRequest>,
+    pub cursor_visible: Option<bool>,
 }
 
 pub struct RustCraftApp {
@@ -278,8 +288,11 @@ pub struct RustCraftApp {
     pub settings_tab_rects: [(i32, i32, i32, i32); 4],
     pub settings_rects: [(i32, i32, i32, i32); 13],
     pub settings_audio_rects: [(i32, i32, i32, i32); 7],
-    pub settings_controls_rects: [(i32, i32, i32, i32); 6],
+    pub settings_controls_rects: [(i32, i32, i32, i32); 7],
     pub settings_debug_rects: [(i32, i32, i32, i32); 5],
+    pub is_gamepad_active: bool,
+    pub last_mouse_pos: Option<(f32, f32)>,
+    pub pending_rumble: Option<RumbleRequest>,
     pub profiler_server: Option<crate::core::profiler_server::ProfilerServer>,
     pub pause_menu_rects: [(i32, i32, i32, i32); 5],
     pub death_screen_rects: [(i32, i32, i32, i32); 2],
@@ -495,6 +508,9 @@ impl RustCraftApp {
             settings_audio_rects,
             settings_controls_rects,
             settings_debug_rects,
+            is_gamepad_active: false,
+            last_mouse_pos: None,
+            pending_rumble: None,
             profiler_server,
             pause_menu_rects,
             death_screen_rects,
@@ -572,6 +588,13 @@ impl RustCraftApp {
         self.update_and_render(dt, input)
     }
 
+    /// Queues a gamepad rumble (force feedback) effect if vibration is enabled in settings.
+    pub fn request_rumble(&mut self, strong: f32, weak: f32, duration_ms: u32) {
+        if self.settings.vibration {
+            self.pending_rumble = Some(RumbleRequest { strong, weak, duration_ms });
+        }
+    }
+
     /// Plays a 3D spatialized sound effect with realistic acoustic voxel occlusion through terrain/walls.
     pub fn play_world_sound(&mut self, sound_id: crate::audio::SoundId, pos: Vec3, volume: f32, pitch: f32) {
         let occlusion = self.world.calculate_acoustic_occlusion(self.camera.position, pos);
@@ -640,7 +663,56 @@ impl RustCraftApp {
             quit_requested: false,
             is_playing: matches!(self.state, GameState::Playing),
             title: String::new(),
+            rumble_request: None,
+            cursor_visible: None,
         };
+
+        // Active input device detection (Gamepad vs Keyboard/Mouse)
+        let mouse_moved = match (input.mouse_pos, self.last_mouse_pos) {
+            (Some((mx, my)), Some((lx, ly))) => (mx - lx).abs() > 1.5 || (my - ly).abs() > 1.5,
+            (Some(_), None) => true,
+            _ => false,
+        };
+        self.last_mouse_pos = input.mouse_pos;
+
+        let kb_mouse_activity = mouse_moved
+            || input.mouse_left
+            || input.mouse_right
+            || input.mouse_dx.abs() > 1.0
+            || input.mouse_dy.abs() > 1.0
+            || input.scroll_delta.abs() > 0.1
+            || input.key_w || input.key_s || input.key_a || input.key_d
+            || input.key_space || input.key_shift || input.key_ctrl
+            || input.key_escape || input.key_e || input.key_q
+            || input.key_enter || input.key_up || input.key_down || input.key_left || input.key_right
+            || !input.typed_chars.is_empty();
+
+        let gp_stick_moved = input.gp_left_stick_x.abs() > 0.25
+            || input.gp_left_stick_y.abs() > 0.25
+            || input.gp_right_stick_x.abs() > 0.25
+            || input.gp_right_stick_y.abs() > 0.25
+            || input.gp_left_trigger > 0.25
+            || input.gp_right_trigger > 0.25;
+
+        let gp_activity = input.gp_connected && (
+            gp_stick_moved
+            || input.gp_btn_south || input.gp_btn_east || input.gp_btn_west || input.gp_btn_north
+            || input.gp_btn_lb || input.gp_btn_rb || input.gp_btn_l3 || input.gp_btn_r3
+            || input.gp_btn_start || input.gp_btn_select
+            || input.gp_dpad_up || input.gp_dpad_down || input.gp_dpad_left || input.gp_dpad_right
+            || input.gp_south_just_pressed || input.gp_east_just_pressed || input.gp_west_just_pressed || input.gp_north_just_pressed
+            || input.gp_lb_just_pressed || input.gp_rb_just_pressed || input.gp_r3_just_pressed
+            || input.gp_start_just_pressed || input.gp_select_just_pressed
+            || input.gp_dpad_up_just_pressed || input.gp_dpad_down_just_pressed || input.gp_dpad_left_just_pressed || input.gp_dpad_right_just_pressed
+            || input.gp_menu_up || input.gp_menu_down || input.gp_menu_left || input.gp_menu_right
+            || input.gp_right_trigger_just_pressed || input.gp_left_trigger_just_pressed
+        );
+
+        if gp_activity {
+            self.is_gamepad_active = true;
+        } else if kb_mouse_activity || !input.gp_connected {
+            self.is_gamepad_active = false;
+        }
 
         let mouse_pos = input.mouse_pos;
         let left_down = input.mouse_left;
@@ -675,18 +747,20 @@ impl RustCraftApp {
             GameState::MainMenu => {
                 let mut hovered_idx = self.menu_hovered_btn;
                 self.main_menu_nick_hovered = false;
-                if let Some((mx, my)) = mouse_pos {
-                    let px = mx as i32;
-                    let py = my as i32;
-                    let (nx, ny, nw, nh) = self.main_menu_nick_rect;
-                    if px >= nx && px < nx + nw && py >= ny && py < ny + nh {
-                        self.main_menu_nick_hovered = true;
-                    }
-                    for (i, &(bx, by, bw, bh)) in self.main_menu_rects.iter().enumerate() {
-                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                            hovered_idx = Some(i);
-                            self.menu_hovered_btn = Some(i);
-                            break;
+                if mouse_moved {
+                    if let Some((mx, my)) = mouse_pos {
+                        let px = mx as i32;
+                        let py = my as i32;
+                        let (nx, ny, nw, nh) = self.main_menu_nick_rect;
+                        if px >= nx && px < nx + nw && py >= ny && py < ny + nh {
+                            self.main_menu_nick_hovered = true;
+                        }
+                        for (i, &(bx, by, bw, bh)) in self.main_menu_rects.iter().enumerate() {
+                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                                hovered_idx = Some(i);
+                                self.menu_hovered_btn = Some(i);
+                                break;
+                            }
                         }
                     }
                 }
@@ -715,7 +789,8 @@ impl RustCraftApp {
                 };
 
                 let click_nick = (left_down && !self.prev_left_down && self.main_menu_nick_hovered)
-                    || (n_down && !self.prev_n_down);
+                    || (n_down && !self.prev_n_down)
+                    || input.gp_north_just_pressed;
                 if click_nick {
                     self.settings.nickname = crate::core::settings::generate_default_nickname();
                     let _ = self.settings.save();
@@ -744,7 +819,7 @@ impl RustCraftApp {
                     crate::log_info!("STATE", "Quit requested from Main Menu");
                 }
 
-                self.renderer.draw_main_menu(hovered_idx, &self.settings.nickname, self.main_menu_nick_hovered);
+                self.renderer.draw_main_menu(hovered_idx, &self.settings.nickname, self.main_menu_nick_hovered, self.is_gamepad_active);
             }
             GameState::MultiplayerMenu => {
                 // Poll LAN server discovery announcements and probe pings
@@ -961,24 +1036,45 @@ impl RustCraftApp {
                 let mut save_select_hovered_btn = None;
 
                 let mut card_launch_action = false;
+                if mouse_moved {
+                    if let Some((mx, my)) = mouse_pos {
+                        let px = mx as i32;
+                        let py = my as i32;
+
+                        // Save cards hover
+                        for (row, &(bx, by, bw, bh)) in self.save_card_rects.iter().enumerate() {
+                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                                save_select_hovered_card = Some(row);
+                                break;
+                            }
+                        }
+
+                        // Bottom buttons hover
+                        for (i, &(bx, by, bw, bh)) in self.save_btn_rects.iter().enumerate() {
+                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                                save_select_hovered_btn = Some(i);
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 if let Some((mx, my)) = mouse_pos {
                     let px = mx as i32;
                     let py = my as i32;
 
-                    // Save cards touch interaction
-                    for (row, &(bx, by, bw, bh)) in self.save_card_rects.iter().enumerate() {
-                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                            save_select_hovered_card = Some(row);
-                            if left_down && !self.prev_left_down {
+                    // Save cards touch click
+                    if left_down && !self.prev_left_down {
+                        for (row, &(bx, by, bw, bh)) in self.save_card_rects.iter().enumerate() {
+                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
                                 let target_slot = (self.save_select_scroll + row + 1) as u8;
                                 if self.save_select_slot == target_slot {
-                                    // Touching an already selected slot launches the world
                                     card_launch_action = true;
                                 } else {
                                     self.save_select_slot = target_slot;
                                 }
+                                break;
                             }
-                            break;
                         }
                     }
 
@@ -992,14 +1088,6 @@ impl RustCraftApp {
                         let rel_y = ((py - sb_y) as f32 / sb_h as f32).clamp(0.0, 1.0);
                         let max_scroll = (MAX_SAVE_SLOTS as usize).saturating_sub(VISIBLE_SAVE_ROWS);
                         self.save_select_scroll = (rel_y * max_scroll as f32).round() as usize;
-                    }
-
-                    // Bottom buttons
-                    for (i, &(bx, by, bw, bh)) in self.save_btn_rects.iter().enumerate() {
-                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                            save_select_hovered_btn = Some(i);
-                            break;
-                        }
                     }
                 }
 
@@ -1101,24 +1189,36 @@ impl RustCraftApp {
                         &self.save_metadata_cache,
                         save_select_hovered_card,
                         save_select_hovered_btn,
+                        self.is_gamepad_active,
                     );
                 }
             }
             GameState::CreateWorld => {
                 let mut hovered_elem = None;
-                if let Some((mx, my)) = mouse_pos {
-                    let px = mx as i32;
-                    let py = my as i32;
-                    for (i, &(bx, by, bw, bh)) in self.create_world_rects.iter().enumerate() {
-                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                            hovered_elem = Some(i);
-                            if left_down && !self.prev_left_down {
+                if mouse_moved {
+                    if let Some((mx, my)) = mouse_pos {
+                        let px = mx as i32;
+                        let py = my as i32;
+                        for (i, &(bx, by, bw, bh)) in self.create_world_rects.iter().enumerate() {
+                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                                hovered_elem = Some(i);
+                                break;
+                            }
+                        }
+                    }
+                }
+                if left_down && !self.prev_left_down {
+                    if let Some((mx, my)) = mouse_pos {
+                        let px = mx as i32;
+                        let py = my as i32;
+                        for (i, &(bx, by, bw, bh)) in self.create_world_rects.iter().enumerate() {
+                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
                                 if self.create_world_focus != i {
                                     self.create_world_selected = false;
                                 }
                                 self.create_world_focus = i;
+                                break;
                             }
-                            break;
                         }
                     }
                 }
@@ -1343,6 +1443,7 @@ impl RustCraftApp {
                         hovered_elem,
                         self.total_time,
                         self.create_world_selected,
+                        self.is_gamepad_active,
                     );
                 }
             }
@@ -1350,48 +1451,50 @@ impl RustCraftApp {
                 let mut hovered_tab = None;
                 let mut hovered_opt = self.settings_hovered_opt;
 
-                if let Some((mx, my)) = mouse_pos {
-                    let px = mx as i32;
-                    let py = my as i32;
+                if mouse_moved {
+                    if let Some((mx, my)) = mouse_pos {
+                        let px = mx as i32;
+                        let py = my as i32;
 
-                    for (t_idx, &(bx, by, bw, bh)) in self.settings_tab_rects.iter().enumerate() {
-                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                            hovered_tab = Some(t_idx);
-                            break;
+                        for (t_idx, &(bx, by, bw, bh)) in self.settings_tab_rects.iter().enumerate() {
+                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                                hovered_tab = Some(t_idx);
+                                break;
+                            }
                         }
-                    }
 
-                    if hovered_tab.is_none() {
-                        if self.settings_tab == 0 {
-                            for (i, &(bx, by, bw, bh)) in self.settings_rects.iter().enumerate() {
-                                if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                    hovered_opt = Some(i);
-                                    self.settings_hovered_opt = Some(i);
-                                    break;
+                        if hovered_tab.is_none() {
+                            if self.settings_tab == 0 {
+                                for (i, &(bx, by, bw, bh)) in self.settings_rects.iter().enumerate() {
+                                    if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                                        hovered_opt = Some(i);
+                                        self.settings_hovered_opt = Some(i);
+                                        break;
+                                    }
                                 }
-                            }
-                        } else if self.settings_tab == 1 {
-                            for (i, &(bx, by, bw, bh)) in self.settings_audio_rects.iter().enumerate() {
-                                if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                    hovered_opt = Some(i);
-                                    self.settings_hovered_opt = Some(i);
-                                    break;
+                            } else if self.settings_tab == 1 {
+                                for (i, &(bx, by, bw, bh)) in self.settings_audio_rects.iter().enumerate() {
+                                    if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                                        hovered_opt = Some(i);
+                                        self.settings_hovered_opt = Some(i);
+                                        break;
+                                    }
                                 }
-                            }
-                        } else if self.settings_tab == 2 {
-                            for (i, &(bx, by, bw, bh)) in self.settings_controls_rects.iter().enumerate() {
-                                if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                    hovered_opt = Some(i);
-                                    self.settings_hovered_opt = Some(i);
-                                    break;
+                            } else if self.settings_tab == 2 {
+                                for (i, &(bx, by, bw, bh)) in self.settings_controls_rects.iter().enumerate() {
+                                    if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                                        hovered_opt = Some(i);
+                                        self.settings_hovered_opt = Some(i);
+                                        break;
+                                    }
                                 }
-                            }
-                        } else {
-                            for (i, &(bx, by, bw, bh)) in self.settings_debug_rects.iter().enumerate() {
-                                if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                    hovered_opt = Some(i);
-                                    self.settings_hovered_opt = Some(i);
-                                    break;
+                            } else {
+                                for (i, &(bx, by, bw, bh)) in self.settings_debug_rects.iter().enumerate() {
+                                    if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                                        hovered_opt = Some(i);
+                                        self.settings_hovered_opt = Some(i);
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -1439,7 +1542,7 @@ impl RustCraftApp {
                 let max_opts = match self.settings_tab {
                     0 => 13,
                     1 => 7,
-                    2 => 6,
+                    2 => 7,
                     _ => 5,
                 };
 
@@ -1478,6 +1581,26 @@ impl RustCraftApp {
                     None
                 };
 
+                let click_direction_forward = if left_click_just {
+                    if let (Some((mx, _)), Some(opt_idx)) = (mouse_pos, hovered_opt) {
+                        let rect = match self.settings_tab {
+                            0 => self.settings_rects.get(opt_idx),
+                            1 => self.settings_audio_rects.get(opt_idx),
+                            2 => self.settings_controls_rects.get(opt_idx),
+                            _ => self.settings_debug_rects.get(opt_idx),
+                        };
+                        if let Some(&(bx, _, bw, _)) = rect {
+                            mx >= (bx as f32 + bw as f32 / 2.0)
+                        } else {
+                            true
+                        }
+                    } else {
+                        true
+                    }
+                } else {
+                    true
+                };
+
                 let left_key_just = (left_arrow_down && !self.prev_left_arrow_down) || input.gp_menu_left;
                 let right_key_just = (right_arrow_down && !self.prev_right_arrow_down) || input.gp_menu_right;
 
@@ -1486,19 +1609,19 @@ impl RustCraftApp {
                     if let Some(opt_idx) = click_opt {
                         match opt_idx {
                             0 => {
-                                self.settings.cycle_language(true);
+                                self.settings.cycle_language(click_direction_forward);
                                 crate::core::i18n::set_language(self.settings.language);
                                 crate::log_info!("SETTINGS", "Language changed to {:?}", self.settings.language);
                             }
                             1 => {
-                                self.settings.cycle_render_distance(true);
+                                self.settings.cycle_render_distance(click_direction_forward);
                                 self.renderer.render_distance = self.settings.render_distance;
                                 self.world.purge_distant_chunks(self.camera.position, self.settings.render_distance);
                                 self.renderer.clear_mesh_cache();
                                 crate::log_info!("SETTINGS", "Render distance changed to {} chunks", self.settings.render_distance);
                             }
                             2 => {
-                                self.settings.cycle_leaf_quality(true);
+                                self.settings.cycle_leaf_quality(click_direction_forward);
                                 self.renderer.update_textures(self.settings.fancy_leaves);
                                 self.world.mark_all_chunks_dirty();
                                 self.renderer.clear_mesh_cache();
@@ -1521,15 +1644,15 @@ impl RustCraftApp {
                                 crate::log_info!("SETTINGS", "Chunk animation toggled to {}", self.settings.chunk_anim);
                             }
                             7 => {
-                                self.settings.cycle_fov(true);
+                                self.settings.cycle_fov(click_direction_forward);
                                 crate::log_info!("SETTINGS", "FOV changed to {} deg", self.settings.fov_deg);
                             }
                             8 => {
-                                self.settings.cycle_msaa(true);
+                                self.settings.cycle_msaa(click_direction_forward);
                                 crate::log_info!("SETTINGS", "MSAA changed to {}", self.settings.msaa);
                             }
                             9 => {
-                                self.settings.cycle_fps_limit(true);
+                                self.settings.cycle_fps_limit(click_direction_forward);
                                 crate::log_info!("SETTINGS", "FPS limit changed to {}", self.settings.fps_limit);
                             }
                             10 => {
@@ -1678,31 +1801,31 @@ impl RustCraftApp {
                     if let Some(opt_idx) = click_opt {
                         match opt_idx {
                             0 => {
-                                self.settings.cycle_master_volume(true);
+                                self.settings.cycle_master_volume(click_direction_forward);
                                 self.audio.set_master_volume(self.settings.master_volume);
                                 self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                                 crate::log_info!("SETTINGS", "Master volume changed to {:.0}%", self.settings.master_volume * 100.0);
                             }
                             1 => {
-                                self.settings.cycle_sfx_volume(true);
+                                self.settings.cycle_sfx_volume(click_direction_forward);
                                 self.audio.set_sfx_volume(self.settings.sfx_volume);
                                 self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                                 crate::log_info!("SETTINGS", "SFX volume changed to {:.0}%", self.settings.sfx_volume * 100.0);
                             }
                             2 => {
-                                self.settings.cycle_music_volume(true);
+                                self.settings.cycle_music_volume(click_direction_forward);
                                 self.audio.set_music_volume(self.settings.music_volume);
                                 self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                                 crate::log_info!("SETTINGS", "Music volume changed to {:.0}%", self.settings.music_volume * 100.0);
                             }
                             3 => {
-                                self.settings.cycle_ambient_volume(true);
+                                self.settings.cycle_ambient_volume(click_direction_forward);
                                 self.audio.set_ambient_volume(self.settings.ambient_volume);
                                 self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                                 crate::log_info!("SETTINGS", "Ambient volume changed to {:.0}%", self.settings.ambient_volume * 100.0);
                             }
                             4 => {
-                                self.settings.cycle_ui_volume(true);
+                                self.settings.cycle_ui_volume(click_direction_forward);
                                 self.audio.set_ui_volume(self.settings.ui_volume);
                                 self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                                 crate::log_info!("SETTINGS", "UI volume changed to {:.0}%", self.settings.ui_volume * 100.0);
@@ -1819,15 +1942,15 @@ impl RustCraftApp {
                     if let Some(opt_idx) = click_opt {
                         match opt_idx {
                             0 => {
-                                self.settings.cycle_sprint_mode();
+                                self.settings.cycle_sprint_mode(click_direction_forward);
                                 crate::log_info!("SETTINGS", "Sprint mode changed to {:?}", self.settings.sprint_mode);
                             }
                             1 => {
-                                self.settings.cycle_sneak_mode();
+                                self.settings.cycle_sneak_mode(click_direction_forward);
                                 crate::log_info!("SETTINGS", "Sneak mode changed to {:?}", self.settings.sneak_mode);
                             }
                             2 => {
-                                self.settings.cycle_jump_mode();
+                                self.settings.cycle_jump_mode(click_direction_forward);
                                 crate::log_info!("SETTINGS", "Jump mode changed to {:?}", self.settings.jump_mode);
                             }
                             3 => {
@@ -1839,6 +1962,13 @@ impl RustCraftApp {
                                 crate::log_info!("SETTINGS", "Invert Z changed to {}", self.settings.invert_z);
                             }
                             5 => {
+                                self.settings.toggle_vibration();
+                                if self.settings.vibration {
+                                    self.request_rumble(0.5, 0.5, 120);
+                                }
+                                crate::log_info!("SETTINGS", "Gamepad vibration changed to {}", self.settings.vibration);
+                            }
+                            6 => {
                                 let _ = self.settings.save();
                                 crate::log_info!("SETTINGS", "Saved settings and returned to {:?}", prev);
                                 self.state = match prev {
@@ -1848,19 +1978,19 @@ impl RustCraftApp {
                             }
                             _ => {}
                         }
-                    } else if input.gp_dpad_left_just_pressed || left_key_just || input.gp_dpad_right_just_pressed || right_key_just {
+                    } else if input.gp_dpad_left_just_pressed || left_key_just {
                         if let Some(opt_idx) = hovered_opt {
                             match opt_idx {
                                 0 => {
-                                    self.settings.cycle_sprint_mode();
+                                    self.settings.cycle_sprint_mode(false);
                                     crate::log_info!("SETTINGS", "Sprint mode changed to {:?}", self.settings.sprint_mode);
                                 }
                                 1 => {
-                                    self.settings.cycle_sneak_mode();
+                                    self.settings.cycle_sneak_mode(false);
                                     crate::log_info!("SETTINGS", "Sneak mode changed to {:?}", self.settings.sneak_mode);
                                 }
                                 2 => {
-                                    self.settings.cycle_jump_mode();
+                                    self.settings.cycle_jump_mode(false);
                                     crate::log_info!("SETTINGS", "Jump mode changed to {:?}", self.settings.jump_mode);
                                 }
                                 3 => {
@@ -1870,6 +2000,46 @@ impl RustCraftApp {
                                 4 => {
                                     self.settings.toggle_invert_z();
                                     crate::log_info!("SETTINGS", "Invert Z changed to {}", self.settings.invert_z);
+                                }
+                                5 => {
+                                    self.settings.toggle_vibration();
+                                    if self.settings.vibration {
+                                        self.request_rumble(0.5, 0.5, 120);
+                                    }
+                                    crate::log_info!("SETTINGS", "Gamepad vibration changed to {}", self.settings.vibration);
+                                }
+                                _ => {}
+                            }
+                        }
+                    } else if input.gp_dpad_right_just_pressed || right_key_just {
+                        if let Some(opt_idx) = hovered_opt {
+                            match opt_idx {
+                                0 => {
+                                    self.settings.cycle_sprint_mode(true);
+                                    crate::log_info!("SETTINGS", "Sprint mode changed to {:?}", self.settings.sprint_mode);
+                                }
+                                1 => {
+                                    self.settings.cycle_sneak_mode(true);
+                                    crate::log_info!("SETTINGS", "Sneak mode changed to {:?}", self.settings.sneak_mode);
+                                }
+                                2 => {
+                                    self.settings.cycle_jump_mode(true);
+                                    crate::log_info!("SETTINGS", "Jump mode changed to {:?}", self.settings.jump_mode);
+                                }
+                                3 => {
+                                    self.settings.toggle_invert_y();
+                                    crate::log_info!("SETTINGS", "Invert Y changed to {}", self.settings.invert_y);
+                                }
+                                4 => {
+                                    self.settings.toggle_invert_z();
+                                    crate::log_info!("SETTINGS", "Invert Z changed to {}", self.settings.invert_z);
+                                }
+                                5 => {
+                                    self.settings.toggle_vibration();
+                                    if self.settings.vibration {
+                                        self.request_rumble(0.5, 0.5, 120);
+                                    }
+                                    crate::log_info!("SETTINGS", "Gamepad vibration changed to {}", self.settings.vibration);
                                 }
                                 _ => {}
                             }
@@ -1898,7 +2068,7 @@ impl RustCraftApp {
                                 }
                             }
                             2 => {
-                                self.settings.cycle_profiler_server_port(true);
+                                self.settings.cycle_profiler_server_port(click_direction_forward);
                                 crate::log_info!("SETTINGS", "Profiler server port changed to {}", self.settings.profiler_server_port);
                                 if self.settings.profiler_server {
                                     if let Some(mut s) = self.profiler_server.take() {
@@ -2001,11 +2171,11 @@ impl RustCraftApp {
                     }
                 }
                 let server_ip = self.profiler_server.as_ref().map(|s| s.ip_address.as_str()).unwrap_or("127.0.0.1");
-                self.renderer.draw_settings_menu(&self.settings, self.settings_tab, hovered_tab, hovered_opt, server_ip, self.profiler_copied_timer > 0.0);
+                self.renderer.draw_settings_menu(&self.settings, self.settings_tab, hovered_tab, hovered_opt, server_ip, self.profiler_copied_timer > 0.0, mouse_pos, self.is_gamepad_active);
             }
             #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
             GameState::Loading(ref rx) => {
-                self.renderer.draw_main_menu(None, &self.settings.nickname, false);
+                self.renderer.draw_main_menu(None, &self.settings.nickname, false, self.is_gamepad_active);
 
                 if let Ok(result) = rx.try_recv() {
                     match result {
@@ -2033,7 +2203,7 @@ impl RustCraftApp {
             }
             #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
             GameState::Loading => {
-                self.renderer.draw_main_menu(None, &self.settings.nickname, false);
+                self.renderer.draw_main_menu(None, &self.settings.nickname, false, self.is_gamepad_active);
                 self.state = GameState::Playing;
             }
             GameState::Playing => {
@@ -2076,6 +2246,9 @@ impl RustCraftApp {
                                         self.horiz_velocity.z += knockback_z * 8.0;
                                         self.vertical_velocity = 3.5;
                                         self.particles.spawn_mob_hit(self.camera.position);
+                                        if self.settings.vibration {
+                                            self.pending_rumble = Some(RumbleRequest { strong: 0.85, weak: 0.6, duration_ms: 220 });
+                                        }
                                         crate::log_info!("PVP", "Player took {:.1} damage from player ID {}", damage, attacker_id);
                                     }
                                 } else if let Some(rp) = client.remote_players.get(&victim_id) {
@@ -2546,6 +2719,7 @@ impl RustCraftApp {
                                 self.damage_tilt_timer = 0.4;
                                 self.damage_tilt_dir = 1.0;
                                 self.particles.spawn_lava_burn(feet_pos);
+                                self.request_rumble(0.85, 0.6, 220);
                                 crate::log_info!("PLAYER", "Player took 4.0 lava damage (health: {:.1}/{:.1})", self.player.health, self.player.max_health);
                             }
                         }
@@ -2571,6 +2745,7 @@ impl RustCraftApp {
                                         self.damage_tilt_timer = 0.4;
                                         self.damage_tilt_dir = 1.0;
                                         self.particles.spawn_drown_bubbles(self.camera.position);
+                                        self.request_rumble(0.7, 0.5, 200);
                                         crate::log_info!("PLAYER", "Player took 2.0 drowning damage (health: {:.1}/{:.1})", self.player.health, self.player.max_health);
                                     }
                                 }
@@ -2621,6 +2796,7 @@ impl RustCraftApp {
                                     self.audio.play_sound(crate::audio::SoundId::PlayerHurt, 0.9, 1.0);
                                     self.damage_tilt_timer = 0.4;
                                     self.damage_tilt_dir = 1.0;
+                                    self.request_rumble(0.6, 0.4, 180);
                                     crate::log_info!("PLAYER", "Player took 1.0 starvation damage (health: {:.1}/{:.1})", self.player.health, self.player.max_health);
                                 }
                             }
@@ -2647,6 +2823,7 @@ impl RustCraftApp {
                                 self.audio.play_sound(crate::audio::SoundId::PlayerHurt, 0.9, 1.0);
                                 self.damage_tilt_timer = 0.4;
                                 self.damage_tilt_dir = 1.0;
+                                self.request_rumble(0.85, 0.7, 250);
                                 crate::log_info!("PLAYER", "Player took {:.1} fall damage (health: {:.1}/{:.1})", damage, self.player.health, self.player.max_health);
                             }
                         }
@@ -2658,6 +2835,7 @@ impl RustCraftApp {
                         self.death_hovered_btn = Some(0);
                         self.horiz_velocity = Vec3::zero();
                         self.fly_velocity = Vec3::zero();
+                        self.request_rumble(1.0, 0.9, 500);
                         crate::log_info!("PLAYER", "Player died! Transitioning to death screen");
                     }
                 }
@@ -2672,6 +2850,7 @@ impl RustCraftApp {
                 if self.camera.position.y < -32.0 {
                     if self.player.take_damage(20.0) {
                         self.damage_tilt_timer = 0.4;
+                        self.request_rumble(1.0, 1.0, 300);
                         crate::log_info!("PLAYER", "Player took 20.0 void damage at y={:.1} (health: {:.1}/{:.1})", self.camera.position.y, self.player.health, self.player.max_health);
                     }
                     if !self.player.is_dead() {
@@ -2725,16 +2904,21 @@ impl RustCraftApp {
                             self.particles.spawn_mob_hit(hit_pos);
                             self.break_target = None;
                             self.break_progress = 0.0;
+                            self.request_rumble(0.65, 0.65, 120);
                             crate::log_info!("COMBAT", "Player attacked remote player ID {} dealing {:.1} damage", target_id, dmg);
                             entity_hit = true;
                         } else if let Some((mob_idx, _)) = self.mob_manager.raycast_mob(self.camera.position, forward, 4.2) {
-                            let mob = &mut self.mob_manager.mobs[mob_idx];
-                            let hit_pos = mob.center_pos();
-                            mob.take_damage(dmg, forward);
-                            self.particles.spawn_mob_hit(hit_pos);
+                            let (kind, remaining_hp) = {
+                                let mob = &mut self.mob_manager.mobs[mob_idx];
+                                let hit_pos = mob.center_pos();
+                                mob.take_damage(dmg, forward);
+                                self.particles.spawn_mob_hit(hit_pos);
+                                (mob.kind, mob.health)
+                            };
                             self.break_target = None;
                             self.break_progress = 0.0;
-                            crate::log_info!("COMBAT", "Player attacked mob {:?} dealing {:.1} damage (remaining HP: {:.1})", mob.kind, dmg, mob.health);
+                            self.request_rumble(0.65, 0.65, 120);
+                            crate::log_info!("COMBAT", "Player attacked mob {:?} dealing {:.1} damage (remaining HP: {:.1})", kind, dmg, remaining_hp);
                             entity_hit = true;
                             self.process_mob_sounds();
                         }
@@ -2805,6 +2989,7 @@ impl RustCraftApp {
                                 let break_sound = crate::audio::SoundId::from_block_break(broken_block);
                                 let sound_pos = Vec3::new(bx, by, bz);
                                 self.play_world_sound_varied(break_sound, sound_pos, 0.95);
+                                self.request_rumble(0.4, 0.25, 75);
                                 if let Some(client) = &mut self.net_client {
                                     client.send_block_change(target.x, target.y, target.z, 0);
                                 }
@@ -3024,6 +3209,7 @@ impl RustCraftApp {
                                         self.world.set_block(top_pos, BlockId::Door);
                                         let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
                                         self.play_world_sound_varied(crate::audio::SoundId::PlaceWood, sound_pos, 0.85);
+                                        self.request_rumble(0.2, 0.1, 45);
                                         if let Some(client) = &mut self.net_client {
                                             client.send_block_change(place_pos.x, place_pos.y, place_pos.z, BlockId::Door.to_u8());
                                             client.send_block_change(top_pos.x, top_pos.y, top_pos.z, BlockId::Door.to_u8());
@@ -3041,6 +3227,7 @@ impl RustCraftApp {
                                     let place_sound = crate::audio::SoundId::from_block_place(place_id);
                                     let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
                                     self.play_world_sound_varied(place_sound, sound_pos, 0.85);
+                                    self.request_rumble(0.2, 0.1, 45);
                                     if let Some(client) = &mut self.net_client {
                                         client.send_block_change(place_pos.x, place_pos.y, place_pos.z, place_id.to_u8());
                                     }
@@ -3121,6 +3308,9 @@ impl RustCraftApp {
                             if self.player.take_damage(2.0) {
                                 self.damage_tilt_timer = 0.4;
                                 self.damage_tilt_dir = if mob.pos.x > self.camera.position.x { -1.0 } else { 1.0 };
+                                if self.settings.vibration {
+                                    self.pending_rumble = Some(RumbleRequest { strong: 0.85, weak: 0.6, duration_ms: 220 });
+                                }
                                 crate::log_info!("PLAYER", "Player took 2.0 damage from {:?} (health: {:.1}/{:.1})", mob.kind, self.player.health, self.player.max_health);
                             }
                         }
@@ -3155,6 +3345,7 @@ impl RustCraftApp {
                     self.death_hovered_btn = Some(0);
                     self.horiz_velocity = Vec3::zero();
                     self.fly_velocity = Vec3::zero();
+                    self.request_rumble(1.0, 0.9, 500);
                     crate::log_info!("PLAYER", "Player died! Transitioning to death screen");
                 }
 
@@ -3213,12 +3404,17 @@ impl RustCraftApp {
                     self.mob_manager.apply_explosion(exp_pos, 5.0, 30.0);
                     self.process_mob_sounds();
                     let dist = (self.camera.position - exp_pos).length();
+                    if dist < 12.0 {
+                        let factor = (1.0 - dist / 12.0).clamp(0.2, 1.0);
+                        self.request_rumble(factor, factor * 0.9, (factor * 450.0) as u32);
+                    }
                     if dist < 6.0 {
                         let dmg = (1.0 - dist / 6.0) * 18.0;
                         if self.player.take_damage(dmg) {
                             self.damage_tilt_timer = 0.4;
                             self.damage_tilt_dir = if exp_pos.x > self.camera.position.x { -1.0 } else { 1.0 };
                             self.audio.play_sound(crate::audio::SoundId::PlayerHurt, 0.9, 1.0);
+                            self.request_rumble(1.0, 0.9, 450);
                             crate::log_info!("PLAYER", "Player took {:.1} explosion damage (health: {:.1}/{:.1})", dmg, self.player.health, self.player.max_health);
                         }
                     }
@@ -3683,14 +3879,16 @@ impl RustCraftApp {
                 self.camera.fov_y += (self.settings.fov_deg.to_radians() - self.camera.fov_y) * t_fov;
 
                 let mut hovered_idx = self.pause_hovered_btn;
-                if let Some((mx, my)) = mouse_pos {
-                    let px = mx as i32;
-                    let py = my as i32;
-                    for (i, &(bx, by, bw, bh)) in self.pause_menu_rects.iter().enumerate() {
-                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                            hovered_idx = Some(i);
-                            self.pause_hovered_btn = Some(i);
-                            break;
+                if mouse_moved {
+                    if let Some((mx, my)) = mouse_pos {
+                        let px = mx as i32;
+                        let py = my as i32;
+                        for (i, &(bx, by, bw, bh)) in self.pause_menu_rects.iter().enumerate() {
+                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                                hovered_idx = Some(i);
+                                self.pause_hovered_btn = Some(i);
+                                break;
+                            }
                         }
                     }
                 }
@@ -3795,7 +3993,7 @@ impl RustCraftApp {
                 {
                     self.renderer.color_buffer.fill(0x0C0C10);
                 }
-                self.renderer.draw_pause_menu(self.fly_mode, hovered_idx);
+                self.renderer.draw_pause_menu(self.fly_mode, hovered_idx, self.is_gamepad_active);
 
                 if let Some(ref server) = self.profiler_server {
                     let mut cur_profiler = FrameProfiler::default();
@@ -3830,9 +4028,13 @@ impl RustCraftApp {
                 }
 
                 let layout = InventoryLayout::new(self.renderer.width, self.renderer.height, self.crafting_table_open);
-                let inv_hovered_target = mouse_pos.and_then(|(mx, my)| {
-                    layout.find_slot_at(mx as i32, my as i32, &self.player)
-                });
+                let inv_hovered_target = if self.is_gamepad_active && !mouse_moved {
+                    None
+                } else {
+                    mouse_pos.and_then(|(mx, my)| {
+                        layout.find_slot_at(mx as i32, my as i32, &self.player)
+                    })
+                };
 
                 // Number keys 1-9 (indices 1..9) and 0 (index 0) to assign/swap into hotbar slots
                 for i in 0..10 {
@@ -4010,6 +4212,7 @@ impl RustCraftApp {
                     self.crafting_table_open,
                     &self.recipe_book,
                     mouse_pos,
+                    self.is_gamepad_active,
                 );
             }
             GameState::Chest { pos } => {
@@ -4353,14 +4556,16 @@ impl RustCraftApp {
             }
             GameState::DeathScreen => {
                 let mut hovered_idx = self.death_hovered_btn;
-                if let Some((mx, my)) = mouse_pos {
-                    let px = mx as i32;
-                    let py = my as i32;
-                    for (i, &(bx, by, bw, bh)) in self.death_screen_rects.iter().enumerate() {
-                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                            hovered_idx = Some(i);
-                            self.death_hovered_btn = Some(i);
-                            break;
+                if mouse_moved {
+                    if let Some((mx, my)) = mouse_pos {
+                        let px = mx as i32;
+                        let py = my as i32;
+                        for (i, &(bx, by, bw, bh)) in self.death_screen_rects.iter().enumerate() {
+                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                                hovered_idx = Some(i);
+                                self.death_hovered_btn = Some(i);
+                                break;
+                            }
                         }
                     }
                 }
@@ -4543,6 +4748,11 @@ impl RustCraftApp {
 
         if let Some(ref runner) = self.autotest {
             runner.render_overlay(self.renderer.pixel_buffer_mut(), self.width, self.height);
+        }
+
+        out.rumble_request = self.pending_rumble.take();
+        if !input.is_mouse_captured && !matches!(self.state, GameState::Playing) {
+            out.cursor_visible = Some(!self.is_gamepad_active);
         }
 
         out

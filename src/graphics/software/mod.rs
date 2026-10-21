@@ -330,8 +330,8 @@ impl Renderer {
         crate::ui::multiplayer_menu_rects(self.width, self.height)
     }
 
-    pub fn draw_main_menu(&mut self, hovered: Option<usize>, nickname: &str, nick_hovered: bool) {
-        crate::ui::draw_main_menu(&mut self.color_buffer, self.width, self.height, hovered, nickname, nick_hovered);
+    pub fn draw_main_menu(&mut self, hovered: Option<usize>, nickname: &str, nick_hovered: bool, is_gamepad_active: bool) {
+        crate::ui::draw_main_menu(&mut self.color_buffer, self.width, self.height, hovered, nickname, nick_hovered, is_gamepad_active);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -405,7 +405,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_controls_rects(&self) -> [(i32, i32, i32, i32); 6] {
+    pub fn settings_controls_rects(&self) -> [(i32, i32, i32, i32); 7] {
         crate::ui::settings_controls_rects(self.width, self.height)
     }
 
@@ -437,6 +437,7 @@ impl Renderer {
         metadata_cache: &[crate::world::storage::SaveMetadata; crate::ui::MAX_SAVE_SLOTS],
         hovered_card: Option<usize>,
         hovered_btn: Option<usize>,
+        is_gamepad_active: bool,
     ) {
         crate::ui::draw_save_select_menu(
             &mut self.color_buffer,
@@ -447,6 +448,7 @@ impl Renderer {
             metadata_cache,
             hovered_card,
             hovered_btn,
+            is_gamepad_active,
         );
     }
 
@@ -460,6 +462,7 @@ impl Renderer {
         hovered_element: Option<usize>,
         blink_timer: f32,
         is_selected: bool,
+        is_gamepad_active: bool,
     ) {
         crate::ui::draw_create_world_menu(
             &mut self.color_buffer,
@@ -473,6 +476,7 @@ impl Renderer {
             hovered_element,
             blink_timer,
             is_selected,
+            is_gamepad_active,
         );
     }
 
@@ -488,6 +492,8 @@ impl Renderer {
         hovered: Option<usize>,
         server_ip: &str,
         profiler_copied: bool,
+        mouse_pos: Option<(f32, f32)>,
+        is_gamepad_active: bool,
     ) {
         crate::ui::draw_settings_menu(
             &mut self.color_buffer,
@@ -499,6 +505,8 @@ impl Renderer {
             hovered,
             server_ip,
             profiler_copied,
+            mouse_pos,
+            is_gamepad_active,
         );
     }
 
@@ -529,6 +537,7 @@ impl Renderer {
         crafting_table_open: bool,
         recipes: &crate::gameplay::RecipeBook,
         mouse_pos: Option<(f32, f32)>,
+        is_gamepad_active: bool,
     ) {
         crate::ui::draw_inventory_screen(
             &mut self.color_buffer,
@@ -539,11 +548,12 @@ impl Renderer {
             crafting_table_open,
             recipes,
             mouse_pos,
+            is_gamepad_active,
         );
     }
 
-    pub fn draw_pause_menu(&mut self, fly_mode: bool, hovered: Option<usize>) {
-        crate::ui::draw_pause_menu(&mut self.color_buffer, self.width, self.height, fly_mode, hovered);
+    pub fn draw_pause_menu(&mut self, fly_mode: bool, hovered: Option<usize>, is_gamepad_active: bool) {
+        crate::ui::draw_pause_menu(&mut self.color_buffer, self.width, self.height, fly_mode, hovered, is_gamepad_active);
     }
 
     pub fn draw_capture_prompt(&mut self, native: bool) {

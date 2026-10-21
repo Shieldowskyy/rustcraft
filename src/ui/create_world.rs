@@ -64,6 +64,7 @@ pub fn draw_create_world_menu(
     hovered_element: Option<usize>,
     blink_timer: f32,
     is_selected: bool,
+    is_gamepad_active: bool,
 ) {
     let cx = width as i32 / 2;
     let rects = create_world_rects(width, height);
@@ -267,10 +268,11 @@ pub fn draw_create_world_menu(
     draw_text_colored_shadowed(buffer, width, height, cancel_lbl, ax + (aw - a_tw) / 2, ay + (ah - 5) / 2, 1, 1, pack_color(1.0, 1.0, 1.0));
 
     // Bottom help/navigation bar
-    #[cfg(target_os = "vita")]
-    let footer = "[D-PAD] NAVIGATE | [X] TOGGLE/SELECT | [TRIANGLE] RANDOM SEED | [O] BACK";
-    #[cfg(not(target_os = "vita"))]
-    let footer = "[TAB / ARROWS] NAVIGATE | [KEYBOARD] TYPE | [ENTER] CREATE | [ESC] CANCEL";
+    let footer = if is_gamepad_active {
+        "[D-PAD / L-STICK] NAVIGATE | [A] SELECT/TOGGLE | [Y] RANDOM SEED | [B] CANCEL"
+    } else {
+        "[TAB / ARROWS] NAVIGATE | [KEYBOARD] TYPE | [ENTER] CREATE | [ESC] CANCEL"
+    };
 
     let ft_w = font::measure_text(footer, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, footer, cx - ft_w / 2, height as i32 - 18, 1, 1, pack_color(0.65, 0.72, 0.85));

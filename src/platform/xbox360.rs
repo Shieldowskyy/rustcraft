@@ -732,6 +732,7 @@ impl Xbox360InputTracker {
             gp_left_trigger_just_pressed: lt_just,
 
             is_mouse_captured,
+            gp_connected: true,
         }
     }
 }

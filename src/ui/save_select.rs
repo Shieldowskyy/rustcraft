@@ -50,6 +50,7 @@ pub fn draw_save_select_menu(
     metadata_cache: &[SaveMetadata; MAX_SAVE_SLOTS],
     hovered_card: Option<usize>,
     hovered_btn: Option<usize>,
+    is_gamepad_active: bool,
 ) {
     let cx = width as i32 / 2;
 
@@ -227,10 +228,11 @@ pub fn draw_save_select_menu(
         }
     }
 
-    #[cfg(target_os = "vita")]
-    let footer_tooltip = "[D-PAD] SELECT | [L/R] SCROLL | [X] PLAY | [TRIANGLE] NEW | [SQUARE] DELETE | [O] BACK";
-    #[cfg(not(target_os = "vita"))]
-    let footer_tooltip = "[ARROWS / D-PAD] SELECT | [ENTER/A] PLAY | [N/Y] NEW | [DEL/X] DELETE | [ESC/B] BACK";
+    let footer_tooltip = if is_gamepad_active {
+        "[D-PAD / L-STICK] SELECT | [A] PLAY | [Y] NEW | [X] DELETE | [B] BACK"
+    } else {
+        "[ARROWS / MOUSE] SELECT | [ENTER] PLAY | [N] NEW | [DEL] DELETE | [ESC] BACK"
+    };
 
     let ft_w = font::measure_text(footer_tooltip, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, footer_tooltip, cx - ft_w / 2, height as i32 - 18, 1, 1, pack_color(0.65, 0.72, 0.85));

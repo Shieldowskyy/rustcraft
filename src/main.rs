@@ -254,6 +254,7 @@ fn main() {
         }
 
         let input = InputState {
+            gp_connected: gp.is_connected,
             mouse_dx,
             mouse_dy,
             mouse_pos,
@@ -350,6 +351,15 @@ fn main() {
         };
 
         let out = app.update_and_render(dt, &input);
+
+        if let Some(r) = out.rumble_request {
+            gamepad_mgr.rumble(r.strong, r.weak, r.duration_ms);
+        }
+        if let Some(visible) = out.cursor_visible {
+            if !mouse_capture.is_captured() {
+                window.set_cursor_visibility(visible);
+            }
+        }
 
         if out.request_capture_mouse {
             mouse_capture.set_captured(true);

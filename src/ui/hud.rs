@@ -659,7 +659,7 @@ pub fn pause_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, 
     ]
 }
 
-pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode: bool, hovered_idx: Option<usize>) {
+pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode: bool, hovered_idx: Option<usize>, is_gamepad_active: bool) {
     fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.0, 0.0, 0.0), 0.72);
 
     let cx = width as i32 / 2;
@@ -671,35 +671,39 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
     let t_w = font::measure_text(title, t_scale, 2);
     draw_text_colored_shadowed(buffer, width, height, title, cx - t_w / 2, cy - 145, t_scale, 2, pack_color(0.95, 0.85, 0.35));
 
-    #[cfg(target_os = "vita")]
-    let b0 = format!("{} (START)", crate::core::i18n::t("pause.resume"));
-    #[cfg(not(target_os = "vita"))]
-    let b0 = format!("{} (ESC)", crate::core::i18n::t("pause.resume"));
+    let b0 = if is_gamepad_active {
+        format!("{} [START / A]", crate::core::i18n::t("pause.resume"))
+    } else {
+        format!("{} (ESC)", crate::core::i18n::t("pause.resume"))
+    };
 
     let b1 = crate::core::i18n::t("pause.settings").to_string();
 
-    #[cfg(target_os = "vita")]
-    let b2 = if fly_mode {
-        format!("{} (R3)", crate::core::i18n::t("pause.fly_on"))
+    let b2 = if is_gamepad_active {
+        if fly_mode {
+            format!("{} [R3]", crate::core::i18n::t("pause.fly_on"))
+        } else {
+            format!("{} [R3]", crate::core::i18n::t("pause.fly_off"))
+        }
     } else {
-        format!("{} (R3)", crate::core::i18n::t("pause.fly_off"))
-    };
-    #[cfg(not(target_os = "vita"))]
-    let b2 = if fly_mode {
-        format!("{} (F)", crate::core::i18n::t("pause.fly_on"))
-    } else {
-        format!("{} (F)", crate::core::i18n::t("pause.fly_off"))
+        if fly_mode {
+            format!("{} (F)", crate::core::i18n::t("pause.fly_on"))
+        } else {
+            format!("{} (F)", crate::core::i18n::t("pause.fly_off"))
+        }
     };
 
-    #[cfg(target_os = "vita")]
-    let b3 = format!("{} (SELECT)", crate::core::i18n::t("pause.main_menu"));
-    #[cfg(not(target_os = "vita"))]
-    let b3 = format!("{} (M)", crate::core::i18n::t("pause.main_menu"));
+    let b3 = if is_gamepad_active {
+        format!("{} [SELECT / Y]", crate::core::i18n::t("pause.main_menu"))
+    } else {
+        format!("{} (M)", crate::core::i18n::t("pause.main_menu"))
+    };
 
-    #[cfg(target_os = "vita")]
-    let b4 = crate::core::i18n::t("pause.quit").to_string();
-    #[cfg(not(target_os = "vita"))]
-    let b4 = format!("{} (Q)", crate::core::i18n::t("pause.quit"));
+    let b4 = if is_gamepad_active {
+        format!("{} [B]", crate::core::i18n::t("pause.quit"))
+    } else {
+        format!("{} (Q)", crate::core::i18n::t("pause.quit"))
+    };
 
     let buttons = [b0, b1, b2, b3, b4];
 
@@ -744,19 +748,36 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
     }
 
     // Dynamic contextual tooltip for selected pause menu button
-    let tooltip = match hovered_idx {
-        Some(0) => "Resume gameplay and return to world (ESC / START / P)",
-        Some(1) => "Adjust render distance, fog, 3D clouds, animations, and FOV",
-        Some(2) => {
-            if fly_mode {
-                "Disable flight mode and restore standard gravity (F / R3)"
-            } else {
-                "Enable free flight mode without gravity (F / R3)"
+    let tooltip = if is_gamepad_active {
+        match hovered_idx {
+            Some(0) => "Resume gameplay and return to world [START] or [A]",
+            Some(1) => "Adjust video, sound, controls, and debug options [A]",
+            Some(2) => {
+                if fly_mode {
+                    "Disable flight mode and restore standard gravity [R3]"
+                } else {
+                    "Enable free flight mode without gravity [R3]"
+                }
             }
+            Some(3) => "Save current game world and return to save select menu [A]",
+            Some(4) => "Save world progress and quit application [A] or [B]",
+            _ => "Navigate with D-PAD / Left Stick, select with [A], back with [B]",
         }
-        Some(3) => "Save current game world and return to save select menu (M)",
-        Some(4) => "Save world progress and quit application (Q)",
-        _ => "Navigate with mouse, arrow keys, or gamepad stick",
+    } else {
+        match hovered_idx {
+            Some(0) => "Resume gameplay and return to world (ESC / P)",
+            Some(1) => "Adjust render distance, fog, 3D clouds, animations, and FOV",
+            Some(2) => {
+                if fly_mode {
+                    "Disable flight mode and restore standard gravity (F)"
+                } else {
+                    "Enable free flight mode without gravity (F)"
+                }
+            }
+            Some(3) => "Save current game world and return to save select menu (M)",
+            Some(4) => "Save world progress and quit application (Q)",
+            _ => "Navigate with mouse, arrow keys, or gamepad stick",
+        }
     };
 
     let tip_w = 460.min(width as i32 - 40);
@@ -785,18 +806,24 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
     let card_h = 320;
     let card_y = cy - 150;
 
+    let (kb_border, gp_border) = if is_gamepad_active {
+        (pack_color(0.20, 0.25, 0.35), pack_color(1.0, 0.85, 0.35))
+    } else {
+        (pack_color(0.50, 0.70, 1.0), pack_color(0.20, 0.25, 0.35))
+    };
+
     if width >= 860 {
         // --- LEFT CARD: KEYBOARD & MOUSE ---
         let left_x = (cx - 140 - card_w - 20).max(12);
         fill_rect_alpha(buffer, width, height, left_x, card_y, card_w, card_h, pack_color(0.08, 0.09, 0.13), 0.82);
-        fill_rect(buffer, width, height, left_x, card_y, card_w, 2, pack_color(0.40, 0.50, 0.70));
+        fill_rect(buffer, width, height, left_x, card_y, card_w, 2, kb_border);
         fill_rect(buffer, width, height, left_x, card_y + card_h - 2, card_w, 2, pack_color(0.20, 0.25, 0.35));
-        fill_rect(buffer, width, height, left_x, card_y, 2, card_h, pack_color(0.40, 0.50, 0.70));
+        fill_rect(buffer, width, height, left_x, card_y, 2, card_h, kb_border);
         fill_rect(buffer, width, height, left_x + card_w - 2, card_y, 2, card_h, pack_color(0.20, 0.25, 0.35));
 
         let l_title = "[ KEYBOARD & MOUSE ]";
         let l_tw = font::measure_text(l_title, 1, 1);
-        draw_text_colored_shadowed(buffer, width, height, l_title, left_x + (card_w - l_tw) / 2, card_y + 10, 1, 1, pack_color(0.95, 0.85, 0.35));
+        draw_text_colored_shadowed(buffer, width, height, l_title, left_x + (card_w - l_tw) / 2, card_y + 10, 1, 1, if is_gamepad_active { pack_color(0.6, 0.65, 0.7) } else { pack_color(0.95, 0.85, 0.35) });
 
         let kb_bindings = [
             ("W, A, S, D", "Movement"),
@@ -825,14 +852,14 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
         // --- RIGHT CARD: CONTROLLER / GAMEPAD ---
         let right_x = (cx + 140 + 20).min(width as i32 - card_w - 12);
         fill_rect_alpha(buffer, width, height, right_x, card_y, card_w, card_h, pack_color(0.08, 0.09, 0.13), 0.82);
-        fill_rect(buffer, width, height, right_x, card_y, card_w, 2, pack_color(0.40, 0.50, 0.70));
+        fill_rect(buffer, width, height, right_x, card_y, card_w, 2, gp_border);
         fill_rect(buffer, width, height, right_x, card_y + card_h - 2, card_w, 2, pack_color(0.20, 0.25, 0.35));
-        fill_rect(buffer, width, height, right_x, card_y, 2, card_h, pack_color(0.40, 0.50, 0.70));
+        fill_rect(buffer, width, height, right_x, card_y, 2, card_h, gp_border);
         fill_rect(buffer, width, height, right_x + card_w - 2, card_y, 2, card_h, pack_color(0.20, 0.25, 0.35));
 
-        let r_title = "[ GAMEPAD / PS VITA ]";
+        let r_title = "[ GAMEPAD CONTROLS ]";
         let r_tw = font::measure_text(r_title, 1, 1);
-        draw_text_colored_shadowed(buffer, width, height, r_title, right_x + (card_w - r_tw) / 2, card_y + 10, 1, 1, pack_color(0.95, 0.85, 0.35));
+        draw_text_colored_shadowed(buffer, width, height, r_title, right_x + (card_w - r_tw) / 2, card_y + 10, 1, 1, if is_gamepad_active { pack_color(0.95, 0.85, 0.35) } else { pack_color(0.6, 0.65, 0.7) });
 
         let gp_bindings = [
             ("L-Stick", "Movement"),

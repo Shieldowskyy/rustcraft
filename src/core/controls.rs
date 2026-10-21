@@ -914,6 +914,7 @@ mod tests {
             gp_right_trigger_just_pressed: false,
             gp_left_trigger_just_pressed: false,
             is_mouse_captured: true,
+            gp_connected: false,
         };
 
         manager.update(&input);

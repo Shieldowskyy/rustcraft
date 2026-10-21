@@ -504,6 +504,7 @@ impl VitaInputTracker {
             gp_left_trigger_just_pressed: just_pressed(SCE_CTRL_LTRIGGER),
 
             is_mouse_captured,
+            gp_connected: true,
         }
     }
 }

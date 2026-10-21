@@ -393,6 +393,7 @@ pub fn draw_inventory_screen(
     crafting_table_open: bool,
     recipes: &RecipeBook,
     mouse_pos: Option<(f32, f32)>,
+    is_gamepad_active: bool,
 ) {
     fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.0, 0.0, 0.0), 0.55);
 
@@ -517,16 +518,14 @@ pub fn draw_inventory_screen(
             draw_trash_icon(buffer, width, height, trash_x + 6, trash_y + 7);
 
             // Controls Footer
-            #[cfg(target_os = "vita")]
+            let creative_footer = if is_gamepad_active {
+                "[A] TAKE (64) | [Y] TO HOTBAR | [X] DELETE | [B] CLOSE"
+            } else {
+                "LMB: TAKE (64) | SHIFT+LMB: TO HOTBAR | 1-0: SELECT SLOT | [E]/[ESC]: CLOSE"
+            };
             draw_text_colored_shadowed(
                 buffer, width, height,
-                "[X]/TOUCH: TAKE STACK | [SQUARE]: DELETE | [D-PAD]: SELECT | [O]: CLOSE",
-                start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75)
-            );
-            #[cfg(not(target_os = "vita"))]
-            draw_text_colored_shadowed(
-                buffer, width, height,
-                "LMB: TAKE (64) | SHIFT+LMB: TO HOTBAR | 1-0: SELECT SLOT | [E]/[ESC]: CLOSE",
+                creative_footer,
                 start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75)
             );
         } else {
@@ -602,16 +601,14 @@ pub fn draw_inventory_screen(
             draw_trash_icon(buffer, width, height, trash_x + 6, trash_y + 7);
 
             // Controls Footer
-            #[cfg(not(target_os = "vita"))]
+            let footer = if is_gamepad_active {
+                "[A]: ALL | [X]: 1 ITEM/HALF | [Y]: MOVE | [B]: CLOSE"
+            } else {
+                "LPM: ALL | PPM: 1 ITEM/HALF | SHIFT+LPM: MOVE | [E]/[ESC]: CLOSE"
+            };
             draw_text_colored_shadowed(
                 buffer, width, height,
-                "LPM: ALL | PPM: 1 ITEM/HALF | SHIFT+LPM: MOVE | [E]/[ESC]: CLOSE",
-                start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75)
-            );
-            #[cfg(target_os = "vita")]
-            draw_text_colored_shadowed(
-                buffer, width, height,
-                "[X]: ALL | [SQUARE]: 1 ITEM/HALF | [O]: CLOSE",
+                footer,
                 start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75)
             );
         }
@@ -619,10 +616,12 @@ pub fn draw_inventory_screen(
         // Survival Mode
         let title = if crafting_table_open { "CRAFTING TABLE" } else { "INVENTORY" };
         draw_text_shadowed(buffer, width, height, title, start_x + 10, start_y + 8, 2, 1);
-        #[cfg(target_os = "vita")]
-        draw_text_shadowed(buffer, width, height, "[X]/TOUCH: ALL | [SQUARE]: 1 ITEM/HALF | [O]/[TRIANGLE]: CLOSE", start_x + 10, start_y + 342, 1, 1);
-        #[cfg(not(target_os = "vita"))]
-        draw_text_shadowed(buffer, width, height, "LMB: ALL | RMB: 1 ITEM / HALF | [E]/[ESC]/[B]: CLOSE", start_x + 10, start_y + 342, 1, 1);
+        let surv_footer = if is_gamepad_active {
+            "[A]: ALL | [X]: 1 ITEM/HALF | [Y]: QUICK MOVE | [B]: CLOSE"
+        } else {
+            "LMB: ALL | RMB: 1 ITEM / HALF | [E]/[ESC]/[B]: CLOSE"
+        };
+        draw_text_shadowed(buffer, width, height, surv_footer, start_x + 10, start_y + 342, 1, 1);
 
         // Crafting section
         if crafting_table_open {
@@ -739,7 +738,12 @@ pub fn draw_inventory_screen(
                 }
             }
             InventorySlotTarget::Trash => {
-                hovered_item_name = Some(("TRASH (LMB: Delete held item | Shift+LMB: Clear hotbar)".to_string(), 1));
+                let trash_tip = if is_gamepad_active {
+                    "TRASH ([A]: Delete held item | [X]: Clear hotbar)"
+                } else {
+                    "TRASH (LMB: Delete held item | Shift+LMB: Clear hotbar)"
+                };
+                hovered_item_name = Some((trash_tip.to_string(), 1));
             }
         }
     }

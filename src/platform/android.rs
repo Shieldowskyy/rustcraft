@@ -729,6 +729,7 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
         gp_left_trigger_just_pressed: false,
 
         is_mouse_captured: !in_menu,
+        gp_connected: false,
     };
 
     // Hotbar selection from touch

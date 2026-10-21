@@ -180,6 +180,8 @@ pub struct GameSettings {
     pub invert_y: bool,
     /// Invert Z / horizontal (yaw) camera axis.
     pub invert_z: bool,
+    /// Gamepad force feedback vibration enabled (default: true).
+    pub vibration: bool,
     /// Remote HTTP profiler server enabled (default: false).
     pub profiler_server: bool,
     /// HTTP port for the profiler server (default: 8080).
@@ -233,6 +235,7 @@ impl Default for GameSettings {
             jump_mode: JumpMode::Normal,
             invert_y: false,
             invert_z: false,
+            vibration: true,
             profiler_server: false,
             profiler_server_port: 8080,
             nickname: generate_default_nickname(),
@@ -345,6 +348,7 @@ impl GameSettings {
                 let ambient_volume = bytes.get(audio_offset + 3).map(|&b| b as f32 / 100.0).unwrap_or(0.7);
                 let ui_volume = bytes.get(audio_offset + 4).map(|&b| b as f32 / 100.0).unwrap_or(1.0);
                 let mute_audio = bytes.get(audio_offset + 5).copied().unwrap_or(0) != 0;
+                let vibration = bytes.get(audio_offset + 6).copied().unwrap_or(1) != 0;
 
                 crate::core::i18n::set_language(language);
 
@@ -367,6 +371,7 @@ impl GameSettings {
                     jump_mode,
                     invert_y,
                     invert_z,
+                    vibration,
                     profiler_server,
                     profiler_server_port,
                     nickname,
@@ -442,6 +447,7 @@ impl GameSettings {
         bytes.push((self.ambient_volume.clamp(0.0, 1.0) * 100.0) as u8);
         bytes.push((self.ui_volume.clamp(0.0, 1.0) * 100.0) as u8);
         bytes.push(if self.mute_audio { 1 } else { 0 });
+        bytes.push(if self.vibration { 1 } else { 0 });
 
         std::fs::write(&path, bytes).map_err(|e| e.to_string())
     }
@@ -589,15 +595,15 @@ impl GameSettings {
         self.fps_limit = Self::FPS_LIMIT_PRESETS[next_idx];
     }
 
-    pub fn cycle_sprint_mode(&mut self) {
+    pub fn cycle_sprint_mode(&mut self, _forward: bool) {
         self.sprint_mode.cycle();
     }
 
-    pub fn cycle_sneak_mode(&mut self) {
+    pub fn cycle_sneak_mode(&mut self, _forward: bool) {
         self.sneak_mode.cycle();
     }
 
-    pub fn cycle_jump_mode(&mut self) {
+    pub fn cycle_jump_mode(&mut self, _forward: bool) {
         self.jump_mode.cycle();
     }
 
@@ -607,6 +613,10 @@ impl GameSettings {
 
     pub fn toggle_invert_z(&mut self) {
         self.invert_z = !self.invert_z;
+    }
+
+    pub fn toggle_vibration(&mut self) {
+        self.vibration = !self.vibration;
     }
 }
 
