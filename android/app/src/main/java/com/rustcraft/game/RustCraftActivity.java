@@ -52,8 +52,13 @@ public class RustCraftActivity extends Activity implements SurfaceHolder.Callbac
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
 
-        // Apply sticky immersive fullscreen
-        hideSystemUI();
+        surfaceView = new GameSurfaceView(this);
+        surfaceView.getHolder().addCallback(this);
+        surfaceView.setFocusable(true);
+        surfaceView.setFocusableInTouchMode(true);
+        surfaceView.requestFocus();
+
+        setContentView(surfaceView);
 
         // Calculate optimal render resolution matching device aspect ratio
         DisplayMetrics dm = getResources().getDisplayMetrics();
@@ -74,16 +79,14 @@ public class RustCraftActivity extends Activity implements SurfaceHolder.Callbac
             Log.e(TAG, "Failed to initialize RustCraft native engine!");
         }
 
-        surfaceView = new GameSurfaceView(this);
-        surfaceView.getHolder().addCallback(this);
-        surfaceView.setFocusable(true);
-        surfaceView.setFocusableInTouchMode(true);
-        surfaceView.requestFocus();
-
-        setContentView(surfaceView);
+        // Apply sticky immersive fullscreen AFTER decor view is initialized
+        hideSystemUI();
     }
 
     private void hideSystemUI() {
+        if (getWindow() == null || getWindow().peekDecorView() == null) {
+            return;
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             final WindowInsetsController insetsController = getWindow().getInsetsController();
             if (insetsController != null) {
@@ -171,12 +174,18 @@ public class RustCraftActivity extends Activity implements SurfaceHolder.Callbac
     // --- Input Dispatch ---
 
     @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        onTouchEvent(event);
+        return super.dispatchTouchEvent(event);
+    }
+
+    @Override
     public boolean onTouchEvent(MotionEvent event) {
         final int action = event.getActionMasked();
         final int pointerIndex = event.getActionIndex();
         final int pointerId = event.getPointerId(pointerIndex);
-        final float viewW = surfaceView != null ? (float) surfaceView.getWidth() : 960.0f;
-        final float viewH = surfaceView != null ? (float) surfaceView.getHeight() : 540.0f;
+        final float viewW = surfaceView != null && surfaceView.getWidth() > 0 ? (float) surfaceView.getWidth() : (float) getResources().getDisplayMetrics().widthPixels;
+        final float viewH = surfaceView != null && surfaceView.getHeight() > 0 ? (float) surfaceView.getHeight() : (float) getResources().getDisplayMetrics().heightPixels;
 
         if (action == MotionEvent.ACTION_MOVE) {
             // Dispatch move for all active pointers
@@ -270,6 +279,12 @@ public class RustCraftActivity extends Activity implements SurfaceHolder.Callbac
     private class GameSurfaceView extends SurfaceView {
         public GameSurfaceView(Context context) {
             super(context);
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            RustCraftActivity.this.onTouchEvent(event);
+            return true;
         }
 
         @Override

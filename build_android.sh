@@ -138,6 +138,7 @@ fi
 # ----------------------------------------------------------------------------
 echo "==> Compiling native engine (Cargo release build for $TARGET)..."
 export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_CLANG"
+export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
 
 cargo build --release --target "$TARGET" --lib
 
