@@ -165,6 +165,18 @@ impl Renderer {
         Ok(renderer)
     }
 
+    #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
+    pub fn new_opengl(width: usize, height: usize) -> Result<Self, String> {
+        let mut renderer = Self::new(width, height);
+        renderer.vulkan = Some(VulkanContext::new_with_backends(
+            width,
+            height,
+            &renderer.textures,
+            Some(wgpu::Backends::GL),
+        )?);
+        Ok(renderer)
+    }
+
     pub fn backend_name(&self) -> &'static str {
         #[cfg(target_os = "vita")]
         return "vita_gxm";
@@ -173,7 +185,7 @@ impl Renderer {
         #[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
         return "xenon_framebuffer";
         #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
-        if self.vulkan.is_some() { return "vulkan"; }
+        if let Some(vk) = &self.vulkan { return vk.backend_name(); }
         #[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
         "software"
     }

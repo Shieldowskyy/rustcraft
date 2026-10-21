@@ -45,6 +45,7 @@ pub struct VulkanContext {
     instance_buffer: wgpu::Buffer,
     chunk_buffers: HashMap<(i32, i32), GpuChunk>,
     target_view: wgpu::TextureView,
+    linear_depth_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,
     post_pipeline: wgpu::ComputePipeline,
     post_bind_group: wgpu::BindGroup,
@@ -57,6 +58,7 @@ pub struct VulkanContext {
     gpu_name: String,
     driver_info: String,
     backend_version: String,
+    backend: wgpu::Backend,
 }
 
 struct GpuChunk {
@@ -116,8 +118,13 @@ fn world_vertex(input: VertexInput) -> VertexOutput {
     return output;
 }
 
+struct FragmentOutput {
+    @location(0) color: vec4<f32>,
+    @location(1) linear_depth: f32,
+};
+
 @fragment
-fn world_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
+fn world_fragment(input: VertexOutput) -> FragmentOutput {
     let texel = textureSample(textures, texture_sampler, input.uv, i32(input.texture_layer));
     let distance_to_camera = distance(input.world_position, globals.camera_position.xyz);
     var base_rgb = texel.rgb;
@@ -145,7 +152,7 @@ fn world_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
     let fog_col = globals.fog_color.xyz;
     let final_rgb = mix(lit, fog_col, fog_t);
     let alpha = select(1.0, 0.48, input.texture_layer == 8u || input.texture_layer == 19u);
-    return vec4<f32>(final_rgb, alpha);
+    return FragmentOutput(vec4<f32>(final_rgb, alpha), distance_to_camera);
 }
 
 struct SkyOutput {
@@ -165,8 +172,13 @@ fn sky_vertex(@builtin(vertex_index) index: u32) -> SkyOutput {
     return output;
 }
 
+struct SkyFragmentOutput {
+    @location(0) color: vec4<f32>,
+    @location(1) linear_depth: f32,
+};
+
 @fragment
-fn sky_fragment(input: SkyOutput) -> @location(0) vec4<f32> {
+fn sky_fragment(input: SkyOutput) -> SkyFragmentOutput {
     let clip = vec4<f32>(input.ndc.x, input.ndc.y, 1.0, 1.0);
     let world_h = globals.inv_view_proj * clip;
     let world_pos = world_h.xyz / world_h.w;
@@ -208,13 +220,13 @@ fn sky_fragment(input: SkyOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    return vec4<f32>(col, 1.0);
+    return SkyFragmentOutput(vec4<f32>(col, 1.0), bitcast<f32>(0x7F800000u));
 }
 "#;
 
 const POST_PROCESS_SHADER: &str = r#"
 @group(0) @binding(0) var color_tex: texture_2d<f32>;
-@group(0) @binding(1) var depth_tex: texture_depth_2d;
+@group(0) @binding(1) var depth_tex: texture_2d<f32>;
 @group(0) @binding(2) var<storage, read_write> out_color: array<u32>;
 @group(0) @binding(3) var<storage, read_write> out_depth: array<f32>;
 
@@ -232,35 +244,85 @@ fn post_process(@builtin(global_invocation_id) id: vec3<u32>) {
     let b = u32(color.b * 255.0);
     out_color[idx] = (r << 16u) | (g << 8u) | b;
 
-    let d = textureLoad(depth_tex, id.xy, 0);
-    let near_far = 0.05 * 400.0;
-    let far = 400.0;
-    let far_minus_near = 400.0 - 0.05;
-
-    if (d < 1.0) {
-        out_depth[idx] = near_far / (far - d * far_minus_near);
-    } else {
-        out_depth[idx] = bitcast<f32>(0x7F800000u);
-    }
+    let d = textureLoad(depth_tex, id.xy, 0).r;
+    out_depth[idx] = d;
 }
 "#;
 
 impl VulkanContext {
     pub fn new(width: usize, height: usize, atlas: &TextureAtlas) -> Result<Self, String> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN,
-            dx12_shader_compiler: Default::default(),
-            gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
-            flags: wgpu::InstanceFlags::default(),
-        });
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        Self::new_with_backends(width, height, atlas, None)
+    }
+
+    pub fn new_with_backends(
+        width: usize,
+        height: usize,
+        atlas: &TextureAtlas,
+        preferred_backends: Option<wgpu::Backends>,
+    ) -> Result<Self, String> {
+        let requested_backends = if let Some(b) = preferred_backends {
+            b
+        } else if let Ok(val) = std::env::var("WGPU_BACKEND") {
+            match val.to_lowercase().as_str() {
+                "gl" | "opengl" | "gles" => wgpu::Backends::GL,
+                "vulkan" | "vk" => wgpu::Backends::VULKAN,
+                "dx12" => wgpu::Backends::DX12,
+                "metal" => wgpu::Backends::METAL,
+                "primary" => wgpu::Backends::PRIMARY,
+                "all" => wgpu::Backends::all(),
+                _ => wgpu::Backends::PRIMARY | wgpu::Backends::GL,
+            }
+        } else {
+            wgpu::Backends::PRIMARY | wgpu::Backends::GL
+        };
+
+        let create_instance = |b: wgpu::Backends| {
+            wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends: b,
+                dx12_shader_compiler: Default::default(),
+                gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
+                flags: wgpu::InstanceFlags::default(),
+            })
+        };
+
+        let instance = create_instance(requested_backends);
+        let mut adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
-        }))
-        .ok_or_else(|| "no Vulkan adapter found supporting rendering".to_owned())?;
+        }));
+
+        // If auto gave a CPU fallback (e.g. Lavapipe/LLVMpipe under Vulkan on older Intel iGPUs),
+        // try checking if an OpenGL hardware adapter is available.
+        if preferred_backends.is_none()
+            && adapter.as_ref().map(|a| a.get_info().device_type) == Some(wgpu::DeviceType::Cpu)
+        {
+            let gl_instance = create_instance(wgpu::Backends::GL);
+            if let Some(gl_adapter) = pollster::block_on(gl_instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            })) {
+                if gl_adapter.get_info().device_type != wgpu::DeviceType::Cpu {
+                    adapter = Some(gl_adapter);
+                }
+            }
+        }
+
+        // If still no adapter and we haven't tried Backends::all(), give it a final try
+        if adapter.is_none() && requested_backends != wgpu::Backends::all() {
+            let all_instance = create_instance(wgpu::Backends::all());
+            adapter = pollster::block_on(all_instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            }));
+        }
+
+        let adapter = adapter.ok_or_else(|| "no compatible GPU adapter found supporting rendering".to_owned())?;
 
         let adapter_info = adapter.get_info();
+        let backend = adapter_info.backend;
         let gpu_name = adapter_info.name.clone();
         let driver_info = if !adapter_info.driver_info.is_empty() {
             if !adapter_info.driver.is_empty() && !adapter_info.driver_info.contains(&adapter_info.driver) {
@@ -271,19 +333,26 @@ impl VulkanContext {
         } else if !adapter_info.driver.is_empty() {
             adapter_info.driver.clone()
         } else {
-            "Vulkan Driver".to_string()
+            "GPU Driver".to_string()
         };
-        let backend_version = "Vulkan 1.3".to_string();
+        let backend_version = match adapter_info.backend {
+            wgpu::Backend::Vulkan => "Vulkan".to_string(),
+            wgpu::Backend::Gl => "OpenGL / GLES".to_string(),
+            wgpu::Backend::Dx12 => "DirectX 12".to_string(),
+            wgpu::Backend::Metal => "Metal".to_string(),
+            wgpu::Backend::BrowserWebGpu => "WebGPU".to_string(),
+            _ => format!("{:?}", adapter_info.backend),
+        };
 
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
-                label: Some("RustCraft Vulkan device"),
+                label: Some("RustCraft GPU device"),
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
             },
             None,
         ))
-        .map_err(|error| format!("failed to create Vulkan device: {error}"))?;
+        .map_err(|error| format!("failed to create GPU device: {error}"))?;
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("RustCraft world shader"),
@@ -379,7 +448,14 @@ impl VulkanContext {
             label: Some("RustCraft Vulkan world pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState { module: &shader, entry_point: "world_vertex", buffers: &[vertex_layout.clone(), instance_layout.clone()] },
-            fragment: Some(wgpu::FragmentState { module: &shader, entry_point: "world_fragment", targets: &[Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: None, write_mask: wgpu::ColorWrites::ALL })] }),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "world_fragment",
+                targets: &[
+                    Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                    Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::R32Float, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                ],
+            }),
             primitive: wgpu::PrimitiveState { cull_mode: Some(wgpu::Face::Back), ..Default::default() },
             depth_stencil: Some(wgpu::DepthStencilState { format: wgpu::TextureFormat::Depth32Float, depth_write_enabled: true, depth_compare: wgpu::CompareFunction::Less, stencil: Default::default(), bias: Default::default() }),
             multisample: Default::default(),
@@ -390,7 +466,14 @@ impl VulkanContext {
             label: Some("RustCraft transparent pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState { module: &shader, entry_point: "world_vertex", buffers: &[vertex_layout, instance_layout] },
-            fragment: Some(wgpu::FragmentState { module: &shader, entry_point: "world_fragment", targets: &[Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })] }),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "world_fragment",
+                targets: &[
+                    Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL }),
+                    Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::R32Float, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                ],
+            }),
             primitive: wgpu::PrimitiveState { cull_mode: Some(wgpu::Face::Back), ..Default::default() },
             depth_stencil: Some(wgpu::DepthStencilState { format: wgpu::TextureFormat::Depth32Float, depth_write_enabled: false, depth_compare: wgpu::CompareFunction::LessEqual, stencil: Default::default(), bias: Default::default() }),
             multisample: Default::default(),
@@ -401,7 +484,14 @@ impl VulkanContext {
             label: Some("RustCraft Vulkan sky pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState { module: &shader, entry_point: "sky_vertex", buffers: &[] },
-            fragment: Some(wgpu::FragmentState { module: &shader, entry_point: "sky_fragment", targets: &[Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: None, write_mask: wgpu::ColorWrites::ALL })] }),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "sky_fragment",
+                targets: &[
+                    Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                    Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::R32Float, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                ],
+            }),
             primitive: Default::default(),
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
@@ -423,7 +513,7 @@ impl VulkanContext {
             label: Some("RustCraft compute bind layout"),
             entries: &[
                 wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
-                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Depth, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
+                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
                 wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None },
                 wgpu::BindGroupLayoutEntry { binding: 3, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None },
             ],
@@ -442,7 +532,7 @@ impl VulkanContext {
             entry_point: "post_process",
         });
 
-        let (target_view, depth_view, color_ssbo, depth_ssbo, readback, depth_readback) =
+        let (target_view, linear_depth_view, depth_view, color_ssbo, depth_ssbo, readback, depth_readback) =
             Self::create_targets(&device, width as u32, height as u32);
 
         let post_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -450,7 +540,7 @@ impl VulkanContext {
             layout: &post_bind_layout,
             entries: &[
                 wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&target_view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&depth_view) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&linear_depth_view) },
                 wgpu::BindGroupEntry { binding: 2, resource: color_ssbo.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 3, resource: depth_ssbo.as_entire_binding() },
             ],
@@ -475,6 +565,7 @@ impl VulkanContext {
             instance_buffer,
             chunk_buffers: HashMap::new(),
             target_view,
+            linear_depth_view,
             depth_view,
             post_pipeline,
             post_bind_group,
@@ -487,7 +578,19 @@ impl VulkanContext {
             gpu_name,
             driver_info,
             backend_version,
+            backend,
         })
+    }
+
+    #[inline(always)]
+    pub fn backend_name(&self) -> &'static str {
+        match self.backend {
+            wgpu::Backend::Vulkan => "vulkan",
+            wgpu::Backend::Gl => "opengl",
+            wgpu::Backend::Dx12 => "dx12",
+            wgpu::Backend::Metal => "metal",
+            _ => "gpu",
+        }
     }
 
     #[inline(always)]
@@ -503,14 +606,14 @@ impl VulkanContext {
         self.width = width as u32;
         self.height = height as u32;
 
-        let (target_view, depth_view, color_ssbo, depth_ssbo, readback, depth_readback) =
+        let (target_view, linear_depth_view, depth_view, color_ssbo, depth_ssbo, readback, depth_readback) =
             Self::create_targets(&self.device, self.width, self.height);
 
         let post_bind_layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("RustCraft compute bind layout"),
             entries: &[
                 wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
-                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Depth, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
+                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
                 wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None },
                 wgpu::BindGroupLayoutEntry { binding: 3, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None },
             ],
@@ -521,13 +624,14 @@ impl VulkanContext {
             layout: &post_bind_layout,
             entries: &[
                 wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&target_view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&depth_view) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&linear_depth_view) },
                 wgpu::BindGroupEntry { binding: 2, resource: color_ssbo.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 3, resource: depth_ssbo.as_entire_binding() },
             ],
         });
 
         self.target_view = target_view;
+        self.linear_depth_view = linear_depth_view;
         self.depth_view = depth_view;
         self.color_ssbo = color_ssbo;
         self.depth_ssbo = depth_ssbo;
@@ -742,8 +846,26 @@ impl VulkanContext {
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("RustCraft world pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &self.target_view, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store } })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: &self.depth_view, depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }), stencil_ops: None }),
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &self.target_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &self.linear_depth_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color { r: 1e9, g: 0.0, b: 0.0, a: 0.0 }),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                ],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
+                    stencil_ops: None,
+                }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
@@ -979,8 +1101,8 @@ impl VulkanContext {
     fn create_targets(
         device: &wgpu::Device,
         width: u32,
-        height: u32
-    ) -> (wgpu::TextureView, wgpu::TextureView, wgpu::Buffer, wgpu::Buffer, wgpu::Buffer, wgpu::Buffer) {
+        height: u32,
+    ) -> (wgpu::TextureView, wgpu::TextureView, wgpu::TextureView, wgpu::Buffer, wgpu::Buffer, wgpu::Buffer, wgpu::Buffer) {
         let target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("RustCraft color target"),
             size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
@@ -992,6 +1114,17 @@ impl VulkanContext {
             view_formats: &[],
         });
 
+        let linear_depth = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("RustCraft linear depth target"),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
         let depth = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("RustCraft depth target"),
             size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
@@ -999,7 +1132,7 @@ impl VulkanContext {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
 
@@ -1034,9 +1167,10 @@ impl VulkanContext {
         });
 
         let target_view = target.create_view(&Default::default());
+        let linear_depth_view = linear_depth.create_view(&Default::default());
         let depth_view = depth.create_view(&Default::default());
 
-        (target_view, depth_view, color_ssbo, depth_ssbo, readback, depth_readback)
+        (target_view, linear_depth_view, depth_view, color_ssbo, depth_ssbo, readback, depth_readback)
     }
 
     #[inline(always)]

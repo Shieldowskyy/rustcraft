@@ -1,14 +1,20 @@
 //! Command-line argument parsing and random seed generation for RustCraft.
 
-const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan] [--seed NUMBER] [--profiler] [--autotest] [-log] [--server] [--port PORT] [--connect ADDR] [--sentry-dsn DSN] [--no-sentry] [--crash-test]";
+const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan|opengl] [--seed NUMBER] [--profiler] [--autotest] [-log] [--server] [--port PORT] [--connect ADDR] [--sentry-dsn DSN] [--no-sentry] [--crash-test]";
 
 /// Parses command-line arguments to determine the desired rendering backend.
 ///
 /// # Returns
 /// * `"vulkan"` - Hardware-accelerated GPU pipeline via WGPU (default).
+/// * `"opengl"` - Hardware-accelerated GPU pipeline via OpenGL / GLES.
 /// * `"software"` - Multi-threaded CPU software rasterizer.
 pub fn parse_renderer_choice() -> &'static str {
     let args: Vec<String> = std::env::args().collect();
+    parse_renderer_choice_from_args(&args)
+}
+
+/// Internal helper for parsing renderer choice from an argument slice.
+pub fn parse_renderer_choice_from_args(args: &[String]) -> &'static str {
     let mut choice = "vulkan";
     let mut index = 1;
     while index < args.len() {
@@ -18,6 +24,7 @@ pub fn parse_renderer_choice() -> &'static str {
                 choice = match value {
                     "software" => "software",
                     "vulkan" => "vulkan",
+                    "opengl" | "gl" => "opengl",
                     _ => {
                         eprintln!("{USAGE}");
                         std::process::exit(2);
@@ -26,6 +33,7 @@ pub fn parse_renderer_choice() -> &'static str {
                 index += 1;
             }
             "--vulkan" => choice = "vulkan",
+            "--opengl" | "--gl" => choice = "opengl",
             "--software" => choice = "software",
             "--seed" => index += 1,
             "--profiler" => {},
@@ -185,5 +193,18 @@ mod tests {
 
         let test_args_no_prof = vec!["rustcraft".to_string(), "--software".to_string()];
         assert!(!test_args_no_prof.iter().any(|a| a == "--profiler"));
+    }
+
+    #[test]
+    fn test_parse_renderer_choice_options() {
+        assert_eq!(parse_renderer_choice_from_args(&["rustcraft".to_string()]), "vulkan");
+        assert_eq!(parse_renderer_choice_from_args(&["rustcraft".to_string(), "--renderer".to_string(), "software".to_string()]), "software");
+        assert_eq!(parse_renderer_choice_from_args(&["rustcraft".to_string(), "--software".to_string()]), "software");
+        assert_eq!(parse_renderer_choice_from_args(&["rustcraft".to_string(), "--renderer".to_string(), "vulkan".to_string()]), "vulkan");
+        assert_eq!(parse_renderer_choice_from_args(&["rustcraft".to_string(), "--vulkan".to_string()]), "vulkan");
+        assert_eq!(parse_renderer_choice_from_args(&["rustcraft".to_string(), "--renderer".to_string(), "opengl".to_string()]), "opengl");
+        assert_eq!(parse_renderer_choice_from_args(&["rustcraft".to_string(), "--renderer".to_string(), "gl".to_string()]), "opengl");
+        assert_eq!(parse_renderer_choice_from_args(&["rustcraft".to_string(), "--opengl".to_string()]), "opengl");
+        assert_eq!(parse_renderer_choice_from_args(&["rustcraft".to_string(), "--gl".to_string()]), "opengl");
     }
 }
