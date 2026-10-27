@@ -3,7 +3,7 @@
 
 use crate::app::InputState;
 
-pub const ACTION_COUNT: usize = 19;
+pub const ACTION_COUNT: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
@@ -26,6 +26,7 @@ pub enum Action {
     HotbarNext = 16,
     OpenChat = 17,
     OpenCommand = 18,
+    PickBlock = 19,
 }
 
 impl Action {
@@ -49,6 +50,7 @@ impl Action {
         Action::HotbarNext,
         Action::OpenChat,
         Action::OpenCommand,
+        Action::PickBlock,
     ];
 
     pub fn as_str(&self) -> &'static str {
@@ -72,6 +74,7 @@ impl Action {
             Action::HotbarNext => "hotbar_next",
             Action::OpenChat => "open_chat",
             Action::OpenCommand => "open_command",
+            Action::PickBlock => "pick_block",
         }
     }
 
@@ -97,6 +100,7 @@ impl Action {
             "hotbar_next" | "next_slot" => Some(Action::HotbarNext),
             "open_chat" | "chat" => Some(Action::OpenChat),
             "open_command" | "command" | "slash" => Some(Action::OpenCommand),
+            "pick_block" | "pick" => Some(Action::PickBlock),
             _ => None,
         }
     }
@@ -128,6 +132,7 @@ impl Action {
                 Action::HotbarNext => "Następny slot paska",
                 Action::OpenChat => "Otwórz czat",
                 Action::OpenCommand => "Otwórz wiersz poleceń",
+                Action::PickBlock => "Wybierz blok (Pick Block)",
             },
             crate::core::i18n::Language::English => match self {
                 Action::MoveForward => "Move Forward",
@@ -149,6 +154,7 @@ impl Action {
                 Action::HotbarNext => "Next Hotbar Slot",
                 Action::OpenChat => "Open Chat",
                 Action::OpenCommand => "Open Command",
+                Action::PickBlock => "Pick Block",
             },
         }
     }
@@ -158,13 +164,13 @@ impl Action {
             crate::core::i18n::Language::Polish => match self {
                 Action::MoveForward | Action::MoveBackward | Action::StrafeLeft | Action::StrafeRight
                 | Action::Jump | Action::Sneak | Action::Sprint | Action::ToggleFly => "Ruch",
-                Action::AttackBreak | Action::UsePlace | Action::Inventory | Action::DropItem | Action::ToggleGamemode => "Rozgrywka",
+                Action::AttackBreak | Action::UsePlace | Action::PickBlock | Action::Inventory | Action::DropItem | Action::ToggleGamemode => "Rozgrywka",
                 Action::HotbarPrev | Action::HotbarNext | Action::Pause | Action::Save | Action::OpenChat | Action::OpenCommand => "Interfejs",
             },
             crate::core::i18n::Language::English => match self {
                 Action::MoveForward | Action::MoveBackward | Action::StrafeLeft | Action::StrafeRight
                 | Action::Jump | Action::Sneak | Action::Sprint | Action::ToggleFly => "Movement",
-                Action::AttackBreak | Action::UsePlace | Action::Inventory | Action::DropItem | Action::ToggleGamemode => "Gameplay",
+                Action::AttackBreak | Action::UsePlace | Action::PickBlock | Action::Inventory | Action::DropItem | Action::ToggleGamemode => "Gameplay",
                 Action::HotbarPrev | Action::HotbarNext | Action::Pause | Action::Save | Action::OpenChat | Action::OpenCommand => "Interface",
             },
         }
@@ -846,6 +852,11 @@ impl ControlsConfig {
             keys: vec![KeyCode::Slash],
             gamepad: vec![],
             mouse: vec![],
+        };
+        bindings[Action::PickBlock.index()] = ActionBinding {
+            keys: vec![],
+            gamepad: vec![],
+            mouse: vec![MouseInput::Middle],
         };
 
         Self { bindings }

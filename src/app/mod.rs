@@ -59,11 +59,13 @@ pub struct RustCraftApp {
     pub fly_velocity: Vec3,
     pub on_ground: bool,
     pub fly_mode: bool,
+    pub jump_double_tap_timer: f32,
     pub current_eye_offset: f32,
     pub current_player_height: f32,
     pub break_progress: f32,
     pub break_target: Option<IVec3>,
     pub dig_sound_timer: f32,
+    pub creative_break_cooldown: f32,
     pub total_time: f32,
     pub material_timer: f32,
     pub hand_animation: f32,
@@ -153,6 +155,7 @@ pub struct RustCraftApp {
     // Previous input state for edge detection
     prev_left_down: bool,
     prev_right_down: bool,
+    prev_middle_down: bool,
     prev_escape_down: bool,
     prev_p_down: bool,
     prev_e_down: bool,
@@ -317,11 +320,13 @@ impl RustCraftApp {
             fly_velocity: Vec3::zero(),
             on_ground: false,
             fly_mode: false,
+            jump_double_tap_timer: 0.0,
             current_eye_offset: STANDING_EYE_OFFSET,
             current_player_height: STANDING_HEIGHT,
             break_progress: 0.0,
             break_target: None,
             dig_sound_timer: 0.0,
+            creative_break_cooldown: 0.0,
             total_time: 0.0,
             material_timer: 0.0,
             hand_animation: 0.0,
@@ -407,6 +412,7 @@ impl RustCraftApp {
 
             prev_left_down: false,
             prev_right_down: false,
+            prev_middle_down: false,
             prev_escape_down: false,
             prev_p_down: false,
             prev_e_down: false,
@@ -617,6 +623,7 @@ impl RustCraftApp {
 
         self.prev_left_down = left_down;
         self.prev_right_down = right_down;
+        self.prev_middle_down = input.mouse_middle;
         self.prev_escape_down = escape_down;
         self.prev_p_down = p_down;
         self.prev_e_down = e_down;

@@ -329,6 +329,51 @@ impl RecipeBook {
             Gunpowder, Sand,
             Sand, Gunpowder,
         ] => Tnt * 1));
+
+        // --- RustStone Mechanics ---
+        // RustStone Block (3x3: 9 RustStone -> 1 RustStoneBlock)
+        self.add(recipe!(3, 3, [
+            RustStone, RustStone, RustStone,
+            RustStone, RustStone, RustStone,
+            RustStone, RustStone, RustStone,
+        ] => RustStoneBlock * 1));
+
+        // RustStone Block reverse (1x1: 1 RustStoneBlock -> 9 RustStone)
+        self.add(recipe!(RustStoneBlock => RustStone * 9));
+
+        // RustStone Lamp (3x3: Glass or Torch surrounded by RustStone)
+        self.add(recipe!(3, 3, [
+            _,         RustStone, _,
+            RustStone, Glass,     RustStone,
+            _,         RustStone, _,
+        ] => RustStoneLamp * 1));
+        self.add(recipe!(3, 3, [
+            Stone,     RustStone, Stone,
+            RustStone, Torch,     RustStone,
+            Stone,     RustStone, Stone,
+        ] => RustStoneLamp * 1));
+
+        // Lever (1x2: Stick over Stone or Planks)
+        self.add(recipe!(1, 2, [
+            Stick,
+            Stone,
+        ] => Lever * 1));
+        self.add(recipe!(1, 2, [
+            Stick,
+            Planks,
+        ] => Lever * 1));
+
+        // Button (1x1: Stone or Planks)
+        self.add(recipe!(Stone => Button * 1));
+        self.add(recipe!(Planks => Button * 1));
+
+        // Pressure Plate (2x1: 2 Stone or 2 Planks)
+        self.add(recipe!(2, 1, [
+            Stone, Stone,
+        ] => PressurePlate * 1));
+        self.add(recipe!(2, 1, [
+            Planks, Planks,
+        ] => PressurePlate * 1));
     }
 
     pub fn match_grid(&self, grid: &[Option<ItemStack>], grid_w: usize, grid_h: usize) -> Option<ItemStack> {
@@ -730,5 +775,66 @@ mod tests {
             None, Some(ItemStack { block: BlockId::Dirt, count: 1 }),
         ];
         assert_eq!(book.match_grid(&grid, 2, 2), Some(ItemStack { block: BlockId::Sand, count: 4 }));
+    }
+
+    #[test]
+    fn test_ruststone_recipes() {
+        let book = RecipeBook::new();
+
+        // 9x RustStone -> RustStoneBlock
+        let block_grid = [
+            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
+            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
+            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
+            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
+            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
+            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
+            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
+            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
+            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&block_grid, 3, 3),
+            Some(ItemStack { block: BlockId::RustStoneBlock, count: 1 })
+        );
+
+        // 1x RustStoneBlock -> 9x RustStone
+        let decraft_grid = [
+            Some(ItemStack { block: BlockId::RustStoneBlock, count: 1 }), None,
+            None, None,
+        ];
+        assert_eq!(
+            book.match_grid(&decraft_grid, 2, 2),
+            Some(ItemStack { block: BlockId::RustStone, count: 9 })
+        );
+
+        // Lever: Stick over Stone
+        let lever_grid = [
+            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            Some(ItemStack { block: BlockId::Stone, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&lever_grid, 1, 2),
+            Some(ItemStack { block: BlockId::Lever, count: 1 })
+        );
+
+        // Button: 1 Stone
+        let button_grid = [
+            Some(ItemStack { block: BlockId::Stone, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&button_grid, 1, 1),
+            Some(ItemStack { block: BlockId::Button, count: 1 })
+        );
+
+        // Pressure Plate: 2 Stone
+        let plate_grid = [
+            Some(ItemStack { block: BlockId::Stone, count: 1 }),
+            Some(ItemStack { block: BlockId::Stone, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&plate_grid, 2, 1),
+            Some(ItemStack { block: BlockId::PressurePlate, count: 1 })
+        );
     }
 }

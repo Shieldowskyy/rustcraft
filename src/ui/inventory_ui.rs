@@ -72,6 +72,12 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::Farmland,
                 BlockId::FarmlandWet,
                 BlockId::Sapling,
+                BlockId::RustStoneOre,
+                BlockId::RustStoneBlock,
+                BlockId::RustStoneLamp,
+                BlockId::Lever,
+                BlockId::Button,
+                BlockId::PressurePlate,
             ];
             list.extend(crate::engine::modding::get_custom_creative_blocks());
             Box::leak(list.into_boxed_slice())
@@ -137,6 +143,12 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::Tnt,
                 BlockId::Water,
                 BlockId::Lava,
+                BlockId::RustStone,
+                BlockId::RustStoneBlock,
+                BlockId::RustStoneLamp,
+                BlockId::Lever,
+                BlockId::Button,
+                BlockId::PressurePlate,
             ];
             list.extend(crate::engine::modding::get_custom_creative_items());
             Box::leak(list.into_boxed_slice())
@@ -1875,6 +1887,68 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                 for lx in 5..=10 {
                     px(buffer, lx, ry, rung);
                     px(buffer, lx, ry + 1, rung_sh);
+                }
+            }
+        }
+        BlockId::RustStone | BlockId::RustStoneWireLit => {
+            let dark = pack_color(0.45, 0.12, 0.06);
+            let base = pack_color(0.82, 0.26, 0.12);
+            let hi = pack_color(1.00, 0.48, 0.18);
+            let ember = pack_color(1.00, 0.82, 0.40);
+            for ly in 4..=12 {
+                for lx in 4..=12 {
+                    let dist_sq = (lx as f32 - 7.5).powi(2) + (ly as f32 - 7.5).powi(2);
+                    if dist_sq <= 15.0 {
+                        let col = if dist_sq < 3.0 {
+                            ember
+                        } else if (lx + ly) % 3 == 0 {
+                            hi
+                        } else if (lx + ly) % 2 == 0 {
+                            base
+                        } else {
+                            dark
+                        };
+                        px(buffer, lx, ly, col);
+                    }
+                }
+            }
+        }
+        BlockId::Lever | BlockId::LeverOn => {
+            let stone_base = pack_color(0.55, 0.55, 0.58);
+            let stone_sh = pack_color(0.35, 0.35, 0.38);
+            let wood_shaft = pack_color(0.55, 0.35, 0.15);
+            let tip = pack_color(0.80, 0.25, 0.15);
+            for ly in 11..=14 {
+                for lx in 4..=11 {
+                    px(buffer, lx, ly, if ly == 14 { stone_sh } else { stone_base });
+                }
+            }
+            let is_on = block == BlockId::LeverOn;
+            for i in 0..7 {
+                let lx = if is_on { 9 - i / 2 } else { 6 + i / 2 };
+                let ly = 10 - i;
+                px(buffer, lx, ly, if i >= 5 { tip } else { wood_shaft });
+            }
+        }
+        BlockId::Button | BlockId::ButtonPressed => {
+            let hi = pack_color(0.75, 0.75, 0.78);
+            let base = pack_color(0.58, 0.58, 0.60);
+            let sh = pack_color(0.38, 0.38, 0.40);
+            for ly in 6..=10 {
+                for lx in 4..=11 {
+                    let col = if lx == 4 || ly == 6 { hi } else if lx == 11 || ly == 10 { sh } else { base };
+                    px(buffer, lx, ly, col);
+                }
+            }
+        }
+        BlockId::PressurePlate | BlockId::PressurePlatePressed => {
+            let border = pack_color(0.40, 0.40, 0.42);
+            let base = pack_color(0.60, 0.60, 0.62);
+            let hi = pack_color(0.75, 0.75, 0.78);
+            for ly in 10..=13 {
+                for lx in 2..=13 {
+                    let col = if ly == 10 { hi } else if ly == 13 || lx == 2 || lx == 13 { border } else { base };
+                    px(buffer, lx, ly, col);
                 }
             }
         }

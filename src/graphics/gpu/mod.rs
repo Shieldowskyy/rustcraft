@@ -6,7 +6,7 @@ use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId, TEX_SIZE};
 use crate::world::mesher::Triangle;
 
-pub const TEXTURE_LAYER_COUNT: u32 = 135 + 64;
+pub const TEXTURE_LAYER_COUNT: u32 = 145 + 64;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -729,6 +729,11 @@ impl VulkanContext {
                                 | TextureId::DoorTop
                                 | TextureId::Torch
                                 | TextureId::Ladder
+                                | TextureId::RustStoneWire
+                                | TextureId::RustStoneWireLit
+                                | TextureId::Lever
+                                | TextureId::Button
+                                | TextureId::PressurePlate
                         );
                         let dest = if is_trans {
                             &mut trans
@@ -1468,9 +1473,19 @@ impl VulkanContext {
             TextureId::BakedPotato => 132,
             TextureId::Sapling => 133,
             TextureId::BoneMeal => 134,
+            TextureId::RustStoneOre => 135,
+            TextureId::RustStone => 136,
+            TextureId::RustStoneWire => 137,
+            TextureId::RustStoneWireLit => 138,
+            TextureId::RustStoneBlock => 139,
+            TextureId::RustStoneLamp => 140,
+            TextureId::RustStoneLampLit => 141,
+            TextureId::Lever => 142,
+            TextureId::Button => 143,
+            TextureId::PressurePlate => 144,
             TextureId::Custom(idx) => {
                 let clamped = if (idx as u32) > 63 { 63 } else { idx as u32 };
-                135 + clamped
+                145 + clamped
             }
         }
     }
@@ -1612,7 +1627,17 @@ impl VulkanContext {
             132 => TextureId::BakedPotato,
             133 => TextureId::Sapling,
             134 => TextureId::BoneMeal,
-            l if l >= 135 && l < 135 + 64 => TextureId::Custom((l - 135) as u8),
+            135 => TextureId::RustStoneOre,
+            136 => TextureId::RustStone,
+            137 => TextureId::RustStoneWire,
+            138 => TextureId::RustStoneWireLit,
+            139 => TextureId::RustStoneBlock,
+            140 => TextureId::RustStoneLamp,
+            141 => TextureId::RustStoneLampLit,
+            142 => TextureId::Lever,
+            143 => TextureId::Button,
+            144 => TextureId::PressurePlate,
+            l if l >= 145 && l < 145 + 64 => TextureId::Custom((l - 145) as u8),
             _ => TextureId::CraftingTableFront,
         }
     }

@@ -220,6 +220,17 @@ impl<'a> ChunkNeighborCache<'a> {
                 });
             }
         }
+        for (&pos, &(radius, intensity)) in &world.ruststone_lights {
+            let dx = (pos.x - (base_x + 8)).abs();
+            let dz = (pos.z - (base_z + 8)).abs();
+            if dx <= 24 && dz <= 24 {
+                lights.push(LightSource {
+                    pos,
+                    radius,
+                    intensity,
+                });
+            }
+        }
 
         let mut cache = Self {
             center_blocks: chunk.blocks.as_slice(),
@@ -512,6 +523,22 @@ pub fn build_subchunk_mesh_internal(
                     emit_ladder(&mut solid_tris, wx, wy, wz, cache);
                     continue;
                 }
+                if block == BlockId::RustStone || block == BlockId::RustStoneWireLit {
+                    emit_ruststone_wire(&mut solid_tris, wx, wy, wz, block == BlockId::RustStoneWireLit, cache);
+                    continue;
+                }
+                if block == BlockId::Lever || block == BlockId::LeverOn {
+                    emit_lever(&mut solid_tris, wx, wy, wz, block == BlockId::LeverOn, cache);
+                    continue;
+                }
+                if block == BlockId::Button || block == BlockId::ButtonPressed {
+                    emit_button(&mut solid_tris, wx, wy, wz, block == BlockId::ButtonPressed, cache);
+                    continue;
+                }
+                if block == BlockId::PressurePlate || block == BlockId::PressurePlatePressed {
+                    emit_pressure_plate(&mut solid_tris, wx, wy, wz, block == BlockId::PressurePlatePressed, cache);
+                    continue;
+                }
 
                 let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
                 let is_trans = matches!(block, BlockId::Water | BlockId::Glass);
@@ -660,6 +687,22 @@ pub fn build_chunk_mesh_from_job(job: &ChunkMeshJob) -> Vec<Triangle> {
                         }
                         if block == BlockId::Ladder {
                             emit_ladder(&mut sub_solid, wx, wy, wz, &cache);
+                            continue;
+                        }
+                        if block == BlockId::RustStone || block == BlockId::RustStoneWireLit {
+                            emit_ruststone_wire(&mut sub_solid, wx, wy, wz, block == BlockId::RustStoneWireLit, &cache);
+                            continue;
+                        }
+                        if block == BlockId::Lever || block == BlockId::LeverOn {
+                            emit_lever(&mut sub_solid, wx, wy, wz, block == BlockId::LeverOn, &cache);
+                            continue;
+                        }
+                        if block == BlockId::Button || block == BlockId::ButtonPressed {
+                            emit_button(&mut sub_solid, wx, wy, wz, block == BlockId::ButtonPressed, &cache);
+                            continue;
+                        }
+                        if block == BlockId::PressurePlate || block == BlockId::PressurePlatePressed {
+                            emit_pressure_plate(&mut sub_solid, wx, wy, wz, block == BlockId::PressurePlatePressed, &cache);
                             continue;
                         }
 
@@ -1091,6 +1134,108 @@ fn emit_ladder(
         let x_pos = x + 0.95;
         quad(Vec3::new(x_pos, y, z + 1.0), Vec3::new(x_pos, y, z), Vec3::new(x_pos, y + 1.0, z), Vec3::new(x_pos, y + 1.0, z + 1.0), 0.90);
     }
+}
+
+fn emit_ruststone_wire(
+    tris: &mut Vec<Triangle>,
+    wx: i32, wy: i32, wz: i32,
+    is_lit: bool,
+    cache: &ChunkNeighborCache,
+) {
+    let lx = wx - cache.base_x;
+    let lz = wz - cache.base_z;
+    let sky = cache.sample_sky_light(lx, wy, lz);
+    let raw_bl = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.1, wz as f32 + 0.5);
+    let block_l = if is_lit { (raw_bl + 0.6).min(1.0) } else { raw_bl };
+    let tex = if is_lit { TextureId::RustStoneWireLit } else { TextureId::RustStoneWire };
+
+    let y = wy as f32 + 0.02;
+    let x0 = wx as f32;
+    let x1 = wx as f32 + 1.0;
+    let z0 = wz as f32;
+    let z1 = wz as f32 + 1.0;
+
+    let va = Vertex { pos: Vec3::new(x0, y, z0), uv: (0.0, 1.0), ao: 1.0, sky_light: sky, block_light: block_l };
+    let vb = Vertex { pos: Vec3::new(x0, y, z1), uv: (0.0, 0.0), ao: 1.0, sky_light: sky, block_light: block_l };
+    let vc = Vertex { pos: Vec3::new(x1, y, z1), uv: (1.0, 0.0), ao: 1.0, sky_light: sky, block_light: block_l };
+    let vd = Vertex { pos: Vec3::new(x1, y, z0), uv: (1.0, 1.0), ao: 1.0, sky_light: sky, block_light: block_l };
+    tris.push(Triangle { v0: va, v1: vb, v2: vc, texture: tex });
+    tris.push(Triangle { v0: va, v1: vc, v2: vd, texture: tex });
+}
+
+fn emit_lever(
+    tris: &mut Vec<Triangle>,
+    wx: i32, wy: i32, wz: i32,
+    is_on: bool,
+    cache: &ChunkNeighborCache,
+) {
+    let lx = wx - cache.base_x;
+    let lz = wz - cache.base_z;
+    let sky = cache.sample_sky_light(lx, wy, lz);
+    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.25, wz as f32 + 0.5);
+    let tex = TextureId::Lever;
+
+    emit_box(
+        tris,
+        wx as f32 + 0.3125, wy as f32, wz as f32 + 0.375,
+        wx as f32 + 0.6875, wy as f32 + 0.125, wz as f32 + 0.625,
+        tex, tex, tex, sky, block_l,
+    );
+    if !is_on {
+        emit_box(
+            tris,
+            wx as f32 + 0.4375, wy as f32 + 0.125, wz as f32 + 0.4375,
+            wx as f32 + 0.5625, wy as f32 + 0.55, wz as f32 + 0.5625,
+            tex, tex, tex, sky, block_l,
+        );
+    } else {
+        emit_box(
+            tris,
+            wx as f32 + 0.4375, wy as f32 + 0.125, wz as f32 + 0.375,
+            wx as f32 + 0.625, wy as f32 + 0.38, wz as f32 + 0.50,
+            tex, tex, tex, sky, block_l,
+        );
+    }
+}
+
+fn emit_button(
+    tris: &mut Vec<Triangle>,
+    wx: i32, wy: i32, wz: i32,
+    is_pressed: bool,
+    cache: &ChunkNeighborCache,
+) {
+    let lx = wx - cache.base_x;
+    let lz = wz - cache.base_z;
+    let sky = cache.sample_sky_light(lx, wy, lz);
+    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.1, wz as f32 + 0.5);
+    let tex = TextureId::Button;
+    let h = if is_pressed { 0.04 } else { 0.12 };
+    emit_box(
+        tris,
+        wx as f32 + 0.35, wy as f32, wz as f32 + 0.35,
+        wx as f32 + 0.65, wy as f32 + h, wz as f32 + 0.65,
+        tex, tex, tex, sky, block_l,
+    );
+}
+
+fn emit_pressure_plate(
+    tris: &mut Vec<Triangle>,
+    wx: i32, wy: i32, wz: i32,
+    is_pressed: bool,
+    cache: &ChunkNeighborCache,
+) {
+    let lx = wx - cache.base_x;
+    let lz = wz - cache.base_z;
+    let sky = cache.sample_sky_light(lx, wy, lz);
+    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.1, wz as f32 + 0.5);
+    let tex = TextureId::PressurePlate;
+    let h = if is_pressed { 0.025 } else { 0.0625 };
+    emit_box(
+        tris,
+        wx as f32 + 0.0625, wy as f32, wz as f32 + 0.0625,
+        wx as f32 + 0.9375, wy as f32 + h, wz as f32 + 0.9375,
+        tex, tex, tex, sky, block_l,
+    );
 }
 
 #[inline(always)]

@@ -773,10 +773,10 @@ impl ModManager {
         is_item_only: bool,
         reg: &mut ModRegistry,
     ) -> Result<(), String> {
-        // ID range for custom blocks/items: 100..=254
-        let id_raw = obj.get("id").and_then(|v| v.as_u8()).ok_or("block/item requires 'id' (100-255)")?;
-        if id_raw < 100 {
-            return Err(format!("Mod block/item ID {} conflicts with vanilla IDs (0-99). Use 100..255.", id_raw));
+        // ID range for custom blocks/items: 120..=254
+        let id_raw = obj.get("id").and_then(|v| v.as_u8()).ok_or("block/item requires 'id' (120-255)")?;
+        if id_raw < 120 {
+            return Err(format!("Mod block/item ID {} conflicts with vanilla IDs (0-119). Use 120..255.", id_raw));
         }
 
         let identifier = obj.get("identifier").and_then(|v| v.as_str()).ok_or("requires 'identifier'")?.to_string();
@@ -823,7 +823,7 @@ impl ModManager {
             [avg_color[0] * 0.8, avg_color[1] * 0.8, avg_color[2] * 0.8],
         ];
 
-        let custom_tex_idx = (id_raw - 100) as u8;
+        let custom_tex_idx = (id_raw - 120) as u8;
         let texture_id = TextureId::Custom(custom_tex_idx);
 
         // Optional drop definition
@@ -1485,7 +1485,7 @@ mod tests {
             "name": "Test Mod",
             "blocks": [
                 {
-                    "id": 110,
+                    "id": 212,
                     "identifier": "test_ruby_ore",
                     "name": "Ruby Ore",
                     "solid": true,
@@ -1498,7 +1498,7 @@ mod tests {
             ],
             "items": [
                 {
-                    "id": 111,
+                    "id": 213,
                     "identifier": "test_ruby",
                     "name": "Ruby Gem",
                     "is_food": false
@@ -1513,12 +1513,12 @@ mod tests {
         let manifest = ModManager::parse_and_register_mod(json, Path::new("mods/test"), &mut book).unwrap();
         assert_eq!(manifest.id, "test_mod");
 
-        assert_eq!(find_custom_block_by_name("test_ruby_ore"), Some(BlockId::Custom(110)));
-        assert_eq!(find_custom_block_by_name("test_ruby"), Some(BlockId::Custom(111)));
-        assert_eq!(get_custom_name(110), "Ruby Ore");
-        assert_eq!(get_custom_name(111), "Ruby Gem");
-        assert!(is_custom_solid(110));
-        assert_eq!(get_custom_smelting(BlockId::Custom(110)), Some(BlockId::Custom(111)));
+        assert_eq!(find_custom_block_by_name("test_ruby_ore"), Some(BlockId::Custom(212)));
+        assert_eq!(find_custom_block_by_name("test_ruby"), Some(BlockId::Custom(213)));
+        assert_eq!(get_custom_name(212), "Ruby Ore");
+        assert_eq!(get_custom_name(213), "Ruby Gem");
+        assert!(is_custom_solid(212));
+        assert_eq!(get_custom_smelting(BlockId::Custom(212)), Some(BlockId::Custom(213)));
     }
 
     #[test]
@@ -1528,7 +1528,7 @@ mod tests {
             "name": "Network Sync Mod",
             "blocks": [
                 {
-                    "id": 115,
+                    "id": 214,
                     "identifier": "net_block",
                     "name": "Network Block"
                 }
@@ -1541,7 +1541,7 @@ mod tests {
 
         let active_files = ModManager::get_active_mod_files();
         assert!(active_files.iter().any(|m| m.mod_id == "net_mod" && m.content.contains("Network Block")));
-        assert_eq!(find_custom_block_by_name("net_block"), Some(BlockId::Custom(115)));
+        assert_eq!(find_custom_block_by_name("net_block"), Some(BlockId::Custom(214)));
     }
 
     #[test]
@@ -1551,7 +1551,7 @@ mod tests {
             "name": "Food Mod",
             "items": [
                 {
-                    "id": 119,
+                    "id": 129,
                     "identifier": "super_pie",
                     "name": "Super Pie",
                     "is_food": true,
@@ -1563,8 +1563,8 @@ mod tests {
         let mut book = RecipeBook::new();
         let _ = ModManager::register_mod_from_str(json, Path::new("mods/food"), &mut book).unwrap();
 
-        assert!(is_custom_food(119));
-        assert_eq!(get_custom_nutrition(119), Some((8.0, 5.0)));
+        assert!(is_custom_food(129));
+        assert_eq!(get_custom_nutrition(129), Some((8.0, 5.0)));
     }
 
     #[test]
@@ -1573,10 +1573,10 @@ mod tests {
             "id": "craft_mod",
             "name": "Craft Mod",
             "blocks": [
-                { "id": 100, "identifier": "craft_block", "name": "Craft Block" }
+                { "id": 220, "identifier": "craft_block", "name": "Craft Block" }
             ],
             "items": [
-                { "id": 101, "identifier": "craft_gem", "name": "Craft Gem" }
+                { "id": 221, "identifier": "craft_gem", "name": "Craft Gem" }
             ],
             "recipes": [
                 {
@@ -1595,7 +1595,7 @@ mod tests {
         let _ = ModManager::register_mod_from_str(json, Path::new("mods/craft"), &mut book).unwrap();
 
         let gem_item = Some(crate::gameplay::inventory::ItemStack {
-            block: BlockId::Custom(101),
+            block: BlockId::Custom(221),
             count: 1,
         });
 
@@ -1603,7 +1603,7 @@ mod tests {
         let result = book.match_grid(&grid_2x2, 2, 2);
         assert!(result.is_some());
         let res_stack = result.unwrap();
-        assert_eq!(res_stack.block, BlockId::Custom(100));
+        assert_eq!(res_stack.block, BlockId::Custom(220));
         assert_eq!(res_stack.count, 1);
     }
 
@@ -1614,14 +1614,14 @@ mod tests {
             "name": "Loot Mod",
             "blocks": [
                 {
-                    "id": 105,
+                    "id": 225,
                     "identifier": "crystal_ore",
                     "name": "Crystal Ore",
                     "drops": { "item": "crystal_shard", "count": 2 }
                 }
             ],
             "items": [
-                { "id": 106, "identifier": "crystal_shard", "name": "Crystal Shard" }
+                { "id": 226, "identifier": "crystal_shard", "name": "Crystal Shard" }
             ],
             "loot": [
                 { "target": "zombie", "item": "crystal_shard", "count": 3, "chance": 1.0 }
@@ -1632,12 +1632,12 @@ mod tests {
         let _ = ModManager::register_mod_from_str(json, Path::new("mods/loot"), &mut book).unwrap();
 
         // Custom block break drop
-        let drop = get_custom_block_drop(BlockId::Custom(105));
-        assert_eq!(drop, Some((BlockId::Custom(106), 2)));
+        let drop = get_custom_block_drop(BlockId::Custom(225));
+        assert_eq!(drop, Some((BlockId::Custom(226), 2)));
 
         // Mob loot
         let mob_drops = get_custom_mob_drops("zombie");
-        assert!(mob_drops.iter().any(|&(b, count)| b == BlockId::Custom(106) && count == 3));
+        assert!(mob_drops.iter().any(|&(b, count)| b == BlockId::Custom(226) && count == 3));
     }
 
     #[test]

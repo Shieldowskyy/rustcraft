@@ -491,6 +491,8 @@ impl Chunk {
                             BlockId::IronOre
                         } else if ore_h % 127 == 0 && y < 20 {
                             BlockId::GoldOre
+                        } else if ore_h % 79 == 0 && y < 24 {
+                            BlockId::RustStoneOre
                         } else {
                             match (y / 2) % 4 {
                                 0 => BlockId::Sand,
@@ -507,6 +509,8 @@ impl Chunk {
                             BlockId::IronOre
                         } else if ore_h % 127 == 0 && y < 20 {
                             BlockId::GoldOre
+                        } else if ore_h % 79 == 0 && y < 24 {
+                            BlockId::RustStoneOre
                         } else if ore_h % 199 == 0 && y < 14 {
                             BlockId::DiamondOre
                         } else {
@@ -1632,6 +1636,10 @@ pub struct World {
     pub sim_tick: u64,
     pub time_of_day: f32,
     pub torches: HashSet<IVec3>,
+    pub ruststone_lights: HashMap<IVec3, (f32, f32)>,
+    pub button_timers: HashMap<IVec3, f32>,
+    pub active_pressure_plates: HashSet<IVec3>,
+    pub ruststone_sound_events: Vec<(IVec3, bool)>,
     pub pending_explosions: Vec<Vec3>,
     pub primed_tnts: Vec<PrimedTnt>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -1813,6 +1821,28 @@ impl World {
         }
         crate::log_info!("WORLD", "Pregeneration completed ({} chunks loaded in memory)", chunks.len());
 
+        let mut ruststone_lights = HashMap::new();
+        for chunk in chunks.values() {
+            for ly in 0..CHUNK_SIZE_Y {
+                for lz in 0..CHUNK_SIZE_Z {
+                    for lx in 0..CHUNK_SIZE_X {
+                        let b = chunk.get_local(lx, ly, lz);
+                        if matches!(b, BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLampLit | BlockId::RustStoneWireLit) {
+                            let wx = chunk.cx * CHUNK_SIZE_X + lx;
+                            let wz = chunk.cz * CHUNK_SIZE_Z + lz;
+                            let rad_int = match b {
+                                BlockId::RustStoneOre => (8.0, 0.75),
+                                BlockId::RustStoneBlock => (9.0, 0.8),
+                                BlockId::RustStoneLampLit => (14.0, 1.0),
+                                _ => (7.0, 0.65),
+                            };
+                            ruststone_lights.insert(IVec3::new(wx, ly, wz), rad_int);
+                        }
+                    }
+                }
+            }
+        }
+
         World {
             name: "New World".to_string(),
             gamemode: crate::gameplay::player::GameMode::Survival,
@@ -1827,6 +1857,10 @@ impl World {
             sim_tick: 0,
             time_of_day: 120.0, // Start around 9:00 AM bright daylight
             torches: HashSet::new(),
+            ruststone_lights,
+            button_timers: HashMap::new(),
+            active_pressure_plates: HashSet::new(),
+            ruststone_sound_events: Vec::new(),
             pending_explosions: Vec::new(),
             primed_tnts: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -2354,6 +2388,24 @@ impl World {
                 self.torches.remove(&pos);
             }
 
+            if block == BlockId::RustStoneOre {
+                self.ruststone_lights.insert(pos, (8.0, 0.75));
+            } else if block == BlockId::RustStoneBlock {
+                self.ruststone_lights.insert(pos, (9.0, 0.8));
+            } else if block == BlockId::RustStoneLampLit {
+                self.ruststone_lights.insert(pos, (14.0, 1.0));
+            } else if block == BlockId::RustStoneWireLit {
+                self.ruststone_lights.insert(pos, (7.0, 0.65));
+            } else {
+                self.ruststone_lights.remove(&pos);
+            }
+
+            if block == BlockId::PressurePlatePressed {
+                self.active_pressure_plates.insert(pos);
+            } else {
+                self.active_pressure_plates.remove(&pos);
+            }
+
             if block == BlockId::Chest {
                 self.chests.entry(pos).or_insert_with(ChestData::new);
             } else {
@@ -2403,6 +2455,234 @@ impl World {
                 velocity: Vec3::new(0.0, 2.0, 0.0),
                 fuse: 3.5,
             });
+        }
+    }
+
+    pub fn index_chunk_lights(&mut self, chunk: &Chunk) {
+        for ly in 0..CHUNK_SIZE_Y {
+            for lz in 0..CHUNK_SIZE_Z {
+                for lx in 0..CHUNK_SIZE_X {
+                    let b = chunk.get_local(lx, ly, lz);
+                    if matches!(b, BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLampLit | BlockId::RustStoneWireLit) {
+                        let wx = chunk.cx * CHUNK_SIZE_X + lx;
+                        let wz = chunk.cz * CHUNK_SIZE_Z + lz;
+                        let rad_int = match b {
+                            BlockId::RustStoneOre => (8.0, 0.75),
+                            BlockId::RustStoneBlock => (9.0, 0.8),
+                            BlockId::RustStoneLampLit => (14.0, 1.0),
+                            _ => (7.0, 0.65),
+                        };
+                        self.ruststone_lights.insert(IVec3::new(wx, ly, wz), rad_int);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn update_ruststone_network(&mut self, center: IVec3, range: i32) {
+        use std::collections::VecDeque;
+
+        let mut sources = Vec::new();
+        let mut wires = HashSet::new();
+        let mut lamps = HashSet::new();
+        let mut doors = HashSet::new();
+        let mut tnts = Vec::new();
+
+        for dy in -range..=range {
+            for dz in -range..=range {
+                for dx in -range..=range {
+                    let pos = center + IVec3::new(dx, dy, dz);
+                    let block = self.get_block(pos);
+                    match block {
+                        BlockId::RustStoneBlock
+                        | BlockId::LeverOn
+                        | BlockId::ButtonPressed
+                        | BlockId::PressurePlatePressed => {
+                            sources.push(pos);
+                        }
+                        BlockId::RustStone | BlockId::RustStoneWireLit => {
+                            wires.insert(pos);
+                        }
+                        BlockId::RustStoneLamp | BlockId::RustStoneLampLit => {
+                            lamps.insert(pos);
+                        }
+                        BlockId::Door | BlockId::DoorOpen => {
+                            doors.insert(pos);
+                        }
+                        BlockId::Tnt => {
+                            tnts.push(pos);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        let mut wire_power: HashMap<IVec3, u8> = HashMap::new();
+        let mut powered_lamps: HashSet<IVec3> = HashSet::new();
+        let mut powered_doors: HashSet<IVec3> = HashSet::new();
+        let mut tnts_to_ignite: Vec<IVec3> = Vec::new();
+
+        let mut queue = VecDeque::new();
+
+        let neighbors = [
+            IVec3::new(1, 0, 0),
+            IVec3::new(-1, 0, 0),
+            IVec3::new(0, 1, 0),
+            IVec3::new(0, -1, 0),
+            IVec3::new(0, 0, 1),
+            IVec3::new(0, 0, -1),
+        ];
+
+        // 1. Direct power from active power sources
+        for s_pos in sources {
+            for &n_off in &neighbors {
+                let n_pos = s_pos + n_off;
+                if wires.contains(&n_pos) {
+                    if wire_power.get(&n_pos).copied().unwrap_or(0) < 15 {
+                        wire_power.insert(n_pos, 15);
+                        queue.push_back((n_pos, 15));
+                    }
+                }
+                if lamps.contains(&n_pos) {
+                    powered_lamps.insert(n_pos);
+                }
+                if doors.contains(&n_pos) {
+                    powered_doors.insert(n_pos);
+                }
+                if tnts.contains(&n_pos) {
+                    tnts_to_ignite.push(n_pos);
+                }
+            }
+        }
+
+        // 2. Propagate power through wires
+        while let Some((w_pos, pwr)) = queue.pop_front() {
+            for &n_off in &neighbors {
+                let n_pos = w_pos + n_off;
+                if lamps.contains(&n_pos) {
+                    powered_lamps.insert(n_pos);
+                }
+                if doors.contains(&n_pos) {
+                    powered_doors.insert(n_pos);
+                }
+                if tnts.contains(&n_pos) {
+                    tnts_to_ignite.push(n_pos);
+                }
+                if pwr > 1 && wires.contains(&n_pos) {
+                    let next_pwr = pwr - 1;
+                    if wire_power.get(&n_pos).copied().unwrap_or(0) < next_pwr {
+                        wire_power.insert(n_pos, next_pwr);
+                        queue.push_back((n_pos, next_pwr));
+                    }
+                }
+            }
+        }
+
+        // 3. Ignite any TNT powered by circuit
+        for tnt_pos in tnts_to_ignite {
+            self.prime_tnt(tnt_pos);
+        }
+
+        // 4. Update wires
+        for w_pos in wires {
+            let pwr = wire_power.get(&w_pos).copied().unwrap_or(0);
+            let cur = self.get_block(w_pos);
+            if pwr > 0 && cur == BlockId::RustStone {
+                self.set_block(w_pos, BlockId::RustStoneWireLit);
+            } else if pwr == 0 && cur == BlockId::RustStoneWireLit {
+                self.set_block(w_pos, BlockId::RustStone);
+            }
+        }
+
+        // 5. Update lamps
+        for l_pos in lamps {
+            let is_pw = powered_lamps.contains(&l_pos);
+            let cur = self.get_block(l_pos);
+            if is_pw && cur == BlockId::RustStoneLamp {
+                self.set_block(l_pos, BlockId::RustStoneLampLit);
+            } else if !is_pw && cur == BlockId::RustStoneLampLit {
+                self.set_block(l_pos, BlockId::RustStoneLamp);
+            }
+        }
+
+        // 6. Update doors
+        for d_pos in doors {
+            let is_pw = powered_doors.contains(&d_pos);
+            let cur = self.get_block(d_pos);
+            if is_pw && cur == BlockId::Door {
+                self.set_block(d_pos, BlockId::DoorOpen);
+                self.ruststone_sound_events.push((d_pos, true));
+            } else if !is_pw && cur == BlockId::DoorOpen {
+                self.set_block(d_pos, BlockId::Door);
+                self.ruststone_sound_events.push((d_pos, false));
+            }
+        }
+    }
+
+    pub fn update_ruststone(&mut self, dt: f32, player_pos: Vec3, mob_positions: &[Vec3]) {
+        // 1. Decrement button timers
+        let mut expired = Vec::new();
+        for (&pos, timer) in self.button_timers.iter_mut() {
+            *timer -= dt;
+            if *timer <= 0.0 {
+                expired.push(pos);
+            }
+        }
+        for pos in expired {
+            self.button_timers.remove(&pos);
+            if self.get_block(pos) == BlockId::ButtonPressed {
+                self.set_block(pos, BlockId::Button);
+                self.ruststone_sound_events.push((pos, false));
+                self.update_ruststone_network(pos, 16);
+            }
+        }
+
+        // 2. Scan pressure plates
+        let px = player_pos.x.floor() as i32;
+        let py = player_pos.y.floor() as i32;
+        let pz = player_pos.z.floor() as i32;
+
+        let is_entity_on_plate = |pos: IVec3, ent: Vec3| -> bool {
+            let ex = ent.x.floor() as i32;
+            let ey = ent.y.floor() as i32;
+            let ez = ent.z.floor() as i32;
+            let ey_below = (ent.y - 0.2).floor() as i32;
+            ex == pos.x && ez == pos.z && (ey == pos.y || ey_below == pos.y)
+        };
+
+        let mut changed_plates = Vec::new();
+
+        // Check already active plates to see if entities walked off
+        for &plate_pos in &self.active_pressure_plates {
+            let entity_on = is_entity_on_plate(plate_pos, player_pos)
+                || mob_positions.iter().any(|&m| is_entity_on_plate(plate_pos, m));
+            if !entity_on && self.get_block(plate_pos) == BlockId::PressurePlatePressed {
+                changed_plates.push((plate_pos, BlockId::PressurePlate, false));
+            }
+        }
+
+        // Check nearby plates to see if entities walked onto them
+        for dy in -3..=3 {
+            for dz in -12..=12 {
+                for dx in -12..=12 {
+                    let test_pos = IVec3::new(px + dx, py + dy, pz + dz);
+                    let block = self.get_block(test_pos);
+                    if block == BlockId::PressurePlate {
+                        let entity_on = is_entity_on_plate(test_pos, player_pos)
+                            || mob_positions.iter().any(|&m| is_entity_on_plate(test_pos, m));
+                        if entity_on {
+                            changed_plates.push((test_pos, BlockId::PressurePlatePressed, true));
+                        }
+                    }
+                }
+            }
+        }
+
+        for (pos, new_block, is_pressed) in changed_plates {
+            self.set_block(pos, new_block);
+            self.ruststone_sound_events.push((pos, is_pressed));
+            self.update_ruststone_network(pos, 16);
         }
     }
 
@@ -2582,6 +2862,17 @@ impl World {
                 });
             }
         }
+        for (&pos, &(radius, intensity)) in &self.ruststone_lights {
+            let dx = (pos.x - (base_x + 8)).abs();
+            let dz = (pos.z - (base_z + 8)).abs();
+            if dx <= 24 && dz <= 24 {
+                lights.push(LightSource {
+                    pos,
+                    radius,
+                    intensity,
+                });
+            }
+        }
 
         Some(ChunkMeshJob {
             key,
@@ -2616,22 +2907,29 @@ impl World {
 
         // Drain chunks generated asynchronously in the background threads
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(rx_mutex) = &self.chunk_res_rx {
-            if let Ok(rx) = rx_mutex.lock() {
-                while let Ok(chunk) = rx.try_recv() {
-                    let cx = chunk.cx;
-                    let cz = chunk.cz;
-                    self.pending_chunks.remove(&(cx, cz));
-                    let ddx = cx - pcx;
-                    let ddz = cz - pcz;
-                    if ddx * ddx + ddz * ddz <= unload_dist_sq {
-                        self.chunks.insert((cx, cz), chunk);
-                        crate::log_debug!("CHUNK", "Integrated chunk ({}, {}) into active world (loaded: {})", cx, cz, self.chunks.len());
-                        if let Some(n) = self.chunks.get_mut(&(cx + 1, cz)) { n.dirty = true; }
-                        if let Some(n) = self.chunks.get_mut(&(cx - 1, cz)) { n.dirty = true; }
-                        if let Some(n) = self.chunks.get_mut(&(cx, cz + 1)) { n.dirty = true; }
-                        if let Some(n) = self.chunks.get_mut(&(cx, cz - 1)) { n.dirty = true; }
+        {
+            let mut received_chunks = Vec::new();
+            if let Some(rx_mutex) = &self.chunk_res_rx {
+                if let Ok(rx) = rx_mutex.lock() {
+                    while let Ok(chunk) = rx.try_recv() {
+                        received_chunks.push(chunk);
                     }
+                }
+            }
+            for chunk in received_chunks {
+                let cx = chunk.cx;
+                let cz = chunk.cz;
+                self.pending_chunks.remove(&(cx, cz));
+                let ddx = cx - pcx;
+                let ddz = cz - pcz;
+                if ddx * ddx + ddz * ddz <= unload_dist_sq {
+                    self.index_chunk_lights(&chunk);
+                    self.chunks.insert((cx, cz), chunk);
+                    crate::log_debug!("CHUNK", "Integrated chunk ({}, {}) into active world (loaded: {})", cx, cz, self.chunks.len());
+                    if let Some(n) = self.chunks.get_mut(&(cx + 1, cz)) { n.dirty = true; }
+                    if let Some(n) = self.chunks.get_mut(&(cx - 1, cz)) { n.dirty = true; }
+                    if let Some(n) = self.chunks.get_mut(&(cx, cz + 1)) { n.dirty = true; }
+                    if let Some(n) = self.chunks.get_mut(&(cx, cz - 1)) { n.dirty = true; }
                 }
             }
         }
@@ -2682,6 +2980,7 @@ impl World {
                 let count = missing_chunks.len().min(1);
                 for (cx, cz) in missing_chunks.into_iter().take(count) {
                     let chunk = Chunk::generate(cx, cz, self.seed);
+                    self.index_chunk_lights(&chunk);
                     self.chunks.insert((cx, cz), chunk);
                     if let Some(n) = self.chunks.get_mut(&(cx + 1, cz)) { n.dirty = true; }
                     if let Some(n) = self.chunks.get_mut(&(cx - 1, cz)) { n.dirty = true; }
@@ -3425,6 +3724,72 @@ mod tests {
             }
         }
         assert_eq!(checker_2x2_count, 0, "Terrain surface should not contain 2x2 checkerboard block patterns in mountains");
+    }
+
+    #[test]
+    fn test_ruststone_circuit_simulation() {
+        let mut world = World::new_with_seed(12345);
+
+        // Build a small test rig at world coords (0, 50, 0)
+        let base_pos = IVec3::new(0, 50, 0);
+        let lever_pos = IVec3::new(0, 51, 0);
+        let wire_pos = IVec3::new(1, 51, 0);
+        let lamp_pos = IVec3::new(2, 51, 0);
+
+        world.set_block(base_pos, BlockId::Stone);
+        world.set_block(IVec3::new(1, 50, 0), BlockId::Stone);
+        world.set_block(IVec3::new(2, 50, 0), BlockId::Stone);
+
+        world.set_block(lever_pos, BlockId::Lever);
+        world.set_block(wire_pos, BlockId::RustStone);
+        world.set_block(lamp_pos, BlockId::RustStoneLamp);
+
+        // 1. Initial unpowered state
+        world.update_ruststone_network(lever_pos, 10);
+        assert_eq!(world.get_block(wire_pos), BlockId::RustStone);
+        assert_eq!(world.get_block(lamp_pos), BlockId::RustStoneLamp);
+
+        // 2. Power on lever -> wire and lamp should light up
+        world.set_block(lever_pos, BlockId::LeverOn);
+        world.update_ruststone_network(lever_pos, 10);
+        assert_eq!(world.get_block(wire_pos), BlockId::RustStoneWireLit);
+        assert_eq!(world.get_block(lamp_pos), BlockId::RustStoneLampLit);
+        assert!(world.ruststone_lights.contains_key(&lamp_pos));
+
+        // 3. Power off lever -> wire and lamp should shut off
+        world.set_block(lever_pos, BlockId::Lever);
+        world.update_ruststone_network(lever_pos, 10);
+        assert_eq!(world.get_block(wire_pos), BlockId::RustStone);
+        assert_eq!(world.get_block(lamp_pos), BlockId::RustStoneLamp);
+        assert!(!world.ruststone_lights.contains_key(&lamp_pos));
+
+        // 4. Button activation and expiration
+        world.set_block(lever_pos, BlockId::ButtonPressed);
+        world.button_timers.insert(lever_pos, 0.5);
+        world.update_ruststone_network(lever_pos, 10);
+        assert_eq!(world.get_block(wire_pos), BlockId::RustStoneWireLit);
+        assert_eq!(world.get_block(lamp_pos), BlockId::RustStoneLampLit);
+
+        // Tick past 0.5s with player far away
+        world.update_ruststone(0.6, Vec3::new(100.0, 50.0, 100.0), &[]);
+        assert_eq!(world.get_block(lever_pos), BlockId::Button);
+        assert_eq!(world.get_block(wire_pos), BlockId::RustStone);
+        assert_eq!(world.get_block(lamp_pos), BlockId::RustStoneLamp);
+
+        // 5. Pressure plate activation by player standing on it
+        world.set_block(wire_pos, BlockId::PressurePlate);
+        world.update_ruststone_network(wire_pos, 10);
+        assert_eq!(world.get_block(wire_pos), BlockId::PressurePlate);
+
+        // Player steps on pressure plate at (1, 51, 0)
+        world.update_ruststone(0.1, Vec3::new(1.2, 51.0, 0.2), &[]);
+        assert_eq!(world.get_block(wire_pos), BlockId::PressurePlatePressed);
+        assert_eq!(world.get_block(lamp_pos), BlockId::RustStoneLampLit);
+
+        // Player steps off
+        world.update_ruststone(0.1, Vec3::new(50.0, 51.0, 50.0), &[]);
+        assert_eq!(world.get_block(wire_pos), BlockId::PressurePlate);
+        assert_eq!(world.get_block(lamp_pos), BlockId::RustStoneLamp);
     }
 }
 

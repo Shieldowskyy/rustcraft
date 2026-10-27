@@ -167,7 +167,31 @@ pub enum BlockId {
     Sapling,
     /// Bone meal fertilizing item
     BoneMeal,
-    /// Custom modded block or item (ID 100..=255)
+    /// RustStone ore found in caves underground
+    RustStoneOre,
+    /// RustStone dust / unpowered wire
+    RustStone,
+    /// Active / lit RustStone wire carrying power
+    RustStoneWireLit,
+    /// Solid block of RustStone (craftable from 9 RustStone, permanent power source)
+    RustStoneBlock,
+    /// RustStone lamp (unlit)
+    RustStoneLamp,
+    /// Lit RustStone lamp emitting bright light
+    RustStoneLampLit,
+    /// Lever (off)
+    Lever,
+    /// Lever (on / active power source)
+    LeverOn,
+    /// Button (off / unpressed)
+    Button,
+    /// Pressed button (temporary active power source)
+    ButtonPressed,
+    /// Pressure plate (unpressed)
+    PressurePlate,
+    /// Pressed pressure plate (active power source when entity stands on it)
+    PressurePlatePressed,
+    /// Custom modded block or item (ID 120..=255)
     Custom(u8),
 }
 
@@ -271,7 +295,19 @@ impl BlockId {
             95 => BlockId::BakedPotato,
             96 => BlockId::Sapling,
             97 => BlockId::BoneMeal,
-            v if v >= 100 => BlockId::Custom(v),
+            98 => BlockId::RustStoneOre,
+            99 => BlockId::RustStone,
+            100 => BlockId::RustStoneWireLit,
+            101 => BlockId::RustStoneBlock,
+            102 => BlockId::RustStoneLamp,
+            103 => BlockId::RustStoneLampLit,
+            104 => BlockId::Lever,
+            105 => BlockId::LeverOn,
+            106 => BlockId::Button,
+            107 => BlockId::ButtonPressed,
+            108 => BlockId::PressurePlate,
+            109 => BlockId::PressurePlatePressed,
+            v if v >= 120 => BlockId::Custom(v),
             _ => BlockId::Air,
         }
     }
@@ -376,8 +412,42 @@ impl BlockId {
             BlockId::BakedPotato => 95,
             BlockId::Sapling => 96,
             BlockId::BoneMeal => 97,
+            BlockId::RustStoneOre => 98,
+            BlockId::RustStone => 99,
+            BlockId::RustStoneWireLit => 100,
+            BlockId::RustStoneBlock => 101,
+            BlockId::RustStoneLamp => 102,
+            BlockId::RustStoneLampLit => 103,
+            BlockId::Lever => 104,
+            BlockId::LeverOn => 105,
+            BlockId::Button => 106,
+            BlockId::ButtonPressed => 107,
+            BlockId::PressurePlate => 108,
+            BlockId::PressurePlatePressed => 109,
             BlockId::Custom(id) => id,
         }
+    }
+
+    /// Returns the item given when picking this block in the world (e.g. in Creative mode pick-block).
+    pub fn pick_item(self) -> Option<BlockId> {
+        if self == BlockId::Air || self == BlockId::Water || self == BlockId::Lava {
+            return None;
+        }
+        let item = match self {
+            BlockId::RustStoneWireLit => BlockId::RustStone,
+            BlockId::RustStoneLampLit => BlockId::RustStoneLamp,
+            BlockId::LeverOn => BlockId::Lever,
+            BlockId::ButtonPressed => BlockId::Button,
+            BlockId::PressurePlatePressed => BlockId::PressurePlate,
+            BlockId::DoorOpen => BlockId::Door,
+            BlockId::FurnaceLit => BlockId::Furnace,
+            BlockId::Farmland | BlockId::FarmlandWet => BlockId::Dirt,
+            BlockId::WheatCrop => BlockId::WheatSeeds,
+            BlockId::CarrotCrop => BlockId::Carrot,
+            BlockId::PotatoCrop => BlockId::Potato,
+            other => other,
+        };
+        Some(item)
     }
 
     pub fn is_placeable(self) -> bool {
@@ -438,6 +508,11 @@ impl BlockId {
                     | BlockId::Potato
                     | BlockId::BakedPotato
                     | BlockId::BoneMeal
+                    | BlockId::RustStoneWireLit
+                    | BlockId::RustStoneLampLit
+                    | BlockId::LeverOn
+                    | BlockId::ButtonPressed
+                    | BlockId::PressurePlatePressed
             ),
         }
     }
@@ -535,9 +610,17 @@ impl BlockId {
                     | (1u128 << 95) // BakedPotato
                     | (1u128 << 96) // Sapling (passable)
                     | (1u128 << 97) // BoneMeal
+                    | (1u128 << 99)  // RustStone wire (passable)
+                    | (1u128 << 100) // RustStoneWireLit (passable)
+                    | (1u128 << 104) // Lever (passable)
+                    | (1u128 << 105) // LeverOn (passable)
+                    | (1u128 << 106) // Button (passable)
+                    | (1u128 << 107) // ButtonPressed (passable)
+                    | (1u128 << 108) // PressurePlate (passable)
+                    | (1u128 << 109) // PressurePlatePressed (passable)
                 );
                 let id = self.to_u8() as u32;
-                if id < 100 {
+                if id < 120 {
                     ((SOLID_MASK >> id) & 1) != 0
                 } else {
                     true
@@ -713,19 +796,19 @@ impl BlockId {
         let Some(t) = tool else { return 1.0; };
         match t {
             BlockId::DiamondPickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs) { 10.0 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 10.0 } else { 1.0 }
             }
             BlockId::GoldPickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs) { 8.0 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 8.0 } else { 1.0 }
             }
             BlockId::IronPickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs) { 7.0 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 7.0 } else { 1.0 }
             }
             BlockId::StonePickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::GoldOre | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs) { 4.5 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::GoldOre | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 4.5 } else { 1.0 }
             }
             BlockId::WoodenPickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::GoldOre | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs) { 2.5 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::GoldOre | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 2.5 } else { 1.0 }
             }
             BlockId::DiamondAxe => {
                 if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest | BlockId::WoodenSlab | BlockId::WoodenStairs | BlockId::Bed | BlockId::Ladder) { 10.0 } else { 1.0 }
@@ -810,6 +893,13 @@ impl BlockId {
             BlockId::Ladder => 0.4,
             BlockId::Farmland | BlockId::FarmlandWet => 0.6,
             BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop | BlockId::Sapling => 0.05,
+            BlockId::RustStoneOre => 3.0,
+            BlockId::RustStoneBlock => 5.0,
+            BlockId::RustStoneLamp | BlockId::RustStoneLampLit => 0.3,
+            BlockId::RustStone | BlockId::RustStoneWireLit => 0.05,
+            BlockId::Lever | BlockId::LeverOn => 0.5,
+            BlockId::Button | BlockId::ButtonPressed => 0.5,
+            BlockId::PressurePlate | BlockId::PressurePlatePressed => 0.5,
             _ => 0.0,
         }
     }
@@ -848,9 +938,17 @@ impl BlockId {
                     | (1u128 << 88) // WheatCrop
                     | (1u128 << 92) // CarrotCrop
                     | (1u128 << 94) // PotatoCrop
-                    | (1u128 << 96); // Sapling
+                    | (1u128 << 96) // Sapling
+                    | (1u128 << 99)  // RustStone wire
+                    | (1u128 << 100) // RustStoneWireLit
+                    | (1u128 << 104) // Lever
+                    | (1u128 << 105) // LeverOn
+                    | (1u128 << 106) // Button
+                    | (1u128 << 107) // ButtonPressed
+                    | (1u128 << 108) // PressurePlate
+                    | (1u128 << 109); // PressurePlatePressed
                 let id = self.to_u8() as u32;
-                if id < 100 {
+                if id < 120 {
                     ((TRANSPARENT_MASK >> id) & 1) != 0
                 } else {
                     false
@@ -959,6 +1057,18 @@ impl BlockId {
             BlockId::BakedPotato => "pieczony ziemniak",
             BlockId::Sapling => "sadzonka debu",
             BlockId::BoneMeal => "maczka kostna",
+            BlockId::RustStoneOre => "ruda rdzawnika",
+            BlockId::RustStone => "rdzawnik",
+            BlockId::RustStoneWireLit => "aktywny rdzawnik",
+            BlockId::RustStoneBlock => "blok rdzawnika",
+            BlockId::RustStoneLamp => "lampa rdzawnikowa",
+            BlockId::RustStoneLampLit => "swiecaca lampa rdzawnikowa",
+            BlockId::Lever => "dzwignia",
+            BlockId::LeverOn => "wlaczona dzwignia",
+            BlockId::Button => "przycisk",
+            BlockId::ButtonPressed => "wcisniety przycisk",
+            BlockId::PressurePlate => "plytka naciskowa",
+            BlockId::PressurePlatePressed => "wcisnieta plytka naciskowa",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -1068,6 +1178,15 @@ impl BlockId {
             BlockId::BoneMeal => [0.92, 0.92, 0.88],
             BlockId::Bone => [0.88, 0.88, 0.84],
             BlockId::Gunpowder => [0.28, 0.28, 0.28],
+            BlockId::RustStoneOre => [0.65, 0.25, 0.15],
+            BlockId::RustStone => [0.75, 0.22, 0.10],
+            BlockId::RustStoneWireLit => [1.0, 0.38, 0.14],
+            BlockId::RustStoneBlock => [0.78, 0.24, 0.12],
+            BlockId::RustStoneLamp => [0.38, 0.22, 0.14],
+            BlockId::RustStoneLampLit => [0.98, 0.78, 0.35],
+            BlockId::Lever | BlockId::LeverOn => [0.55, 0.50, 0.45],
+            BlockId::Button | BlockId::ButtonPressed => [0.58, 0.58, 0.58],
+            BlockId::PressurePlate | BlockId::PressurePlatePressed => [0.60, 0.60, 0.60],
             BlockId::Custom(id) => crate::engine::modding::get_custom_face_color(id, face),
             BlockId::Air => [0.0, 0.0, 0.0],
         }
@@ -1183,6 +1302,15 @@ impl BlockId {
             BlockId::BakedPotato => TextureId::BakedPotato,
             BlockId::Sapling => TextureId::Sapling,
             BlockId::BoneMeal => TextureId::BoneMeal,
+            BlockId::RustStoneOre => TextureId::RustStoneOre,
+            BlockId::RustStone => TextureId::RustStone,
+            BlockId::RustStoneWireLit => TextureId::RustStoneWireLit,
+            BlockId::RustStoneBlock => TextureId::RustStoneBlock,
+            BlockId::RustStoneLamp => TextureId::RustStoneLamp,
+            BlockId::RustStoneLampLit => TextureId::RustStoneLampLit,
+            BlockId::Lever | BlockId::LeverOn => TextureId::Lever,
+            BlockId::Button | BlockId::ButtonPressed => TextureId::Button,
+            BlockId::PressurePlate | BlockId::PressurePlatePressed => TextureId::PressurePlate,
             BlockId::Custom(id) => crate::engine::modding::get_custom_texture_id(id),
             _ => TextureId::Planks,
         }
@@ -1274,13 +1402,16 @@ mod tests {
     #[test]
     fn test_new_blocks_and_tools() {
         // Roundtrip u8
-        for id in 0..=77u8 {
+        for id in 0..=109u8 {
             let block = BlockId::from_u8(id);
             assert_eq!(block.to_u8(), id);
             // Verify is_solid and is_transparent don't panic on u128 masks
             let _ = block.is_solid();
             let _ = block.is_transparent();
         }
+        let custom = BlockId::from_u8(120);
+        assert_eq!(custom, BlockId::Custom(120));
+        assert_eq!(custom.to_u8(), 120);
 
         // Diamond & Gold tools
         assert!(BlockId::DiamondPickaxe.is_tool());
@@ -1297,5 +1428,44 @@ mod tests {
         assert!(BlockId::StoneStairs.is_stairs());
         assert!(BlockId::Ladder.is_ladder());
         assert!(!BlockId::Ladder.is_solid());
+    }
+
+    #[test]
+    fn test_ruststone_properties() {
+        // Solid vs non-solid
+        assert!(BlockId::RustStoneOre.is_solid());
+        assert!(BlockId::RustStoneBlock.is_solid());
+        assert!(BlockId::RustStoneLamp.is_solid());
+        assert!(BlockId::RustStoneLampLit.is_solid());
+
+        assert!(!BlockId::RustStone.is_solid(), "RustStone wire must be passable");
+        assert!(!BlockId::RustStoneWireLit.is_solid(), "Lit wire must be passable");
+        assert!(!BlockId::Lever.is_solid(), "Lever must be passable");
+        assert!(!BlockId::LeverOn.is_solid(), "LeverOn must be passable");
+        assert!(!BlockId::Button.is_solid(), "Button must be passable");
+        assert!(!BlockId::ButtonPressed.is_solid(), "ButtonPressed must be passable");
+        assert!(!BlockId::PressurePlate.is_solid(), "PressurePlate must be passable");
+        assert!(!BlockId::PressurePlatePressed.is_solid(), "PressurePlatePressed must be passable");
+
+        // Transparent
+        assert!(BlockId::RustStone.is_transparent());
+        assert!(BlockId::RustStoneWireLit.is_transparent());
+        assert!(BlockId::Lever.is_transparent());
+        assert!(BlockId::Button.is_transparent());
+        assert!(BlockId::PressurePlate.is_transparent());
+
+        // Mining speeds with pickaxe
+        assert_eq!(BlockId::mining_speed_multiplier(Some(BlockId::IronPickaxe), BlockId::RustStoneOre), 7.0);
+        assert_eq!(BlockId::mining_speed_multiplier(Some(BlockId::DiamondPickaxe), BlockId::RustStoneBlock), 10.0);
+        assert_eq!(BlockId::mining_speed_multiplier(Some(BlockId::StonePickaxe), BlockId::RustStoneLamp), 4.5);
+
+        // Polish names check
+        assert_eq!(BlockId::RustStoneOre.name(), "ruda rdzawnika");
+        assert_eq!(BlockId::RustStone.name(), "rdzawnik");
+        assert_eq!(BlockId::RustStoneBlock.name(), "blok rdzawnika");
+        assert_eq!(BlockId::RustStoneLamp.name(), "lampa rdzawnikowa");
+        assert_eq!(BlockId::Lever.name(), "dzwignia");
+        assert_eq!(BlockId::Button.name(), "przycisk");
+        assert_eq!(BlockId::PressurePlate.name(), "plytka naciskowa");
     }
 }

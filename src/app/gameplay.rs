@@ -3,6 +3,7 @@ use std::fmt::Write;
 use crate::core::controls::Action;
 use crate::core::math::{IVec3, Mat4, Vec3};
 use crate::core::profiler::{FrameProfiler, MemoryBreakdown};
+use crate::gameplay::inventory::ItemStack;
 use crate::gameplay::item::ItemEntity;
 use crate::gameplay::physics::{
     block_intersects_player, move_player_with_collision, CROUCH_EYE_OFFSET, CROUCH_HEIGHT,
@@ -286,6 +287,25 @@ impl RustCraftApp {
                     }
                 }
 
+                if self.jump_double_tap_timer > 0.0 {
+                    self.jump_double_tap_timer = (self.jump_double_tap_timer - dt).max(0.0);
+                }
+
+                if !self.chat.is_open && self.controls.is_just_pressed(Action::Jump) && self.player.gamemode == GameMode::Creative {
+                    if self.jump_double_tap_timer > 0.0 {
+                        self.fly_mode = !self.fly_mode;
+                        self.jump_double_tap_timer = 0.0;
+                        self.horiz_velocity = Vec3::zero();
+                        self.fly_velocity = Vec3::zero();
+                        if self.fly_mode {
+                            self.vertical_velocity = 0.0;
+                        }
+                        crate::log_info!("PLAYER", "Flight mode toggled by double-tap jump: {}", self.fly_mode);
+                    } else {
+                        self.jump_double_tap_timer = 0.35;
+                    }
+                }
+
                 if !self.chat.is_open && self.controls.is_just_pressed(Action::ToggleFly) {
                     self.fly_mode = !self.fly_mode;
                     self.horiz_velocity = Vec3::zero();
@@ -297,6 +317,7 @@ impl RustCraftApp {
                     self.player.gamemode = if self.player.gamemode == GameMode::Survival {
                         GameMode::Creative
                     } else {
+                        self.fly_mode = false;
                         GameMode::Survival
                     };
                     crate::log_info!("PLAYER", "Gamemode changed to {:?}", self.player.gamemode);
@@ -835,6 +856,10 @@ impl RustCraftApp {
                 }
                 self.renderer.set_selected_block(selected_block_id);
 
+                if self.creative_break_cooldown > 0.0 {
+                    self.creative_break_cooldown = (self.creative_break_cooldown - dt).max(0.0);
+                }
+
                 let interact_left = !self.chat.is_open && self.controls.is_active(Action::AttackBreak);
                 let interact_left_just = !self.chat.is_open && self.controls.is_just_pressed(Action::AttackBreak);
 
@@ -876,7 +901,10 @@ impl RustCraftApp {
                     }
 
                     if !entity_hit {
-                        if let Some(hit) = self.world.raycast(self.camera.position, forward, 8.0) {
+                        if self.player.gamemode == GameMode::Creative && self.creative_break_cooldown > 0.0 {
+                            self.break_target = None;
+                            self.break_progress = 0.0;
+                        } else if let Some(hit) = self.world.raycast(self.camera.position, forward, 8.0) {
                         let target = hit.block_pos;
                         let broken_block = self.world.get_block(target);
 
@@ -918,6 +946,9 @@ impl RustCraftApp {
                                 self.break_target = None;
                                 self.dig_sound_timer = 0.0;
                                 self.hand_animation = 1.0;
+                                if self.player.gamemode == GameMode::Creative {
+                                    self.creative_break_cooldown = 0.25;
+                                }
 
                                 let bx = target.x as f32 + 0.5;
                                 let by = target.y as f32 + 0.5;
@@ -980,6 +1011,20 @@ impl RustCraftApp {
                                             let count = 1 + (seed % 3) as u8;
                                             self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, BlockId::Potato, count));
                                             None
+                                        } else if broken_block == BlockId::RustStoneOre {
+                                            let count = 4 + (seed % 2) as u8;
+                                            self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, BlockId::RustStone, count));
+                                            None
+                                        } else if matches!(broken_block, BlockId::RustStoneWireLit) {
+                                            Some(BlockId::RustStone)
+                                        } else if matches!(broken_block, BlockId::RustStoneLampLit) {
+                                            Some(BlockId::RustStoneLamp)
+                                        } else if matches!(broken_block, BlockId::LeverOn) {
+                                            Some(BlockId::Lever)
+                                        } else if matches!(broken_block, BlockId::ButtonPressed) {
+                                            Some(BlockId::Button)
+                                        } else if matches!(broken_block, BlockId::PressurePlatePressed) {
+                                            Some(BlockId::PressurePlate)
                                         } else if matches!(broken_block, BlockId::Farmland | BlockId::FarmlandWet) {
                                             Some(BlockId::Dirt)
                                         } else if matches!(broken_block, BlockId::Door | BlockId::DoorOpen) {
@@ -1023,6 +1068,11 @@ impl RustCraftApp {
                                     if matches!(self.world.get_block(below), BlockId::Door | BlockId::DoorOpen) {
                                         self.world.set_block(below, BlockId::Air);
                                     }
+                                }
+
+                                if matches!(broken_block, BlockId::RustStone | BlockId::RustStoneWireLit | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit | BlockId::Lever | BlockId::LeverOn | BlockId::Button | BlockId::ButtonPressed | BlockId::PressurePlate | BlockId::PressurePlatePressed) {
+                                    self.world.button_timers.remove(&target);
+                                    self.world.update_ruststone_network(target, 16);
                                 }
 
                                 if broken_block.is_wood() || broken_block.is_leaves() {
@@ -1070,6 +1120,65 @@ impl RustCraftApp {
                     self.break_target = None;
                     self.break_progress = 0.0;
                     self.dig_sound_timer = 0.0;
+                    self.creative_break_cooldown = 0.0;
+                }
+
+                // Creative pick block: middle-click on a block (or mob) gives it to the current / free hotbar slot
+                let pick_block_just = !self.chat.is_open && (
+                    self.controls.is_just_pressed(Action::PickBlock)
+                    || (input.mouse_middle && !self.prev_middle_down)
+                );
+                if pick_block_just && self.player.gamemode == GameMode::Creative {
+                    let forward = self.camera.forward();
+                    let picked_item = self.mob_manager.raycast_mob(self.camera.position, forward, 4.2).and_then(|(mob_idx, _)| {
+                        match self.mob_manager.mobs[mob_idx].kind {
+                            crate::gameplay::mob::MobKind::Pig => Some(BlockId::PigSpawnEgg),
+                            crate::gameplay::mob::MobKind::Cow => Some(BlockId::CowSpawnEgg),
+                            crate::gameplay::mob::MobKind::Chicken => Some(BlockId::ChickenSpawnEgg),
+                            _ => None,
+                        }
+                    }).or_else(|| {
+                        self.world.raycast(self.camera.position, forward, 8.0)
+                            .and_then(|hit| self.world.get_block(hit.block_pos).pick_item())
+                    });
+
+                    if let Some(item_block) = picked_item {
+                        let curr_slot = self.player.selected_hotbar_slot as usize;
+                        if let Some(existing_slot) = self.player.inventory.hotbar.iter().position(|slot| slot.map(|s| s.block) == Some(item_block)) {
+                            // Block is already in hotbar: switch to that slot and refresh stack
+                            self.player.selected_hotbar_slot = existing_slot as u8;
+                            if let Some(stack) = &mut self.player.inventory.hotbar[existing_slot] {
+                                stack.count = 64;
+                            }
+                        } else if self.player.inventory.hotbar[curr_slot].is_none() {
+                            // Current selected slot is free/empty: place it in the current slot
+                            self.player.inventory.hotbar[curr_slot] = Some(ItemStack {
+                                block: item_block,
+                                count: 64,
+                            });
+                        } else if let Some(free_slot) = self.player.inventory.hotbar.iter().position(|slot| slot.is_none()) {
+                            // Current slot is occupied, but another hotbar slot is free: place in free slot and select it
+                            self.player.inventory.hotbar[free_slot] = Some(ItemStack {
+                                block: item_block,
+                                count: 64,
+                            });
+                            self.player.selected_hotbar_slot = free_slot as u8;
+                        } else {
+                            // All hotbar slots are full: replace current slot
+                            self.player.inventory.hotbar[curr_slot] = Some(ItemStack {
+                                block: item_block,
+                                count: 64,
+                            });
+                        }
+
+                        let new_selected_slot = self.player.selected_hotbar_slot as usize;
+                        if let Some(stack) = self.player.inventory.hotbar[new_selected_slot] {
+                            self.renderer.set_selected_block(stack.block.to_u8());
+                        }
+                        self.hand_animation = 0.5;
+                        self.audio.play_sound(crate::audio::SoundId::ItemPop, 0.45, 1.2);
+                        crate::log_info!("GAMEPLAY", "Creative pick block: {:?} -> slot {}", item_block, self.player.selected_hotbar_slot);
+                    }
                 }
 
                 let interact_right = !self.chat.is_open && self.controls.is_just_pressed(Action::UsePlace);
@@ -1264,6 +1373,22 @@ impl RustCraftApp {
                             }
                             self.hand_animation = 1.0;
                             crate::log_info!("WORLD", "Toggled door at ({}, {}, {}) to {:?}", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z, new_block);
+                        } else if matches!(targeted_block, BlockId::Lever | BlockId::LeverOn) && !is_crouching {
+                            let new_block = if targeted_block == BlockId::Lever { BlockId::LeverOn } else { BlockId::Lever };
+                            self.world.set_block(hit.block_pos, new_block);
+                            let sound_pos = Vec3::new(hit.block_pos.x as f32 + 0.5, hit.block_pos.y as f32 + 0.5, hit.block_pos.z as f32 + 0.5);
+                            self.play_world_sound_varied(crate::audio::SoundId::UiClick, sound_pos, 0.85);
+                            self.hand_animation = 1.0;
+                            self.world.update_ruststone_network(hit.block_pos, 16);
+                            crate::log_info!("WORLD", "Toggled lever at ({}, {}, {}) to {:?}", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z, new_block);
+                        } else if targeted_block == BlockId::Button && !is_crouching {
+                            self.world.set_block(hit.block_pos, BlockId::ButtonPressed);
+                            let sound_pos = Vec3::new(hit.block_pos.x as f32 + 0.5, hit.block_pos.y as f32 + 0.5, hit.block_pos.z as f32 + 0.5);
+                            self.play_world_sound_varied(crate::audio::SoundId::UiClick, sound_pos, 0.9);
+                            self.world.button_timers.insert(hit.block_pos, 1.0);
+                            self.hand_animation = 1.0;
+                            self.world.update_ruststone_network(hit.block_pos, 16);
+                            crate::log_info!("WORLD", "Pressed button at ({}, {}, {})", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
                         } else if targeted_block == BlockId::CraftingTable && !is_crouching {
                             self.crafting_table_open = true;
                             self.state = GameState::Inventory;
@@ -1359,6 +1484,9 @@ impl RustCraftApp {
                                     let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
                                     self.play_world_sound_varied(place_sound, sound_pos, 0.85);
                                     self.request_rumble(0.2, 0.1, 45);
+                                    if matches!(place_id, BlockId::RustStone | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::Lever | BlockId::Button | BlockId::PressurePlate) {
+                                        self.world.update_ruststone_network(place_pos, 16);
+                                    }
                                     if let Some(client) = &mut self.net_client {
                                         client.send_block_change(place_pos.x, place_pos.y, place_pos.z, place_id.to_u8());
                                     }
@@ -1409,6 +1537,13 @@ impl RustCraftApp {
                 }
 
                 self.world.update_primed_tnts(dt);
+                let mob_positions: Vec<Vec3> = self.mob_manager.mobs.iter().filter(|m| !m.is_dead).map(|m| m.pos).collect();
+                self.world.update_ruststone(dt, self.camera.position, &mob_positions);
+                let sound_events = std::mem::take(&mut self.world.ruststone_sound_events);
+                for (s_pos, _is_on) in sound_events {
+                    let sound_pos = Vec3::new(s_pos.x as f32 + 0.5, s_pos.y as f32 + 0.5, s_pos.z as f32 + 0.5);
+                    self.play_world_sound_varied(crate::audio::SoundId::UiClick, sound_pos, 0.7);
+                }
                 if let Some(w_start) = world_time_start {
                     cur_profiler.tick_world_ms = w_start.elapsed().saturating_sub(world_io_dur).as_secs_f32() * 1000.0;
                 }
@@ -2035,5 +2170,202 @@ impl RustCraftApp {
                     self.last_clean_thumbnail = Some(crate::world::storage::capture_thumbnail(self.renderer.pixel_buffer(), self.width, self.height));
                 }
 
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::app::{RustCraftApp, InputState, GameState};
+    use crate::gameplay::player::GameMode;
+    use crate::gameplay::inventory::ItemStack;
+    use crate::core::math::{Vec3, IVec3};
+
+    #[test]
+    fn test_creative_flight_double_tap_space() {
+        let mut app = RustCraftApp::new(160, 120, "software", 12345);
+        app.state = GameState::Playing;
+        app.player.gamemode = GameMode::Creative;
+        app.fly_mode = false;
+        app.jump_double_tap_timer = 0.0;
+
+        let mut input = InputState::default();
+        input.is_mouse_captured = true;
+
+        // 1. First Space press
+        input.key_space = true;
+        let _ = app.update_and_render(0.016, &input);
+        assert!(!app.fly_mode, "First press should not trigger flying");
+        assert!(app.jump_double_tap_timer > 0.0, "Timer should be set after first press");
+
+        // 2. Release Space
+        input.key_space = false;
+        let _ = app.update_and_render(0.05, &input);
+        assert!(!app.fly_mode);
+        assert!(app.jump_double_tap_timer > 0.0, "Timer should still be active");
+
+        // 3. Second Space press within window -> should enable flight!
+        input.key_space = true;
+        let _ = app.update_and_render(0.016, &input);
+        assert!(app.fly_mode, "Double-tapping Space in creative mode should enable flight");
+        assert_eq!(app.jump_double_tap_timer, 0.0, "Timer should reset after double tap");
+
+        // 4. Release Space while flying
+        input.key_space = false;
+        let _ = app.update_and_render(0.05, &input);
+        assert!(app.fly_mode, "Should remain in flight mode");
+
+        // 5. First Space press to exit flight
+        input.key_space = true;
+        let _ = app.update_and_render(0.016, &input);
+        assert!(app.fly_mode, "First press while flying should not immediately exit flight");
+        assert!(app.jump_double_tap_timer > 0.0);
+
+        // 6. Release Space
+        input.key_space = false;
+        let _ = app.update_and_render(0.05, &input);
+        assert!(app.fly_mode);
+
+        // 7. Second Space press within window -> should exit flight!
+        input.key_space = true;
+        let _ = app.update_and_render(0.016, &input);
+        assert!(!app.fly_mode, "Double-tapping Space in creative mode should exit flight");
+        assert_eq!(app.jump_double_tap_timer, 0.0);
+
+        // 8. In Survival mode, double tap space should NEVER enable flight
+        app.player.gamemode = GameMode::Survival;
+        app.fly_mode = false;
+        app.jump_double_tap_timer = 0.0;
+
+        input.key_space = false;
+        let _ = app.update_and_render(0.05, &input);
+
+        input.key_space = true;
+        let _ = app.update_and_render(0.016, &input);
+        input.key_space = false;
+        let _ = app.update_and_render(0.05, &input);
+        input.key_space = true;
+        let _ = app.update_and_render(0.016, &input);
+        assert!(!app.fly_mode, "Survival mode must never allow flight via double-tap space");
+    }
+
+    #[test]
+    fn test_creative_break_cooldown_holding_mouse() {
+        use crate::world::BlockId;
+
+        let mut app = RustCraftApp::new(160, 120, "software", 12345);
+        app.state = GameState::Playing;
+        app.player.gamemode = GameMode::Creative;
+        app.fly_mode = true;
+        app.camera.position = Vec3::new(0.5, 60.0, 0.5);
+        app.camera.yaw = 0.0;
+        app.camera.pitch = 0.0;
+
+        // With yaw = 0.0, pitch = 0.0, forward direction is along +X
+        let block1_pos = IVec3::new(2, 60, 0);
+        let block2_pos = IVec3::new(3, 60, 0);
+        app.world.set_block(block1_pos, BlockId::Stone);
+        app.world.set_block(block2_pos, BlockId::Stone);
+
+        let mut input = InputState::default();
+        input.is_mouse_captured = true;
+        input.mouse_left = true;
+
+        // Frame 1: breaks block 1 immediately
+        let _ = app.update_and_render(0.016, &input);
+        assert_eq!(app.world.get_block(block1_pos), BlockId::Air, "Block 1 should break on first frame");
+        assert_eq!(app.world.get_block(block2_pos), BlockId::Stone, "Block 2 should NOT break immediately");
+        assert!(app.creative_break_cooldown > 0.0, "Cooldown should be set after breaking in creative");
+
+        // Simulate 100ms of holding mouse (cooldown still active)
+        let _ = app.update_and_render(0.10, &input);
+        assert_eq!(app.world.get_block(block2_pos), BlockId::Stone, "Block 2 should still exist after 100ms");
+        assert!(app.creative_break_cooldown > 0.0);
+
+        // Simulate another 100ms (total 200ms < 250ms)
+        let _ = app.update_and_render(0.10, &input);
+        assert_eq!(app.world.get_block(block2_pos), BlockId::Stone, "Block 2 should still exist after 200ms");
+
+        // Simulate remaining 60ms (total > 250ms)
+        let _ = app.update_and_render(0.06, &input);
+        assert_eq!(app.world.get_block(block2_pos), BlockId::Air, "Block 2 should break after 250ms cooldown elapsed");
+    }
+
+    #[test]
+    fn test_pick_block_item_mappings() {
+        use crate::world::BlockId;
+
+        assert_eq!(BlockId::Grass.pick_item(), Some(BlockId::Grass));
+        assert_eq!(BlockId::Stone.pick_item(), Some(BlockId::Stone));
+        assert_eq!(BlockId::Air.pick_item(), None);
+        assert_eq!(BlockId::Water.pick_item(), None);
+        assert_eq!(BlockId::Lava.pick_item(), None);
+        assert_eq!(BlockId::RustStoneWireLit.pick_item(), Some(BlockId::RustStone));
+        assert_eq!(BlockId::RustStoneLampLit.pick_item(), Some(BlockId::RustStoneLamp));
+        assert_eq!(BlockId::LeverOn.pick_item(), Some(BlockId::Lever));
+        assert_eq!(BlockId::ButtonPressed.pick_item(), Some(BlockId::Button));
+        assert_eq!(BlockId::PressurePlatePressed.pick_item(), Some(BlockId::PressurePlate));
+        assert_eq!(BlockId::DoorOpen.pick_item(), Some(BlockId::Door));
+        assert_eq!(BlockId::FurnaceLit.pick_item(), Some(BlockId::Furnace));
+        assert_eq!(BlockId::Farmland.pick_item(), Some(BlockId::Dirt));
+        assert_eq!(BlockId::FarmlandWet.pick_item(), Some(BlockId::Dirt));
+    }
+
+    #[test]
+    fn test_creative_pick_block_middle_click() {
+        use crate::world::BlockId;
+
+        let mut app = RustCraftApp::new(160, 120, "software", 12345);
+        app.state = GameState::Playing;
+        app.player.gamemode = GameMode::Creative;
+        app.fly_mode = true;
+        app.camera.position = Vec3::new(0.5, 60.0, 0.5);
+        app.camera.yaw = 0.0;
+        app.camera.pitch = 0.0;
+
+        let target_pos = IVec3::new(3, 60, 0);
+        app.world.set_block(target_pos, BlockId::RustStoneBlock);
+
+        // Ensure current hotbar slot 0 is empty
+        app.player.selected_hotbar_slot = 0;
+        app.player.inventory.hotbar[0] = None;
+
+        let mut input = InputState::default();
+        input.is_mouse_captured = true;
+        input.mouse_middle = true;
+
+        // Middle click in Creative should put 64x RustStoneBlock into current empty slot 0
+        let _ = app.update_and_render(0.016, &input);
+        assert_eq!(
+            app.player.inventory.hotbar[0],
+            Some(ItemStack { block: BlockId::RustStoneBlock, count: 64 }),
+            "Middle click in creative should place 64x of picked block into current free slot"
+        );
+        assert_eq!(app.player.selected_hotbar_slot, 0);
+
+        // Now place a different block ahead: DiamondBlock
+        app.world.set_block(target_pos, BlockId::DiamondBlock);
+        input.mouse_middle = false;
+        let _ = app.update_and_render(0.016, &input);
+
+        // Current slot 0 has RustStoneBlock; slot 1 is free
+        app.player.inventory.hotbar[1] = None;
+        input.mouse_middle = true;
+        let _ = app.update_and_render(0.016, &input);
+
+        // DiamondBlock should be placed into free slot 1 and selected!
+        assert_eq!(
+            app.player.inventory.hotbar[1],
+            Some(ItemStack { block: BlockId::DiamondBlock, count: 64 }),
+            "DiamondBlock should go into the next free slot"
+        );
+        assert_eq!(app.player.selected_hotbar_slot, 1, "Selected slot should switch to the free slot where item was placed");
+
+        // Middle click looking at RustStoneBlock should switch back to slot 0
+        app.world.set_block(target_pos, BlockId::RustStoneBlock);
+        input.mouse_middle = false;
+        let _ = app.update_and_render(0.016, &input);
+        input.mouse_middle = true;
+        let _ = app.update_and_render(0.016, &input);
+        assert_eq!(app.player.selected_hotbar_slot, 0, "Middle click should select existing hotbar slot if already in hotbar");
     }
 }

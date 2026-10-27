@@ -74,6 +74,11 @@
   "open_command": {
     "keys": ["Slash"],
     "gamepad": []
+  },
+  "pick_block": {
+    "keys": [],
+    "mouse": ["Middle"],
+    "gamepad": []
   }
 }
 

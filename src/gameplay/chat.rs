@@ -804,6 +804,13 @@ pub fn parse_vanilla_block_id(s: &str) -> Option<BlockId> {
         "chicken_spawn_egg" | "chicken_egg" => Some(BlockId::ChickenSpawnEgg),
         "bone" | "kosc" => Some(BlockId::Bone),
         "gunpowder" | "proch" => Some(BlockId::Gunpowder),
+        "ruststone" | "rdzawnik" | "redstone" => Some(BlockId::RustStone),
+        "ruststone_ore" | "ruda_rdzawnika" | "redstone_ore" => Some(BlockId::RustStoneOre),
+        "ruststone_block" | "blok_rdzawnika" | "redstone_block" => Some(BlockId::RustStoneBlock),
+        "ruststone_lamp" | "lampa_rdzawnikowa" | "lampa" | "redstone_lamp" => Some(BlockId::RustStoneLamp),
+        "lever" | "dzwignia" => Some(BlockId::Lever),
+        "button" | "przycisk" => Some(BlockId::Button),
+        "pressure_plate" | "plytka" | "plytka_naciskowa" => Some(BlockId::PressurePlate),
         _ => {
             if let Ok(id) = s.parse::<u8>() {
                 if id > 0 {
