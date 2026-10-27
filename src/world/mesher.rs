@@ -215,7 +215,7 @@ impl<'a> ChunkNeighborCache<'a> {
             if dx <= 24 && dz <= 24 {
                 lights.push(LightSource {
                     pos: t_pos,
-                    radius: 12.0,
+                    radius: 14.0,
                     intensity: 1.0,
                 });
             }
@@ -779,6 +779,22 @@ fn emit_torch(
     wx: i32, wy: i32, wz: i32,
     _cache: &ChunkNeighborCache,
 ) {
+    let quad_uv = |tris: &mut Vec<Triangle>,
+                   a: (Vec3, (f32, f32)),
+                   b: (Vec3, (f32, f32)),
+                   c: (Vec3, (f32, f32)),
+                   d: (Vec3, (f32, f32)),
+                   shade: f32,
+                   light: f32| {
+        let va = Vertex { pos: a.0, uv: a.1, ao: shade, sky_light: light, block_light: light };
+        let vb = Vertex { pos: b.0, uv: b.1, ao: shade, sky_light: light, block_light: light };
+        let vc = Vertex { pos: c.0, uv: c.1, ao: shade, sky_light: light, block_light: light };
+        let vd = Vertex { pos: d.0, uv: d.1, ao: shade, sky_light: light, block_light: light };
+        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture: TextureId::Torch });
+        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture: TextureId::Torch });
+    };
+
+    // 1. Central wooden torch stick (2x2 texels thick, 10 texels tall: y: 0.0 .. 0.625)
     let x0 = wx as f32 + 0.4375;
     let x1 = wx as f32 + 0.5625;
     let y0 = wy as f32;
@@ -795,30 +811,54 @@ fn emit_torch(
     let c011 = Vec3::new(x0, y1, z1);
     let c111 = Vec3::new(x1, y1, z1);
 
-    let quad = |tris: &mut Vec<Triangle>, a: Vec3, b: Vec3, c: Vec3, d: Vec3, tex: TextureId, shade: f32| {
-        let va = Vertex { pos: a, uv: (0.0, 1.0), ao: shade, sky_light: 1.0, block_light: 1.0 };
-        let vb = Vertex { pos: b, uv: (1.0, 1.0), ao: shade, sky_light: 1.0, block_light: 1.0 };
-        let vc = Vertex { pos: c, uv: (1.0, 0.0), ao: shade, sky_light: 1.0, block_light: 1.0 };
-        let vd = Vertex { pos: d, uv: (0.0, 0.0), ao: shade, sky_light: 1.0, block_light: 1.0 };
-        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture: tex });
-        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture: tex });
-    };
+    // UV bounds for wooden stick (texels x: 6..10, y: 6..16)
+    let su0 = 0.4375f32; // 7/16
+    let su1 = 0.5625f32; // 9/16
+    let sv0 = 0.3750f32; // 6/16 (top of stick where coal wick meets wood)
+    let sv1 = 1.0000f32; // 16/16 (bottom of stick)
 
-    let tex = TextureId::Torch;
-    // Top
-    quad(tris, c010, c011, c111, c110, tex, 1.0);
-    // North
-    quad(tris, c100, c000, c010, c110, tex, 0.95);
-    // South
-    quad(tris, c001, c101, c111, c011, tex, 0.95);
-    // East
-    quad(tris, c101, c100, c110, c111, tex, 0.90);
-    // West
-    quad(tris, c000, c001, c011, c010, tex, 0.90);
-    // Bottom
+    // Stick North (-Z)
+    quad_uv(tris, (c100, (su0, sv1)), (c000, (su1, sv1)), (c010, (su1, sv0)), (c110, (su0, sv0)), 0.95, 1.0);
+    // Stick South (+Z)
+    quad_uv(tris, (c001, (su0, sv1)), (c101, (su1, sv1)), (c111, (su1, sv0)), (c011, (su0, sv0)), 0.95, 1.0);
+    // Stick East (+X)
+    quad_uv(tris, (c101, (su0, sv1)), (c100, (su1, sv1)), (c110, (su1, sv0)), (c111, (su0, sv0)), 0.90, 1.0);
+    // Stick West (-X)
+    quad_uv(tris, (c000, (su0, sv1)), (c001, (su1, sv1)), (c011, (su1, sv0)), (c010, (su0, sv0)), 0.90, 1.0);
+    // Stick Bottom
     if wy > 0 {
-        quad(tris, c001, c000, c100, c101, tex, 0.70);
+        quad_uv(tris, (c001, (su0, 0.875)), (c000, (su0, 1.0)), (c100, (su1, 1.0)), (c101, (su1, 0.875)), 0.70, 1.0);
     }
+
+    // 2. Torch Flame Head: slightly wider glowing ember & flame at the top (y: 0.50 .. 0.72)
+    let fx0 = wx as f32 + 0.40625; // 6.5/16
+    let fx1 = wx as f32 + 0.59375; // 9.5/16
+    let fy0 = wy as f32 + 0.50000; // 8/16
+    let fy1 = wy as f32 + 0.71875; // 11.5/16
+    let fz0 = wz as f32 + 0.40625; // 6.5/16
+    let fz1 = wz as f32 + 0.59375; // 9.5/16
+
+    let fc000 = Vec3::new(fx0, fy0, fz0);
+    let fc100 = Vec3::new(fx1, fy0, fz0);
+    let fc010 = Vec3::new(fx0, fy1, fz0);
+    let fc110 = Vec3::new(fx1, fy1, fz0);
+    let fc001 = Vec3::new(fx0, fy0, fz1);
+    let fc101 = Vec3::new(fx1, fy0, fz1);
+    let fc011 = Vec3::new(fx0, fy1, fz1);
+    let fc111 = Vec3::new(fx1, fy1, fz1);
+
+    // Flame UV bounds (texels x: 6..10, y: 0..5)
+    let fu0 = 0.3750f32; // 6/16
+    let fu1 = 0.6250f32; // 10/16
+    let fv0 = 0.0000f32; // 0/16 (fire tip)
+    let fv1 = 0.3125f32; // 5/16 (fire base/coal)
+
+    // Full self-illumination (shade 1.0, light 1.0) for bright warm glow
+    quad_uv(tris, (fc010, (fu0, 0.06)), (fc011, (fu0, 0.25)), (fc111, (fu1, 0.25)), (fc110, (fu1, 0.06)), 1.0, 1.0); // Top
+    quad_uv(tris, (fc100, (fu0, fv1)), (fc000, (fu1, fv1)), (fc010, (fu1, fv0)), (fc110, (fu0, fv0)), 1.0, 1.0); // North
+    quad_uv(tris, (fc001, (fu0, fv1)), (fc101, (fu1, fv1)), (fc111, (fu1, fv0)), (fc011, (fu0, fv0)), 1.0, 1.0); // South
+    quad_uv(tris, (fc101, (fu0, fv1)), (fc100, (fu1, fv1)), (fc110, (fu1, fv0)), (fc111, (fu0, fv0)), 1.0, 1.0); // East
+    quad_uv(tris, (fc000, (fu0, fv1)), (fc001, (fu1, fv1)), (fc011, (fu1, fv0)), (fc010, (fu0, fv0)), 1.0, 1.0); // West
 }
 
 fn emit_door(

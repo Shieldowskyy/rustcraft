@@ -251,7 +251,15 @@ pub enum BlockId {
     FishSpawnEgg,
     /// Fishing rod tool
     FishingRod,
-    /// Custom modded block or item (ID 140..=255)
+    /// Emerald gemstone item (currency used for villager trading)
+    Emerald,
+    /// Rare emerald ore block found in mountains and underground
+    EmeraldOre,
+    /// Solid block of emerald crafted from 9 emeralds
+    EmeraldBlock,
+    /// Villager spawn egg item
+    VillagerSpawnEgg,
+    /// Custom modded block or item (ID 144..=255)
     Custom(u8),
 }
 
@@ -397,7 +405,11 @@ impl BlockId {
             137 => BlockId::DolphinSpawnEgg,
             138 => BlockId::FishSpawnEgg,
             139 => BlockId::FishingRod,
-            v if v >= 140 => BlockId::Custom(v),
+            140 => BlockId::Emerald,
+            141 => BlockId::EmeraldOre,
+            142 => BlockId::EmeraldBlock,
+            143 => BlockId::VillagerSpawnEgg,
+            v if v >= 144 => BlockId::Custom(v),
             _ => BlockId::Air,
         }
     }
@@ -544,6 +556,10 @@ impl BlockId {
             BlockId::DolphinSpawnEgg => 137,
             BlockId::FishSpawnEgg => 138,
             BlockId::FishingRod => 139,
+            BlockId::Emerald => 140,
+            BlockId::EmeraldOre => 141,
+            BlockId::EmeraldBlock => 142,
+            BlockId::VillagerSpawnEgg => 143,
             BlockId::Custom(id) => id,
         }
     }
@@ -714,6 +730,8 @@ impl BlockId {
                     | BlockId::DolphinSpawnEgg
                     | BlockId::FishSpawnEgg
                     | BlockId::FishingRod
+                    | BlockId::Emerald
+                    | BlockId::VillagerSpawnEgg
             ),
         }
     }
@@ -828,6 +846,12 @@ impl BlockId {
                 } else if id < 140 {
                     // Kelp (128), Seagrass (129), and items (130..=139) are non-solid
                     false
+                } else if id == 140 || id == 143 {
+                    // Emerald (140) and VillagerSpawnEgg (143) are non-solid items
+                    false
+                } else if id == 141 || id == 142 {
+                    // EmeraldOre (141) and EmeraldBlock (142) are solid blocks
+                    true
                 } else {
                     true
                 }
@@ -843,6 +867,7 @@ impl BlockId {
             BlockId::SheepSpawnEgg => Some(crate::gameplay::mob::MobKind::Sheep),
             BlockId::DolphinSpawnEgg => Some(crate::gameplay::mob::MobKind::Dolphin),
             BlockId::FishSpawnEgg => Some(crate::gameplay::mob::MobKind::Cod),
+            BlockId::VillagerSpawnEgg => Some(crate::gameplay::mob::MobKind::Villager),
             _ => None,
         }
     }
@@ -1058,13 +1083,13 @@ impl BlockId {
         let Some(t) = tool else { return 1.0; };
         match t {
             BlockId::DiamondPickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 10.0 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::EmeraldOre | BlockId::EmeraldBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 10.0 } else { 1.0 }
             }
             BlockId::GoldPickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 8.0 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::EmeraldOre | BlockId::EmeraldBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 8.0 } else { 1.0 }
             }
             BlockId::IronPickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 7.0 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::EmeraldOre | BlockId::EmeraldBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 7.0 } else { 1.0 }
             }
             BlockId::StonePickaxe => {
                 if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::GoldOre | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 4.5 } else { 1.0 }
@@ -1136,9 +1161,11 @@ impl BlockId {
             BlockId::IronOre => 1.5,
             BlockId::GoldOre => 3.0,
             BlockId::DiamondOre => 3.0,
+            BlockId::EmeraldOre => 3.0,
             BlockId::IronBlock => 5.0,
             BlockId::GoldBlock => 3.0,
             BlockId::DiamondBlock => 5.0,
+            BlockId::EmeraldBlock => 5.0,
             BlockId::CoalBlock => 5.0,
             BlockId::Bedrock => f32::INFINITY,
             BlockId::Lava => 0.0,
@@ -1371,6 +1398,10 @@ impl BlockId {
             BlockId::DolphinSpawnEgg => "jajko delfina",
             BlockId::FishSpawnEgg => "jajko ryby",
             BlockId::FishingRod => "wedka",
+            BlockId::Emerald => "szmaragd",
+            BlockId::EmeraldOre => "ruda szmaragdu",
+            BlockId::EmeraldBlock => "blok szmaragdu",
+            BlockId::VillagerSpawnEgg => "jajko wiesniaka",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -1518,6 +1549,10 @@ impl BlockId {
             BlockId::DolphinSpawnEgg => "Spawn Dolphin",
             BlockId::FishSpawnEgg => "Spawn Fish",
             BlockId::FishingRod => "Fishing Rod",
+            BlockId::Emerald => "Emerald",
+            BlockId::EmeraldOre => "Emerald Ore",
+            BlockId::EmeraldBlock => "Emerald Block",
+            BlockId::VillagerSpawnEgg => "Spawn Villager",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -1674,6 +1709,10 @@ impl BlockId {
             BlockId::DolphinSpawnEgg => [0.55, 0.68, 0.78],
             BlockId::FishSpawnEgg => [0.78, 0.55, 0.35],
             BlockId::FishingRod => [0.55, 0.38, 0.22],
+            BlockId::Emerald => [0.10, 0.82, 0.35],
+            BlockId::EmeraldOre => [0.35, 0.55, 0.35],
+            BlockId::EmeraldBlock => [0.08, 0.85, 0.30],
+            BlockId::VillagerSpawnEgg => [0.55, 0.38, 0.24],
             BlockId::Custom(id) => crate::engine::modding::get_custom_face_color(id, face),
             BlockId::Air => [0.0, 0.0, 0.0],
         }
@@ -1828,6 +1867,10 @@ impl BlockId {
             BlockId::DolphinSpawnEgg => TextureId::DolphinSpawnEgg,
             BlockId::FishSpawnEgg => TextureId::FishSpawnEgg,
             BlockId::FishingRod => TextureId::FishingRod,
+            BlockId::Emerald => TextureId::Emerald,
+            BlockId::EmeraldOre => TextureId::EmeraldOre,
+            BlockId::EmeraldBlock => TextureId::EmeraldBlock,
+            BlockId::VillagerSpawnEgg => TextureId::VillagerSpawnEgg,
             BlockId::Custom(id) => crate::engine::modding::get_custom_texture_id(id),
             _ => TextureId::Planks,
         }
@@ -1919,16 +1962,24 @@ mod tests {
     #[test]
     fn test_new_blocks_and_tools() {
         // Roundtrip u8
-        for id in 0..=139u8 {
+        for id in 0..=143u8 {
             let block = BlockId::from_u8(id);
             assert_eq!(block.to_u8(), id);
             // Verify is_solid and is_transparent don't panic on u128 masks
             let _ = block.is_solid();
             let _ = block.is_transparent();
         }
-        let custom = BlockId::from_u8(140);
-        assert_eq!(custom, BlockId::Custom(140));
-        assert_eq!(custom.to_u8(), 140);
+        let custom = BlockId::from_u8(144);
+        assert_eq!(custom, BlockId::Custom(144));
+        assert_eq!(custom.to_u8(), 144);
+
+        // Emerald and Villager properties
+        assert!(!BlockId::Emerald.is_placeable());
+        assert!(!BlockId::Emerald.is_solid());
+        assert!(BlockId::EmeraldOre.is_placeable());
+        assert!(BlockId::EmeraldOre.is_solid());
+        assert!(BlockId::EmeraldBlock.is_solid());
+        assert_eq!(BlockId::VillagerSpawnEgg.spawn_mob_kind(), Some(crate::gameplay::mob::MobKind::Villager));
 
         // Aquatic properties
         assert!(BlockId::Kelp.is_placeable());

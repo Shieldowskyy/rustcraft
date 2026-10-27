@@ -593,6 +593,7 @@ impl ChatState {
                     "salmon" | "losos" => Some(MobKind::Salmon),
                     "pufferfish" | "rozdymka" => Some(MobKind::Pufferfish),
                     "tropical_fish" | "tropikalna_ryba" => Some(MobKind::TropicalFish),
+                    "villager" | "osadnik" | "wiesniak" => Some(MobKind::Villager),
                     _ => None,
                 };
 
@@ -607,7 +608,7 @@ impl ChatState {
                     self.add_success(format!("Spawned {} {:?}(s)", count, kind));
                     crate::log_debug!("Command", "Spawned {} {:?} mobs", count, kind);
                 } else {
-                    self.add_error("Usage: /spawn <pig|cow|chicken|sheep|zombie|skeleton|creeper|dolphin|cod|salmon|pufferfish|tropical_fish> [count]");
+                    self.add_error("Usage: /spawn <pig|cow|chicken|sheep|zombie|skeleton|creeper|dolphin|cod|salmon|pufferfish|tropical_fish|villager> [count]");
                 }
             }
 
@@ -720,6 +721,7 @@ impl ChatState {
         let mut salmon = 0;
         let mut pufferfish = 0;
         let mut tropical_fish = 0;
+        let mut villagers = 0;
 
         for mob in &ctx.mob_manager.mobs {
             match mob.kind {
@@ -735,6 +737,7 @@ impl ChatState {
                 MobKind::Salmon => salmon += 1,
                 MobKind::Pufferfish => pufferfish += 1,
                 MobKind::TropicalFish => tropical_fish += 1,
+                MobKind::Villager => villagers += 1,
             }
             let dist = (mob.pos - player_pos).length();
             let hostile_tag = if mob.kind.is_hostile() { " [HOSTILE]" } else { "" };
@@ -760,8 +763,8 @@ impl ChatState {
         }
 
         self.add_info(format!(
-            "Summary: Pigs: {}, Cows: {}, Chickens: {}, Sheep: {}, Zombies: {}, Skeletons: {}, Creepers: {}, Dolphins: {}, Fish: {}",
-            pigs, cows, chickens, sheep, zombies, skeletons, creepers, dolphins, cod + salmon + pufferfish + tropical_fish
+            "Summary: Pigs: {}, Cows: {}, Chickens: {}, Sheep: {}, Zombies: {}, Skeletons: {}, Creepers: {}, Dolphins: {}, Fish: {}, Villagers: {}",
+            pigs, cows, chickens, sheep, zombies, skeletons, creepers, dolphins, cod + salmon + pufferfish + tropical_fish, villagers
         ));
     }
 }
@@ -858,6 +861,10 @@ pub fn parse_vanilla_block_id(s: &str) -> Option<BlockId> {
         "dried_kelp" | "suszone_wodorosty" => Some(BlockId::DriedKelp),
         "dolphin_spawn_egg" | "dolphin_egg" | "jajko_delfina" => Some(BlockId::DolphinSpawnEgg),
         "fish_spawn_egg" | "fish_egg" | "jajko_ryby" => Some(BlockId::FishSpawnEgg),
+        "villager_spawn_egg" | "villager_egg" | "jajko_osadnika" | "jajko_wiesniaka" => Some(BlockId::VillagerSpawnEgg),
+        "emerald" | "szmaragd" => Some(BlockId::Emerald),
+        "emerald_ore" | "ruda_szmaragdu" => Some(BlockId::EmeraldOre),
+        "emerald_block" | "blok_szmaragdu" => Some(BlockId::EmeraldBlock),
         "fishing_rod" | "wedka" => Some(BlockId::FishingRod),
         _ => {
             if let Ok(id) = s.parse::<u8>() {

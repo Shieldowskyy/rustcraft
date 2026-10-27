@@ -64,6 +64,8 @@ pub enum GameState {
     Chest { pos: IVec3 },
     /// Furnace container UI.
     Furnace { pos: IVec3 },
+    /// Interactive villager trading interface.
+    VillagerTrade { mob_id: u32, selected_trade: usize },
     /// Player death screen with respawn and quit options.
     DeathScreen,
     /// Multiplayer server address / connection screen.

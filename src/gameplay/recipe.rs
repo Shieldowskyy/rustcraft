@@ -187,6 +187,13 @@ impl RecipeBook {
         ] => DiamondBlock * 1));
         self.add(recipe!(DiamondBlock => Diamond * 9));
 
+        self.add(recipe!(3, 3, [
+            Emerald, Emerald, Emerald,
+            Emerald, Emerald, Emerald,
+            Emerald, Emerald, Emerald,
+        ] => EmeraldBlock * 1));
+        self.add(recipe!(EmeraldBlock => Emerald * 9));
+
         // --- Tools (Tiered Material Loops) ---
         let tool_materials = [
             (BlockId::Planks, BlockId::WoodenShovel, BlockId::WoodenSword, BlockId::WoodenPickaxe, BlockId::WoodenAxe, BlockId::WoodenHoe),

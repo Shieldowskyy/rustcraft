@@ -17,6 +17,7 @@ pub enum MobKind {
     Salmon,
     Pufferfish,
     TropicalFish,
+    Villager,
 }
 
 impl MobKind {
@@ -45,6 +46,7 @@ impl MobKind {
             MobKind::Salmon => 3.0,
             MobKind::Pufferfish => 3.0,
             MobKind::TropicalFish => 3.0,
+            MobKind::Villager => 20.0,
         }
     }
 
@@ -62,6 +64,7 @@ impl MobKind {
             MobKind::Salmon => 0.24,
             MobKind::Pufferfish => 0.25,
             MobKind::TropicalFish => 0.18,
+            MobKind::Villager => 0.32,
         }
     }
 
@@ -79,13 +82,14 @@ impl MobKind {
             MobKind::Salmon => 0.35,
             MobKind::Pufferfish => 0.35,
             MobKind::TropicalFish => 0.28,
+            MobKind::Villager => 1.95,
         }
     }
 
     #[allow(dead_code)]
     pub fn is_hostile(&self) -> bool {
         match self {
-            MobKind::Pig | MobKind::Cow | MobKind::Chicken | MobKind::Sheep => false,
+            MobKind::Pig | MobKind::Cow | MobKind::Chicken | MobKind::Sheep | MobKind::Villager => false,
             MobKind::Dolphin | MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => false,
             MobKind::Zombie | MobKind::Skeleton | MobKind::Creeper => true,
         }
@@ -100,6 +104,7 @@ impl MobKind {
             MobKind::Cod | MobKind::Salmon | MobKind::TropicalFish | MobKind::Pufferfish => {
                 matches!(item, BlockId::WheatSeeds | BlockId::Kelp | BlockId::Seagrass)
             }
+            MobKind::Villager => matches!(item, BlockId::Emerald | BlockId::EmeraldBlock | BlockId::Bread),
             _ => false,
         }
     }
@@ -119,6 +124,7 @@ impl MobKind {
             MobKind::Salmon => "Salmon",
             MobKind::Pufferfish => "Pufferfish",
             MobKind::TropicalFish => "Tropical Fish",
+            MobKind::Villager => "Villager",
         }
     }
 
@@ -132,6 +138,7 @@ impl MobKind {
             MobKind::Skeleton => Some(crate::audio::SoundId::SkeletonIdle),
             MobKind::Creeper => None,
             MobKind::Dolphin => Some(crate::audio::SoundId::DolphinIdle),
+            MobKind::Villager => Some(crate::audio::SoundId::VillagerIdle),
             MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => None,
         }
     }
@@ -146,6 +153,7 @@ impl MobKind {
             MobKind::Skeleton => crate::audio::SoundId::SkeletonHurt,
             MobKind::Creeper => crate::audio::SoundId::CreeperHurt,
             MobKind::Dolphin => crate::audio::SoundId::DolphinHurt,
+            MobKind::Villager => crate::audio::SoundId::VillagerHurt,
             MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => crate::audio::SoundId::FishFlop,
         }
     }
@@ -160,6 +168,7 @@ impl MobKind {
             MobKind::Skeleton => crate::audio::SoundId::SkeletonDeath,
             MobKind::Creeper => crate::audio::SoundId::CreeperDeath,
             MobKind::Dolphin => crate::audio::SoundId::DolphinDeath,
+            MobKind::Villager => crate::audio::SoundId::VillagerDeath,
             MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => crate::audio::SoundId::FishFlop,
         }
     }
@@ -203,6 +212,8 @@ pub struct Mob {
     pub jump_timer: f32,
     pub out_of_water_timer: f32,
     pub fish_variant: u8,
+    pub villager_profession: u8,
+    pub trades: Vec<crate::gameplay::trading::TradeOffer>,
 }
 
 impl Mob {
@@ -226,6 +237,16 @@ impl Mob {
             }
         } else {
             0
+        };
+        let villager_profession = if kind == MobKind::Villager {
+            (id % 5) as u8 // Farmer, Librarian, Blacksmith, Cleric, Butcher
+        } else {
+            0
+        };
+        let trades = if kind == MobKind::Villager {
+            crate::gameplay::trading::VillagerProfession::from_u8(villager_profession).default_trades()
+        } else {
+            Vec::new()
         };
         Mob {
             id,
@@ -263,6 +284,8 @@ impl Mob {
             jump_timer: 3.0 + ((id % 7) as f32),
             out_of_water_timer: 0.0,
             fish_variant: (id % 4) as u8,
+            villager_profession,
+            trades,
         }
     }
 
@@ -624,6 +647,20 @@ impl Mob {
                             following_player = true;
                         }
                     }
+                }
+            }
+        }
+
+        // Villagers turn to look at nearby players
+        if self.kind == MobKind::Villager && !following_player && self.panic_timer <= 0.0 {
+            if let Some(target) = player_pos {
+                let dx = target.x - self.pos.x;
+                let dz = target.z - self.pos.z;
+                let dy = (target.y - self.pos.y).abs();
+                if dx * dx + dz * dz < 3.5 * 3.5 && dy < 2.5 {
+                    self.target_yaw = dx.atan2(dz);
+                    self.head_yaw_offset = 0.0;
+                    self.ai_state_is_moving = false;
                 }
             }
         }
@@ -1091,6 +1128,15 @@ impl MobManager {
                                 count: 1,
                             });
                         }
+                        MobKind::Villager => {
+                            if m.id % 3 == 0 {
+                                self.dying_drops.push(MobDrop {
+                                    pos: m.center_pos(),
+                                    block: BlockId::Emerald,
+                                    count: 1,
+                                });
+                            }
+                        }
                     }
                     }
 
@@ -1265,16 +1311,18 @@ impl MobManager {
                 }
 
                 if let Some((sy, block_below)) = surface_y {
-                    if block_below == BlockId::Grass {
+                    if block_below == BlockId::Grass || block_below == BlockId::Planks || block_below == BlockId::Sand {
                         let roll = rand_f32(rng);
-                        let kind = if roll < 0.25 {
+                        let kind = if roll < 0.20 {
                             MobKind::Sheep
-                        } else if roll < 0.50 {
+                        } else if roll < 0.40 {
                             MobKind::Pig
-                        } else if roll < 0.75 {
+                        } else if roll < 0.60 {
                             MobKind::Cow
-                        } else {
+                        } else if roll < 0.80 {
                             MobKind::Chicken
+                        } else {
+                            MobKind::Villager
                         };
                         let spawn_pos = Vec3::new(target_x as f32 + 0.5, sy as f32, target_z as f32 + 0.5);
                         self.spawn_mob(kind, spawn_pos);

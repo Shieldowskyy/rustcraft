@@ -109,6 +109,11 @@ pub enum SoundId {
     SheepHurt,
     SheepDeath,
     SheepShear,
+    VillagerIdle,
+    VillagerHurt,
+    VillagerDeath,
+    VillagerTrade,
+    VillagerNo,
 
     // Aquatic & Fishing
     FishFlop,
@@ -192,6 +197,11 @@ impl SoundId {
             | SoundId::SheepHurt
             | SoundId::SheepDeath
             | SoundId::SheepShear
+            | SoundId::VillagerIdle
+            | SoundId::VillagerHurt
+            | SoundId::VillagerDeath
+            | SoundId::VillagerTrade
+            | SoundId::VillagerNo
             | SoundId::FishFlop
             | SoundId::DolphinIdle
             | SoundId::DolphinHurt

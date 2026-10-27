@@ -1521,9 +1521,21 @@ impl VulkanContext {
             TextureId::SalmonSkin => 180,
             TextureId::PufferfishSkin => 181,
             TextureId::TropicalFishSkin => 182,
+            TextureId::Emerald => 183,
+            TextureId::EmeraldOre => 184,
+            TextureId::EmeraldBlock => 185,
+            TextureId::VillagerSpawnEgg => 186,
+            TextureId::VillagerSkin => 187,
+            TextureId::VillagerFace => 188,
+            TextureId::VillagerRobe => 189,
+            TextureId::VillagerArms => 190,
+            TextureId::VillagerRobeLibrarian => 191,
+            TextureId::VillagerRobeBlacksmith => 192,
+            TextureId::VillagerRobeCleric => 193,
+            TextureId::VillagerRobeButcher => 194,
             TextureId::Custom(idx) => {
                 let clamped = if (idx as u32) > 63 { 63 } else { idx as u32 };
-                183 + clamped
+                195 + clamped
             }
         }
     }
@@ -1713,7 +1725,19 @@ impl VulkanContext {
             180 => TextureId::SalmonSkin,
             181 => TextureId::PufferfishSkin,
             182 => TextureId::TropicalFishSkin,
-            l if l >= 183 && l < 183 + 64 => TextureId::Custom((l - 183) as u8),
+            183 => TextureId::Emerald,
+            184 => TextureId::EmeraldOre,
+            185 => TextureId::EmeraldBlock,
+            186 => TextureId::VillagerSpawnEgg,
+            187 => TextureId::VillagerSkin,
+            188 => TextureId::VillagerFace,
+            189 => TextureId::VillagerRobe,
+            190 => TextureId::VillagerArms,
+            191 => TextureId::VillagerRobeLibrarian,
+            192 => TextureId::VillagerRobeBlacksmith,
+            193 => TextureId::VillagerRobeCleric,
+            194 => TextureId::VillagerRobeButcher,
+            l if l >= 195 && l < 195 + 64 => TextureId::Custom((l - 195) as u8),
             _ => TextureId::CraftingTableFront,
         }
     }

@@ -776,6 +776,9 @@ pub const ALL_TEXTURES: &[TextureId] = &[
     TextureId::DriedKelp, TextureId::DolphinSpawnEgg, TextureId::FishSpawnEgg, TextureId::FishingRod,
     TextureId::DolphinSkin, TextureId::DolphinBelly, TextureId::CodSkin, TextureId::SalmonSkin,
     TextureId::PufferfishSkin, TextureId::TropicalFishSkin,
+    TextureId::Emerald, TextureId::EmeraldOre, TextureId::EmeraldBlock, TextureId::VillagerSpawnEgg,
+    TextureId::VillagerSkin, TextureId::VillagerFace, TextureId::VillagerRobe, TextureId::VillagerArms,
+    TextureId::VillagerRobeLibrarian, TextureId::VillagerRobeBlacksmith, TextureId::VillagerRobeCleric, TextureId::VillagerRobeButcher,
 ];
 
 unsafe fn populate_atlas(pixels: *mut u32, atlas: &TextureAtlas) {
@@ -1018,6 +1021,18 @@ pub fn atlas_uv(tex_id: TextureId) -> (f32, f32, f32, f32) {
         TextureId::SalmonSkin => 149,
         TextureId::PufferfishSkin => 150,
         TextureId::TropicalFishSkin => 151,
+        TextureId::Emerald => 152,
+        TextureId::EmeraldOre => 153,
+        TextureId::EmeraldBlock => 154,
+        TextureId::VillagerSpawnEgg => 155,
+        TextureId::VillagerSkin => 156,
+        TextureId::VillagerFace => 157,
+        TextureId::VillagerRobe => 158,
+        TextureId::VillagerArms => 159,
+        TextureId::VillagerRobeLibrarian => 160,
+        TextureId::VillagerRobeBlacksmith => 161,
+        TextureId::VillagerRobeCleric => 162,
+        TextureId::VillagerRobeButcher => 163,
         _ => 0,
     };
     const TILE_NORM: f32 = 1.0 / ATLAS_TILES_PER_ROW as f32;
@@ -3441,6 +3456,102 @@ fn append_mob(
                 tex_front: TextureId::TropicalFishSkin,
             };
             append_mob_box(&tail_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+        }
+        MobKind::Villager => {
+            let robe_tex = match mob.villager_profession {
+                1 => TextureId::VillagerRobeLibrarian,
+                2 => TextureId::VillagerRobeBlacksmith,
+                3 => TextureId::VillagerRobeCleric,
+                4 => TextureId::VillagerRobeButcher,
+                _ => TextureId::VillagerRobe,
+            };
+
+            // Main robe / body
+            let body_box = MobBox {
+                center: Vec3::new(0.0, 0.88, 0.0),
+                size: Vec3::new(0.50, 0.88, 0.38),
+                yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: robe_tex,
+                tex_bottom: robe_tex,
+                tex_side: robe_tex,
+                tex_front: robe_tex,
+            };
+            append_mob_box(&body_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            // Folded arms
+            let arms_box = MobBox {
+                center: Vec3::new(0.0, 0.98, 0.16),
+                size: Vec3::new(0.54, 0.24, 0.22),
+                yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: robe_tex,
+                tex_bottom: robe_tex,
+                tex_side: robe_tex,
+                tex_front: TextureId::VillagerArms,
+            };
+            append_mob_box(&arms_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            // Head
+            let head_pos = base_pos + Vec3::new(0.0, 1.34, 0.0);
+            let head_yaw = yaw + mob.head_yaw_offset;
+            let head_box = MobBox {
+                center: Vec3::new(0.0, 0.26, 0.0),
+                size: Vec3::new(0.48, 0.52, 0.48),
+                yaw: head_yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: head_pos,
+                tex_top: TextureId::VillagerSkin,
+                tex_bottom: TextureId::VillagerSkin,
+                tex_side: TextureId::VillagerSkin,
+                tex_front: TextureId::VillagerFace,
+            };
+            append_mob_box(&head_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            // 3D Villager Nose
+            let nose_box = MobBox {
+                center: Vec3::new(0.0, 0.16, 0.28),
+                size: Vec3::new(0.12, 0.22, 0.14),
+                yaw: head_yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: head_pos,
+                tex_top: TextureId::VillagerSkin,
+                tex_bottom: TextureId::VillagerSkin,
+                tex_side: TextureId::VillagerSkin,
+                tex_front: TextureId::VillagerSkin,
+            };
+            append_mob_box(&nose_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            // Legs
+            let leg_offsets = [
+                (-0.13f32, leg_swing * 0.6),
+                (0.13f32, -leg_swing * 0.6),
+            ];
+            for &(lx, swing) in &leg_offsets {
+                let rotated_x = lx * yaw.cos();
+                let rotated_z = -lx * yaw.sin();
+                let leg_origin = base_pos + Vec3::new(rotated_x, 0.44, rotated_z);
+
+                let leg_box = MobBox {
+                    center: Vec3::new(0.0, -0.22, 0.0),
+                    size: Vec3::new(0.20, 0.44, 0.20),
+                    yaw,
+                    pitch: swing,
+                    roll: roll_angle,
+                    origin: leg_origin,
+                    tex_top: TextureId::VillagerRobe,
+                    tex_bottom: TextureId::VillagerSkin,
+                    tex_side: TextureId::VillagerRobe,
+                    tex_front: TextureId::VillagerRobe,
+                };
+                append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+            }
         }
     }
 }

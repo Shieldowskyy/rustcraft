@@ -4,9 +4,10 @@ use crate::gameplay::inventory::{Inventory, ItemStack};
 use crate::gameplay::player::GameMode;
 use crate::gameplay::recipe::RecipeBook;
 use crate::ui::{
-    draw_chest_ui, draw_furnace_ui, ChestLayout, ChestSlotTarget, FurnaceLayout, FurnaceSlotTarget,
-    InventoryLayout, InventorySlotTarget,
+    draw_chest_ui, draw_furnace_ui, draw_villager_trade_ui, ChestLayout, ChestSlotTarget, FurnaceLayout, FurnaceSlotTarget,
+    InventoryLayout, InventorySlotTarget, VillagerTradeLayout, VillagerTradeSlotTarget,
 };
+use crate::gameplay::trading::VillagerProfession;
 use crate::world::block::BlockId;
 use super::{AppOutput, GameState, InputState, RustCraftApp};
 
@@ -624,6 +625,127 @@ impl RustCraftApp {
             self.renderer.width,
             self.renderer.height,
             furnace,
+            &self.player,
+            mouse_pos,
+        );
+    }
+
+    pub(crate) fn update_and_render_villager_trade(
+        &mut self,
+        dt: f32,
+        input: &InputState,
+        mob_id: u32,
+        mut selected_trade: usize,
+        out: &mut AppOutput,
+    ) {
+        let mouse_pos = input.mouse_pos;
+        let left_down = input.mouse_left;
+
+        self.world.update_furnaces(dt);
+
+        // Close trading window
+        if self.controls.is_just_pressed(Action::Inventory)
+            || self.controls.is_just_pressed(Action::Pause)
+            || input.gp_east_just_pressed
+        {
+            self.state = GameState::Playing;
+            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+            out.request_capture_mouse = true;
+            return;
+        }
+
+        out.cursor_visible = Some(true);
+        out.request_release_mouse = true;
+
+        let mut trade_count = 0;
+        let mut profession = VillagerProfession::Farmer;
+        let mut mob_pos = self.camera.position;
+
+        if let Some(mob) = self.mob_manager.mobs.iter().find(|m| m.id == mob_id) {
+            trade_count = mob.trades.len();
+            profession = VillagerProfession::from_u8(mob.villager_profession);
+            mob_pos = mob.center_pos();
+        }
+
+        if trade_count == 0 {
+            self.state = GameState::Playing;
+            out.request_capture_mouse = true;
+            return;
+        }
+
+        if selected_trade >= trade_count {
+            selected_trade = 0;
+        }
+
+        // Trade selection navigation (mouse wheel or hotbar prev/next)
+        if input.scroll_delta < 0.0 || self.controls.is_just_pressed(Action::HotbarNext) {
+            selected_trade = (selected_trade + 1) % trade_count;
+            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.5, 1.2);
+        } else if input.scroll_delta > 0.0 || self.controls.is_just_pressed(Action::HotbarPrev) {
+            selected_trade = if selected_trade == 0 { trade_count - 1 } else { selected_trade - 1 };
+            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.5, 1.2);
+        }
+
+        let layout = VillagerTradeLayout::new(self.renderer.width, self.renderer.height);
+        let click_left = (left_down && !self.prev_left_down) || input.gp_south_just_pressed;
+        let mut executed_trade = false;
+
+        if click_left {
+            if let Some((mx, my)) = mouse_pos {
+                if let Some(target) = layout.find_target_at(mx as i32, my as i32, trade_count) {
+                    match target {
+                        VillagerTradeSlotTarget::TradeOption(idx) => {
+                            selected_trade = idx;
+                            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.6, 1.1);
+                        }
+                        VillagerTradeSlotTarget::TradeButton => {
+                            executed_trade = true;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        if executed_trade {
+            if let Some(mob) = self.mob_manager.mobs.iter_mut().find(|m| m.id == mob_id) {
+                if let Some(trade) = mob.trades.get_mut(selected_trade) {
+                    if trade.execute(&mut self.player) {
+                        self.audio.play_sound(crate::audio::SoundId::VillagerTrade, 1.0, 1.0);
+                        self.particles.spawn_growth(mob_pos);
+                    } else {
+                        self.audio.play_sound(crate::audio::SoundId::VillagerNo, 1.0, 1.0);
+                    }
+                }
+            }
+        }
+
+        self.state = GameState::VillagerTrade { mob_id, selected_trade };
+        self.prev_left_down = left_down;
+
+        #[cfg(not(target_os = "vita"))]
+        {
+            self.renderer.render_frame(&mut self.world, &self.camera);
+            self.renderer.apply_biome_color_filter(self.biome_filter_tint);
+        }
+        #[cfg(target_os = "vita")]
+        {
+            self.renderer.color_buffer.fill(0x0C0C10);
+        }
+
+        let trades_clone = if let Some(mob) = self.mob_manager.mobs.iter().find(|m| m.id == mob_id) {
+            mob.trades.clone()
+        } else {
+            Vec::new()
+        };
+
+        draw_villager_trade_ui(
+            &mut self.renderer.color_buffer,
+            self.renderer.width,
+            self.renderer.height,
+            profession,
+            &trades_clone,
+            selected_trade,
             &self.player,
             mouse_pos,
         );

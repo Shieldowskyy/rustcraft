@@ -1077,6 +1077,8 @@ impl RustCraftApp {
                                             }
                                         } else if matches!(broken_block, BlockId::DiamondOre) {
                                             Some(BlockId::Diamond)
+                                        } else if matches!(broken_block, BlockId::EmeraldOre) {
+                                            Some(BlockId::Emerald)
                                         } else {
                                             Some(broken_block)
                                         };
@@ -1281,12 +1283,20 @@ impl RustCraftApp {
                         }
                     }
 
-                    // 1. Animal interaction (shearing, dyeing, feeding/breeding)
+                    // 1. Villager trading & animal interaction (shearing, dyeing, feeding/breeding)
                     if !handled {
-                    if let Some(item) = held_item {
                         if let Some((mob_idx, _)) = self.mob_manager.raycast_mob(self.camera.position, self.camera.forward(), 4.2) {
                             let mob = &mut self.mob_manager.mobs[mob_idx];
-                            if item == BlockId::Shears && mob.kind == crate::gameplay::mob::MobKind::Sheep && !mob.is_sheared && !mob.is_baby {
+                            if mob.kind == crate::gameplay::mob::MobKind::Villager && !mob.is_dead {
+                                self.state = GameState::VillagerTrade { mob_id: mob.id, selected_trade: 0 };
+                                out.request_release_mouse = true;
+                                out.cursor_visible = Some(true);
+                                self.horiz_velocity = Vec3::zero();
+                                self.fly_velocity = Vec3::zero();
+                                self.audio.play_sound(crate::audio::SoundId::VillagerIdle, 1.0, 1.0);
+                                handled = true;
+                            } else if let Some(item) = held_item {
+                                if item == BlockId::Shears && mob.kind == crate::gameplay::mob::MobKind::Sheep && !mob.is_sheared && !mob.is_baby {
                                 mob.is_sheared = true;
                                 let wool_block = BlockId::wool_block_from_color(mob.wool_color);
                                 let wool_count = 1 + (mob.id % 3) as u8; // 1-3 wool drops

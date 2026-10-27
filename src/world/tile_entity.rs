@@ -44,6 +44,7 @@ pub fn smelting_result(input: BlockId) -> Option<BlockId> {
         BlockId::Sand => Some(BlockId::Glass),
         BlockId::IronOre => Some(BlockId::IronOunce),
         BlockId::GoldOre => Some(BlockId::GoldOunce),
+        BlockId::EmeraldOre => Some(BlockId::Emerald),
         BlockId::Wood => Some(BlockId::CoalOre),
         BlockId::Stone => Some(BlockId::Stone),
         _ => None,
@@ -101,6 +102,12 @@ impl ChestData {
             block: BlockId::Stick,
             count: 6 + (next_rand() % 10) as u8,
         });
+        if next_rand() % 2 == 0 {
+            chest.items[14] = Some(ItemStack {
+                block: BlockId::Emerald,
+                count: 1 + (next_rand() % 3) as u8,
+            });
+        }
         chest.items[18] = Some(ItemStack {
             block: BlockId::Planks,
             count: 8 + (next_rand() % 16) as u8,
@@ -115,6 +122,71 @@ impl ChestData {
                 block: BlockId::StoneAxe,
                 count: 1,
             });
+        }
+
+        chest
+    }
+
+    /// Generates village blacksmith forge loot (Emeralds, Iron, Obsidian/Stone, Bread, Tools).
+    pub fn generate_blacksmith_loot(seed: u32, pos: IVec3) -> Self {
+        let mut chest = Self::new();
+        let mut rng = (seed as u64)
+            ^ ((pos.x as u64) << 32)
+            ^ ((pos.y as u64) << 16)
+            ^ (pos.z as u64);
+
+        let mut next_rand = || {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (rng >> 32) as u32
+        };
+
+        // Emeralds (1 - 6)
+        chest.items[2] = Some(ItemStack {
+            block: BlockId::Emerald,
+            count: 1 + (next_rand() % 6) as u8,
+        });
+        // Iron Ingots (2 - 7)
+        chest.items[4] = Some(ItemStack {
+            block: BlockId::IronIngot,
+            count: 2 + (next_rand() % 6) as u8,
+        });
+        // Bread (1 - 4)
+        chest.items[7] = Some(ItemStack {
+            block: BlockId::Bread,
+            count: 1 + (next_rand() % 4) as u8,
+        });
+        // Gold Ingot or Apple
+        if next_rand() % 2 == 0 {
+            chest.items[11] = Some(ItemStack {
+                block: BlockId::GoldIngot,
+                count: 1 + (next_rand() % 3) as u8,
+            });
+        } else {
+            chest.items[11] = Some(ItemStack {
+                block: BlockId::Apple,
+                count: 2 + (next_rand() % 3) as u8,
+            });
+        }
+        // Blacksmith Tool
+        match next_rand() % 3 {
+            0 => {
+                chest.items[20] = Some(ItemStack {
+                    block: BlockId::IronPickaxe,
+                    count: 1,
+                });
+            }
+            1 => {
+                chest.items[20] = Some(ItemStack {
+                    block: BlockId::IronSword,
+                    count: 1,
+                });
+            }
+            _ => {
+                chest.items[20] = Some(ItemStack {
+                    block: BlockId::IronAxe,
+                    count: 1,
+                });
+            }
         }
 
         chest

@@ -931,6 +931,7 @@ pub fn run_xbox360_app() {
                 GameState::Inventory => "Inventory",
                 GameState::Chest { .. } => "Chest",
                 GameState::Furnace { .. } => "Furnace",
+                GameState::VillagerTrade { .. } => "VillagerTrade",
                 GameState::DeathScreen => "DeathScreen",
                 _ => "Other",
             };

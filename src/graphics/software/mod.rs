@@ -2370,6 +2370,102 @@ impl Renderer {
                 };
                 self.draw_mob_box(&dorsal_box, hurt_tint, camera_pos, view_proj);
             }
+            MobKind::Villager => {
+                let robe_tex = match mob.villager_profession {
+                    1 => TextureId::VillagerRobeLibrarian,
+                    2 => TextureId::VillagerRobeBlacksmith,
+                    3 => TextureId::VillagerRobeCleric,
+                    4 => TextureId::VillagerRobeButcher,
+                    _ => TextureId::VillagerRobe,
+                };
+
+                // Main robe / body
+                let body_box = MobBox {
+                    center: Vec3::new(0.0, 0.88, 0.0),
+                    size: Vec3::new(0.50, 0.88, 0.38),
+                    yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: base_pos,
+                    tex_top: robe_tex,
+                    tex_bottom: robe_tex,
+                    tex_side: robe_tex,
+                    tex_front: robe_tex,
+                };
+                self.draw_mob_box(&body_box, hurt_tint, camera_pos, view_proj);
+
+                // Folded arms
+                let arms_box = MobBox {
+                    center: Vec3::new(0.0, 0.98, 0.16),
+                    size: Vec3::new(0.54, 0.24, 0.22),
+                    yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: base_pos,
+                    tex_top: robe_tex,
+                    tex_bottom: robe_tex,
+                    tex_side: robe_tex,
+                    tex_front: TextureId::VillagerArms,
+                };
+                self.draw_mob_box(&arms_box, hurt_tint, camera_pos, view_proj);
+
+                // Head
+                let head_pos = base_pos + Vec3::new(0.0, 1.34, 0.0);
+                let head_yaw = yaw + mob.head_yaw_offset;
+                let head_box = MobBox {
+                    center: Vec3::new(0.0, 0.26, 0.0),
+                    size: Vec3::new(0.48, 0.52, 0.48),
+                    yaw: head_yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: head_pos,
+                    tex_top: TextureId::VillagerSkin,
+                    tex_bottom: TextureId::VillagerSkin,
+                    tex_side: TextureId::VillagerSkin,
+                    tex_front: TextureId::VillagerFace,
+                };
+                self.draw_mob_box(&head_box, hurt_tint, camera_pos, view_proj);
+
+                // 3D Villager Nose
+                let nose_box = MobBox {
+                    center: Vec3::new(0.0, 0.16, 0.28),
+                    size: Vec3::new(0.12, 0.22, 0.14),
+                    yaw: head_yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: head_pos,
+                    tex_top: TextureId::VillagerSkin,
+                    tex_bottom: TextureId::VillagerSkin,
+                    tex_side: TextureId::VillagerSkin,
+                    tex_front: TextureId::VillagerSkin,
+                };
+                self.draw_mob_box(&nose_box, hurt_tint, camera_pos, view_proj);
+
+                // Legs walking beneath robe
+                let leg_offsets = [
+                    (-0.13f32, leg_swing * 0.6),
+                    (0.13f32, -leg_swing * 0.6),
+                ];
+                for &(lx, swing) in &leg_offsets {
+                    let rotated_x = lx * yaw.cos();
+                    let rotated_z = -lx * yaw.sin();
+                    let leg_origin = base_pos + Vec3::new(rotated_x, 0.44, rotated_z);
+
+                    let leg_box = MobBox {
+                        center: Vec3::new(0.0, -0.22, 0.0),
+                        size: Vec3::new(0.20, 0.44, 0.20),
+                        yaw,
+                        pitch: swing,
+                        roll: roll_angle,
+                        origin: leg_origin,
+                        tex_top: TextureId::VillagerRobe,
+                        tex_bottom: TextureId::VillagerSkin,
+                        tex_side: TextureId::VillagerRobe,
+                        tex_front: TextureId::VillagerRobe,
+                    };
+                    self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
+                }
+            }
         }
     }
 

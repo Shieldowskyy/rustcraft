@@ -19,6 +19,7 @@ impl RustCraftApp {
             GameState::Inventory => "Inventory",
             GameState::Chest { .. } => "Chest",
             GameState::Furnace { .. } => "Furnace",
+            GameState::VillagerTrade { .. } => "Villager Trade",
             GameState::DeathScreen => "Death Screen",
             GameState::MultiplayerMenu => "Multiplayer Menu",
             GameState::MultiplayerConnecting { .. } => "Multiplayer Connecting",

@@ -244,6 +244,11 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::SheepHurt => 820,
         SoundId::SheepDeath => 821,
         SoundId::SheepShear => 822,
+        SoundId::VillagerIdle => 831,
+        SoundId::VillagerHurt => 832,
+        SoundId::VillagerDeath => 833,
+        SoundId::VillagerTrade => 834,
+        SoundId::VillagerNo => 835,
         SoundId::FishFlop => 823,
         SoundId::DolphinIdle => 824,
         SoundId::DolphinHurt => 825,
@@ -335,6 +340,11 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::SheepHurt => synth_sheep_hurt(&mut rng, sr, 0.28, 0.95),
         SoundId::SheepDeath => synth_sheep_death(&mut rng, sr, 0.70, 0.95),
         SoundId::SheepShear => synth_shears(&mut rng, sr, 0.15, 0.90),
+        SoundId::VillagerIdle => synth_villager_idle(&mut rng, sr, 0.45, 0.90),
+        SoundId::VillagerHurt => synth_villager_hurt(&mut rng, sr, 0.22, 0.95),
+        SoundId::VillagerDeath => synth_villager_death(&mut rng, sr, 0.65, 0.95),
+        SoundId::VillagerTrade => synth_villager_trade(&mut rng, sr, 0.38, 0.90),
+        SoundId::VillagerNo => synth_villager_no(&mut rng, sr, 0.32, 0.90),
         SoundId::FishFlop => synth_fish_flop(&mut rng, sr, 0.18, 0.85),
         SoundId::DolphinIdle => synth_dolphin_idle(&mut rng, sr, 0.45, 0.85),
         SoundId::DolphinHurt => synth_dolphin_hurt(&mut rng, sr, 0.28, 0.95),
@@ -967,37 +977,44 @@ fn synth_wood_creak(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> V
     out
 }
 
-/// Atmospheric wind gust with multi-band air turbulence and Aeolian whistle.
+/// Atmospheric wind gust with organic multi-band air turbulence (natural rushing szum, no whistle).
 fn synth_wind_ambient(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
     let count = (sr * duration.max(3.0)) as usize;
     let mut out = Vec::with_capacity(count);
 
-    let mut lp_sub = IirFilter::lowpass(170.0, sr);
-    let mut hp_sub = IirFilter::highpass(35.0, sr);
-    let mut bp_gust = BiquadFilter::bandpass(480.0, 1.6, sr);
-    let mut whistle_phase = 0.0f32;
+    let mut lp_sub = IirFilter::lowpass(180.0, sr);
+    let mut hp_sub = IirFilter::highpass(32.0, sr);
+    let mut bp_mid = BiquadFilter::bandpass(380.0, 1.2, sr);
+    let mut bp_high = BiquadFilter::bandpass(680.0, 1.4, sr);
+    let mut lp_hiss = IirFilter::lowpass(1100.0, sr);
+
+    // Running noise accumulator for pink/brown warm drift
+    let mut brown = 0.0f32;
 
     for i in 0..count {
         let t = i as f32 / count as f32;
 
-        // Gust profile: smooth rise to peak, secondary breeze, soft tail
-        let gust_env = (t * PI).sin().powf(1.4);
+        // Natural wind gust envelope: gentle rise, subtle secondary gust, smooth fade
+        let base_env = (t * PI).sin().powf(1.3);
+        let gust_mod = 1.0 + 0.28 * (t * PI * 3.5).sin() * (t * PI).sin();
+        let env = (base_env * gust_mod).clamp(0.0, 1.4);
 
-        // 1. Deep atmospheric pressure rumble
         let raw = rng.next_f32();
-        let sub_rumble = hp_sub.process(lp_sub.process(raw)) * 1.4;
+        brown = (brown * 0.94 + raw * 0.06).clamp(-1.0, 1.0);
 
-        // 2. Gust turbulence
-        let gust_body = bp_gust.process(raw);
+        // 1. Deep atmospheric pressure rumble (szum niskotonowy)
+        let sub_rumble = hp_sub.process(lp_sub.process(raw + brown * 0.5)) * 1.6;
 
-        // 3. Aeolian whistling breeze (Mega Drive FM whistle harmonic)
-        let whistle_vibrato = (i as f32 / sr * 5.2 * 2.0 * PI).sin() * 22.0;
-        let whistle_freq = 1140.0 + whistle_vibrato + (t * PI).sin() * 180.0;
-        whistle_phase += 2.0 * PI * whistle_freq / sr;
-        let whistle = (whistle_phase.sin() * 0.16 + (whistle_phase * 2.0).sin() * 0.05) * gust_env.powf(2.0);
+        // 2. Mid-frequency wind gust body (szum powietrza)
+        let mid_rush = bp_mid.process(raw) * 1.3;
 
-        let composite = (sub_rumble * 0.55 + gust_body * 0.70 + whistle) * gust_env;
-        out.push(composite * volume * 1.25);
+        // 3. Higher breeze rustle (delikatny powiew liści/koron drzew)
+        let high_breeze = bp_high.process(lp_hiss.process(raw)) * 0.75;
+
+        let composite = (sub_rumble * 0.65 + mid_rush * 0.85 + high_breeze * 0.50) * env;
+        // Soft saturate to prevent harsh peaks
+        let saturated = composite.clamp(-1.0, 1.0);
+        out.push(saturated * volume * 1.4);
     }
     out
 }
@@ -2014,5 +2031,129 @@ fn synth_fish_catch(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> V
         }
     }
     splash
+}
+
+/// Villager idle: signature Minecraft "Hrmmm" nasal hum.
+fn synth_villager_idle(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.40)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp1 = BiquadFilter::bandpass(420.0, 2.5, sr);
+    let mut bp2 = BiquadFilter::bandpass(1120.0, 3.0, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let freq = 152.0 - t * 14.0 + (t * 8.0 * PI).sin() * 2.0;
+        phase += 2.0 * PI * freq / sr;
+
+        let raw = phase.sin() * 0.65
+            + (phase * 2.0).sin() * 0.35
+            + (phase * 3.0).sin() * 0.20
+            + (phase * 4.0).sin() * 0.12;
+
+        let filtered = bp1.process(raw) * 0.70 + bp2.process(raw) * 0.30;
+        let env = if t < 0.12 {
+            (t / 0.12).powf(0.8)
+        } else if t > 0.70 {
+            ((1.0 - t) / 0.30).powf(1.4)
+        } else {
+            1.0
+        };
+        let breath = (rng.next_f32() * 0.03) * env;
+        out.push((filtered * env * 1.5 + breath) * volume);
+    }
+    out
+}
+
+/// Villager hurt: surprised, raspy high-pitch grunt "Hrrk!".
+fn synth_villager_hurt(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.20)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp = BiquadFilter::bandpass(680.0, 2.0, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let freq = 175.0 + t * 55.0;
+        phase += 2.0 * PI * freq / sr;
+
+        let raw = (phase.sin() + (phase * 2.0).sin() * 0.45) + (rng.next_f32() * 0.18 - 0.09);
+        let filtered = bp.process(raw);
+        let env = (1.0 - t).powf(1.3);
+        out.push(filtered * env * volume * 1.6);
+    }
+    out
+}
+
+/// Villager death: deeper, decaying nasal groan "Huuu-rgh...".
+fn synth_villager_death(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.60)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp = BiquadFilter::bandpass(380.0, 2.0, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let freq = 155.0 - t * 65.0;
+        phase += 2.0 * PI * freq / sr;
+
+        let raw = phase.sin() * 0.7 + (phase * 2.0).sin() * 0.35 + (rng.next_f32() * 0.06 - 0.03);
+        let filtered = bp.process(raw);
+        let env = (1.0 - t).powf(1.5);
+        out.push(filtered * env * volume * 1.5);
+    }
+    out
+}
+
+/// Villager trade: cheerful rising inflection "Hrmm! Yes!".
+fn synth_villager_trade(_rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.35)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp1 = BiquadFilter::bandpass(520.0, 2.2, sr);
+    let mut bp2 = BiquadFilter::bandpass(1280.0, 2.5, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let freq = 140.0 + (t.powf(1.4)) * 75.0;
+        phase += 2.0 * PI * freq / sr;
+
+        let raw = phase.sin() * 0.65 + (phase * 2.0).sin() * 0.35 + (phase * 3.0).sin() * 0.18;
+        let filtered = bp1.process(raw) * 0.65 + bp2.process(raw) * 0.35;
+        let env = if t < 0.10 {
+            t / 0.10
+        } else if t > 0.75 {
+            (1.0 - t) / 0.25
+        } else {
+            1.0
+        };
+        let chime = (2.0 * PI * (660.0 + t * 440.0) * (i as f32 / sr)).sin() * 0.12 * env;
+        out.push((filtered * env * 1.4 + chime) * volume);
+    }
+    out
+}
+
+/// Villager no: refusing double-tone grunt "Hnn-nn!".
+fn synth_villager_no(_rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.32)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp = BiquadFilter::bandpass(460.0, 2.0, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let (freq, sub_t) = if t < 0.48 {
+            (160.0, t / 0.48)
+        } else {
+            (125.0, (t - 0.48) / 0.52)
+        };
+        phase += 2.0 * PI * freq / sr;
+
+        let raw = phase.sin() * 0.7 + (phase * 2.0).sin() * 0.35;
+        let filtered = bp.process(raw);
+        let pulse_env = (sub_t * (1.0 - sub_t) * 4.0).clamp(0.0, 1.0);
+        out.push(filtered * pulse_env * volume * 1.5);
+    }
+    out
 }
 

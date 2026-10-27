@@ -598,6 +598,7 @@ impl RustCraftApp {
             GameState::Inventory => self.update_and_render_inventory(dt, input, mouse_moved, &mut out),
             GameState::Chest { pos } => self.update_and_render_chest(dt, input, pos, &mut out),
             GameState::Furnace { pos } => self.update_and_render_furnace(dt, input, pos, &mut out),
+            GameState::VillagerTrade { mob_id, selected_trade } => self.update_and_render_villager_trade(dt, input, mob_id, selected_trade, &mut out),
             GameState::DeathScreen => self.update_and_render_death_screen(input, mouse_moved, &mut out),
             GameState::WorldMap => self.update_and_render_worldmap(dt, input, mouse_moved, &mut out),
         }
@@ -609,6 +610,7 @@ impl RustCraftApp {
             | GameState::Inventory
             | GameState::Chest { .. }
             | GameState::Furnace { .. }
+            | GameState::VillagerTrade { .. }
             | GameState::DeathScreen
             | GameState::WorldMap => {
                 match self.player.gamemode {
@@ -693,6 +695,7 @@ impl RustCraftApp {
                     GameState::Inventory => "Inventory",
                     GameState::Chest { .. } => "Chest",
                     GameState::Furnace { .. } => "Furnace",
+                    GameState::VillagerTrade { .. } => "Villager Trade",
                     GameState::DeathScreen => "Death Screen",
                     GameState::WorldMap => "World Map",
                     GameState::MultiplayerMenu => "Multiplayer Menu",

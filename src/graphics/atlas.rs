@@ -1099,6 +1099,18 @@ pub enum TextureId {
     SalmonSkin,
     PufferfishSkin,
     TropicalFishSkin,
+    Emerald,
+    EmeraldOre,
+    EmeraldBlock,
+    VillagerSpawnEgg,
+    VillagerSkin,
+    VillagerFace,
+    VillagerRobe,
+    VillagerArms,
+    VillagerRobeLibrarian,
+    VillagerRobeBlacksmith,
+    VillagerRobeCleric,
+    VillagerRobeButcher,
     /// Custom modded texture (index 0..=63)
     Custom(u8),
 }
@@ -1582,6 +1594,18 @@ pub struct TextureAtlas {
     pub salmon_skin: Texture,
     pub pufferfish_skin: Texture,
     pub tropical_fish_skin: Texture,
+    pub emerald: Texture,
+    pub emerald_ore: Texture,
+    pub emerald_block: Texture,
+    pub villager_spawn_egg: Texture,
+    pub villager_skin: Texture,
+    pub villager_face: Texture,
+    pub villager_robe: Texture,
+    pub villager_arms: Texture,
+    pub villager_robe_librarian: Texture,
+    pub villager_robe_blacksmith: Texture,
+    pub villager_robe_cleric: Texture,
+    pub villager_robe_butcher: Texture,
     pub custom: Vec<Texture>,
 }
 
@@ -1656,6 +1680,218 @@ fn diamond() -> Texture {
         }
     }
     Texture { texels }
+}
+
+fn emerald_ore() -> Texture {
+    let mut tex = stone();
+    let emerald_base = [0.10, 0.82, 0.30];
+    let emerald_hi = [0.65, 0.98, 0.72];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let n = rand_at(x, y, 773);
+            if n > 0.80 {
+                let col = if n > 0.92 { emerald_hi } else { emerald_base };
+                tex.texels[y * TEX_SIZE + x] = mix(tex.texels[y * TEX_SIZE + x], col, 0.92);
+            }
+        }
+    }
+    tex
+}
+
+fn emerald_block() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let base = [0.12, 0.80, 0.32];
+    let dark = [0.06, 0.48, 0.16];
+    let hi = [0.65, 0.98, 0.72];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let is_border = x == 0 || x == TEX_SIZE - 1 || y == 0 || y == TEX_SIZE - 1;
+            let n = rand_at(x, y, 884);
+            let col = if is_border {
+                dark
+            } else if n > 0.82 {
+                hi
+            } else if n < 0.25 {
+                dark
+            } else {
+                base
+            };
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
+fn emerald() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let base = [0.10, 0.78, 0.28];
+    let hi = [0.72, 1.00, 0.72];
+    let shadow = [0.05, 0.44, 0.14];
+    let border = [0.02, 0.24, 0.08];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let dx = (x as f32 - 7.5).abs();
+            let dy = (y as f32 - 7.5).abs();
+            let inside = dx <= 4.8 && dy <= 5.8 && (dx * 0.8 + dy <= 7.2);
+            if inside {
+                let is_edge = dx >= 4.0 || dy >= 5.0 || (dx * 0.8 + dy >= 6.4);
+                let n = rand_at(x, y, 993);
+                let col = if is_edge {
+                    border
+                } else if x <= 7 && y <= 6 {
+                    hi
+                } else if x >= 9 || y >= 9 {
+                    shadow
+                } else if n > 0.80 {
+                    hi
+                } else {
+                    base
+                };
+                texels[y * TEX_SIZE + x] = col;
+            }
+        }
+    }
+    Texture { texels }
+}
+
+fn villager_spawn_egg() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let base = [0.55, 0.38, 0.24];
+    let spot = [0.78, 0.58, 0.45];
+    let border = [0.32, 0.20, 0.12];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let dx = (x as f32 - 7.5).abs();
+            let dy = y as f32 - 8.0;
+            let egg_width = if dy < 0.0 {
+                (4.8 + dy * 0.45).max(1.0)
+            } else {
+                (4.8 - dy * 0.65).max(0.5)
+            };
+            if dx <= egg_width {
+                let is_border = dx >= egg_width - 0.9;
+                let n = rand_at(x, y, 612);
+                let col = if is_border {
+                    border
+                } else if n > 0.72 {
+                    spot
+                } else {
+                    base
+                };
+                texels[y * TEX_SIZE + x] = col;
+            }
+        }
+    }
+    Texture { texels }
+}
+
+fn villager_skin() -> Texture {
+    speckled([0.78, 0.58, 0.45], 0.06, 601)
+}
+
+fn villager_face() -> Texture {
+    let mut tex = villager_skin();
+    let unibrow = [0.24, 0.14, 0.08];
+    let eye_white = [0.95, 0.95, 0.95];
+    let iris_green = [0.12, 0.72, 0.28];
+    let pupil = [0.03, 0.03, 0.03];
+    let nose_shadow = [0.65, 0.46, 0.34];
+    let mouth = [0.48, 0.32, 0.22];
+
+    for x in 3..=12 {
+        tex.texels[5 * TEX_SIZE + x] = unibrow;
+    }
+    tex.texels[6 * TEX_SIZE + 7] = unibrow;
+    tex.texels[6 * TEX_SIZE + 8] = unibrow;
+
+    for y in 6..=7 {
+        tex.texels[y * TEX_SIZE + 4] = eye_white;
+        tex.texels[y * TEX_SIZE + 5] = iris_green;
+        tex.texels[y * TEX_SIZE + 10] = iris_green;
+        tex.texels[y * TEX_SIZE + 11] = eye_white;
+    }
+    tex.texels[7 * TEX_SIZE + 5] = pupil;
+    tex.texels[7 * TEX_SIZE + 10] = pupil;
+
+    for y in 7..=11 {
+        tex.texels[y * TEX_SIZE + 7] = nose_shadow;
+        tex.texels[y * TEX_SIZE + 8] = nose_shadow;
+    }
+
+    for x in 6..=9 {
+        tex.texels[13 * TEX_SIZE + x] = mouth;
+    }
+
+    tex
+}
+
+fn villager_robe() -> Texture {
+    speckled([0.48, 0.28, 0.16], 0.08, 602)
+}
+
+fn villager_arms() -> Texture {
+    let mut tex = villager_robe();
+    let skin = [0.78, 0.58, 0.45];
+    let seam = [0.32, 0.18, 0.10];
+    for y in 4..12 {
+        tex.texels[y * TEX_SIZE + 5] = seam;
+        tex.texels[y * TEX_SIZE + 10] = seam;
+        for x in 6..10 {
+            tex.texels[y * TEX_SIZE + x] = skin;
+        }
+    }
+    tex
+}
+
+fn villager_robe_librarian() -> Texture {
+    let mut tex = speckled([0.90, 0.88, 0.85], 0.05, 603);
+    let sash = [0.75, 0.18, 0.18];
+    for x in 0..TEX_SIZE {
+        tex.texels[9 * TEX_SIZE + x] = sash;
+        tex.texels[10 * TEX_SIZE + x] = sash;
+    }
+    tex
+}
+
+fn villager_robe_blacksmith() -> Texture {
+    let mut tex = villager_robe();
+    let apron = [0.18, 0.18, 0.20];
+    let buckle = [0.85, 0.75, 0.25];
+    for y in 4..16 {
+        for x in 4..12 {
+            tex.texels[y * TEX_SIZE + x] = apron;
+        }
+    }
+    tex.texels[6 * TEX_SIZE + 4] = buckle;
+    tex.texels[6 * TEX_SIZE + 11] = buckle;
+    tex
+}
+
+fn villager_robe_cleric() -> Texture {
+    let mut tex = speckled([0.45, 0.18, 0.55], 0.06, 604);
+    let gold = [0.92, 0.78, 0.22];
+    for y in 4..14 {
+        tex.texels[y * TEX_SIZE + 7] = gold;
+        tex.texels[y * TEX_SIZE + 8] = gold;
+    }
+    for x in 5..11 {
+        tex.texels[7 * TEX_SIZE + x] = gold;
+    }
+    tex
+}
+
+fn villager_robe_butcher() -> Texture {
+    let mut tex = villager_robe();
+    let apron = [0.88, 0.88, 0.88];
+    let red = [0.78, 0.15, 0.15];
+    for y in 3..16 {
+        for x in 4..12 {
+            tex.texels[y * TEX_SIZE + x] = apron;
+        }
+    }
+    tex.texels[2 * TEX_SIZE + 7] = red;
+    tex.texels[2 * TEX_SIZE + 8] = red;
+    tex
 }
 
 fn bed_top() -> Texture {
@@ -1989,53 +2225,55 @@ fn coal_block() -> Texture {
 }
 
 fn torch() -> Texture {
-    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let mut texels = vec![[-0.001, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
     let wood_dark = [0.42, 0.28, 0.14];
-    let wood_light = [0.55, 0.38, 0.20];
-    let coal = [0.15, 0.14, 0.14];
+    let wood_light = [0.58, 0.40, 0.22];
+    let wood_shadow = [0.32, 0.20, 0.10];
+    let coal = [0.18, 0.16, 0.16];
+    let coal_ember = [0.96, 0.48, 0.08];
     let flame_outer = [0.98, 0.42, 0.05];
     let flame_mid = [1.0, 0.78, 0.12];
-    let flame_core = [1.0, 0.98, 0.70];
+    let flame_core = [1.0, 1.0, 0.85];
 
-    // Background default (darker transparent or wood tone)
-    for y in 0..TEX_SIZE {
-        for x in 0..TEX_SIZE {
-            texels[y * TEX_SIZE + x] = [0.0, 0.0, 0.0];
-        }
-    }
-
-    // Wooden stick (x: 6..10, y: 0..10)
-    for y in 0..10 {
-        for x in 6..10 {
-            let n = rand_at(x, y, 77);
-            let col = if n > 0.5 { wood_light } else { wood_dark };
-            texels[y * TEX_SIZE + x] = col;
-        }
-    }
-
-    // Coal/wick top (x: 6..10, y: 9..11)
-    for y in 9..12 {
-        for x in 6..10 {
-            texels[y * TEX_SIZE + x] = coal;
-        }
-    }
-
-    // Flame (y: 11..16, x: 5..11)
-    for y in 11..16 {
+    // 1. Top flame (y: 0..5, centered at x: 7.5, y: 2.0)
+    for y in 0..5 {
         for x in 5..11 {
             let dx = (x as f32 - 7.5).abs();
-            let dy = y as f32 - 12.0;
-            if dx <= 2.2 && dy <= 3.5 {
-                let dist = dx * dx + dy * dy * 0.5;
+            let dy = (y as f32 - 2.0).abs();
+            let dist = dx * dx + dy * dy * 1.2;
+            if dist <= 4.0 {
                 let col = if dist < 1.0 {
                     flame_core
-                } else if dist < 3.0 {
+                } else if dist < 2.5 {
                     flame_mid
                 } else {
                     flame_outer
                 };
                 texels[y * TEX_SIZE + x] = col;
             }
+        }
+    }
+
+    // 2. Coal / wick base under flame (y: 4..6, x: 6..10)
+    for y in 4..6 {
+        for x in 6..10 {
+            let is_ember = (x == 7 || x == 8) && y == 4;
+            texels[y * TEX_SIZE + x] = if is_ember { coal_ember } else { coal };
+        }
+    }
+
+    // 3. Wooden stick (y: 6..16, x: 6..10, y=15 is bottom)
+    for y in 6..TEX_SIZE {
+        for x in 6..10 {
+            let n = rand_at(x, y, 77);
+            let col = if x == 9 {
+                wood_shadow
+            } else if n > 0.55 {
+                wood_light
+            } else {
+                wood_dark
+            };
+            texels[y * TEX_SIZE + x] = col;
         }
     }
 
@@ -3742,6 +3980,18 @@ impl TextureAtlas {
             salmon_skin: salmon_skin(),
             pufferfish_skin: pufferfish_skin(),
             tropical_fish_skin: tropical_fish_skin(),
+            emerald: emerald(),
+            emerald_ore: emerald_ore(),
+            emerald_block: emerald_block(),
+            villager_spawn_egg: villager_spawn_egg(),
+            villager_skin: villager_skin(),
+            villager_face: villager_face(),
+            villager_robe: villager_robe(),
+            villager_arms: villager_arms(),
+            villager_robe_librarian: villager_robe_librarian(),
+            villager_robe_blacksmith: villager_robe_blacksmith(),
+            villager_robe_cleric: villager_robe_cleric(),
+            villager_robe_butcher: villager_robe_butcher(),
             custom: crate::engine::modding::generate_mod_textures(),
         }
     }
@@ -3931,6 +4181,18 @@ impl TextureAtlas {
             TextureId::SalmonSkin => &self.salmon_skin,
             TextureId::PufferfishSkin => &self.pufferfish_skin,
             TextureId::TropicalFishSkin => &self.tropical_fish_skin,
+            TextureId::Emerald => &self.emerald,
+            TextureId::EmeraldOre => &self.emerald_ore,
+            TextureId::EmeraldBlock => &self.emerald_block,
+            TextureId::VillagerSpawnEgg => &self.villager_spawn_egg,
+            TextureId::VillagerSkin => &self.villager_skin,
+            TextureId::VillagerFace => &self.villager_face,
+            TextureId::VillagerRobe => &self.villager_robe,
+            TextureId::VillagerArms => &self.villager_arms,
+            TextureId::VillagerRobeLibrarian => &self.villager_robe_librarian,
+            TextureId::VillagerRobeBlacksmith => &self.villager_robe_blacksmith,
+            TextureId::VillagerRobeCleric => &self.villager_robe_cleric,
+            TextureId::VillagerRobeButcher => &self.villager_robe_butcher,
             TextureId::Custom(idx) => self.custom.get(idx as usize).unwrap_or(&self.stone),
         }
     }

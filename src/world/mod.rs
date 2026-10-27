@@ -55,6 +55,15 @@ impl Chunk {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum VillageComponent {
+    CenterWell,
+    Cottage,
+    Blacksmith,
+    Farm,
+    Library,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Biome {
     DeepOcean,
     Ocean,
@@ -337,6 +346,7 @@ impl Chunk {
             DesertBuriedRuin(i32, i32, i32),
             OvergrownTempleRuin(i32, i32, i32),
             CaveDungeonRuin(i32, i32, i32),
+            Village(i32, i32, i32, Biome, VillageComponent),
         }
 
         let center_wx = cx * CHUNK_SIZE_X + 8;
@@ -344,11 +354,48 @@ impl Chunk {
         let (c_biome, c_continentalness) = get_biome_at(center_wx, center_wz, seed);
         let center_height = get_height_at(center_wx, center_wz, seed, c_biome, c_continentalness);
 
+        // Multi-chunk village grid: 20x20 chunk regions (~320+ blocks spacing between villages)
+        let village_region_size = 20i32;
+        let reg_x = if cx >= 0 { cx / village_region_size } else { (cx - village_region_size + 1) / village_region_size };
+        let reg_z = if cz >= 0 { cz / village_region_size } else { (cz - village_region_size + 1) / village_region_size };
+        let v_hash = hash_coords(reg_x, reg_z, seed.wrapping_add(8881337));
+        let v_cx = reg_x * village_region_size + ((v_hash % (village_region_size - 4) as u32) as i32 + 2);
+        let v_cz = reg_z * village_region_size + (((v_hash >> 16) % (village_region_size - 4) as u32) as i32 + 2);
+
+        let v_center_wx = v_cx * CHUNK_SIZE_X + 8;
+        let v_center_wz = v_cz * CHUNK_SIZE_Z + 8;
+        let (v_biome, v_cont) = get_biome_at(v_center_wx, v_center_wz, seed);
+        let v_height = get_height_at(v_center_wx, v_center_wz, seed, v_biome, v_cont);
+
+        let is_valid_village_biome = matches!(v_biome, Biome::Plains | Biome::Meadow | Biome::Savanna | Biome::Desert | Biome::Taiga);
+        let is_valid_village_height = v_height > 22 && v_height < CHUNK_SIZE_Y - 14;
+
+        let village_comp = if is_valid_village_biome && is_valid_village_height {
+            if cx == v_cx && cz == v_cz {
+                Some(VillageComponent::CenterWell)
+            } else if cx == v_cx + 1 && cz == v_cz {
+                Some(VillageComponent::Cottage)
+            } else if cx == v_cx - 1 && cz == v_cz {
+                Some(VillageComponent::Blacksmith)
+            } else if cx == v_cx && cz == v_cz + 1 {
+                Some(VillageComponent::Farm)
+            } else if cx == v_cx && cz == v_cz - 1 {
+                Some(VillageComponent::Library)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let chunk_hash = hash_coords(cx, cz, seed.wrapping_add(77777));
         let mut structure: Option<Structure> = None;
         let mut struct_exclusion = (100, -100, 100, -100);
 
-        if center_height > 22 && center_height < CHUNK_SIZE_Y - 8 {
+        if let Some(comp) = village_comp {
+            structure = Some(Structure::Village(8, v_height, 8, v_biome, comp));
+            struct_exclusion = (0, 16, 0, 16);
+        } else if center_height > 22 && center_height < CHUNK_SIZE_Y - 12 {
             if (c_biome == Biome::Desert || c_biome == Biome::Badlands) && (chunk_hash % 71 == 0) {
                 structure = Some(Structure::DesertWell(8, center_height, 8));
                 struct_exclusion = (4, 12, 4, 12);
@@ -545,6 +592,8 @@ impl Chunk {
                             BlockId::RustStoneOre
                         } else if ore_h % 199 == 0 && y < 14 {
                             BlockId::DiamondOre
+                        } else if matches!(biome, Biome::Mountain | Biome::JaggedPeaks | Biome::FrozenPeaks | Biome::SnowySlopes) && ore_h % 149 == 0 && y >= 10 && y <= 60 {
+                            BlockId::EmeraldOre
                         } else {
                             BlockId::Stone
                         }
@@ -735,6 +784,7 @@ impl Chunk {
                 Structure::DesertBuriedRuin(cx, base_y, cz) => place_desert_buried_ruin(&mut blocks, cx, base_y, cz, seed),
                 Structure::OvergrownTempleRuin(cx, base_y, cz) => place_overgrown_temple_ruin(&mut blocks, cx, base_y, cz, seed),
                 Structure::CaveDungeonRuin(cx, base_y, cz) => place_cave_dungeon_ruin(&mut blocks, cx, base_y, cz, seed),
+                Structure::Village(cx, base_y, cz, biome, comp) => place_village_component(&mut blocks, cx, base_y, cz, biome, seed, comp),
             }
         }
 
@@ -1428,6 +1478,330 @@ fn place_forest_cabin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i
     set(blocks, min_x + 1, base_y + 3, max_z - 1, BlockId::Torch);
 }
 
+fn place_village_component(
+    blocks: &mut [u8],
+    _center_x: i32,
+    base_y: i32,
+    _center_z: i32,
+    biome: Biome,
+    _seed: u32,
+    comp: VillageComponent,
+) {
+    let set = |blocks: &mut [u8], x: i32, y: i32, z: i32, b: BlockId| {
+        if x >= 0 && x < CHUNK_SIZE_X && y >= 0 && y < CHUNK_SIZE_Y && z >= 0 && z < CHUNK_SIZE_Z {
+            blocks[Chunk::index(x, y, z)] = b.to_u8();
+        }
+    };
+
+    let is_desert = matches!(biome, Biome::Desert | Biome::Badlands);
+    let wood_mat = if is_desert { BlockId::Sand } else { BlockId::Wood };
+    let plank_mat = if is_desert { BlockId::Sand } else { BlockId::Planks };
+    let stone_mat = BlockId::Stone;
+    let path_mat = if is_desert { BlockId::Sand } else { BlockId::Dirt };
+
+    // 1. Clear air above structure and level ground foundation
+    for x in 0..CHUNK_SIZE_X {
+        for z in 0..CHUNK_SIZE_Z {
+            for y in (base_y + 1)..=(base_y + 10) {
+                set(blocks, x, y, z, BlockId::Air);
+            }
+            for y in (base_y - 4)..=base_y {
+                let idx = Chunk::index(x, y, z);
+                if blocks[idx] == BlockId::Air.to_u8() {
+                    set(blocks, x, y, z, if is_desert { BlockId::Sand } else { BlockId::Dirt });
+                }
+            }
+        }
+    }
+
+    match comp {
+        VillageComponent::CenterWell => {
+            // Crossroads leading across all 4 chunk borders to neighbor structures
+            for z in 0..CHUNK_SIZE_Z {
+                set(blocks, 7, base_y, z, path_mat);
+                set(blocks, 8, base_y, z, path_mat);
+            }
+            for x in 0..CHUNK_SIZE_X {
+                set(blocks, x, base_y, 7, path_mat);
+                set(blocks, x, base_y, 8, path_mat);
+            }
+
+            // Central Village Well
+            for x in 6..=9 {
+                for z in 6..=9 {
+                    if x == 6 || x == 9 || z == 6 || z == 9 {
+                        set(blocks, x, base_y + 1, z, stone_mat);
+                    } else {
+                        for y in (base_y - 3)..=base_y {
+                            set(blocks, x, y, z, BlockId::Water);
+                        }
+                    }
+                    set(blocks, x, base_y - 4, z, stone_mat);
+                }
+            }
+            let well_posts = [(6, 6), (9, 6), (6, 9), (9, 9)];
+            for &(wx, wz) in &well_posts {
+                for dy in 2..=4 {
+                    set(blocks, wx, base_y + dy, wz, wood_mat);
+                }
+            }
+            for x in 6..=9 {
+                for z in 6..=9 {
+                    set(blocks, x, base_y + 5, z, stone_mat);
+                }
+            }
+
+            // 4 Plaza Lampposts
+            let lamps = [(4, 4), (11, 4), (4, 11), (11, 11)];
+            for &(lx, lz) in &lamps {
+                set(blocks, lx, base_y + 1, lz, wood_mat);
+                set(blocks, lx, base_y + 2, lz, wood_mat);
+                set(blocks, lx, base_y + 3, lz, BlockId::Torch);
+            }
+
+            // Village Benches
+            for &(bx, bz) in &[(4, 7), (4, 8), (11, 7), (11, 8)] {
+                set(blocks, bx, base_y + 1, bz, plank_mat);
+            }
+        }
+
+        VillageComponent::Cottage => {
+            // Connecting path entering from West (-X)
+            for x in 0..=5 {
+                set(blocks, x, base_y, 7, path_mat);
+                set(blocks, x, base_y, 8, path_mat);
+            }
+
+            // Spacious Cottage (x: 5..=12, z: 4..=11)
+            for x in 5..=12 {
+                for z in 4..=11 {
+                    set(blocks, x, base_y, z, plank_mat);
+                }
+            }
+            for x in 5..=12 {
+                for z in 4..=11 {
+                    let is_corner = (x == 5 || x == 12) && (z == 4 || z == 11);
+                    let is_wall = x == 5 || x == 12 || z == 4 || z == 11;
+                    if is_corner {
+                        for dy in 1..=4 {
+                            set(blocks, x, base_y + dy, z, wood_mat);
+                        }
+                    } else if is_wall {
+                        for dy in 1..=3 {
+                            if x == 5 && z == 7 {
+                                if dy == 1 || dy == 2 {
+                                    set(blocks, x, base_y + dy, z, BlockId::Door);
+                                } else {
+                                    set(blocks, x, base_y + dy, z, plank_mat);
+                                }
+                            } else if dy == 2 && ((z == 7 && x == 12) || (x == 8 && (z == 4 || z == 11))) {
+                                set(blocks, x, base_y + dy, z, BlockId::Glass);
+                            } else {
+                                set(blocks, x, base_y + dy, z, plank_mat);
+                            }
+                        }
+                    }
+                }
+            }
+            // Roof
+            for x in 4..=13 {
+                for z in 3..=12 {
+                    set(blocks, x, base_y + 4, z, wood_mat);
+                }
+            }
+            for x in 5..=12 {
+                for z in 5..=10 {
+                    set(blocks, x, base_y + 5, z, plank_mat);
+                }
+            }
+
+            // Interior furniture
+            set(blocks, 11, base_y + 1, 10, BlockId::Bed);
+            set(blocks, 11, base_y + 1, 5, BlockId::CraftingTable);
+            set(blocks, 10, base_y + 1, 5, BlockId::Planks);
+            set(blocks, 7, base_y + 1, 10, BlockId::Chest);
+            set(blocks, 9, base_y + 3, 10, BlockId::Torch);
+
+            // Front Yard Lamppost
+            set(blocks, 3, base_y + 1, 5, wood_mat);
+            set(blocks, 3, base_y + 2, 5, wood_mat);
+            set(blocks, 3, base_y + 3, 5, BlockId::Torch);
+        }
+
+        VillageComponent::Blacksmith => {
+            // Connecting path entering from East (+X)
+            for x in 10..CHUNK_SIZE_X {
+                set(blocks, x, base_y, 7, path_mat);
+                set(blocks, x, base_y, 8, path_mat);
+            }
+
+            // Stone Forge Workshop & Resting Quarters (x: 4..=11, z: 4..=11)
+            for x in 4..=11 {
+                for z in 4..=11 {
+                    set(blocks, x, base_y, z, stone_mat);
+                }
+            }
+            let forge_pillars = [(4, 4), (11, 4), (4, 11), (11, 11), (7, 4), (7, 11)];
+            for &(fx, fz) in &forge_pillars {
+                for dy in 1..=3 {
+                    set(blocks, fx, base_y + dy, fz, stone_mat);
+                }
+            }
+            for x in 4..=11 {
+                for z in 4..=11 {
+                    set(blocks, x, base_y + 4, z, stone_mat);
+                }
+            }
+
+            // Outdoor smithy counter & furnace
+            set(blocks, 9, base_y + 1, 5, BlockId::Furnace);
+            set(blocks, 10, base_y + 1, 5, BlockId::Furnace);
+            set(blocks, 8, base_y + 1, 5, BlockId::Lava);
+            set(blocks, 8, base_y + 1, 8, BlockId::StoneSlab);
+            set(blocks, 9, base_y + 1, 10, BlockId::Chest);
+            set(blocks, 7, base_y + 3, 5, BlockId::Torch);
+            set(blocks, 7, base_y + 3, 10, BlockId::Torch);
+
+            // Indoor rest room
+            for z in 5..=10 {
+                set(blocks, 4, base_y + 1, z, stone_mat);
+                set(blocks, 4, base_y + 2, z, stone_mat);
+                set(blocks, 4, base_y + 3, z, stone_mat);
+            }
+            set(blocks, 5, base_y + 1, 5, BlockId::Bed);
+            set(blocks, 5, base_y + 1, 10, BlockId::CraftingTable);
+            set(blocks, 5, base_y + 3, 7, BlockId::Torch);
+        }
+
+        VillageComponent::Farm => {
+            // Central path entering from North (-Z)
+            for z in 0..CHUNK_SIZE_Z {
+                set(blocks, 7, base_y, z, path_mat);
+                set(blocks, 8, base_y, z, path_mat);
+            }
+
+            // Left Crop Field (x: 2..=6, z: 3..=13)
+            for x in 2..=6 {
+                set(blocks, x, base_y, 3, wood_mat);
+                set(blocks, x, base_y, 13, wood_mat);
+            }
+            for z in 3..=13 {
+                set(blocks, 2, base_y, z, wood_mat);
+                set(blocks, 6, base_y, z, wood_mat);
+            }
+            for z in 4..=12 {
+                set(blocks, 4, base_y, z, BlockId::Water);
+                for &x in &[3, 5] {
+                    set(blocks, x, base_y, z, BlockId::FarmlandWet);
+                    let crop = match (x + z) % 3 {
+                        0 => BlockId::WheatCrop,
+                        1 => BlockId::CarrotCrop,
+                        _ => BlockId::PotatoCrop,
+                    };
+                    set(blocks, x, base_y + 1, z, crop);
+                }
+            }
+
+            // Right Crop Field (x: 9..=13, z: 3..=13)
+            for x in 9..=13 {
+                set(blocks, x, base_y, 3, wood_mat);
+                set(blocks, x, base_y, 13, wood_mat);
+            }
+            for z in 3..=13 {
+                set(blocks, 9, base_y, z, wood_mat);
+                set(blocks, 13, base_y, z, wood_mat);
+            }
+            for z in 4..=12 {
+                set(blocks, 11, base_y, z, BlockId::Water);
+                for &x in &[10, 12] {
+                    set(blocks, x, base_y, z, BlockId::FarmlandWet);
+                    let crop = match (x + z) % 3 {
+                        0 => BlockId::WheatCrop,
+                        1 => BlockId::CarrotCrop,
+                        _ => BlockId::PotatoCrop,
+                    };
+                    set(blocks, x, base_y + 1, z, crop);
+                }
+            }
+
+            // Lampposts at farm gate
+            for &(lx, lz) in &[(6, 2), (9, 2)] {
+                set(blocks, lx, base_y + 1, lz, wood_mat);
+                set(blocks, lx, base_y + 2, lz, wood_mat);
+                set(blocks, lx, base_y + 3, lz, BlockId::Torch);
+            }
+        }
+
+        VillageComponent::Library => {
+            // Connecting road entering from South (+Z)
+            for z in 10..CHUNK_SIZE_Z {
+                set(blocks, 7, base_y, z, path_mat);
+                set(blocks, 8, base_y, z, path_mat);
+            }
+
+            // Library Building (x: 4..=11, z: 3..=10)
+            for x in 4..=11 {
+                for z in 3..=10 {
+                    set(blocks, x, base_y, z, stone_mat);
+                }
+            }
+            for x in 4..=11 {
+                for z in 3..=10 {
+                    let is_corner = (x == 4 || x == 11) && (z == 3 || z == 10);
+                    let is_wall = x == 4 || x == 11 || z == 3 || z == 10;
+                    if is_corner {
+                        for dy in 1..=4 {
+                            set(blocks, x, base_y + dy, z, wood_mat);
+                        }
+                    } else if is_wall {
+                        for dy in 1..=3 {
+                            if (x == 7 || x == 8) && z == 10 {
+                                if dy == 1 || dy == 2 {
+                                    set(blocks, x, base_y + dy, z, BlockId::Door);
+                                } else {
+                                    set(blocks, x, base_y + dy, z, plank_mat);
+                                }
+                            } else if dy == 2 && ((x == 4 || x == 11) && z == 6) {
+                                set(blocks, x, base_y + dy, z, BlockId::Glass);
+                            } else {
+                                set(blocks, x, base_y + dy, z, plank_mat);
+                            }
+                        }
+                    }
+                }
+            }
+            // Roof
+            for x in 3..=12 {
+                for z in 2..=11 {
+                    set(blocks, x, base_y + 4, z, wood_mat);
+                }
+            }
+            for x in 5..=10 {
+                for z in 4..=9 {
+                    set(blocks, x, base_y + 5, z, plank_mat);
+                }
+            }
+
+            // Interior archive shelving lining the back wall
+            for x in 5..=10 {
+                set(blocks, x, base_y + 1, 4, BlockId::Planks);
+                set(blocks, x, base_y + 2, 4, BlockId::Planks);
+            }
+            // Reading Table & Bench
+            set(blocks, 6, base_y + 1, 7, BlockId::CraftingTable);
+            set(blocks, 7, base_y + 1, 7, BlockId::WoodenSlab);
+            set(blocks, 10, base_y + 1, 8, BlockId::Chest);
+            set(blocks, 5, base_y + 3, 6, BlockId::Torch);
+            set(blocks, 10, base_y + 3, 6, BlockId::Torch);
+
+            // Library Entrance Lamppost
+            set(blocks, 5, base_y + 1, 11, wood_mat);
+            set(blocks, 5, base_y + 2, 11, wood_mat);
+            set(blocks, 5, base_y + 3, 11, BlockId::Torch);
+        }
+    }
+}
+
 fn place_mountain_shrine(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32, seed: u32) {
     let min_x = center_x - 3;
     let max_x = center_x + 3;
@@ -1729,7 +2103,16 @@ impl World {
 
     pub fn get_or_create_chest(&mut self, pos: IVec3) -> &mut ChestData {
         let seed = self.seed;
-        self.chests.entry(pos).or_insert_with(|| ChestData::generate_house_loot(seed, pos))
+        let is_blacksmith = self.get_block(pos + IVec3::new(-1, 0, 0)) == BlockId::StoneSlab
+            || self.get_block(pos + IVec3::new(-2, 0, 0)) == BlockId::Furnace
+            || self.get_block(pos + IVec3::new(1, 0, 0)) == BlockId::Furnace;
+        self.chests.entry(pos).or_insert_with(|| {
+            if is_blacksmith {
+                ChestData::generate_blacksmith_loot(seed, pos)
+            } else {
+                ChestData::generate_house_loot(seed, pos)
+            }
+        })
     }
 
     pub fn get_or_create_furnace(&mut self, pos: IVec3) -> &mut FurnaceData {
@@ -1881,12 +2264,17 @@ impl World {
         crate::log_info!("WORLD", "Pregeneration completed ({} chunks loaded in memory)", chunks.len());
 
         let mut ruststone_lights = HashMap::new();
+        let mut torches = HashSet::new();
         for chunk in chunks.values() {
             for ly in 0..CHUNK_SIZE_Y {
                 for lz in 0..CHUNK_SIZE_Z {
                     for lx in 0..CHUNK_SIZE_X {
                         let b = chunk.get_local(lx, ly, lz);
-                        if matches!(b, BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLampLit | BlockId::RustStoneWireLit) {
+                        if b == BlockId::Torch {
+                            let wx = chunk.cx * CHUNK_SIZE_X + lx;
+                            let wz = chunk.cz * CHUNK_SIZE_Z + lz;
+                            torches.insert(IVec3::new(wx, ly, wz));
+                        } else if matches!(b, BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLampLit | BlockId::RustStoneWireLit) {
                             let wx = chunk.cx * CHUNK_SIZE_X + lx;
                             let wz = chunk.cz * CHUNK_SIZE_Z + lz;
                             let rad_int = match b {
@@ -1915,7 +2303,7 @@ impl World {
             saved_player: None,
             sim_tick: 0,
             time_of_day: 120.0, // Start around 9:00 AM bright daylight
-            torches: HashSet::new(),
+            torches,
             ruststone_lights,
             button_timers: HashMap::new(),
             active_pressure_plates: HashSet::new(),
@@ -2522,7 +2910,11 @@ impl World {
             for lz in 0..CHUNK_SIZE_Z {
                 for lx in 0..CHUNK_SIZE_X {
                     let b = chunk.get_local(lx, ly, lz);
-                    if matches!(b, BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLampLit | BlockId::RustStoneWireLit) {
+                    if b == BlockId::Torch {
+                        let wx = chunk.cx * CHUNK_SIZE_X + lx;
+                        let wz = chunk.cz * CHUNK_SIZE_Z + lz;
+                        self.torches.insert(IVec3::new(wx, ly, wz));
+                    } else if matches!(b, BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLampLit | BlockId::RustStoneWireLit) {
                         let wx = chunk.cx * CHUNK_SIZE_X + lx;
                         let wz = chunk.cz * CHUNK_SIZE_Z + lz;
                         let rad_int = match b {
@@ -2916,7 +3308,7 @@ impl World {
             if dx <= 24 && dz <= 24 {
                 lights.push(LightSource {
                     pos: t_pos,
-                    radius: 12.0,
+                    radius: 14.0,
                     intensity: 1.0,
                 });
             }
@@ -3894,6 +4286,117 @@ mod tests {
         world.update_ruststone(0.1, Vec3::new(50.0, 51.0, 50.0), &[]);
         assert_eq!(world.get_block(wire_pos), BlockId::PressurePlate);
         assert_eq!(world.get_block(lamp_pos), BlockId::RustStoneLamp);
+    }
+
+    #[test]
+    fn test_spaced_villages_and_torch_lighting() {
+        let seed: u32 = 1337;
+        let village_region_size = 20i32;
+
+        // Find a village in the world
+        let mut found_village = None;
+        for reg_x in -2..=2 {
+            for reg_z in -2..=2 {
+                let v_hash = hash_coords(reg_x, reg_z, seed.wrapping_add(8881337));
+                let v_cx = reg_x * village_region_size + ((v_hash % (village_region_size - 4) as u32) as i32 + 2);
+                let v_cz = reg_z * village_region_size + (((v_hash >> 16) % (village_region_size - 4) as u32) as i32 + 2);
+
+                let v_center_wx = v_cx * CHUNK_SIZE_X + 8;
+                let v_center_wz = v_cz * CHUNK_SIZE_Z + 8;
+                let (v_biome, v_cont) = get_biome_at(v_center_wx, v_center_wz, seed);
+                let v_height = get_height_at(v_center_wx, v_center_wz, seed, v_biome, v_cont);
+
+                if matches!(v_biome, Biome::Plains | Biome::Meadow | Biome::Savanna | Biome::Desert | Biome::Taiga)
+                    && v_height > 22 && v_height < CHUNK_SIZE_Y - 14
+                {
+                    found_village = Some((v_cx, v_cz, v_height, v_biome));
+                    break;
+                }
+            }
+            if found_village.is_some() {
+                break;
+            }
+        }
+
+        assert!(found_village.is_some(), "Should find at least one village in nearby regions");
+        let (v_cx, v_cz, _v_height, _v_biome) = found_village.unwrap();
+
+        // Generate the central well chunk and surrounding building chunks
+        let center_chunk = Chunk::generate(v_cx, v_cz, seed);
+        let cottage_chunk = Chunk::generate(v_cx + 1, v_cz, seed);
+        let blacksmith_chunk = Chunk::generate(v_cx - 1, v_cz, seed);
+        let farm_chunk = Chunk::generate(v_cx, v_cz + 1, seed);
+        let _library_chunk = Chunk::generate(v_cx, v_cz - 1, seed);
+
+        // Center chunk should contain the village well (water) and torches on lampposts
+        let mut center_has_water = false;
+        let mut center_has_torch = false;
+        for y in 0..CHUNK_SIZE_Y {
+            for z in 0..CHUNK_SIZE_Z {
+                for x in 0..CHUNK_SIZE_X {
+                    let b = center_chunk.get_local(x, y, z);
+                    if b == BlockId::Water { center_has_water = true; }
+                    if b == BlockId::Torch { center_has_torch = true; }
+                }
+            }
+        }
+        assert!(center_has_water, "Center village chunk must contain the village well");
+        assert!(center_has_torch, "Center village chunk must have torch lampposts");
+
+        // Cottage chunk should contain a bed and crafting table
+        let mut cottage_has_bed = false;
+        for y in 0..CHUNK_SIZE_Y {
+            for z in 0..CHUNK_SIZE_Z {
+                for x in 0..CHUNK_SIZE_X {
+                    if cottage_chunk.get_local(x, y, z) == BlockId::Bed {
+                        cottage_has_bed = true;
+                    }
+                }
+            }
+        }
+        assert!(cottage_has_bed, "Cottage chunk must contain a bed");
+
+        // Blacksmith chunk should contain furnace and chest
+        let mut blacksmith_has_furnace = false;
+        for y in 0..CHUNK_SIZE_Y {
+            for z in 0..CHUNK_SIZE_Z {
+                for x in 0..CHUNK_SIZE_X {
+                    if blacksmith_chunk.get_local(x, y, z) == BlockId::Furnace {
+                        blacksmith_has_furnace = true;
+                    }
+                }
+            }
+        }
+        assert!(blacksmith_has_furnace, "Blacksmith chunk must contain furnace");
+
+        // Farm chunk should contain farmland crops
+        let mut farm_has_crops = false;
+        for y in 0..CHUNK_SIZE_Y {
+            for z in 0..CHUNK_SIZE_Z {
+                for x in 0..CHUNK_SIZE_X {
+                    let b = farm_chunk.get_local(x, y, z);
+                    if b == BlockId::WheatCrop || b == BlockId::CarrotCrop || b == BlockId::PotatoCrop {
+                        farm_has_crops = true;
+                    }
+                }
+            }
+        }
+        assert!(farm_has_crops, "Farm chunk must contain crops");
+
+        // Test World torch indexing: index_chunk_lights should index all torches in the chunk
+        let mut world = World::new();
+        let initial_torches = world.torches.len();
+        world.index_chunk_lights(&center_chunk);
+        assert!(world.torches.len() > initial_torches, "World should automatically index torches from generated chunks");
+
+        // Test torch light radius is 14.0 in mesh job
+        world.chunks.insert((v_cx, v_cz), center_chunk);
+        let mesh_job = world.create_mesh_job((v_cx, v_cz)).expect("Mesh job should exist");
+        let torch_lights: Vec<_> = mesh_job.lights.iter().filter(|l| l.radius == 14.0).collect();
+        assert!(!torch_lights.is_empty(), "Mesh job must receive torch light sources with radius 14.0");
+        for light in &torch_lights {
+            assert_eq!(light.intensity, 1.0, "Torch intensity must be 1.0");
+        }
     }
 }
 

@@ -7,6 +7,7 @@ pub mod particles;
 pub mod physics;
 pub mod player;
 pub mod recipe;
+pub mod trading;
 
 pub use autotest::{AutoTestRunner, AutoTestStage, TestRecord};
 pub use chat::{ChatAction, ChatMessage, ChatState, CommandContext};
@@ -16,3 +17,4 @@ pub use mob::{Mob, MobKind, MobManager};
 pub use particles::{Particle, ParticleSystem};
 pub use player::{GameMode, Player};
 pub use recipe::{Recipe, RecipeBook};
+pub use trading::{TradeOffer, VillagerProfession};

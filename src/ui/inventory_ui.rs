@@ -62,11 +62,13 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::IronOre,
                 BlockId::GoldOre,
                 BlockId::DiamondOre,
+                BlockId::EmeraldOre,
                 BlockId::RustStoneOre,
                 BlockId::CoalBlock,
                 BlockId::IronBlock,
                 BlockId::GoldBlock,
                 BlockId::DiamondBlock,
+                BlockId::EmeraldBlock,
                 BlockId::RustStoneBlock,
                 BlockId::Planks,
                 BlockId::WoodenSlab,
@@ -92,6 +94,7 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::CowSpawnEgg,
                 BlockId::ChickenSpawnEgg,
                 BlockId::SheepSpawnEgg,
+                BlockId::VillagerSpawnEgg,
                 BlockId::DolphinSpawnEgg,
                 BlockId::FishSpawnEgg,
                 BlockId::Kelp,
@@ -155,6 +158,8 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::GoldOunce,
                 BlockId::GoldIngot,
                 BlockId::Diamond,
+                BlockId::Emerald,
+                BlockId::EmeraldBlock,
                 BlockId::RustStone,
                 BlockId::RustStoneBlock,
                 BlockId::RustStoneLamp,
@@ -178,6 +183,7 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::CowSpawnEgg,
                 BlockId::ChickenSpawnEgg,
                 BlockId::SheepSpawnEgg,
+                BlockId::VillagerSpawnEgg,
                 BlockId::DolphinSpawnEgg,
                 BlockId::FishSpawnEgg,
                 BlockId::FishingRod,
@@ -254,6 +260,7 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::CowSpawnEgg,
                 BlockId::ChickenSpawnEgg,
                 BlockId::SheepSpawnEgg,
+                BlockId::VillagerSpawnEgg,
                 BlockId::DolphinSpawnEgg,
                 BlockId::FishSpawnEgg,
                 BlockId::FishingRod,
@@ -303,12 +310,14 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::IronOre,
                 BlockId::GoldOre,
                 BlockId::DiamondOre,
+                BlockId::EmeraldOre,
                 BlockId::RustStoneOre,
                 // Mineral Blocks
                 BlockId::CoalBlock,
                 BlockId::IronBlock,
                 BlockId::GoldBlock,
                 BlockId::DiamondBlock,
+                BlockId::EmeraldBlock,
                 BlockId::RustStoneBlock,
                 // Construction & Building
                 BlockId::Planks,
@@ -391,11 +400,13 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::GoldOunce,
                 BlockId::GoldIngot,
                 BlockId::Diamond,
+                BlockId::Emerald,
                 // Animals & Meats
                 BlockId::PigSpawnEgg,
                 BlockId::CowSpawnEgg,
                 BlockId::ChickenSpawnEgg,
                 BlockId::SheepSpawnEgg,
+                BlockId::VillagerSpawnEgg,
                 BlockId::DolphinSpawnEgg,
                 BlockId::FishSpawnEgg,
                 BlockId::FishingRod,
@@ -2061,7 +2072,7 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
             px(buffer, 9, 13, iron_dark);
             px(buffer, 9, 12, iron_hi);
         }
-        BlockId::PigSpawnEgg | BlockId::CowSpawnEgg | BlockId::ChickenSpawnEgg | BlockId::SheepSpawnEgg | BlockId::DolphinSpawnEgg | BlockId::FishSpawnEgg => {
+        BlockId::PigSpawnEgg | BlockId::CowSpawnEgg | BlockId::ChickenSpawnEgg | BlockId::SheepSpawnEgg | BlockId::DolphinSpawnEgg | BlockId::FishSpawnEgg | BlockId::VillagerSpawnEgg => {
             let (base, spot, outline) = match block {
                 BlockId::PigSpawnEgg => (
                     pack_color(0.95, 0.62, 0.68),
@@ -2093,6 +2104,11 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                     pack_color(0.92, 0.45, 0.22),
                     pack_color(0.38, 0.28, 0.16),
                 ),
+                BlockId::VillagerSpawnEgg => (
+                    pack_color(0.55, 0.38, 0.24),
+                    pack_color(0.78, 0.58, 0.45),
+                    pack_color(0.32, 0.20, 0.12),
+                ),
                 _ => unreachable!(),
             };
 
@@ -2119,6 +2135,7 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                                 BlockId::SheepSpawnEgg => (lx == 7 && ly == 6) || (lx == 8 && ly == 6) || (lx == 6 && ly == 9) || (lx == 9 && ly == 10) || (lx == 7 && ly == 11),
                                 BlockId::DolphinSpawnEgg => (lx == 6 && ly == 5) || (lx == 8 && ly == 8) || (lx == 6 && ly == 11) || (lx == 9 && ly == 11),
                                 BlockId::FishSpawnEgg => (lx == 7 && ly == 5) || (lx == 8 && ly == 7) || (lx == 6 && ly == 9) || (lx == 8 && ly == 12),
+                                BlockId::VillagerSpawnEgg => (lx == 6 && ly == 6) || (lx == 8 && ly == 8) || (lx == 6 && ly == 11) || (lx == 9 && ly == 11),
                                 _ => false,
                             };
                             if is_spot {
@@ -2126,6 +2143,45 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                             } else {
                                 px(buffer, lx, ly, base);
                             }
+                        }
+                    }
+                }
+            }
+        }
+        BlockId::Emerald => {
+            let outline = pack_color(0.04, 0.28, 0.08);
+            let glint = pack_color(0.75, 1.00, 0.75);
+            let hi = pack_color(0.18, 0.85, 0.32);
+            let base = pack_color(0.10, 0.68, 0.22);
+            let sh = pack_color(0.06, 0.45, 0.14);
+
+            for ly in 3..=13 {
+                for lx in 3..=12 {
+                    let in_shape = match ly {
+                        3 => lx >= 6 && lx <= 9,
+                        4 => lx >= 5 && lx <= 10,
+                        5 => lx >= 4 && lx <= 11,
+                        6..=7 => lx >= 3 && lx <= 12,
+                        8 => lx >= 4 && lx <= 11,
+                        9 => lx >= 5 && lx <= 10,
+                        10 => lx >= 6 && lx <= 9,
+                        11 => lx >= 6 && lx <= 9,
+                        12 => lx >= 7 && lx <= 8,
+                        13 => lx == 7 || lx == 8,
+                        _ => false,
+                    };
+                    if in_shape {
+                        let is_border = ly == 3 || ly == 13 || (ly == 6 && (lx == 3 || lx == 12)) || (ly == 7 && (lx == 3 || lx == 12)) || (ly == 12 && (lx == 7 || lx == 8));
+                        if is_border {
+                            px(buffer, lx, ly, outline);
+                        } else if ly <= 5 && lx >= 6 && lx <= 8 {
+                            px(buffer, lx, ly, glint);
+                        } else if lx <= 6 {
+                            px(buffer, lx, ly, hi);
+                        } else if lx >= 10 || ly >= 10 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
                         }
                     }
                 }
@@ -2232,6 +2288,41 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                     px(buffer, lx, ry, rung);
                     px(buffer, lx, ry + 1, rung_sh);
                 }
+            }
+        }
+        BlockId::Torch => {
+            let wood_light = pack_color(0.68, 0.48, 0.26);
+            let wood_mid = pack_color(0.52, 0.35, 0.18);
+            let wood_dark = pack_color(0.35, 0.22, 0.10);
+            let coal = pack_color(0.20, 0.18, 0.16);
+            let flame_core = pack_color(1.00, 1.00, 0.88);
+            let flame_gold = pack_color(1.00, 0.80, 0.15);
+            let flame_orange = pack_color(0.98, 0.42, 0.05);
+
+            // Glowing flame tip
+            px(buffer, 7, 1, flame_orange);
+            px(buffer, 8, 1, flame_gold);
+            px(buffer, 6, 2, flame_orange);
+            px(buffer, 7, 2, flame_core);
+            px(buffer, 8, 2, flame_core);
+            px(buffer, 9, 2, flame_gold);
+            px(buffer, 6, 3, flame_gold);
+            px(buffer, 7, 3, flame_core);
+            px(buffer, 8, 3, flame_gold);
+            px(buffer, 9, 3, flame_orange);
+            px(buffer, 7, 4, flame_orange);
+            px(buffer, 8, 4, flame_orange);
+
+            // Coal / wick top
+            px(buffer, 7, 5, coal);
+            px(buffer, 8, 5, coal);
+            px(buffer, 7, 6, coal);
+            px(buffer, 8, 6, wood_dark);
+
+            // Wooden stick body
+            for ly in 7..=14 {
+                px(buffer, 7, ly, if ly % 3 == 0 { wood_light } else { wood_mid });
+                px(buffer, 8, ly, wood_dark);
             }
         }
         BlockId::RustStone | BlockId::RustStoneWireLit => {
