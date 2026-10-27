@@ -432,5 +432,9 @@ pub fn draw_settings_menu(
         t("settings.controls_hint")
     };
     let hw = font::measure_text(hint, 1, 1);
-    draw_text_colored_shadowed(buffer, width, height, hint, cx - hw / 2, height as i32 - 18, 1, 1, pack_color(0.7, 0.75, 0.85));
+    draw_text_colored_shadowed(buffer, width, height, hint, cx - hw / 2, height as i32 - 24, 1, 1, pack_color(0.7, 0.75, 0.85));
+
+    let build_info = crate::core::build_info::get_build_info();
+    let bw = font::measure_text(build_info, 1, 1);
+    draw_text_colored_shadowed(buffer, width, height, build_info, (width as i32 - bw) / 2, height as i32 - 12, 1, 1, pack_color(0.48, 0.54, 0.65));
 }

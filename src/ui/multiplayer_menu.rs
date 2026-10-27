@@ -330,4 +330,8 @@ pub fn draw_multiplayer_menu(
     fill_rect(buffer, width, height, kx + kw - 2, ky, 2, kh, k_bot);
     let ktw = font::measure_text(back_label, 2, 1);
     draw_text_colored_shadowed(buffer, width, height, back_label, kx + (kw - ktw) / 2, ky + 13, 2, 1, pack_color(1.0, 1.0, 1.0));
+
+    let build_info = crate::core::build_info::get_build_info();
+    let bw = font::measure_text(build_info, 1, 1);
+    draw_text_colored_shadowed(buffer, width, height, build_info, (width as i32 - bw) / 2, height as i32 - 14, 1, 1, pack_color(0.48, 0.54, 0.65));
 }

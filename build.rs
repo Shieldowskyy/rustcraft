@@ -6,6 +6,8 @@ use std::env;
 use std::process::Command;
 
 fn main() {
+    emit_build_info();
+
     let target = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
 
     // For non-Vita platforms – empty placeholders (GXM is not used)
@@ -208,3 +210,80 @@ const MINIMAL_FRAG_GXP: &[u8] = &[
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00,
 ];
+
+fn emit_build_info() {
+    let build_datetime = Command::new("date")
+        .arg("+%Y-%m-%d %H:%M:%S")
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                String::from_utf8(out.stdout).ok().map(|s| s.trim().to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| {
+            let duration = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
+            let secs = duration.as_secs();
+            let days = secs / 86400;
+            let day_secs = secs % 86400;
+            let hours = day_secs / 3600;
+            let minutes = (day_secs % 3600) / 60;
+            let seconds = day_secs % 60;
+            format!("Unix+{}d {:02}:{:02}:{:02}", days, hours, minutes, seconds)
+        });
+
+    let profile = env::var("PROFILE").unwrap_or_else(|_| "release".to_string());
+    let target = env::var("TARGET").unwrap_or_else(|_| "unknown".to_string());
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "unknown".to_string());
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "unknown".to_string());
+    let opt_level = env::var("OPT_LEVEL").unwrap_or_else(|_| "3".to_string());
+
+    let platform_name = match target_os.as_str() {
+        "vita" => "PS Vita",
+        "android" => "Android",
+        "xbox360" | "xenon" => "Xbox 360",
+        "windows" => "Windows",
+        "linux" => "Linux",
+        "macos" => "macOS",
+        "ios" => "iOS",
+        _ => &target_os,
+    };
+
+    let platform_full = format!("{} ({})", platform_name, target_arch);
+
+    let mut features = Vec::new();
+    for (k, _) in env::vars() {
+        if let Some(feat) = k.strip_prefix("CARGO_FEATURE_") {
+            features.push(feat.to_lowercase());
+        }
+    }
+    features.sort();
+    let features_str = if features.is_empty() {
+        "none".to_string()
+    } else {
+        features.join(",")
+    };
+
+    let flags_str = format!("opt={}, feats=[{}]", opt_level, features_str);
+
+    let full_info = format!(
+        "RustCraft v{} [{}] | {} | {} | {}",
+        env!("CARGO_PKG_VERSION"),
+        profile,
+        build_datetime,
+        platform_full,
+        flags_str
+    );
+
+    println!("cargo:rustc-env=RUSTCRAFT_BUILD_DATETIME={}", build_datetime);
+    println!("cargo:rustc-env=RUSTCRAFT_BUILD_PROFILE={}", profile);
+    println!("cargo:rustc-env=RUSTCRAFT_BUILD_TARGET={}", target);
+    println!("cargo:rustc-env=RUSTCRAFT_BUILD_PLATFORM={}", platform_full);
+    println!("cargo:rustc-env=RUSTCRAFT_BUILD_FLAGS={}", flags_str);
+    println!("cargo:rustc-env=RUSTCRAFT_BUILD_INFO={}", full_info);
+}
+

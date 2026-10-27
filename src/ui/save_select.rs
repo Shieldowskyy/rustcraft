@@ -235,5 +235,9 @@ pub fn draw_save_select_menu(
     };
 
     let ft_w = font::measure_text(footer_tooltip, 1, 1);
-    draw_text_colored_shadowed(buffer, width, height, footer_tooltip, cx - ft_w / 2, height as i32 - 18, 1, 1, pack_color(0.65, 0.72, 0.85));
+    draw_text_colored_shadowed(buffer, width, height, footer_tooltip, cx - ft_w / 2, height as i32 - 24, 1, 1, pack_color(0.65, 0.72, 0.85));
+
+    let build_info = crate::core::build_info::get_build_info();
+    let bw = font::measure_text(build_info, 1, 1);
+    draw_text_colored_shadowed(buffer, width, height, build_info, (width as i32 - bw) / 2, height as i32 - 12, 1, 1, pack_color(0.48, 0.54, 0.65));
 }

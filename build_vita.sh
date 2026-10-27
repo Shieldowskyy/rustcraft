@@ -66,7 +66,7 @@ echo "=== Building RustCraft for PlayStation Vita ($TARGET) ==="
 
 # 1. Compile Rust to ELF with built-in standard library
 echo "Compiling Rust project for target $TARGET..."
-export RUSTFLAGS="-C target-cpu=cortex-a9 -C link-arg=-Wl,--defsym=__sce_headroom=0x10000"
+export RUSTFLAGS="-C target-cpu=cortex-a9 -C link-arg=-Wl,--defsym=__sce_headroom=0x10000 -C link-arg=-lSceIme_stub -C link-arg=-lSceCommonDialog_stub -C link-arg=-lSceAppUtil_stub"
 RUSTC_BOOTSTRAP=1 cargo build --target "$TARGET" -Z build-std=std,panic_abort --release $CARGO_FEATURES
 
 TARGET_ELF="target/$TARGET/release/rustcraft.elf"

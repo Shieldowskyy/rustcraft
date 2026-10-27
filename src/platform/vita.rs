@@ -158,6 +158,139 @@ extern "C" {
     ) -> SceUID;
 }
 
+// ============================================================================
+// 1b. Sony PS Vita IME (On-Screen Keyboard) Dialog System
+// ============================================================================
+
+#[repr(C)]
+pub struct SceCommonDialogParam {
+    pub size: u32,
+    pub language: u32,
+    pub enter_button_assign: i32,
+    pub reserved: [u32; 8],
+}
+
+pub const SCE_IME_TYPE_DEFAULT: u32 = 0;
+pub const SCE_IME_LANGUAGE_ENGLISH: u64 = 0x0000000000000002;
+pub const SCE_COMMON_DIALOG_STATUS_NONE: i32 = 0;
+pub const SCE_COMMON_DIALOG_STATUS_RUNNING: i32 = 1;
+pub const SCE_COMMON_DIALOG_STATUS_FINISHED: i32 = 2;
+pub const SCE_IME_DIALOG_BUTTON_ENTER: i32 = 0;
+pub const SCE_IME_DIALOG_BUTTON_CLOSE: i32 = 1;
+
+#[repr(C)]
+pub struct SceImeDialogParam {
+    pub sdk_version: u32,
+    pub input_method: u32,
+    pub supported_languages: u64,
+    pub languages_forced: i32,
+    pub dialog_type: u32,
+    pub option: u32,
+    pub filter: *const core::ffi::c_void,
+    pub dialog_mode: u32,
+    pub text_box_mode: u32,
+    pub title: *const u16,
+    pub max_text_length: u32,
+    pub initial_text: *const u16,
+    pub input_text_buffer: *mut u16,
+    pub common_param: SceCommonDialogParam,
+    pub enter_label: u8,
+    pub reserved: [u8; 35],
+}
+
+#[repr(C)]
+pub struct SceImeDialogResult {
+    pub result: i32,
+    pub button: i32,
+    pub reserved: [u8; 28],
+}
+
+#[link(name = "SceIme_stub")]
+#[link(name = "SceCommonDialog_stub")]
+extern "C" {
+    pub fn sceImeDialogParamInit(param: *mut SceImeDialogParam);
+    pub fn sceImeDialogInit(param: *const SceImeDialogParam) -> i32;
+    pub fn sceImeDialogGetStatus() -> i32;
+    pub fn sceImeDialogGetResult(result: *mut SceImeDialogResult) -> i32;
+    pub fn sceImeDialogTerm() -> i32;
+    pub fn sceCommonDialogUpdate(param: *const core::ffi::c_void) -> i32;
+}
+
+pub struct VitaImeManager {
+    pub is_active: bool,
+    pub title_utf16: Vec<u16>,
+    pub initial_utf16: Vec<u16>,
+    pub buffer_utf16: [u16; 128],
+}
+
+impl VitaImeManager {
+    pub fn new() -> Self {
+        Self {
+            is_active: false,
+            title_utf16: Vec::new(),
+            initial_utf16: Vec::new(),
+            buffer_utf16: [0; 128],
+        }
+    }
+
+    pub fn start(&mut self, title: &str, initial_text: &str) -> bool {
+        if self.is_active {
+            return false;
+        }
+        self.title_utf16 = title.encode_utf16().chain(core::iter::once(0)).collect();
+        self.initial_utf16 = initial_text.encode_utf16().chain(core::iter::once(0)).collect();
+        self.buffer_utf16 = [0; 128];
+
+        unsafe {
+            let mut param: SceImeDialogParam = core::mem::zeroed();
+            sceImeDialogParamInit(&mut param);
+            param.supported_languages = SCE_IME_LANGUAGE_ENGLISH;
+            param.languages_forced = 1;
+            param.dialog_type = SCE_IME_TYPE_DEFAULT;
+            param.title = self.title_utf16.as_ptr();
+            param.max_text_length = 64;
+            param.initial_text = self.initial_utf16.as_ptr();
+            param.input_text_buffer = self.buffer_utf16.as_mut_ptr();
+
+            let res = sceImeDialogInit(&param);
+            if res >= 0 {
+                self.is_active = true;
+                crate::vita_log!("SceImeDialog opened for: {}", title);
+                true
+            } else {
+                crate::vita_log!("SceImeDialog failed to initialize (code: {})", res);
+                false
+            }
+        }
+    }
+
+    pub fn update(&mut self) -> Option<Option<String>> {
+        if !self.is_active {
+            return None;
+        }
+
+        unsafe {
+            sceCommonDialogUpdate(core::ptr::null());
+            let status = sceImeDialogGetStatus();
+            if status == SCE_COMMON_DIALOG_STATUS_FINISHED {
+                let mut result: SceImeDialogResult = core::mem::zeroed();
+                sceImeDialogGetResult(&mut result);
+                let text_opt = if result.button == SCE_IME_DIALOG_BUTTON_ENTER {
+                    let len = self.buffer_utf16.iter().position(|&c| c == 0).unwrap_or(self.buffer_utf16.len());
+                    String::from_utf16(&self.buffer_utf16[..len]).ok()
+                } else {
+                    None
+                };
+                sceImeDialogTerm();
+                self.is_active = false;
+                Some(text_opt)
+            } else {
+                None
+            }
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! vita_log {
     ($($arg:tt)*) => {{
@@ -533,6 +666,7 @@ pub fn run_vita_app() {
     // 1. Load required Vita system modules
     //    GXM requires libSceGxm; libc.suprx is required for malloc/free in shader patcher.
     load_module(b"vs0:sys/external/libSceGxm.suprx\0");
+    load_module(b"vs0:sys/external/libSceIme.suprx\0");
     load_module(b"app0:sce_module/libc.suprx\0");
     load_module(b"app0:sce_module/libfios2.suprx\0");
 
@@ -568,6 +702,7 @@ pub fn run_vita_app() {
 
     // 5. Initialize gamepad controller and touchscreen tracker
     let mut input_tracker = VitaInputTracker::new();
+    let mut ime_mgr = VitaImeManager::new();
     let mut last_time = unsafe { sceKernelGetProcessTimeWide() };
 
     // Main game loop
@@ -576,6 +711,19 @@ pub fn run_vita_app() {
         let dt_us = current_time.saturating_sub(last_time);
         last_time = current_time;
         let dt = (dt_us as f32 / 1_000_000.0).clamp(0.001, 0.1);
+
+        // Check if app requested opening Vita on-screen keyboard (IME)
+        if let Some((ref title, ref initial)) = app.ime_requested.take() {
+            ime_mgr.start(title, initial);
+        }
+
+        // Update IME dialog if running
+        if let Some(ime_result) = ime_mgr.update() {
+            match ime_result {
+                Some(text) => app.apply_ime_text(&text),
+                None => app.cancel_ime(),
+            }
+        }
 
         // Poll Vita controller (in menus free cursor is active, in-game camera is locked to analog stick)
         let is_captured = matches!(app.state, crate::app::GameState::Playing);

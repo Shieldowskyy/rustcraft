@@ -45,12 +45,16 @@ pub const HEIGHT: usize = 540;
 pub const MAX_SAVE_SLOTS: u8 = 32;
 
 /// Originating menu state for submenus (e.g. Settings).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PreviousMenu {
     /// Settings opened from the main menu.
     MainMenu,
     /// Settings opened from the in-game pause menu.
     Paused,
+    /// Opened from settings menu.
+    Settings,
+    /// Opened from multiplayer menu.
+    MultiplayerMenu,
 }
 
 /// Result of asynchronous background world loading.
@@ -71,6 +75,8 @@ pub enum GameState {
     CreateWorld,
     /// Video / graphics settings menu.
     Settings(PreviousMenu),
+    /// Change nickname modal dialogue.
+    EditNickname(PreviousMenu),
     /// Asynchronous world generation / loading screen.
     #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
     Loading(mpsc::Receiver<WorldLoadResult>),
@@ -273,6 +279,12 @@ pub struct RustCraftApp {
     pub proj_matrix: Mat4,
     pub main_menu_rects: [(i32, i32, i32, i32); 4],
     pub main_menu_nick_rect: (i32, i32, i32, i32),
+    pub nickname_input: String,
+    pub nickname_selected: bool,
+    pub nickname_dialog_hovered_btn: Option<usize>,
+    pub nickname_dialog_rects: [(i32, i32, i32, i32); 4],
+    pub ime_requested: Option<(String, String)>,
+    pub is_ime_active: bool,
     pub multiplayer_menu_rects: [(i32, i32, i32, i32); crate::ui::MULTIPLAYER_RECT_COUNT],
     pub multiplayer_server_addr: String,
     pub multiplayer_focus: usize,
@@ -397,6 +409,8 @@ impl RustCraftApp {
 
         let main_menu_rects = renderer.main_menu_button_rects();
         let main_menu_nick_rect = renderer.main_menu_nickname_rect();
+        let nickname_dialog_rects = renderer.nickname_dialog_rects();
+        let default_nickname = settings.nickname.clone();
         let multiplayer_menu_rects = renderer.multiplayer_menu_rects();
         let save_card_rects = renderer.save_card_rects();
         let save_btn_rects = renderer.save_bottom_button_rects();
@@ -502,6 +516,12 @@ impl RustCraftApp {
             proj_matrix,
             main_menu_rects,
             main_menu_nick_rect,
+            nickname_input: default_nickname,
+            nickname_selected: false,
+            nickname_dialog_hovered_btn: Some(0),
+            nickname_dialog_rects,
+            ime_requested: None,
+            is_ime_active: false,
             multiplayer_menu_rects,
             multiplayer_server_addr: "127.0.0.1:26656".to_string(),
             multiplayer_focus: 0,
@@ -814,9 +834,7 @@ impl RustCraftApp {
                     || (n_down && !self.prev_n_down)
                     || input.gp_north_just_pressed;
                 if click_nick {
-                    self.settings.nickname = crate::core::settings::generate_default_nickname();
-                    let _ = self.settings.save();
-                    crate::log_info!("SETTINGS", "Nickname randomized to {}", self.settings.nickname);
+                    self.open_edit_nickname(PreviousMenu::MainMenu);
                 }
 
                 if (enter_down && !self.prev_enter_down && (hovered_idx == Some(0) || hovered_idx.is_none())) || click_button == Some(0) {
@@ -870,7 +888,11 @@ impl RustCraftApp {
                 if click {
                     if let Some(idx) = hovered_idx {
                         match idx {
-                            0 => self.multiplayer_focus = 0,
+                            0 => {
+                                self.multiplayer_focus = 0;
+                                let nick = self.settings.nickname.clone();
+                                self.request_ime("Multiplayer Nickname", &nick);
+                            }
                             1 => {
                                 self.settings.nickname = crate::core::settings::generate_default_nickname();
                                 let _ = self.settings.save();
@@ -946,6 +968,201 @@ impl RustCraftApp {
                     &self.lan_discovery.servers,
                     self.selected_lan_server,
                     self.lan_discovery.is_refreshing,
+                );
+            }
+            GameState::EditNickname(prev) => {
+                let rects = self.nickname_dialog_rects;
+                let mut hovered_idx = self.nickname_dialog_hovered_btn;
+
+                if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    for (i, &(bx, by, bw, bh)) in rects.iter().enumerate() {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            hovered_idx = Some(i);
+                            self.nickname_dialog_hovered_btn = Some(i);
+                            break;
+                        }
+                    }
+                }
+
+                // D-Pad / arrows navigation between elements
+                let left_just = (left_arrow_down && !self.prev_left_arrow_down) || input.gp_dpad_left_just_pressed || input.gp_menu_left;
+                let right_just = (right_arrow_down && !self.prev_right_arrow_down) || input.gp_dpad_right_just_pressed || input.gp_menu_right;
+                let up_just = (up_arrow_down && !self.prev_up_arrow_down) || input.gp_dpad_up_just_pressed || input.gp_menu_up;
+                let down_just = (down_arrow_down && !self.prev_down_arrow_down) || input.gp_dpad_down_just_pressed || input.gp_menu_down;
+                let tab_just = tab_down && !self.prev_tab_down;
+
+                if left_just {
+                    let cur = hovered_idx.unwrap_or(1);
+                    let next = if cur <= 1 { 3 } else { cur - 1 };
+                    hovered_idx = Some(next);
+                    self.nickname_dialog_hovered_btn = Some(next);
+                } else if right_just || tab_just {
+                    let cur = hovered_idx.unwrap_or(0);
+                    let next = if cur >= 3 { 1 } else { cur + 1 };
+                    hovered_idx = Some(next);
+                    self.nickname_dialog_hovered_btn = Some(next);
+                } else if up_just {
+                    hovered_idx = Some(0);
+                    self.nickname_dialog_hovered_btn = Some(0);
+                } else if down_just {
+                    if hovered_idx == Some(0) || hovered_idx.is_none() {
+                        hovered_idx = Some(1);
+                        self.nickname_dialog_hovered_btn = Some(1);
+                    }
+                }
+
+                // Typing handling
+                if !ctrl_down {
+                    for &ch in &input.typed_chars {
+                        if !ch.is_control() && (ch.is_alphanumeric() || ch == '_' || ch == '-') {
+                            if self.nickname_selected {
+                                self.nickname_input.clear();
+                                self.nickname_selected = false;
+                            }
+                            if self.nickname_input.len() < 24 {
+                                self.nickname_input.push(ch);
+                            }
+                        }
+                    }
+                }
+
+                let backspace_just = (backspace_down && !self.prev_backspace_down) || (del_down && !self.prev_del_down);
+                if backspace_just {
+                    if self.nickname_selected {
+                        self.nickname_input.clear();
+                        self.nickname_selected = false;
+                    } else {
+                        self.nickname_input.pop();
+                    }
+                }
+
+                // Clipboard shortcuts: Ctrl+A, Ctrl+C, Ctrl+V
+                if ctrl_down {
+                    if a_down && !self.prev_a_down {
+                        self.nickname_selected = true;
+                    } else if c_down && !self.prev_c_down {
+                        crate::ui::clipboard::set_clipboard(&self.nickname_input);
+                    } else if v_down && !self.prev_v_down {
+                        let clip = crate::ui::clipboard::get_clipboard();
+                        let filtered: String = clip.chars().filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-').collect();
+                        if self.nickname_selected {
+                            self.nickname_input.clear();
+                            self.nickname_selected = false;
+                        }
+                        for ch in filtered.chars() {
+                            if self.nickname_input.len() < 24 {
+                                self.nickname_input.push(ch);
+                            }
+                        }
+                    }
+                }
+
+                // Randomize shortcut: Gamepad West (X)
+                let r_just = input.gp_west_just_pressed;
+                if r_just {
+                    self.nickname_input = crate::core::settings::generate_default_nickname();
+                    self.nickname_selected = false;
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                }
+
+                let click = (left_down && !self.prev_left_down) || input.gp_south_just_pressed;
+                let enter_just = enter_down && !self.prev_enter_down;
+                let esc_just = (escape_down && !self.prev_escape_down) || (q_down && !self.prev_q_down) || input.gp_east_just_pressed;
+
+                if esc_just {
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                    self.state = match prev {
+                        PreviousMenu::MainMenu => GameState::MainMenu,
+                        PreviousMenu::Paused => GameState::Paused,
+                        PreviousMenu::Settings => GameState::Settings(PreviousMenu::MainMenu),
+                        PreviousMenu::MultiplayerMenu => GameState::MultiplayerMenu,
+                    };
+                } else if enter_just {
+                    let trimmed = self.nickname_input.trim();
+                    if !trimmed.is_empty() {
+                        self.settings.nickname = trimmed.to_string();
+                    } else {
+                        self.settings.nickname = crate::core::settings::generate_default_nickname();
+                    }
+                    let _ = self.settings.save();
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                    crate::log_info!("SETTINGS", "Nickname saved as {}", self.settings.nickname);
+                    self.state = match prev {
+                        PreviousMenu::MainMenu => GameState::MainMenu,
+                        PreviousMenu::Paused => GameState::Paused,
+                        PreviousMenu::Settings => GameState::Settings(PreviousMenu::MainMenu),
+                        PreviousMenu::MultiplayerMenu => GameState::MultiplayerMenu,
+                    };
+                } else if click {
+                    if let Some(idx) = hovered_idx {
+                        match idx {
+                            0 => {
+                                self.nickname_selected = false;
+                                let cur = self.nickname_input.clone();
+                                self.request_ime("Change Nickname", &cur);
+                            }
+                            1 => {
+                                let trimmed = self.nickname_input.trim();
+                                if !trimmed.is_empty() {
+                                    self.settings.nickname = trimmed.to_string();
+                                } else {
+                                    self.settings.nickname = crate::core::settings::generate_default_nickname();
+                                }
+                                let _ = self.settings.save();
+                                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                crate::log_info!("SETTINGS", "Nickname saved as {}", self.settings.nickname);
+                                self.state = match prev {
+                                    PreviousMenu::MainMenu => GameState::MainMenu,
+                                    PreviousMenu::Paused => GameState::Paused,
+                                    PreviousMenu::Settings => GameState::Settings(PreviousMenu::MainMenu),
+                                    PreviousMenu::MultiplayerMenu => GameState::MultiplayerMenu,
+                                };
+                            }
+                            2 => {
+                                self.nickname_input = crate::core::settings::generate_default_nickname();
+                                self.nickname_selected = false;
+                                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                            }
+                            3 => {
+                                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                self.state = match prev {
+                                    PreviousMenu::MainMenu => GameState::MainMenu,
+                                    PreviousMenu::Paused => GameState::Paused,
+                                    PreviousMenu::Settings => GameState::Settings(PreviousMenu::MainMenu),
+                                    PreviousMenu::MultiplayerMenu => GameState::MultiplayerMenu,
+                                };
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                // Render background screen based on previous menu
+                match prev {
+                    PreviousMenu::MainMenu => {
+                        self.renderer.draw_main_menu(None, &self.settings.nickname, false, self.is_gamepad_active);
+                    }
+                    PreviousMenu::Paused => {
+                        self.renderer.draw_pause_menu(self.fly_mode, None, self.is_gamepad_active);
+                    }
+                    PreviousMenu::Settings => {
+                        let server_ip = self.profiler_server.as_ref().map(|s| s.ip_address.as_str()).unwrap_or("127.0.0.1");
+                        self.renderer.draw_settings_menu(&self.settings, self.settings_tab, None, None, server_ip, false, mouse_pos, self.is_gamepad_active);
+                    }
+                    PreviousMenu::MultiplayerMenu => {
+                        self.renderer.draw_multiplayer_menu(&self.settings.nickname, &self.multiplayer_server_addr, self.multiplayer_focus, None, None, false, &self.lan_discovery.servers, self.selected_lan_server, false);
+                    }
+                }
+
+                let cursor_visible = (self.total_time * 2.5).fract() < 0.5;
+                self.renderer.draw_nickname_dialog(
+                    &self.nickname_input,
+                    self.nickname_selected,
+                    hovered_idx,
+                    cursor_visible,
+                    self.is_gamepad_active,
                 );
             }
             GameState::MultiplayerConnecting { .. } => {
@@ -1274,6 +1491,13 @@ impl RustCraftApp {
                             self.create_world_selected = false;
                         }
                         self.create_world_focus = i;
+                        if i == 0 {
+                            let name = self.create_world_name.clone();
+                            self.request_ime("World Name", &name);
+                        } else if i == 1 {
+                            let seed = self.create_world_seed.clone();
+                            self.request_ime("World Seed", &seed);
+                        }
                     }
                     hovered_elem
                 } else {
@@ -1717,6 +1941,7 @@ impl RustCraftApp {
                                 self.state = match prev {
                                     PreviousMenu::MainMenu => GameState::MainMenu,
                                     PreviousMenu::Paused => GameState::Paused,
+                                    _ => GameState::MainMenu,
                                 };
                             }
                             _ => {}
@@ -1892,6 +2117,7 @@ impl RustCraftApp {
                                 self.state = match prev {
                                     PreviousMenu::MainMenu => GameState::MainMenu,
                                     PreviousMenu::Paused => GameState::Paused,
+                                    _ => GameState::MainMenu,
                                 };
                             }
                             _ => {}
@@ -2022,6 +2248,7 @@ impl RustCraftApp {
                                 self.state = match prev {
                                     PreviousMenu::MainMenu => GameState::MainMenu,
                                     PreviousMenu::Paused => GameState::Paused,
+                                    _ => GameState::MainMenu,
                                 };
                             }
                             _ => {}
@@ -2135,6 +2362,7 @@ impl RustCraftApp {
                                 self.state = match prev {
                                     PreviousMenu::MainMenu => GameState::MainMenu,
                                     PreviousMenu::Paused => GameState::Paused,
+                                    _ => GameState::MainMenu,
                                 };
                             }
                             _ => {}
@@ -2206,6 +2434,7 @@ impl RustCraftApp {
                     self.state = match prev {
                         PreviousMenu::MainMenu => GameState::MainMenu,
                         PreviousMenu::Paused => GameState::Paused,
+                        _ => GameState::MainMenu,
                     };
                 }
 
@@ -3827,7 +4056,7 @@ impl RustCraftApp {
                         // Left Lines
                         let (ren_name, _, _) = self.renderer.renderer_info();
                         self.debug_lines[0].clear();
-                        let _ = write!(&mut self.debug_lines[0], "RustCraft 0.1.0 (release)");
+                        let _ = write!(&mut self.debug_lines[0], "{}", crate::core::build_info::get_build_info());
 
                         self.debug_lines[1].clear();
                         let _ = write!(&mut self.debug_lines[1], "FPS: {} ({:.1}ms) | Renderer: {} ({} thr)", self.fps_display, dt * 1000.0, ren_name, self.profiler.render_stats.raster_threads);
@@ -4786,6 +5015,7 @@ impl RustCraftApp {
                     GameState::SaveSelect => "Save Select",
                     GameState::CreateWorld => "Create World",
                     GameState::Settings(_) => "Settings",
+                    GameState::EditNickname(_) => "Change Nickname",
                     #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
                     GameState::Loading(_) => "Loading",
                     #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
@@ -4847,6 +5077,7 @@ impl RustCraftApp {
             GameState::SaveSelect => "Save Select",
             GameState::CreateWorld => "Create World",
             GameState::Settings(_) => "Settings",
+            GameState::EditNickname(_) => "Change Nickname",
             GameState::Playing => "Playing",
             GameState::Paused => "Paused",
             GameState::Inventory => "Inventory",
@@ -4938,6 +5169,64 @@ impl RustCraftApp {
             underwater_fx: self.settings.underwater_fx,
             debug_overlay: self.settings.debug_overlay,
         }
+    }
+
+    /// Transitions into the Change Nickname dialogue from an originating menu.
+    pub fn open_edit_nickname(&mut self, prev: PreviousMenu) {
+        let current_nick = self.settings.nickname.clone();
+        self.nickname_input = current_nick.clone();
+        self.nickname_selected = false;
+        self.nickname_dialog_hovered_btn = Some(0);
+        self.state = GameState::EditNickname(prev);
+        self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+        crate::log_info!("MENU", "Opened Change Nickname dialogue");
+        self.request_ime("Change Nickname", &current_nick);
+    }
+
+    /// Requests opening the platform on-screen keyboard (IME) on systems like PS Vita / Android.
+    pub fn request_ime(&mut self, title: &str, initial_text: &str) {
+        self.ime_requested = Some((title.to_string(), initial_text.to_string()));
+        self.is_ime_active = true;
+    }
+
+    /// Applies text entered from an IME on-screen keyboard (e.g. from Vita or Android).
+    pub fn apply_ime_text(&mut self, text: &str) {
+        self.is_ime_active = false;
+        self.ime_requested = None;
+        let filtered: String = text
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+            .take(24)
+            .collect();
+        if !filtered.is_empty() {
+            self.settings.nickname = filtered;
+            let _ = self.settings.save();
+            crate::log_info!("SETTINGS", "Nickname updated via IME to {}", self.settings.nickname);
+        }
+        if let GameState::EditNickname(prev) = self.state {
+            self.state = match prev {
+                PreviousMenu::MainMenu => GameState::MainMenu,
+                PreviousMenu::Paused => GameState::Paused,
+                PreviousMenu::Settings => GameState::Settings(PreviousMenu::MainMenu),
+                PreviousMenu::MultiplayerMenu => GameState::MultiplayerMenu,
+            };
+        }
+    }
+
+    /// Cancels active IME dialog without changing state.
+    pub fn cancel_ime(&mut self) {
+        self.is_ime_active = false;
+        self.ime_requested = None;
+    }
+
+    /// Returns true when any text input field or chat prompt is actively receiving keystrokes,
+    /// triggering the soft keyboard IME on platforms like Android and PS Vita.
+    pub fn is_text_input_active(&self) -> bool {
+        self.chat.is_open
+            || matches!(self.state, GameState::EditNickname(_))
+            || (matches!(self.state, GameState::MultiplayerMenu) && (self.multiplayer_focus == 0 || self.multiplayer_focus == 1))
+            || (matches!(self.state, GameState::CreateWorld) && (self.create_world_focus == 0 || self.create_world_focus == 1))
+            || self.is_ime_active
     }
 
     pub fn start_multiplayer_connect(&mut self) {
@@ -5043,6 +5332,7 @@ impl RustCraftApp {
 
         self.main_menu_rects = self.renderer.main_menu_button_rects();
         self.main_menu_nick_rect = self.renderer.main_menu_nickname_rect();
+        self.nickname_dialog_rects = self.renderer.nickname_dialog_rects();
         self.multiplayer_menu_rects = self.renderer.multiplayer_menu_rects();
         self.save_card_rects = self.renderer.save_card_rects();
         self.save_btn_rects = self.renderer.save_bottom_button_rects();

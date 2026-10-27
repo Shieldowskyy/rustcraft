@@ -1,3 +1,4 @@
+pub mod build_info;
 pub mod controls;
 pub mod crash_reporter;
 pub mod i18n;
@@ -7,6 +8,8 @@ pub mod logger;
 pub mod profiler;
 pub mod profiler_server;
 pub mod settings;
+
+pub use build_info::get_build_info;
 
 pub use controls::{Action, ControlsConfig, ControlsManager};
 pub use crash_reporter::{

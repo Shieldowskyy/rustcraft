@@ -898,6 +898,10 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
             fy += 15;
         }
     }
+
+    let build_info = crate::core::build_info::get_build_info();
+    let bw = font::measure_text(build_info, 1, 1);
+    draw_text_colored_shadowed(buffer, width, height, build_info, (width as i32 - bw) / 2, height as i32 - 14, 1, 1, pack_color(0.50, 0.55, 0.65));
 }
 
 pub fn draw_damage_flash(buffer: &mut [u32], width: usize, height: usize, intensity: f32) {

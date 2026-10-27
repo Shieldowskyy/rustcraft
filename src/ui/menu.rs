@@ -82,7 +82,13 @@ pub fn draw_main_menu(
     fill_rect(buffer, width, height, nx, ny + nh - 1, nw, 1, nick_border);
     fill_rect(buffer, width, height, nx + nw - 1, ny, 1, nh, nick_border);
 
-    let nick_text = crate::core::i18n::t_fmt("menu.nickname", &[nickname]);
+    let nick_text = if is_gamepad_active {
+        format!("{} [Y / N]", crate::core::i18n::t_fmt("menu.nickname", &[nickname]))
+    } else if nick_hovered {
+        format!("{} [CLICK TO CHANGE]", crate::core::i18n::t_fmt("menu.nickname", &[nickname]))
+    } else {
+        crate::core::i18n::t_fmt("menu.nickname", &[nickname])
+    };
     let ntw = font::measure_text(&nick_text, 1, 1);
     let n_col = if nick_hovered { pack_color(1.0, 0.95, 0.4) } else { pack_color(0.85, 0.90, 1.0) };
     draw_text_colored_shadowed(buffer, width, height, &nick_text, cx - ntw / 2, ny + 8, 1, 1, n_col);
@@ -124,4 +130,10 @@ pub fn draw_main_menu(
     };
     let fw = font::measure_text(footer, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, footer, cx - fw / 2, 470, 1, 1, pack_color(0.6, 0.65, 0.75));
+
+    // Build version & platform telemetry at the bottom of the screen
+    let build_info = crate::core::build_info::get_build_info();
+    let bw = font::measure_text(build_info, 1, 1);
+    let build_y = height as i32 - 16;
+    draw_text_colored_shadowed(buffer, width, height, build_info, (width as i32 - bw) / 2, build_y, 1, 1, pack_color(0.52, 0.58, 0.68));
 }

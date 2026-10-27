@@ -346,6 +346,31 @@ impl Renderer {
         crate::ui::draw_main_menu(&mut self.color_buffer, self.width, self.height, hovered, nickname, nick_hovered, is_gamepad_active);
     }
 
+    #[inline(always)]
+    pub fn nickname_dialog_rects(&self) -> [(i32, i32, i32, i32); 4] {
+        crate::ui::nickname_dialog_rects(self.width, self.height)
+    }
+
+    pub fn draw_nickname_dialog(
+        &mut self,
+        current_nick: &str,
+        is_selected: bool,
+        hovered_elem: Option<usize>,
+        cursor_visible: bool,
+        is_gamepad_active: bool,
+    ) {
+        crate::ui::draw_nickname_dialog(
+            &mut self.color_buffer,
+            self.width,
+            self.height,
+            current_nick,
+            is_selected,
+            hovered_elem,
+            cursor_visible,
+            is_gamepad_active,
+        );
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn draw_multiplayer_menu(
         &mut self,

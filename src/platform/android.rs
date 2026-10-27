@@ -791,10 +791,10 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
     }
 
     // Return status flags to Java:
-    // Bit 0 (1): Chat prompt is active (show soft keyboard)
+    // Bit 0 (1): Text input active (chat, nickname, world creation - show soft keyboard)
     // Bit 1 (2): In menu state
     let mut flags: i32 = 0;
-    if ctx.app.chat.is_open {
+    if ctx.app.is_text_input_active() {
         flags |= 1;
     }
     if in_menu {
@@ -896,7 +896,7 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeIsTe
 ) -> jboolean {
     if let Ok(lock) = GAME_INSTANCE.lock() {
         if let Some(ctx) = lock.as_ref() {
-            if ctx.app.chat.is_open {
+            if ctx.app.is_text_input_active() {
                 return JNI_TRUE;
             }
         }
