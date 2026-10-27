@@ -76,6 +76,9 @@ pub enum Biome {
     IceSpikes,
     MushroomIsland,
     Meadow,
+    JaggedPeaks,
+    FrozenPeaks,
+    SnowySlopes,
 }
 
 impl Biome {
@@ -101,6 +104,9 @@ impl Biome {
             Biome::AutumnForest => "AUTUMN FOREST",
             Biome::CherryGrove => "CHERRY GROVE",
             Biome::Mountain => "MOUNTAINS",
+            Biome::JaggedPeaks => "JAGGED PEAKS",
+            Biome::FrozenPeaks => "FROZEN PEAKS",
+            Biome::SnowySlopes => "SNOWY SLOPES",
         }
     }
 }
@@ -127,16 +133,34 @@ pub fn get_biome_at(wx: i32, wz: i32, seed: u32) -> (Biome, f32) {
         } else {
             Biome::Ocean
         }
-    } else if continentalness > 0.36 {
-        // Mountain region: Meadow on the lower foothills / slopes with temperate climate
-        if continentalness < 0.45 && temp > -0.05 && temp < 0.22 && humidity > -0.05 {
+    } else if continentalness > 0.34 {
+        // Mountain region: high peaks and alpine ranges
+        if temp < -0.08 {
+            if rarity > 0.06 {
+                Biome::FrozenPeaks
+            } else if continentalness > 0.44 {
+                Biome::JaggedPeaks
+            } else {
+                Biome::SnowySlopes
+            }
+        } else if continentalness < 0.44 && temp > -0.05 && temp < 0.22 && humidity > -0.05 {
             Biome::Meadow
+        } else if continentalness > 0.48 && temp < 0.10 {
+            Biome::JaggedPeaks
+        } else if continentalness > 0.38 && temp < 0.02 {
+            Biome::SnowySlopes
         } else {
             Biome::Mountain
         }
-    } else if temp < -0.32 {
+    } else if temp < -0.30 {
         // Cold / Snowy zones (rare arctic regions)
-        if temp < -0.40 && rarity > 0.30 {
+        if continentalness > 0.08 {
+            if rarity > 0.08 {
+                Biome::FrozenPeaks
+            } else {
+                Biome::SnowySlopes
+            }
+        } else if temp < -0.40 && rarity > 0.30 {
             // Ice Spikes: rare spikes of ice in frozen lands
             Biome::IceSpikes
         } else if humidity > 0.08 {
@@ -201,11 +225,26 @@ pub fn get_height_at(wx: i32, wz: i32, seed: u32, biome: Biome, continentalness:
         Biome::MushroomIsland => 23.0 + n * 3.0,
         Biome::Swamp => 20.0 + n * 2.5,
         Biome::Mountain => {
-            let m_extra = ((continentalness - 0.36) / 0.64).clamp(0.0, 1.0);
-            36.0 + n * 10.0 + m_extra * 18.0
+            let m_extra = ((continentalness - 0.34) / 0.66).clamp(0.0, 1.0);
+            let ridge = 1.0 - (n * 2.0).abs().clamp(0.0, 1.0);
+            38.0 + n * 8.0 + ridge * 12.0 + m_extra * 8.0
+        }
+        Biome::JaggedPeaks => {
+            let m_extra = ((continentalness - 0.34) / 0.66).clamp(0.0, 1.0);
+            let ridge = 1.0 - (n * 2.4).abs().clamp(0.0, 1.0);
+            44.0 + ridge * 15.0 + m_extra * 4.0 + n * 3.0
+        }
+        Biome::FrozenPeaks => {
+            let m_extra = ((continentalness - 0.34) / 0.66).clamp(0.0, 1.0);
+            let ridge = 1.0 - (n * 2.0).abs().clamp(0.0, 1.0);
+            42.0 + ridge * 15.0 + m_extra * 5.0 + n * 3.0
+        }
+        Biome::SnowySlopes => {
+            let m_extra = ((continentalness - 0.18) / 0.50).clamp(0.0, 1.0);
+            35.0 + n * 8.0 + m_extra * 12.0
         }
         Biome::Meadow => {
-            let m_extra = ((continentalness - 0.36) / 0.10).clamp(0.0, 1.0);
+            let m_extra = ((continentalness - 0.34) / 0.10).clamp(0.0, 1.0);
             31.0 + n * 6.0 + m_extra * 6.0
         }
         Biome::Badlands => {
@@ -220,7 +259,7 @@ pub fn get_height_at(wx: i32, wz: i32, seed: u32, biome: Biome, continentalness:
         Biome::AutumnForest | Biome::Forest | Biome::CherryGrove => 28.0 + n * 10.0,
         Biome::Taiga | Biome::SnowyTaiga | Biome::SnowyTundra | Biome::IceSpikes | Biome::Plains => 27.0 + n * 10.0,
     };
-    (h as i32).clamp(1, CHUNK_SIZE_Y - 4)
+    (h as i32).clamp(1, CHUNK_SIZE_Y - 2)
 }
 
 impl Chunk {
@@ -250,6 +289,11 @@ impl Chunk {
             StoneRuins(i32, i32, i32),
             ForestCabin(i32, i32, i32),
             CoralRuin(i32, i32, i32),
+            MountainShrine(i32, i32, i32),
+            FrozenRuin(i32, i32, i32),
+            DesertBuriedRuin(i32, i32, i32),
+            OvergrownTempleRuin(i32, i32, i32),
+            CaveDungeonRuin(i32, i32, i32),
         }
 
         let center_wx = cx * CHUNK_SIZE_X + 8;
@@ -261,11 +305,23 @@ impl Chunk {
         let mut structure: Option<Structure> = None;
         let mut struct_exclusion = (100, -100, 100, -100);
 
-        if center_height > 22 && center_height < CHUNK_SIZE_Y - 14 {
+        if center_height > 22 && center_height < CHUNK_SIZE_Y - 8 {
             if (c_biome == Biome::Desert || c_biome == Biome::Badlands) && (chunk_hash % 71 == 0) {
                 structure = Some(Structure::DesertWell(8, center_height, 8));
                 struct_exclusion = (4, 12, 4, 12);
-            } else if (c_biome == Biome::Mountain || c_biome == Biome::SnowyTundra || c_biome == Biome::Taiga) && (chunk_hash % 67 == 0) {
+            } else if (c_biome == Biome::Desert || c_biome == Biome::Badlands) && (chunk_hash % 61 == 0) {
+                structure = Some(Structure::DesertBuriedRuin(8, center_height, 8));
+                struct_exclusion = (3, 13, 3, 13);
+            } else if (c_biome == Biome::Mountain || c_biome == Biome::JaggedPeaks || c_biome == Biome::SnowySlopes) && (chunk_hash % 59 == 0) {
+                structure = Some(Structure::MountainShrine(8, center_height, 8));
+                struct_exclusion = (3, 13, 3, 13);
+            } else if (c_biome == Biome::FrozenPeaks || c_biome == Biome::SnowyTundra || c_biome == Biome::IceSpikes || c_biome == Biome::SnowyTaiga) && (chunk_hash % 63 == 0) {
+                structure = Some(Structure::FrozenRuin(8, center_height, 8));
+                struct_exclusion = (3, 13, 3, 13);
+            } else if (c_biome == Biome::Jungle || c_biome == Biome::DarkForest || c_biome == Biome::Swamp) && (chunk_hash % 67 == 0) {
+                structure = Some(Structure::OvergrownTempleRuin(8, center_height, 8));
+                struct_exclusion = (3, 13, 3, 13);
+            } else if (c_biome == Biome::Mountain || c_biome == Biome::SnowyTundra || c_biome == Biome::Taiga) && (chunk_hash % 73 == 0) {
                 structure = Some(Structure::StoneRuins(8, center_height, 8));
                 struct_exclusion = (3, 13, 3, 13);
             } else if (c_biome == Biome::Forest || c_biome == Biome::AutumnForest || c_biome == Biome::DarkForest || c_biome == Biome::BirchForest) && (chunk_hash % 79 == 0) {
@@ -277,6 +333,11 @@ impl Chunk {
         if c_biome == Biome::DeepOcean && center_height >= 4 && center_height < 12 && (chunk_hash % 53 == 0) {
             structure = Some(Structure::CoralRuin(8, center_height, 8));
             struct_exclusion = (4, 12, 4, 12);
+        }
+        // Underground cave dungeon ruin
+        if structure.is_none() && center_height >= 30 && (chunk_hash % 79 == 0) {
+            let dungeon_y = 10 + (chunk_hash % 8) as i32;
+            structure = Some(Structure::CaveDungeonRuin(8, dungeon_y, 8));
         }
 
         for lx in 0..CHUNK_SIZE_X {
@@ -304,7 +365,7 @@ impl Chunk {
 
                     let block = if y > height {
                         if y <= 20 {
-                            if (biome == Biome::SnowyTaiga || biome == Biome::SnowyTundra || biome == Biome::IceSpikes) && y == 20 {
+                            if (biome == Biome::SnowyTaiga || biome == Biome::SnowyTundra || biome == Biome::IceSpikes || biome == Biome::FrozenPeaks) && y == 20 {
                                 BlockId::Ice
                             } else {
                                 BlockId::Water
@@ -323,7 +384,24 @@ impl Chunk {
                             Biome::Badlands => {
                                 if (height / 2) % 3 == 0 { BlockId::Sand } else if (height / 2) % 3 == 1 { BlockId::Stone } else { BlockId::Mud }
                             }
-                            Biome::SnowyTaiga | Biome::SnowyTundra | Biome::IceSpikes => BlockId::Snow,
+                            Biome::SnowyTaiga | Biome::SnowyTundra | Biome::IceSpikes | Biome::SnowySlopes => BlockId::Snow,
+                            Biome::JaggedPeaks => {
+                                if height >= 52 {
+                                    BlockId::Snow
+                                } else if height >= 42 {
+                                    if (wx + wz) % 3 == 0 { BlockId::Stone } else { BlockId::Snow }
+                                } else {
+                                    BlockId::Snow
+                                }
+                            }
+                            Biome::FrozenPeaks => {
+                                let h = hash_coords_3d(wx, y, wz, seed);
+                                if h % 4 == 0 {
+                                    BlockId::Ice
+                                } else {
+                                    BlockId::Snow
+                                }
+                            }
                             Biome::Mountain => {
                                 if height >= 48 {
                                     BlockId::Snow
@@ -350,6 +428,21 @@ impl Chunk {
                             Biome::Swamp | Biome::MushroomIsland => BlockId::Mud,
                             Biome::IceSpikes => {
                                 if y > height - 2 { BlockId::Snow } else { BlockId::Ice }
+                            }
+                            Biome::FrozenPeaks => {
+                                if y > height - 2 {
+                                    BlockId::Snow
+                                } else if y > height - 6 {
+                                    BlockId::Ice
+                                } else {
+                                    BlockId::Stone
+                                }
+                            }
+                            Biome::JaggedPeaks => {
+                                if y > height - 2 { BlockId::Snow } else { BlockId::Stone }
+                            }
+                            Biome::SnowySlopes => {
+                                if y > height - 3 { BlockId::Snow } else { BlockId::Stone }
                             }
                             Biome::Mountain if height >= 38 => BlockId::Stone,
                             _ => if height <= 21 { BlockId::Sand } else { BlockId::Dirt },
@@ -387,16 +480,30 @@ impl Chunk {
 
                     blocks[Chunk::index(lx, y, lz)] = block.to_u8();
 
+                    let is_mountain = matches!(biome, Biome::Mountain | Biome::JaggedPeaks | Biome::FrozenPeaks | Biome::SnowySlopes);
+                    let mut is_cave = false;
+
                     if y > 1 && y < height - 1 && block != BlockId::Water && block != BlockId::Air {
                         let c1 = fractal_noise3(wx as f32 * 0.045, y as f32 * 0.065, wz as f32 * 0.045, seed.wrapping_add(3141), 2, 0.5);
                         let c2 = fractal_noise3(wx as f32 * 0.045, y as f32 * 0.065, wz as f32 * 0.045, seed.wrapping_add(9265), 2, 0.5);
-                        let is_cave = (c1 * c1 + c2 * c2) < 0.024;
-                        if is_cave {
-                            if y <= 7 {
-                                blocks[Chunk::index(lx, y, lz)] = BlockId::Lava.to_u8();
-                            } else {
-                                blocks[Chunk::index(lx, y, lz)] = BlockId::Air.to_u8();
-                            }
+                        is_cave = (c1 * c1 + c2 * c2) < 0.024;
+                    }
+
+                    if is_mountain && y >= 20 && block != BlockId::Water && block != BlockId::Air {
+                        let mc1 = fractal_noise3(wx as f32 * 0.036, y as f32 * 0.044, wz as f32 * 0.036, seed.wrapping_add(14423), 2, 0.5);
+                        let mc2 = fractal_noise3(wx as f32 * 0.036, y as f32 * 0.044, wz as f32 * 0.036, seed.wrapping_add(27819), 2, 0.5);
+                        let cave_dist_sq = mc1 * mc1 + mc2 * mc2;
+                        // Carve hollow chambers inside mountain, and open portals on steep mountain faces
+                        if cave_dist_sq < 0.026 && (y < height || (cave_dist_sq < 0.015 && height >= 32)) {
+                            is_cave = true;
+                        }
+                    }
+
+                    if is_cave {
+                        if y <= 7 {
+                            blocks[Chunk::index(lx, y, lz)] = BlockId::Lava.to_u8();
+                        } else {
+                            blocks[Chunk::index(lx, y, lz)] = BlockId::Air.to_u8();
                         }
                     }
                 }
@@ -506,7 +613,12 @@ impl Chunk {
                                     decorations.push(Decoration::Tree(lx, height + 1, lz));
                                 }
                             }
-                            Biome::Mountain | Biome::Ocean | Biome::DeepOcean => {}
+                            Biome::SnowySlopes => {
+                                if h % 127 == 0 {
+                                    decorations.push(Decoration::PineTree(lx, height + 1, lz));
+                                }
+                            }
+                            Biome::Mountain | Biome::JaggedPeaks | Biome::FrozenPeaks | Biome::Ocean | Biome::DeepOcean => {}
                         }
                     }
                 }
@@ -519,6 +631,11 @@ impl Chunk {
                 Structure::StoneRuins(cx, base_y, cz) => place_stone_ruin(&mut blocks, cx, base_y, cz, seed),
                 Structure::ForestCabin(cx, base_y, cz) => place_forest_cabin(&mut blocks, cx, base_y, cz),
                 Structure::CoralRuin(cx, base_y, cz) => place_coral_ruin(&mut blocks, cx, base_y, cz, seed),
+                Structure::MountainShrine(cx, base_y, cz) => place_mountain_shrine(&mut blocks, cx, base_y, cz, seed),
+                Structure::FrozenRuin(cx, base_y, cz) => place_frozen_ruin(&mut blocks, cx, base_y, cz, seed),
+                Structure::DesertBuriedRuin(cx, base_y, cz) => place_desert_buried_ruin(&mut blocks, cx, base_y, cz, seed),
+                Structure::OvergrownTempleRuin(cx, base_y, cz) => place_overgrown_temple_ruin(&mut blocks, cx, base_y, cz, seed),
+                Structure::CaveDungeonRuin(cx, base_y, cz) => place_cave_dungeon_ruin(&mut blocks, cx, base_y, cz, seed),
             }
         }
 
@@ -1210,6 +1327,252 @@ fn place_forest_cabin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i
     set(blocks, min_x + 2, base_y + 1, max_z - 1, BlockId::Furnace);
     set(blocks, max_x - 1, base_y + 1, max_z - 1, BlockId::Chest);
     set(blocks, min_x + 1, base_y + 3, max_z - 1, BlockId::Torch);
+}
+
+fn place_mountain_shrine(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32, seed: u32) {
+    let min_x = center_x - 3;
+    let max_x = center_x + 3;
+    let min_z = center_z - 3;
+    let max_z = center_z + 3;
+
+    let set = |blocks: &mut [u8], x: i32, y: i32, z: i32, b: BlockId| {
+        if x >= 0 && x < CHUNK_SIZE_X && y >= 0 && y < CHUNK_SIZE_Y && z >= 0 && z < CHUNK_SIZE_Z {
+            blocks[Chunk::index(x, y, z)] = b.to_u8();
+        }
+    };
+
+    // Solid foundation down and open air above
+    for x in min_x..=max_x {
+        for z in min_z..=max_z {
+            for y in (base_y - 4)..base_y {
+                set(blocks, x, y, z, BlockId::Stone);
+            }
+            for y in (base_y + 1)..=(base_y + 7) {
+                set(blocks, x, y, z, BlockId::Air);
+            }
+            set(blocks, x, base_y, z, BlockId::Stone);
+        }
+    }
+
+    // 4 Corner pillars with torches
+    for &(cx, cz) in &[(min_x, min_z), (min_x, max_z), (max_x, min_z), (max_x, max_z)] {
+        let pil_h = 4 + (hash_coords_3d(cx, 137, cz, seed) % 2) as i32;
+        for dy in 1..=pil_h {
+            set(blocks, cx, base_y + dy, cz, BlockId::Stone);
+        }
+        set(blocks, cx, base_y + pil_h + 1, cz, BlockId::Torch);
+    }
+
+    // Central altar pedestal with gold block and shrine chest
+    for dx in -1..=1 {
+        for dz in -1..=1 {
+            set(blocks, center_x + dx, base_y + 1, center_z + dz, BlockId::Stone);
+        }
+    }
+    set(blocks, center_x, base_y + 2, center_z, BlockId::GoldBlock);
+    set(blocks, center_x, base_y + 3, center_z, BlockId::Torch);
+    set(blocks, center_x + 1, base_y + 2, center_z, BlockId::Chest);
+}
+
+fn place_frozen_ruin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32, seed: u32) {
+    let min_x = center_x - 3;
+    let max_x = center_x + 3;
+    let min_z = center_z - 3;
+    let max_z = center_z + 3;
+
+    let set = |blocks: &mut [u8], x: i32, y: i32, z: i32, b: BlockId| {
+        if x >= 0 && x < CHUNK_SIZE_X && y >= 0 && y < CHUNK_SIZE_Y && z >= 0 && z < CHUNK_SIZE_Z {
+            blocks[Chunk::index(x, y, z)] = b.to_u8();
+        }
+    };
+
+    for x in min_x..=max_x {
+        for z in min_z..=max_z {
+            for y in (base_y - 4)..base_y {
+                set(blocks, x, y, z, BlockId::Ice);
+            }
+            for y in (base_y + 1)..=(base_y + 6) {
+                set(blocks, x, y, z, BlockId::Air);
+            }
+            let h = hash_coords_3d(x, base_y, z, seed);
+            set(blocks, x, base_y, z, if h % 2 == 0 { BlockId::Ice } else { BlockId::Stone });
+        }
+    }
+
+    // Broken ice & stone walls
+    for x in min_x..=max_x {
+        for z in min_z..=max_z {
+            let is_border = x == min_x || x == max_x || z == min_z || z == max_z;
+            if !is_border { continue; }
+            if (x == center_x || x == center_x + 1) && z == min_z { continue; }
+            let wall_h = (hash_coords_3d(x, 101, z, seed) % 4) as i32;
+            for dy in 1..=wall_h {
+                let b = if (x + z + dy) % 2 == 0 { BlockId::Ice } else { BlockId::Stone };
+                set(blocks, x, base_y + dy, z, b);
+            }
+        }
+    }
+
+    // Trapped frozen chest and ice shrine
+    set(blocks, center_x, base_y + 1, center_z, BlockId::Chest);
+    set(blocks, center_x - 1, base_y + 1, center_z, BlockId::Ice);
+    set(blocks, center_x + 1, base_y + 1, center_z, BlockId::Ice);
+    set(blocks, center_x, base_y + 1, center_z - 1, BlockId::Ice);
+    set(blocks, center_x, base_y + 1, center_z + 1, BlockId::Ice);
+    set(blocks, center_x, base_y + 2, center_z + 1, BlockId::Snow);
+}
+
+fn place_desert_buried_ruin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32, _seed: u32) {
+    let min_x = center_x - 3;
+    let max_x = center_x + 3;
+    let min_z = center_z - 3;
+    let max_z = center_z + 3;
+
+    let set = |blocks: &mut [u8], x: i32, y: i32, z: i32, b: BlockId| {
+        if x >= 0 && x < CHUNK_SIZE_X && y >= 0 && y < CHUNK_SIZE_Y && z >= 0 && z < CHUNK_SIZE_Z {
+            blocks[Chunk::index(x, y, z)] = b.to_u8();
+        }
+    };
+
+    // Hollow out chamber
+    for x in min_x..=max_x {
+        for z in min_z..=max_z {
+            for y in (base_y - 3)..base_y {
+                set(blocks, x, y, z, BlockId::Sand);
+            }
+            for y in (base_y + 1)..=(base_y + 4) {
+                set(blocks, x, y, z, BlockId::Air);
+            }
+            set(blocks, x, base_y, z, BlockId::Sand);
+        }
+    }
+
+    // Outer walls
+    for x in min_x..=max_x {
+        for z in min_z..=max_z {
+            let is_border = x == min_x || x == max_x || z == min_z || z == max_z;
+            if is_border {
+                for dy in 1..=4 {
+                    set(blocks, x, base_y + dy, z, BlockId::Sand);
+                }
+            }
+        }
+    }
+
+    // Roof layer with broken skylight
+    for x in (min_x + 1)..=(max_x - 1) {
+        for z in (min_z + 1)..=(max_z - 1) {
+            set(blocks, x, base_y + 4, z, BlockId::Sand);
+        }
+    }
+    set(blocks, center_x, base_y + 4, center_z, BlockId::Air);
+    set(blocks, center_x + 1, base_y + 4, center_z, BlockId::Air);
+
+    // Crypt pit with TNT and chest
+    set(blocks, center_x, base_y - 1, center_z, BlockId::Tnt);
+    set(blocks, center_x, base_y, center_z, BlockId::Air);
+    set(blocks, center_x + 1, base_y + 1, center_z, BlockId::Chest);
+    set(blocks, center_x - 1, base_y + 2, center_z, BlockId::Torch);
+}
+
+fn place_overgrown_temple_ruin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32, seed: u32) {
+    let min_x = center_x - 3;
+    let max_x = center_x + 3;
+    let min_z = center_z - 3;
+    let max_z = center_z + 3;
+
+    let set = |blocks: &mut [u8], x: i32, y: i32, z: i32, b: BlockId| {
+        if x >= 0 && x < CHUNK_SIZE_X && y >= 0 && y < CHUNK_SIZE_Y && z >= 0 && z < CHUNK_SIZE_Z {
+            blocks[Chunk::index(x, y, z)] = b.to_u8();
+        }
+    };
+
+    for x in min_x..=max_x {
+        for z in min_z..=max_z {
+            for y in (base_y - 3)..base_y {
+                set(blocks, x, y, z, BlockId::Stone);
+            }
+            for y in (base_y + 1)..=(base_y + 5) {
+                set(blocks, x, y, z, BlockId::Air);
+            }
+            let h = hash_coords_3d(x, base_y, z, seed);
+            let floor_b = if h % 3 == 0 { BlockId::Mud } else { BlockId::Stone };
+            set(blocks, x, base_y, z, floor_b);
+        }
+    }
+
+    // Overgrown stone pillars and arches
+    for &(cx, cz) in &[(min_x, min_z), (min_x, max_z), (max_x, min_z), (max_x, max_z)] {
+        for dy in 1..=4 {
+            set(blocks, cx, base_y + dy, cz, BlockId::Stone);
+        }
+        set(blocks, cx, base_y + 4, cz, BlockId::Leaves);
+        set(blocks, cx, base_y + 3, cz, BlockId::Leaves);
+    }
+
+    // Cross beam with leaves
+    for x in min_x..=max_x {
+        if hash_coords_3d(x, 202, center_z, seed) % 2 == 0 {
+            set(blocks, x, base_y + 4, center_z, BlockId::Stone);
+            set(blocks, x, base_y + 3, center_z, BlockId::Leaves);
+        }
+    }
+
+    // Altar with chest
+    set(blocks, center_x, base_y + 1, center_z, BlockId::Stone);
+    set(blocks, center_x, base_y + 2, center_z, BlockId::Chest);
+    set(blocks, center_x - 1, base_y + 1, center_z, BlockId::CraftingTable);
+    set(blocks, center_x + 1, base_y + 2, center_z, BlockId::Torch);
+}
+
+fn place_cave_dungeon_ruin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i32, seed: u32) {
+    let min_x = center_x - 3;
+    let max_x = center_x + 3;
+    let min_z = center_z - 3;
+    let max_z = center_z + 3;
+
+    let set = |blocks: &mut [u8], x: i32, y: i32, z: i32, b: BlockId| {
+        if x >= 0 && x < CHUNK_SIZE_X && y >= 0 && y < CHUNK_SIZE_Y && z >= 0 && z < CHUNK_SIZE_Z {
+            blocks[Chunk::index(x, y, z)] = b.to_u8();
+        }
+    };
+
+    // Hollow out dungeon room
+    for x in min_x..=max_x {
+        for z in min_z..=max_z {
+            set(blocks, x, base_y, z, BlockId::Stone);
+            for y in (base_y + 1)..=(base_y + 4) {
+                set(blocks, x, y, z, BlockId::Air);
+            }
+            set(blocks, x, base_y + 5, z, BlockId::Stone);
+        }
+    }
+
+    // Dungeon walls with ore veins and cracks
+    for x in min_x..=max_x {
+        for z in min_z..=max_z {
+            let is_border = x == min_x || x == max_x || z == min_z || z == max_z;
+            if is_border {
+                for dy in 1..=4 {
+                    let h = hash_coords_3d(x, base_y + dy, z, seed);
+                    let b = if h % 17 == 0 {
+                        BlockId::IronOre
+                    } else if h % 23 == 0 {
+                        BlockId::Air
+                    } else {
+                        BlockId::Stone
+                    };
+                    set(blocks, x, base_y + dy, z, b);
+                }
+            }
+        }
+    }
+
+    // Dungeon chest on pedestal, surrounded by torches
+    set(blocks, center_x, base_y + 1, center_z, BlockId::Stone);
+    set(blocks, center_x, base_y + 2, center_z, BlockId::Chest);
+    set(blocks, center_x - 1, base_y + 1, center_z, BlockId::Torch);
+    set(blocks, center_x + 1, base_y + 1, center_z, BlockId::Torch);
 }
 
 #[derive(Clone)]
@@ -2946,7 +3309,7 @@ mod tests {
             }
         }
 
-        // Verify that all 8 requested biomes generate in the world
+        // Verify that all requested biomes generate in the world
         assert!(biome_counts.contains_key(&Biome::Jungle), "Jungle must generate");
         assert!(biome_counts.contains_key(&Biome::Badlands), "Badlands must generate");
         assert!(biome_counts.contains_key(&Biome::DarkForest), "DarkForest must generate");
@@ -2955,6 +3318,9 @@ mod tests {
         assert!(biome_counts.contains_key(&Biome::IceSpikes), "IceSpikes must generate");
         assert!(biome_counts.contains_key(&Biome::MushroomIsland), "MushroomIsland must generate");
         assert!(biome_counts.contains_key(&Biome::Meadow), "Meadow must generate");
+        assert!(biome_counts.contains_key(&Biome::JaggedPeaks), "JaggedPeaks must generate");
+        assert!(biome_counts.contains_key(&Biome::FrozenPeaks), "FrozenPeaks must generate");
+        assert!(biome_counts.contains_key(&Biome::SnowySlopes), "SnowySlopes must generate");
 
         // Verify rarity: MushroomIsland and IceSpikes should be much rarer than common biomes like Plains / Forest / Taiga
         let mushroom_count = *biome_counts.get(&Biome::MushroomIsland).unwrap_or(&0);

@@ -59,6 +59,7 @@ pub struct ChatState {
     was_down: bool,
     was_enter: bool,
     was_escape: bool,
+    pub ignore_slash_until_release: bool,
 }
 
 impl Default for ChatState {
@@ -87,6 +88,7 @@ impl ChatState {
             was_down: false,
             was_enter: false,
             was_escape: false,
+            ignore_slash_until_release: false,
         }
     }
 
@@ -97,6 +99,7 @@ impl ChatState {
         self.history_idx = None;
         self.cursor_blink = 0.0;
         self.saved_draft.clear();
+        self.ignore_slash_until_release = initial_text.starts_with('/');
         crate::log_debug!("Chat", "Chat opened with prefix: '{}'", initial_text);
     }
 
@@ -105,6 +108,7 @@ impl ChatState {
         self.input_text.clear();
         self.cursor_pos = 0;
         self.history_idx = None;
+        self.ignore_slash_until_release = false;
         crate::log_debug!("Chat", "Chat closed");
     }
 
@@ -246,7 +250,14 @@ impl ChatState {
         }
 
         // 6. Character typing
+        if self.ignore_slash_until_release && !input.key_slash {
+            self.ignore_slash_until_release = false;
+        }
+
         for &ch in &input.typed_chars {
+            if self.ignore_slash_until_release && ch == '/' {
+                continue;
+            }
             if !ch.is_control() {
                 self.input_text.insert(self.cursor_pos, ch);
                 self.cursor_pos += 1;

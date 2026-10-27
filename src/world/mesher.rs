@@ -1167,7 +1167,7 @@ fn emit_face(
                 Biome::Savanna | Biome::Desert | Biome::Badlands => TextureId::GrassTopSavanna,
                 Biome::CherryGrove | Biome::Meadow => TextureId::GrassTopCherry,
                 Biome::AutumnForest => TextureId::GrassTopAutumn,
-                Biome::SnowyTaiga | Biome::Mountain | Biome::Taiga | Biome::IceSpikes => TextureId::GrassTopTaiga,
+                Biome::SnowyTaiga | Biome::Mountain | Biome::Taiga | Biome::IceSpikes | Biome::JaggedPeaks | Biome::FrozenPeaks | Biome::SnowySlopes => TextureId::GrassTopTaiga,
                 _ => TextureId::GrassTop,
             },
             Face::Bottom => TextureId::Dirt,
@@ -1176,7 +1176,7 @@ fn emit_face(
                 Biome::Savanna | Biome::Desert | Biome::Badlands => TextureId::GrassSideSavanna,
                 Biome::CherryGrove | Biome::Meadow => TextureId::GrassSideCherry,
                 Biome::AutumnForest => TextureId::GrassSideAutumn,
-                Biome::SnowyTaiga | Biome::Mountain | Biome::Taiga | Biome::IceSpikes => TextureId::GrassSideTaiga,
+                Biome::SnowyTaiga | Biome::Mountain | Biome::Taiga | Biome::IceSpikes | Biome::JaggedPeaks | Biome::FrozenPeaks | Biome::SnowySlopes => TextureId::GrassSideTaiga,
                 _ => TextureId::GrassSide,
             },
         }
@@ -1187,7 +1187,7 @@ fn emit_face(
             Biome::Savanna | Biome::Desert | Biome::Badlands => TextureId::LeavesSavanna,
             Biome::CherryGrove => TextureId::CherryLeaves,
             Biome::AutumnForest => TextureId::AutumnLeaves,
-            Biome::SnowyTaiga | Biome::IceSpikes => TextureId::SnowLeaves,
+            Biome::SnowyTaiga | Biome::IceSpikes | Biome::JaggedPeaks | Biome::FrozenPeaks | Biome::SnowySlopes => TextureId::SnowLeaves,
             _ => TextureId::Leaves,
         }
     } else {
