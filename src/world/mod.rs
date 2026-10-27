@@ -358,6 +358,7 @@ impl Chunk {
 
                 let (biome, continentalness) = get_biome_at(wx, wz, seed);
                 let height = get_height_at(wx, wz, seed, biome, continentalness);
+                let patch_noise = fractal_noise2(wx as f32 * 0.045, wz as f32 * 0.045, seed.wrapping_add(8881), 2, 0.5);
 
                 for y in 0..CHUNK_SIZE_Y {
                     if y == 0 {
@@ -397,26 +398,30 @@ impl Chunk {
                             }
                             Biome::SnowyTaiga | Biome::SnowyTundra | Biome::IceSpikes | Biome::SnowySlopes => BlockId::Snow,
                             Biome::JaggedPeaks => {
+                                // Natural craggy alpine peaks: high summits are snow-covered,
+                                // with organic rock faces and snowfields defined by continuous noise
                                 if height >= 52 {
-                                    BlockId::Snow
-                                } else if height >= 42 {
-                                    if (wx + wz) % 3 == 0 { BlockId::Stone } else { BlockId::Snow }
+                                    if patch_noise < -0.35 { BlockId::Stone } else { BlockId::Snow }
+                                } else if height >= 40 {
+                                    if patch_noise > -0.05 { BlockId::Snow } else { BlockId::Stone }
                                 } else {
-                                    BlockId::Snow
+                                    if patch_noise > 0.15 { BlockId::Snow } else { BlockId::Stone }
                                 }
                             }
                             Biome::FrozenPeaks => {
-                                let h = hash_coords_3d(wx, y, wz, seed);
-                                if h % 4 == 0 {
+                                // Cohesive glacial ice sheets and basins rather than salt-and-pepper checkerboard
+                                if patch_noise > 0.28 {
                                     BlockId::Ice
                                 } else {
                                     BlockId::Snow
                                 }
                             }
                             Biome::Mountain => {
-                                if height >= 48 {
+                                let snow_thresh = 48.0 + patch_noise * 3.0;
+                                let stone_thresh = 37.0 + patch_noise * 3.0;
+                                if (height as f32) >= snow_thresh {
                                     BlockId::Snow
-                                } else if height >= 38 {
+                                } else if (height as f32) >= stone_thresh {
                                     BlockId::Stone
                                 } else {
                                     BlockId::Grass
@@ -441,21 +446,41 @@ impl Chunk {
                                 if y > height - 2 { BlockId::Snow } else { BlockId::Ice }
                             }
                             Biome::FrozenPeaks => {
-                                if y > height - 2 {
+                                if patch_noise > 0.28 {
+                                    if y > height - 5 { BlockId::Ice } else { BlockId::Stone }
+                                } else if y > height - 3 {
                                     BlockId::Snow
-                                } else if y > height - 6 {
-                                    BlockId::Ice
                                 } else {
                                     BlockId::Stone
                                 }
                             }
                             Biome::JaggedPeaks => {
-                                if y > height - 2 { BlockId::Snow } else { BlockId::Stone }
+                                let is_snow = if height >= 52 {
+                                    patch_noise >= -0.35
+                                } else if height >= 40 {
+                                    patch_noise > -0.05
+                                } else {
+                                    patch_noise > 0.15
+                                };
+                                if is_snow && y > height - 2 {
+                                    BlockId::Snow
+                                } else {
+                                    BlockId::Stone
+                                }
                             }
                             Biome::SnowySlopes => {
                                 if y > height - 3 { BlockId::Snow } else { BlockId::Stone }
                             }
-                            Biome::Mountain if height >= 38 => BlockId::Stone,
+                            Biome::Mountain => {
+                                let stone_thresh = 37.0 + patch_noise * 3.0;
+                                if (height as f32) >= stone_thresh {
+                                    BlockId::Stone
+                                } else if height <= 21 {
+                                    BlockId::Sand
+                                } else {
+                                    BlockId::Dirt
+                                }
+                            }
                             _ => if height <= 21 { BlockId::Sand } else { BlockId::Dirt },
                         }
                     } else if biome == Biome::Badlands && y >= 14 {
@@ -1418,7 +1443,7 @@ fn place_frozen_ruin(blocks: &mut [u8], center_x: i32, base_y: i32, center_z: i3
             if (x == center_x || x == center_x + 1) && z == min_z { continue; }
             let wall_h = (hash_coords_3d(x, 101, z, seed) % 4) as i32;
             for dy in 1..=wall_h {
-                let b = if (x + z + dy) % 2 == 0 { BlockId::Ice } else { BlockId::Stone };
+                let b = if hash_coords_3d(x, base_y + dy, z, seed) % 3 == 0 { BlockId::Ice } else { BlockId::Stone };
                 set(blocks, x, base_y + dy, z, b);
             }
         }
@@ -3371,6 +3396,35 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_mountain_biome_block_continuity_no_checkerboard() {
+        let seed = 2858965613;
+        // Verify that in generated chunks with JaggedPeaks or FrozenPeaks, surface blocks don't form artificial checkerboards
+        let chunk = Chunk::generate(29, 41, seed);
+        let mut checker_2x2_count = 0;
+        for lx in 0..15 {
+            for lz in 0..15 {
+                let wx = chunk.cx * CHUNK_SIZE_X + lx;
+                let wz = chunk.cz * CHUNK_SIZE_Z + lz;
+                let (b, c) = get_biome_at(wx, wz, seed);
+                let h00 = get_height_at(wx, wz, seed, b, c);
+                let h10 = get_height_at(wx + 1, wz, seed, b, c);
+                let h01 = get_height_at(wx, wz + 1, seed, b, c);
+                let h11 = get_height_at(wx + 1, wz + 1, seed, b, c);
+
+                let b00 = chunk.get_local(lx, h00, lz);
+                let b10 = chunk.get_local(lx + 1, h10, lz);
+                let b01 = chunk.get_local(lx, h01, lz + 1);
+                let b11 = chunk.get_local(lx + 1, h11, lz + 1);
+
+                if b00 == b11 && b10 == b01 && b00 != b10 {
+                    checker_2x2_count += 1;
+                }
+            }
+        }
+        assert_eq!(checker_2x2_count, 0, "Terrain surface should not contain 2x2 checkerboard block patterns in mountains");
     }
 }
 
