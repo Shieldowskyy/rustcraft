@@ -69,4 +69,15 @@ public class RustCraftNative {
      * Cleans up native engine resources and saves world.
      */
     public static native void nativeDestroy();
+
+    /**
+     * Returns the active renderer backend name ("opengl", "vulkan", "android_software", etc.).
+     */
+    public static native String nativeGetRendererBackend();
+
+    /**
+     * Checks if the active renderer is hardware-accelerated (OpenGL / Vulkan).
+     * Returns false if the game fell back to software rasterization.
+     */
+    public static native boolean nativeIsHardwareAccelerated();
 }

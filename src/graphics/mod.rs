@@ -1,7 +1,7 @@
 pub mod atlas;
 pub mod camera;
 pub mod font;
-#[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
 pub mod gpu;
 pub mod software;
 pub mod traits;

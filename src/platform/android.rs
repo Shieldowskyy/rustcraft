@@ -1,7 +1,8 @@
 //! Android Native Platform Module for RustCraft
 //! Provides ANativeWindow hardware-accelerated surface rendering, JNI bridge,
-//! multi-touch virtual controls (D-Pad/Joystick, action buttons, camera look),
-//! physical gamepad/keyboard support, and Logcat diagnostics.
+//! multi-touch virtual controls (responsive virtual analog joystick, tap-to-interact,
+//! hold-to-mine, action buttons, camera look), physical gamepad/keyboard support,
+//! and Logcat diagnostics.
 
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
@@ -93,9 +94,17 @@ pub const AMOTION_EVENT_ACTION_POINTER_UP: i32 = 6;
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum TouchRole {
     MovementJoystick { origin_x: f32, origin_y: f32 },
-    CameraLook { last_x: f32, last_y: f32 },
+    CameraLook {
+        start_x: f32,
+        start_y: f32,
+        last_x: f32,
+        last_y: f32,
+        start_time: Instant,
+        is_dragging: bool,
+    },
     JumpButton,
     SneakButton,
+    SprintButton,
     MineButton,
     PlaceButton,
     MenuButton,
@@ -105,9 +114,9 @@ enum TouchRole {
     CamButton,
     HotbarSlot(u8),
     UiTouch,
+    CloseMenuButton,
 }
 
-#[derive(Default)]
 pub struct TouchTracker {
     touches: HashMap<i32, (f32, f32)>,
     roles: HashMap<i32, TouchRole>,
@@ -119,6 +128,7 @@ pub struct TouchTracker {
     // Button states
     pub btn_jump: bool,
     pub btn_sneak: bool,
+    pub btn_sprint: bool,
     pub btn_mine: bool,
     pub btn_place: bool,
     pub btn_menu_just: bool,
@@ -152,9 +162,67 @@ pub struct TouchTracker {
     pub key_enter_just: bool,
 }
 
+impl Default for TouchTracker {
+    fn default() -> Self {
+        Self {
+            touches: HashMap::new(),
+            roles: HashMap::new(),
+            mouse_dx: 0.0,
+            mouse_dy: 0.0,
+            primary_touch_pos: None,
+            primary_touch_down: false,
+            btn_jump: false,
+            btn_sneak: false,
+            btn_sprint: false,
+            btn_mine: false,
+            btn_place: false,
+            btn_menu_just: false,
+            btn_inv_just: false,
+            btn_chat_just: false,
+            btn_fly_just: false,
+            btn_cam_just: false,
+            selected_hotbar: None,
+            move_forward: false,
+            move_backward: false,
+            move_left: false,
+            move_right: false,
+            stick_x: 0.0,
+            stick_y: 0.0,
+            gp_axis_lx: 0.0,
+            gp_axis_ly: 0.0,
+            gp_axis_rx: 0.0,
+            gp_axis_ry: 0.0,
+            gp_axis_lt: 0.0,
+            gp_axis_rt: 0.0,
+            gp_axis_hat_x: 0.0,
+            gp_axis_hat_y: 0.0,
+            pending_typed_chars: Vec::new(),
+            key_backspace_just: false,
+            key_enter_just: false,
+        }
+    }
+}
+
 impl TouchTracker {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Evaluates continuous hold state (e.g. hold-to-mine when touching the screen without dragging)
+    pub fn update_step(&mut self) {
+        let mut start_mining = false;
+        for role in self.roles.values() {
+            if let TouchRole::CameraLook { start_time, is_dragging, .. } = role {
+                // If the player holds their finger on the world view for >= 220ms without dragging, start mining!
+                if !*is_dragging && start_time.elapsed().as_secs_f32() >= 0.22 {
+                    start_mining = true;
+                    break;
+                }
+            }
+        }
+        if start_mining {
+            self.btn_mine = true;
+        }
     }
 
     pub fn handle_touch_event(
@@ -182,12 +250,22 @@ impl TouchTracker {
                 self.primary_touch_down = true;
 
                 if in_menu {
-                    self.roles.insert(pointer_id, TouchRole::UiTouch);
+                    // Check top-right close / back button in menus
+                    if norm_x >= frame_w - 85.0 && norm_y <= 42.0 {
+                        self.btn_menu_just = true;
+                        self.btn_inv_just = true;
+                        self.roles.insert(pointer_id, TouchRole::CloseMenuButton);
+                    } else {
+                        self.roles.insert(pointer_id, TouchRole::UiTouch);
+                    }
                     return;
                 }
 
                 // Check UI / Virtual buttons
                 let role = self.classify_touch_down(norm_x, norm_y, frame_w, frame_h);
+                if let TouchRole::MovementJoystick { origin_x, origin_y } = role {
+                    self.update_joystick(norm_x - origin_x, norm_y - origin_y);
+                }
                 self.apply_role_press(role);
                 self.roles.insert(pointer_id, role);
             }
@@ -203,28 +281,24 @@ impl TouchTracker {
                         TouchRole::MovementJoystick { origin_x, origin_y } => {
                             let dx = norm_x - *origin_x;
                             let dy = norm_y - *origin_y;
-                            let deadzone = 12.0;
-                            let max_dist = 60.0;
-                            let dist = (dx * dx + dy * dy).sqrt();
-
-                            if dist > deadzone {
-                                let norm_dx = (dx / max_dist).clamp(-1.0, 1.0);
-                                let norm_dy = (dy / max_dist).clamp(-1.0, 1.0);
-                                self.stick_x = norm_dx;
-                                self.stick_y = norm_dy;
-                                self.move_forward = norm_dy < -0.3;
-                                self.move_backward = norm_dy > 0.3;
-                                self.move_left = norm_dx < -0.3;
-                                self.move_right = norm_dx > 0.3;
-                            } else {
-                                self.reset_movement();
-                            }
+                            self.update_joystick(dx, dy);
                         }
-                        TouchRole::CameraLook { last_x, last_y } => {
+                        TouchRole::CameraLook {
+                            start_x,
+                            start_y,
+                            last_x,
+                            last_y,
+                            is_dragging,
+                            ..
+                        } => {
+                            let total_dist = (norm_x - *start_x).hypot(norm_y - *start_y);
+                            if total_dist > 6.0 {
+                                *is_dragging = true;
+                            }
                             let dx = norm_x - *last_x;
                             let dy = norm_y - *last_y;
-                            self.mouse_dx += dx * 1.25;
-                            self.mouse_dy += dy * 1.25;
+                            self.mouse_dx += dx * 1.20;
+                            self.mouse_dy += dy * 1.20;
                             *last_x = norm_x;
                             *last_y = norm_y;
                         }
@@ -235,6 +309,17 @@ impl TouchTracker {
             AMOTION_EVENT_ACTION_UP | AMOTION_EVENT_ACTION_POINTER_UP | AMOTION_EVENT_ACTION_CANCEL => {
                 self.touches.remove(&pointer_id);
                 if let Some(role) = self.roles.remove(&pointer_id) {
+                    // Tap vs Hold detection for CameraLook
+                    if let TouchRole::CameraLook { start_time, is_dragging, .. } = role {
+                        if !is_dragging && start_time.elapsed().as_secs_f32() < 0.22 {
+                            // Quick tap on world view without drag = Place / Use block or interact!
+                            self.btn_place = true;
+                        }
+                        if start_time.elapsed().as_secs_f32() >= 0.22 {
+                            // Stopped holding mining
+                            self.btn_mine = false;
+                        }
+                    }
                     self.apply_role_release(role);
                 }
 
@@ -250,71 +335,114 @@ impl TouchTracker {
         }
     }
 
+    fn update_joystick(&mut self, dx: f32, dy: f32) {
+        let deadzone = 8.0;
+        let max_dist = 52.0;
+        let dist = (dx * dx + dy * dy).sqrt();
+
+        if dist > deadzone {
+            let norm_dx = (dx / max_dist).clamp(-1.0, 1.0);
+            let norm_dy = (dy / max_dist).clamp(-1.0, 1.0);
+            self.stick_x = norm_dx;
+            self.stick_y = norm_dy;
+            self.move_forward = norm_dy < -0.25;
+            self.move_backward = norm_dy > 0.25;
+            self.move_left = norm_dx < -0.25;
+            self.move_right = norm_dx > 0.25;
+            if norm_dy < -0.85 {
+                self.btn_sprint = true;
+            }
+        } else {
+            self.reset_movement();
+        }
+    }
+
     fn classify_touch_down(&self, x: f32, y: f32, w: f32, h: f32) -> TouchRole {
         // 1. Top bar buttons:
         // Menu / Pause button (center top)
-        if (w * 0.5 - 40.0..=w * 0.5 + 40.0).contains(&x) && y <= 48.0 {
+        if (w * 0.5 - 45.0..=w * 0.5 + 45.0).contains(&x) && y <= 45.0 {
             return TouchRole::MenuButton;
         }
         // Inventory button (top right)
-        if x >= w - 85.0 && y <= 48.0 {
+        if x >= w - 85.0 && y <= 45.0 {
             return TouchRole::InventoryButton;
         }
         // Chat button (top left)
-        if (20.0..=80.0).contains(&x) && y <= 48.0 {
+        if (15.0..=70.0).contains(&x) && y <= 45.0 {
             return TouchRole::ChatButton;
         }
         // Fly button
-        if (90.0..=150.0).contains(&x) && y <= 48.0 {
+        if (75.0..=130.0).contains(&x) && y <= 45.0 {
             return TouchRole::FlyButton;
         }
         // Camera perspective button
-        if (160.0..=220.0).contains(&x) && y <= 48.0 {
+        if (135.0..=190.0).contains(&x) && y <= 45.0 {
             return TouchRole::CamButton;
         }
 
         // 2. Hotbar slots (bottom center)
-        let hotbar_w = 9.0 * 36.0;
+        let slot_size = 28.0;
+        let margin = 3.0;
+        let total_slots = 10.0;
+        let hotbar_w = total_slots * (slot_size + margin) - margin;
         let hotbar_left = (w - hotbar_w) * 0.5;
-        let hotbar_top = h - 42.0;
-        if (hotbar_left..=hotbar_left + hotbar_w).contains(&x) && y >= hotbar_top {
-            let slot = ((x - hotbar_left) / 36.0).floor() as u8;
-            if slot < 9 {
-                return TouchRole::HotbarSlot(slot);
-            }
+        let hotbar_top = h - slot_size - 18.0;
+        if (hotbar_left - 6.0..=hotbar_left + hotbar_w + 6.0).contains(&x) && y >= hotbar_top - 6.0 {
+            let slot = (((x - hotbar_left).max(0.0) / (slot_size + margin)).floor() as u8).min(9);
+            return TouchRole::HotbarSlot(slot);
         }
 
-        // 3. Action buttons (right side, anchored to right edge)
+        // 3. Action buttons (right side, tactile circular layout)
         // Jump Button
-        if (x - (w - 80.0)).powi(2) + (y - (h - 150.0)).powi(2) <= 45.0 * 45.0 {
+        if (x - (w - 70.0)).powi(2) + (y - (h - 135.0)).powi(2) <= 38.0 * 38.0 {
             return TouchRole::JumpButton;
         }
+        // Sprint Button
+        if (x - (w - 145.0)).powi(2) + (y - (h - 135.0)).powi(2) <= 32.0 * 32.0 {
+            return TouchRole::SprintButton;
+        }
         // Sneak Button
-        if (x - (w - 80.0)).powi(2) + (y - (h - 60.0)).powi(2) <= 38.0 * 38.0 {
+        if (x - (w - 70.0)).powi(2) + (y - (h - 60.0)).powi(2) <= 32.0 * 32.0 {
             return TouchRole::SneakButton;
         }
         // Mine / Attack Button
-        if (x - (w - 180.0)).powi(2) + (y - (h - 150.0)).powi(2) <= 45.0 * 45.0 {
+        if (x - (w - 145.0)).powi(2) + (y - (h - 60.0)).powi(2) <= 35.0 * 35.0 {
             return TouchRole::MineButton;
         }
         // Place / Use Button
-        if (x - (w - 180.0)).powi(2) + (y - (h - 60.0)).powi(2) <= 42.0 * 42.0 {
+        if (x - (w - 220.0)).powi(2) + (y - (h - 60.0)).powi(2) <= 32.0 * 32.0 {
             return TouchRole::PlaceButton;
         }
 
         // 4. Movement Joystick (left half of screen, bottom area)
-        if x < w * 0.42 && y > 150.0 {
-            return TouchRole::MovementJoystick { origin_x: x, origin_y: y };
+        let dpad_cx = 110.0;
+        let dpad_cy = h - 110.0;
+        if x < w * 0.40 && y > 120.0 {
+            let dist_to_dpad = (x - dpad_cx).hypot(y - dpad_cy);
+            let (ox, oy) = if dist_to_dpad <= 85.0 {
+                (dpad_cx, dpad_cy)
+            } else {
+                (x, y)
+            };
+            return TouchRole::MovementJoystick { origin_x: ox, origin_y: oy };
         }
 
-        // 5. Default right half: Camera rotation
-        TouchRole::CameraLook { last_x: x, last_y: y }
+        // 5. Default right half: Camera rotation & touch-interaction
+        TouchRole::CameraLook {
+            start_x: x,
+            start_y: y,
+            last_x: x,
+            last_y: y,
+            start_time: Instant::now(),
+            is_dragging: false,
+        }
     }
 
     fn apply_role_press(&mut self, role: TouchRole) {
         match role {
             TouchRole::JumpButton => self.btn_jump = true,
             TouchRole::SneakButton => self.btn_sneak = true,
+            TouchRole::SprintButton => self.btn_sprint = !self.btn_sprint,
             TouchRole::MineButton => self.btn_mine = true,
             TouchRole::PlaceButton => self.btn_place = true,
             TouchRole::MenuButton => self.btn_menu_just = true,
@@ -323,6 +451,10 @@ impl TouchTracker {
             TouchRole::FlyButton => self.btn_fly_just = true,
             TouchRole::CamButton => self.btn_cam_just = true,
             TouchRole::HotbarSlot(slot) => self.selected_hotbar = Some(slot),
+            TouchRole::CloseMenuButton => {
+                self.btn_menu_just = true;
+                self.btn_inv_just = true;
+            }
             _ => {}
         }
     }
@@ -349,116 +481,136 @@ impl TouchTracker {
 
     /// Renders sleek, semi-transparent touch overlay controls directly onto the color buffer.
     pub fn draw_overlay(&self, buffer: &mut [u32], width: usize, height: usize, in_menu: bool) {
-        if in_menu {
-            return;
-        }
-
-        let active_green = pack_color(0.4, 1.0, 0.4);
-        let active_yellow = pack_color(1.0, 0.85, 0.3);
-
         let w_i32 = width as i32;
         let h_i32 = height as i32;
 
+        if in_menu {
+            // Draw a convenient "CLOSE [X]" button at top right in inventory/menus
+            fill_rect_alpha(buffer, width, height, w_i32 - 75, 8, 65, 26, 0x000000, 0.65);
+            draw_text_shadowed(buffer, width, height, "CLOSE", w_i32 - 62, 14, 1, 1);
+            return;
+        }
+
+        let active_green = pack_color(0.35, 0.95, 0.35);
+        let active_yellow = pack_color(1.0, 0.85, 0.3);
+        let active_blue = pack_color(0.4, 0.8, 1.0);
+
         // --- Top Bar Buttons ---
         // Pause / Menu (Center)
-        fill_rect_alpha(buffer, width, height, w_i32 / 2 - 35, 10, 70, 26, 0x000000, 0.55);
-        draw_text_shadowed(buffer, width, height, "PAUSE", w_i32 / 2 - 20, 16, 1, 1);
+        fill_rect_alpha(buffer, width, height, w_i32 / 2 - 35, 8, 70, 26, 0x000000, 0.50);
+        draw_text_shadowed(buffer, width, height, "PAUSE", w_i32 / 2 - 20, 14, 1, 1);
 
         // Inventory (Right)
-        fill_rect_alpha(buffer, width, height, w_i32 - 75, 10, 65, 26, 0x000000, 0.55);
-        draw_text_shadowed(buffer, width, height, "INV", w_i32 - 52, 16, 1, 1);
+        fill_rect_alpha(buffer, width, height, w_i32 - 70, 8, 55, 26, 0x000000, 0.50);
+        draw_text_shadowed(buffer, width, height, "INV", w_i32 - 48, 14, 1, 1);
 
         // Chat (Left)
-        fill_rect_alpha(buffer, width, height, 20, 10, 60, 26, 0x000000, 0.55);
-        draw_text_shadowed(buffer, width, height, "CHAT", 35, 16, 1, 1);
+        fill_rect_alpha(buffer, width, height, 15, 8, 55, 26, 0x000000, 0.50);
+        draw_text_shadowed(buffer, width, height, "CHAT", 25, 14, 1, 1);
 
         // Fly
-        fill_rect_alpha(buffer, width, height, 90, 10, 60, 26, 0x000000, 0.55);
-        draw_text_shadowed(buffer, width, height, "FLY", 110, 16, 1, 1);
+        fill_rect_alpha(buffer, width, height, 75, 8, 55, 26, 0x000000, 0.50);
+        draw_text_shadowed(buffer, width, height, "FLY", 90, 14, 1, 1);
 
         // Camera perspective (F5)
-        fill_rect_alpha(buffer, width, height, 160, 10, 60, 26, 0x000000, 0.55);
-        draw_text_shadowed(buffer, width, height, "CAM", 180, 16, 1, 1);
+        fill_rect_alpha(buffer, width, height, 135, 8, 55, 26, 0x000000, 0.50);
+        draw_text_shadowed(buffer, width, height, "CAM", 150, 14, 1, 1);
 
         // --- Action Buttons (Right) ---
         // Jump Button
-        let jump_x = w_i32 - 115;
-        let jump_y = h_i32 - 185;
-        fill_rect_alpha(buffer, width, height, jump_x, jump_y, 70, 70, 0x000000, 0.60);
+        let jump_cx = w_i32 - 70;
+        let jump_cy = h_i32 - 135;
+        fill_circle_alpha(buffer, width, height, jump_cx, jump_cy, 34, 0x000000, 0.55);
         if self.btn_jump {
-            draw_text_colored_shadowed(buffer, width, height, "JUMP", jump_x + 15, jump_y + 30, 1, 1, active_green);
+            fill_circle_alpha(buffer, width, height, jump_cx, jump_cy, 30, 0x15803d, 0.70);
+            draw_text_colored_shadowed(buffer, width, height, "JUMP", jump_cx - 16, jump_cy - 4, 1, 1, active_green);
         } else {
-            draw_text_shadowed(buffer, width, height, "JUMP", jump_x + 15, jump_y + 30, 1, 1);
+            draw_text_shadowed(buffer, width, height, "JUMP", jump_cx - 16, jump_cy - 4, 1, 1);
+        }
+
+        // Sprint Toggle Button
+        let sprint_cx = w_i32 - 145;
+        let sprint_cy = h_i32 - 135;
+        fill_circle_alpha(buffer, width, height, sprint_cx, sprint_cy, 28, 0x000000, 0.55);
+        if self.btn_sprint {
+            fill_circle_alpha(buffer, width, height, sprint_cx, sprint_cy, 24, 0x0284c7, 0.70);
+            draw_text_colored_shadowed(buffer, width, height, "RUN", sprint_cx - 12, sprint_cy - 4, 1, 1, active_blue);
+        } else {
+            draw_text_shadowed(buffer, width, height, "RUN", sprint_cx - 12, sprint_cy - 4, 1, 1);
         }
 
         // Sneak Button
-        let sneak_x = w_i32 - 110;
-        let sneak_y = h_i32 - 90;
-        fill_rect_alpha(buffer, width, height, sneak_x, sneak_y, 60, 60, 0x000000, 0.60);
+        let sneak_cx = w_i32 - 70;
+        let sneak_cy = h_i32 - 60;
+        fill_circle_alpha(buffer, width, height, sneak_cx, sneak_cy, 28, 0x000000, 0.55);
         if self.btn_sneak {
-            draw_text_colored_shadowed(buffer, width, height, "SNEAK", sneak_x + 10, sneak_y + 25, 1, 1, active_green);
+            fill_circle_alpha(buffer, width, height, sneak_cx, sneak_cy, 24, 0x15803d, 0.70);
+            draw_text_colored_shadowed(buffer, width, height, "SNEAK", sneak_cx - 18, sneak_cy - 4, 1, 1, active_green);
         } else {
-            draw_text_shadowed(buffer, width, height, "SNEAK", sneak_x + 10, sneak_y + 25, 1, 1);
+            draw_text_shadowed(buffer, width, height, "SNEAK", sneak_cx - 18, sneak_cy - 4, 1, 1);
         }
 
         // Mine / Attack Button
-        let mine_x = w_i32 - 215;
-        let mine_y = h_i32 - 185;
-        fill_rect_alpha(buffer, width, height, mine_x, mine_y, 70, 70, 0x000000, 0.60);
+        let mine_cx = w_i32 - 145;
+        let mine_cy = h_i32 - 60;
+        fill_circle_alpha(buffer, width, height, mine_cx, mine_cy, 34, 0x000000, 0.55);
         if self.btn_mine {
-            draw_text_colored_shadowed(buffer, width, height, "MINE", mine_x + 18, mine_y + 30, 1, 1, active_yellow);
+            fill_circle_alpha(buffer, width, height, mine_cx, mine_cy, 30, 0xb45309, 0.70);
+            draw_text_colored_shadowed(buffer, width, height, "MINE", mine_cx - 16, mine_cy - 4, 1, 1, active_yellow);
         } else {
-            draw_text_shadowed(buffer, width, height, "MINE", mine_x + 18, mine_y + 30, 1, 1);
+            draw_text_shadowed(buffer, width, height, "MINE", mine_cx - 16, mine_cy - 4, 1, 1);
         }
 
         // Place / Use Button
-        let place_x = w_i32 - 210;
-        let place_y = h_i32 - 90;
-        fill_rect_alpha(buffer, width, height, place_x, place_y, 60, 60, 0x000000, 0.60);
+        let place_cx = w_i32 - 220;
+        let place_cy = h_i32 - 60;
+        fill_circle_alpha(buffer, width, height, place_cx, place_cy, 28, 0x000000, 0.55);
         if self.btn_place {
-            draw_text_colored_shadowed(buffer, width, height, "PLACE", place_x + 10, place_y + 25, 1, 1, active_yellow);
+            fill_circle_alpha(buffer, width, height, place_cx, place_cy, 24, 0xb45309, 0.70);
+            draw_text_colored_shadowed(buffer, width, height, "PLACE", place_cx - 18, place_cy - 4, 1, 1, active_yellow);
         } else {
-            draw_text_shadowed(buffer, width, height, "PLACE", place_x + 10, place_y + 25, 1, 1);
+            draw_text_shadowed(buffer, width, height, "PLACE", place_cx - 18, place_cy - 4, 1, 1);
         }
 
-        // --- Movement D-Pad (Left) ---
-        let dpad_cx = 120;
-        let dpad_cy = h_i32 - 140;
+        // --- Movement Virtual Joystick (Left) ---
+        let dpad_cx = 110;
+        let dpad_cy = h_i32 - 110;
 
-        // Up (W)
-        fill_rect_alpha(buffer, width, height, dpad_cx - 20, dpad_cy - 65, 40, 40, 0x000000, 0.55);
-        if self.move_forward {
-            draw_text_colored_shadowed(buffer, width, height, "^", dpad_cx - 4, dpad_cy - 50, 1, 1, active_green);
+        // Base ring
+        fill_circle_alpha(buffer, width, height, dpad_cx, dpad_cy, 52, 0x000000, 0.45);
+        fill_circle_alpha(buffer, width, height, dpad_cx, dpad_cy, 50, 0x222222, 0.35);
+
+        // Direction indicators
+        draw_text_shadowed(buffer, width, height, "^", dpad_cx - 4, dpad_cy - 42, 1, 1);
+        draw_text_shadowed(buffer, width, height, "v", dpad_cx - 4, dpad_cy + 30, 1, 1);
+        draw_text_shadowed(buffer, width, height, "<", dpad_cx - 40, dpad_cy - 6, 1, 1);
+        draw_text_shadowed(buffer, width, height, ">", dpad_cx + 32, dpad_cy - 6, 1, 1);
+
+        // Dynamic analog thumb knob
+        let knob_x = dpad_cx + (self.stick_x * 32.0) as i32;
+        let knob_y = dpad_cy + (self.stick_y * 32.0) as i32;
+        let is_moving = self.stick_x.abs() > 0.1 || self.stick_y.abs() > 0.1;
+        if is_moving {
+            fill_circle_alpha(buffer, width, height, knob_x, knob_y, 22, 0x16a34a, 0.75);
+            fill_circle_alpha(buffer, width, height, knob_x, knob_y, 16, 0x4ade80, 0.90);
         } else {
-            draw_text_shadowed(buffer, width, height, "^", dpad_cx - 4, dpad_cy - 50, 1, 1);
+            fill_circle_alpha(buffer, width, height, knob_x, knob_y, 20, 0x333333, 0.65);
+            fill_circle_alpha(buffer, width, height, knob_x, knob_y, 14, 0x555555, 0.80);
         }
+    }
+}
 
-        // Down (S)
-        fill_rect_alpha(buffer, width, height, dpad_cx - 20, dpad_cy + 25, 40, 40, 0x000000, 0.55);
-        if self.move_backward {
-            draw_text_colored_shadowed(buffer, width, height, "v", dpad_cx - 4, dpad_cy + 38, 1, 1, active_green);
-        } else {
-            draw_text_shadowed(buffer, width, height, "v", dpad_cx - 4, dpad_cy + 38, 1, 1);
+/// Helper function to draw smooth anti-aliased circular overlays with alpha
+fn fill_circle_alpha(buffer: &mut [u32], buf_w: usize, buf_h: usize, cx: i32, cy: i32, radius: i32, color: u32, alpha: f32) {
+    let r2 = radius * radius;
+    let min_y = (cy - radius).max(0);
+    let max_y = (cy + radius).min(buf_h as i32 - 1);
+    for y in min_y..=max_y {
+        let dy = y - cy;
+        let dx = ((r2 - dy * dy) as f32).sqrt() as i32;
+        if dx > 0 {
+            fill_rect_alpha(buffer, buf_w, buf_h, cx - dx, y, dx * 2, 1, color, alpha);
         }
-
-        // Left (A)
-        fill_rect_alpha(buffer, width, height, dpad_cx - 65, dpad_cy - 20, 40, 40, 0x000000, 0.55);
-        if self.move_left {
-            draw_text_colored_shadowed(buffer, width, height, "<", dpad_cx - 50, dpad_cy - 6, 1, 1, active_green);
-        } else {
-            draw_text_shadowed(buffer, width, height, "<", dpad_cx - 50, dpad_cy - 6, 1, 1);
-        }
-
-        // Right (D)
-        fill_rect_alpha(buffer, width, height, dpad_cx + 25, dpad_cy - 20, 40, 40, 0x000000, 0.55);
-        if self.move_right {
-            draw_text_colored_shadowed(buffer, width, height, ">", dpad_cx + 40, dpad_cy - 6, 1, 1, active_green);
-        } else {
-            draw_text_shadowed(buffer, width, height, ">", dpad_cx + 40, dpad_cy - 6, 1, 1);
-        }
-
-        // Center hub
-        fill_rect_alpha(buffer, width, height, dpad_cx - 15, dpad_cy - 15, 30, 30, 0x222222, 0.65);
     }
 }
 
@@ -519,10 +671,26 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeInit
     }
 
     let initial_seed = if seed == 0 { 1337 } else { seed as u32 };
-    let render_w = if width > 0 { width as usize } else { WIDTH };
-    let render_h = if height > 0 { height as usize } else { HEIGHT };
 
-    let app = RustCraftApp::new(render_w, render_h, "software", initial_seed);
+    // Performance optimization for Android:
+    // Scale internal rendering resolution to a high-performance target (e.g. ~540p),
+    // preserving physical screen aspect ratio. ANativeWindow hardware compositor
+    // automatically scales this up to the physical resolution (e.g. 2400x1080) with 0 GPU overhead!
+    let (render_w, render_h) = if width > 0 && height > 0 {
+        let aspect = width as f32 / height as f32;
+        let target_h = 540.0f32.min(height as f32);
+        let target_w = (target_h * aspect).round() as usize;
+        let aligned_w = ((target_w + 3) & !3).max(640);
+        let aligned_h = (((target_h as usize) + 3) & !3).max(360);
+        (aligned_w, aligned_h)
+    } else {
+        (WIDTH, HEIGHT)
+    };
+
+    // Initialize with hardware-accelerated OpenGL (with automatic fallback to software if needed)
+    let mut app = RustCraftApp::new(render_w, render_h, "opengl", initial_seed);
+    // On touch mobile, enable AutoJump so moving across block elevations is effortless
+    app.settings.jump_mode = crate::core::settings::JumpMode::AutoJump;
 
     let ctx = AndroidGameContext {
         app,
@@ -535,12 +703,28 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeInit
         physical_height: height,
     };
 
+    let backend = ctx.app.renderer.backend_name();
+    let is_hw = backend == "opengl" || backend == "vulkan" || backend.starts_with("gl");
+    if is_hw {
+        android_log(
+            ANDROID_LOG_INFO,
+            "RustCraftNative",
+            &format!("GPU Hardware Acceleration initialized successfully ({})", backend),
+        );
+    } else {
+        android_log(
+            ANDROID_LOG_WARN,
+            "RustCraftNative",
+            "WARNING: Hardware acceleration failed! Running on Software Rasterizer fallback. Performance will be degraded.",
+        );
+    }
+
     if let Ok(mut lock) = GAME_INSTANCE.lock() {
         *lock = Some(ctx);
         android_log(
             ANDROID_LOG_INFO,
             "RustCraftNative",
-            &format!("nativeInit successful! Resolution: {}x{}", render_w, render_h),
+            &format!("nativeInit successful! Backend: {}, Render: {}x{}, Physical: {}x{}", backend, render_w, render_h, width, height),
         );
         JNI_TRUE
     } else {
@@ -614,6 +798,9 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
 
     let in_menu = !matches!(ctx.app.state, GameState::Playing);
 
+    // Update continuous touch states (e.g. hold to mine block)
+    ctx.touch_tracker.update_step();
+
     // Combine virtual movement joystick and physical gamepad analog stick
     let mut stick_x = ctx.touch_tracker.stick_x;
     let mut stick_y = ctx.touch_tracker.stick_y;
@@ -622,10 +809,10 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
         stick_y = ctx.touch_tracker.gp_axis_ly;
     }
 
-    let move_fwd = ctx.touch_tracker.move_forward || stick_y < -0.3;
-    let move_back = ctx.touch_tracker.move_backward || stick_y > 0.3;
-    let move_l = ctx.touch_tracker.move_left || stick_x < -0.3;
-    let move_r = ctx.touch_tracker.move_right || stick_x > 0.3;
+    let move_fwd = ctx.touch_tracker.move_forward || stick_y < -0.25;
+    let move_back = ctx.touch_tracker.move_backward || stick_y > 0.25;
+    let move_l = ctx.touch_tracker.move_left || stick_x < -0.25;
+    let move_r = ctx.touch_tracker.move_right || stick_x > 0.25;
 
     // Physical gamepad right stick camera rotation
     if ctx.touch_tracker.gp_axis_rx.abs() > 0.15 {
@@ -637,6 +824,8 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
 
     let is_mine = ctx.touch_tracker.btn_mine || ctx.touch_tracker.gp_axis_rt > 0.4;
     let is_place = ctx.touch_tracker.btn_place || ctx.touch_tracker.gp_axis_lt > 0.4;
+    // Reset place pulse after applying
+    ctx.touch_tracker.btn_place = false;
 
     // Drain queued text input from software keyboard
     let typed_chars = std::mem::take(&mut ctx.touch_tracker.pending_typed_chars);
@@ -660,82 +849,42 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
         key_d: move_r,
         key_space: ctx.touch_tracker.btn_jump,
         key_shift: ctx.touch_tracker.btn_sneak,
-        key_ctrl: false,
-        key_c: false,
-        key_v: false,
-        key_x: false,
+        key_ctrl: ctx.touch_tracker.btn_sprint,
         key_escape: ctx.touch_tracker.btn_menu_just,
-        key_p: false,
         key_f: ctx.touch_tracker.btn_fly_just,
         key_e: ctx.touch_tracker.btn_inv_just,
-        key_q: false,
-        key_g: false,
-        key_m: false,
-        key_f3: false,
         key_f5: ctx.touch_tracker.btn_cam_just,
         key_enter,
-        key_up: false,
-        key_down: false,
-        key_left: false,
-        key_right: false,
-        key_n: false,
-        key_b: false,
-        key_u: false,
-        key_del: false,
         key_backspace,
-        key_tab: false,
         key_t: ctx.touch_tracker.btn_chat_just,
-        key_slash: false,
         key_digits: [false; 10],
         typed_chars,
 
         gp_left_stick_x: stick_x,
-        gp_left_stick_y: stick_y,
+        // In RustCraft, forward wish_dir is positive (+Y)
+        gp_left_stick_y: -stick_y,
         gp_right_stick_x: ctx.touch_tracker.gp_axis_rx,
         gp_right_stick_y: ctx.touch_tracker.gp_axis_ry,
         gp_left_trigger: if is_place { 1.0 } else { 0.0 },
         gp_right_trigger: if is_mine { 1.0 } else { 0.0 },
         gp_btn_south: ctx.touch_tracker.btn_jump,
         gp_btn_east: ctx.touch_tracker.btn_sneak,
-        gp_btn_west: false,
         gp_btn_north: ctx.touch_tracker.btn_inv_just,
-        gp_btn_lb: false,
-        gp_btn_rb: false,
-        gp_btn_l3: false,
-        gp_btn_r3: false,
         gp_btn_start: ctx.touch_tracker.btn_menu_just,
-        gp_btn_select: false,
         gp_dpad_up: ctx.touch_tracker.gp_axis_hat_y < -0.5,
         gp_dpad_down: ctx.touch_tracker.gp_axis_hat_y > 0.5,
         gp_dpad_left: ctx.touch_tracker.gp_axis_hat_x < -0.5,
         gp_dpad_right: ctx.touch_tracker.gp_axis_hat_x > 0.5,
-
-        gp_south_just_pressed: false,
-        gp_east_just_pressed: false,
-        gp_west_just_pressed: false,
-        gp_north_just_pressed: false,
-        gp_lb_just_pressed: false,
-        gp_rb_just_pressed: false,
-        gp_r3_just_pressed: false,
         gp_start_just_pressed: ctx.touch_tracker.btn_menu_just,
-        gp_select_just_pressed: false,
-        gp_dpad_up_just_pressed: false,
-        gp_dpad_down_just_pressed: false,
-        gp_dpad_left_just_pressed: false,
-        gp_dpad_right_just_pressed: false,
-        gp_menu_up: false,
-        gp_menu_down: false,
-        gp_menu_left: false,
-        gp_menu_right: false,
-        gp_right_trigger_just_pressed: false,
-        gp_left_trigger_just_pressed: false,
 
         is_mouse_captured: !in_menu,
         gp_connected: false,
+        ..Default::default()
     };
 
     // Hotbar selection from touch
     if let Some(slot) = ctx.touch_tracker.selected_hotbar.take() {
+        ctx.app.player.selected_hotbar_slot = slot;
         if (slot as usize) < input.key_digits.len() {
             input.key_digits[slot as usize] = true;
         }
@@ -777,14 +926,13 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
                 let dst_ptr = buffer.bits as *mut u32;
 
                 // Software color space conversion: Pack 0x00RRGGBB (xRGB) -> 0xAABBGGRR (RGBA8888 for Android)
+                // Optimized bit-swap: swaps R and B bytes while ensuring alpha is 0xFF
                 for y in 0..src_h {
                     let src_row = &pixel_data[y * ctx.width..y * ctx.width + src_w];
                     let dst_row = std::slice::from_raw_parts_mut(dst_ptr.add(y * dst_stride), src_w);
                     for (x, &px) in src_row.iter().enumerate() {
-                        let r = (px >> 16) & 0xFF;
-                        let g = (px >> 8) & 0xFF;
-                        let b = px & 0xFF;
-                        dst_row[x] = 0xFF000000 | (b << 16) | (g << 8) | r;
+                        let b_r_swap = ((px & 0x00FF0000) >> 16) | ((px & 0x000000FF) << 16);
+                        dst_row[x] = 0xFF000000 | (px & 0x0000FF00) | b_r_swap;
                     }
                 }
             }
@@ -795,12 +943,17 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
     // Return status flags to Java:
     // Bit 0 (1): Text input active (chat, nickname, world creation - show soft keyboard)
     // Bit 1 (2): In menu state
+    // Bit 2 (4): Software rasterizer fallback active (OpenGL / Vulkan failed)
     let mut flags: i32 = 0;
     if ctx.app.is_text_input_active() {
         flags |= 1;
     }
     if in_menu {
         flags |= 2;
+    }
+    let backend = ctx.app.renderer.backend_name();
+    if backend == "android_software" || (!backend.contains("gl") && !backend.contains("vulkan")) {
+        flags |= 4;
     }
 
     flags
@@ -952,6 +1105,11 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeKeyE
                 KEYCODE_D | KEYCODE_DPAD_RIGHT => ctx.touch_tracker.move_right = down,
                 KEYCODE_SPACE | KEYCODE_BUTTON_A => ctx.touch_tracker.btn_jump = down,
                 KEYCODE_BUTTON_B => ctx.touch_tracker.btn_sneak = down,
+                KEYCODE_BUTTON_X => {
+                    if down {
+                        ctx.touch_tracker.btn_sprint = !ctx.touch_tracker.btn_sprint;
+                    }
+                }
                 KEYCODE_BUTTON_R1 => ctx.touch_tracker.btn_mine = down,
                 KEYCODE_BUTTON_L1 => ctx.touch_tracker.btn_place = down,
                 KEYCODE_ENTER | KEYCODE_NUMPAD_ENTER => {
@@ -1024,4 +1182,43 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeDest
             }
         }
     }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeGetRendererBackend(
+    env: *mut JNIEnv,
+    _class: jclass,
+) -> jstring {
+    let backend_name = if let Ok(lock) = GAME_INSTANCE.lock() {
+        if let Some(ctx) = lock.as_ref() {
+            ctx.app.renderer.backend_name()
+        } else {
+            "unknown"
+        }
+    } else {
+        "unknown"
+    };
+
+    if let Ok(c_str) = CString::new(backend_name) {
+        if let Some(new_string) = (**env).NewStringUTF {
+            return new_string(env, c_str.as_ptr());
+        }
+    }
+    std::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeIsHardwareAccelerated(
+    _env: *mut JNIEnv,
+    _class: jclass,
+) -> jboolean {
+    if let Ok(lock) = GAME_INSTANCE.lock() {
+        if let Some(ctx) = lock.as_ref() {
+            let backend = ctx.app.renderer.backend_name();
+            if backend == "opengl" || backend == "vulkan" || backend.starts_with("gl") {
+                return JNI_TRUE;
+            }
+        }
+    }
+    JNI_FALSE
 }

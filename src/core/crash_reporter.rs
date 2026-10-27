@@ -97,7 +97,7 @@ const QUOTES: &[&str] = &[
 ];
 
 /// Initializes the crash reporter and Sentry integration.
-pub fn init(mut config: CrashReporterConfig) -> CrashGuard {
+pub fn init(#[allow(unused_mut)] mut config: CrashReporterConfig) -> CrashGuard {
     if INITIALIZED.swap(true, Ordering::SeqCst) {
         return CrashGuard {
             #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon")))]
@@ -149,7 +149,7 @@ pub fn init(mut config: CrashReporterConfig) -> CrashGuard {
     };
 
     #[cfg(any(target_arch = "wasm32", target_arch = "powerpc", target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon"))]
-    let sentry_guard = ();
+    let _sentry_guard = ();
 
     // Install the panic hook
     let default_hook = std::panic::take_hook();
@@ -267,6 +267,7 @@ fn handle_panic(panic_info: &std::panic::PanicHookInfo<'_>) {
     let timestamp_str = format_system_time(now_system);
 
     // Send to Sentry if active
+    #[allow(unused_mut)]
     let mut sentry_event_id: Option<String> = None;
 
     #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon")))]

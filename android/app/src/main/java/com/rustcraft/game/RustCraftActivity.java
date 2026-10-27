@@ -1,11 +1,13 @@
 package com.rustcraft.game;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
+import android.widget.Toast;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.InputDevice;
@@ -77,10 +79,40 @@ public class RustCraftActivity extends Activity implements SurfaceHolder.Callbac
         boolean initOk = RustCraftNative.nativeInit(renderW, renderH, 1337, internalFilesDir.getAbsolutePath());
         if (!initOk) {
             Log.e(TAG, "Failed to initialize RustCraft native engine!");
+        } else if (!RustCraftNative.nativeIsHardwareAccelerated()) {
+            String backend = RustCraftNative.nativeGetRendererBackend();
+            Log.w(TAG, "RustCraft is running on Software Rasterizer fallback (" + backend + ")!");
+            showFallbackWarning();
         }
 
         // Apply sticky immersive fullscreen AFTER decor view is initialized
         hideSystemUI();
+    }
+
+    private void showFallbackWarning() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (isFinishing() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && isDestroyed())) {
+                    return;
+                }
+                new AlertDialog.Builder(RustCraftActivity.this)
+                        .setTitle("⚠️ Performance Warning")
+                        .setMessage("Failed to initialize hardware graphics acceleration (OpenGL / GLES).\n\n"
+                                + "The game has started in Software Rasterizer fallback mode. "
+                                + "Performance on mobile devices will be significantly lower and framerate drops may occur.")
+                        .setPositiveButton("OK", null)
+                        .setIcon(android.R.drawable.ic_dialog_alert)
+                        .setCancelable(true)
+                        .show();
+
+                Toast.makeText(
+                        RustCraftActivity.this,
+                        "RustCraft: Software Rasterizer active (reduced performance)",
+                        Toast.LENGTH_LONG
+                ).show();
+            }
+        });
     }
 
     private void hideSystemUI() {

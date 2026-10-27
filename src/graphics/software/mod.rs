@@ -5,7 +5,7 @@ use rayon::prelude::*;
 use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId};
 use crate::graphics::camera::Camera;
-#[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
 use crate::graphics::gpu::VulkanContext;
 use crate::graphics::traits::RenderBackend;
 use crate::world::mesher::{Triangle, Vertex};
@@ -64,9 +64,9 @@ pub struct Renderer {
     pub chunk_anim: bool,
     selected_block: u8,
     pub textures: TextureAtlas,
-    #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
     vulkan: Option<VulkanContext>,
-    #[cfg(any(target_arch = "wasm32", target_arch = "powerpc", target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
+    #[cfg(any(target_arch = "wasm32", target_arch = "powerpc", target_os = "vita", target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
     vulkan: Option<()>,
     loaded_keys: Vec<(i32, i32)>,
     dirty_keys: HashSet<(i32, i32)>,
@@ -167,7 +167,7 @@ impl Renderer {
         Ok(renderer)
     }
 
-    #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
     pub fn new_opengl(width: usize, height: usize) -> Result<Self, String> {
         let mut renderer = Self::new(width, height);
         renderer.vulkan = Some(VulkanContext::new_with_backends(
@@ -180,20 +180,20 @@ impl Renderer {
     }
 
     pub fn backend_name(&self) -> &'static str {
+        #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
+        if let Some(vk) = &self.vulkan { return vk.backend_name(); }
         #[cfg(target_os = "vita")]
         return "vita_gxm";
         #[cfg(target_os = "android")]
         return "android_software";
         #[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
         return "xenon_framebuffer";
-        #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
-        if let Some(vk) = &self.vulkan { return vk.backend_name(); }
         #[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
         "software"
     }
 
     pub fn renderer_info(&self) -> (String, String, String) {
-        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
         if let Some(vk) = &self.vulkan {
             let (name, driver, ver) = vk.gpu_info();
             return (ver.to_string(), name.to_string(), driver.to_string());
@@ -249,7 +249,7 @@ impl Renderer {
         self.height = height;
         self.color_buffer.resize(width * height, 0);
         self.depth_buffer.resize(width * height, f32::INFINITY);
-        #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
         if let Some(vk) = self.vulkan.as_mut() {
             vk.resize(width, height);
         }
@@ -257,7 +257,7 @@ impl Renderer {
 
     pub fn update_textures(&mut self, fancy_leaves: bool) {
         self.textures = TextureAtlas::generate_with_fancy(fancy_leaves);
-        #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
         if let Some(vk) = self.vulkan.as_mut() {
             vk.update_textures(&self.textures);
         }
@@ -268,7 +268,7 @@ impl Renderer {
         self.mesh_cache.clear();
         self.dirty_keys.clear();
         self.chunk_spawn_times.clear();
-        #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
         if let Some(vk) = self.vulkan.as_mut() {
             vk.clear_chunk_buffers();
         }
@@ -701,7 +701,7 @@ impl Renderer {
             }
         }
 
-        #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
         if let Some(vulkan) = self.vulkan.as_mut() {
             let is_occluded = world.is_view_fully_occluded(camera.position, camera.yaw, camera.pitch);
             self.visible_keys.clear();

@@ -208,7 +208,7 @@ impl RustCraftApp {
                 eprintln!("Failed to initialize Vulkan renderer: {error}, falling back to software renderer");
                 Renderer::new(width, height)
             }),
-            #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
+            #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
             "opengl" | "gl" => Renderer::new_opengl(width, height).unwrap_or_else(|error| {
                 eprintln!("Failed to initialize OpenGL renderer: {error}, falling back to software renderer");
                 Renderer::new(width, height)
