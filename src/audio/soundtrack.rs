@@ -309,6 +309,7 @@ pub struct SoundtrackManager {
     pub toast: MusicToast,
     rng_seed: u32,
     pub last_played_idx: Option<usize>,
+    pub uncategorized_queue: Vec<usize>,
     pub loading_track: Option<AsyncTrackLoader>,
     pub current_duration_sec: f32,
 }
@@ -336,6 +337,15 @@ impl SoundtrackManager {
                 }
             }
         }
+        let initial_seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| {
+                let nanos = d.as_nanos();
+                ((nanos ^ (nanos >> 32)) as u32) ^ 0x517CC1B7
+            })
+            .unwrap_or(0x517CC1B7);
+        let rng_seed = if initial_seed == 0 { 0x517CC1B7 } else { initial_seed };
+
         let mut manager = Self {
             base_dir,
             tracks: Vec::new(),
@@ -345,14 +355,20 @@ impl SoundtrackManager {
             min_delay_seconds: 15.0,
             max_delay_seconds: 40.0,
             toast: MusicToast::default(),
-            rng_seed: 0x517CC1B7,
+            rng_seed,
             last_played_idx: None,
+            uncategorized_queue: Vec::new(),
             loading_track: None,
             current_duration_sec: 0.0,
         };
 
         manager.reload();
         manager
+    }
+
+    /// Sets a specific PRNG seed (useful for deterministic tests).
+    pub fn set_seed(&mut self, seed: u32) {
+        self.rng_seed = if seed == 0 { 0x517CC1B7 } else { seed };
     }
 
     fn rand_f32(&mut self, min: f32, max: f32) -> f32 {
@@ -365,9 +381,48 @@ impl SoundtrackManager {
         min + frac * (max - min)
     }
 
+    /// Generates a random integer in `[min, max_exclusive)`.
+    pub fn rand_usize(&mut self, min: usize, max_exclusive: usize) -> usize {
+        if min >= max_exclusive {
+            return min;
+        }
+        let range = (max_exclusive - min) as f32;
+        let val = self.rand_f32(0.0, range) as usize;
+        (min + val).min(max_exclusive - 1)
+    }
+
+    /// In-place Fisher-Yates shuffle for track index slices.
+    pub fn shuffle_indices(&mut self, list: &mut [usize]) {
+        if list.len() <= 1 {
+            return;
+        }
+        for i in (1..list.len()).rev() {
+            let j = self.rand_usize(0, i + 1);
+            list.swap(i, j);
+        }
+    }
+
+    /// Refills the uncategorized shuffle queue with a randomized permutation.
+    pub fn refill_uncategorized_queue(&mut self, eligible_uncategorized: &[usize]) {
+        if eligible_uncategorized.is_empty() {
+            self.uncategorized_queue.clear();
+            return;
+        }
+        let mut new_queue = eligible_uncategorized.to_vec();
+        self.shuffle_indices(&mut new_queue);
+
+        // Ensure the first track of the new cycle doesn't repeat the last played track
+        if new_queue.len() > 1 && Some(new_queue[0]) == self.last_played_idx {
+            let last_idx = new_queue.len() - 1;
+            new_queue.swap(0, last_idx);
+        }
+        self.uncategorized_queue = new_queue;
+    }
+
     /// Rescans `soundtracks/` directory, parses `manifest.json`, and registers any discovered audio files.
     pub fn reload(&mut self) {
         self.tracks.clear();
+        self.uncategorized_queue.clear();
 
         if !self.base_dir.exists() {
             let _ = fs::create_dir_all(&self.base_dir);
@@ -626,21 +681,64 @@ impl SoundtrackManager {
     }
 
     /// Selects and starts playing the next eligible track for the specified context.
+    ///
+    /// Tracks in the `uncategorized/` folder are managed via a randomized Fisher-Yates
+    /// shuffle queue so they never play in the same predictable order and don't repeat
+    /// before every other uncategorized track has had a chance to play.
     pub fn play_next_matching(&mut self, context: SoundtrackCategory, audio: &mut AudioEngine) {
-        let eligible_indices: Vec<usize> = self
+        let mut eligible_indices: Vec<usize> = self
             .tracks
             .iter()
             .enumerate()
-            .filter(|(_, t)| t.matches_category(context))
+            .filter(|(_, t)| (t.file_path.exists() || t.sample.is_some()) && t.matches_category(context))
             .map(|(i, _)| i)
             .collect();
+
+        // Fallback for tests or synthetic tracks where file_path may not exist on disk
+        if eligible_indices.is_empty() {
+            eligible_indices = self
+                .tracks
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| t.matches_category(context))
+                .map(|(i, _)| i)
+                .collect();
+        }
 
         if eligible_indices.is_empty() {
             return;
         }
 
-        // Pick next track (avoiding immediately repeating previous track if multiple exist)
-        let chosen_idx = if eligible_indices.len() == 1 {
+        // Identify uncategorized tracks in the eligible pool
+        let uncategorized_indices: Vec<usize> = eligible_indices
+            .iter()
+            .copied()
+            .filter(|&idx| {
+                if let Some(t) = self.tracks.get(idx) {
+                    t.categories.contains(&SoundtrackCategory::Uncategorized)
+                        || t.file_path.to_string_lossy().to_ascii_lowercase().contains("uncategorized")
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        let chosen_idx = if !uncategorized_indices.is_empty() {
+            // Keep queue clean of any indices no longer eligible
+            self.uncategorized_queue.retain(|idx| uncategorized_indices.contains(idx));
+
+            if self.uncategorized_queue.is_empty() {
+                self.refill_uncategorized_queue(&uncategorized_indices);
+            }
+
+            if !self.uncategorized_queue.is_empty() {
+                self.uncategorized_queue.remove(0)
+            } else {
+                let rand_val = self.rand_f32(0.0, eligible_indices.len() as f32);
+                let idx = (rand_val as usize).min(eligible_indices.len() - 1);
+                eligible_indices[idx]
+            }
+        } else if eligible_indices.len() == 1 {
             eligible_indices[0]
         } else {
             let filtered: Vec<usize> = eligible_indices
@@ -883,6 +981,40 @@ mod tests {
             assert_eq!(sample.channels, 2);
             assert_eq!(sample.sample_rate, 48000);
             assert!(sample.data.len() > 0);
+        }
+    }
+
+    #[test]
+    fn test_uncategorized_random_shuffling_and_no_repeats() {
+        let mut mgr = SoundtrackManager::new("soundtracks");
+        // Filter uncategorized tracks
+        let uncategorized_indices: Vec<usize> = mgr
+            .tracks
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.categories.contains(&SoundtrackCategory::Uncategorized))
+            .map(|(i, _)| i)
+            .collect();
+
+        assert!(uncategorized_indices.len() >= 3, "Expected at least 3 uncategorized tracks");
+
+        // Seed 1
+        mgr.set_seed(0x12345678);
+        mgr.refill_uncategorized_queue(&uncategorized_indices);
+        let order_1 = mgr.uncategorized_queue.clone();
+
+        // Seed 2
+        mgr.set_seed(0x87654321);
+        mgr.refill_uncategorized_queue(&uncategorized_indices);
+        let order_2 = mgr.uncategorized_queue.clone();
+
+        // Different seeds must generate different random orders (not fixed identical order)
+        assert_ne!(order_1, order_2, "Different PRNG seeds must yield different random playlist orders");
+
+        // All elements in order_1 must be valid unique tracks from the pool
+        assert_eq!(order_1.len(), uncategorized_indices.len());
+        for idx in &uncategorized_indices {
+            assert!(order_1.contains(idx), "Shuffle queue must contain all tracks without dropping any");
         }
     }
 }

@@ -592,14 +592,31 @@ impl MobManager {
         id
     }
 
-    pub fn update(&mut self, dt: f32, world: &World, player_pos: Vec3, player_held: Option<BlockId>) {
+    pub fn update(&mut self, dt: f32, world: &World, player_pos: Vec3, player_held: Option<BlockId>, is_creative: bool) {
         let mut rng = self.rng_state;
         self.breeding_hearts.clear();
         self.love_hearts.clear();
 
         for mob in &mut self.mobs {
             let was_exploding = mob.kind == MobKind::Creeper && mob.fuse >= 1.5;
-            mob.update(dt, world, &mut rng, Some(player_pos), player_held);
+            let target_pos = if is_creative {
+                if mob.kind.is_hostile() {
+                    None
+                } else if player_held.map(|h| mob.kind.is_tempting_item(h)) == Some(true) {
+                    Some(player_pos)
+                } else {
+                    None
+                }
+            } else {
+                Some(player_pos)
+            };
+
+            if is_creative && mob.kind == MobKind::Creeper && mob.is_ignited {
+                mob.is_ignited = false;
+                mob.fuse = 0.0;
+            }
+
+            mob.update(dt, world, &mut rng, target_pos, player_held);
             if mob.kind == MobKind::Creeper && mob.fuse >= 1.5 && !was_exploding {
                 self.pending_explosions.push(mob.center_pos());
             }
@@ -1059,5 +1076,37 @@ mod tests {
         let adult_aabb = adult.aabb();
         let baby_aabb = baby.aabb();
         assert!(baby_aabb.1.x - baby_aabb.0.x < adult_aabb.1.x - adult_aabb.0.x);
+    }
+
+    #[test]
+    fn test_mobs_do_not_see_player_in_creative() {
+        let mut mob_manager = MobManager::new();
+        let world = crate::world::World::new_with_seed(12345);
+        let player_pos = Vec3::new(5.0, 60.0, 5.0);
+
+        // Spawn a Creeper and a Zombie within targeting distance (2 blocks away)
+        let creeper_id = mob_manager.spawn_mob(MobKind::Creeper, Vec3::new(5.0, 60.0, 7.0));
+        let zombie_id = mob_manager.spawn_mob(MobKind::Zombie, Vec3::new(5.0, 60.0, 8.0));
+
+        // 1. Creative mode: update mobs
+        mob_manager.update(0.05, &world, player_pos, None, true);
+
+        let creeper = mob_manager.mobs.iter().find(|m| m.id == creeper_id).unwrap();
+        assert!(!creeper.is_ignited, "Creeper must not ignite or see player in Creative mode");
+        assert_eq!(creeper.fuse, 0.0, "Creeper fuse must stay 0 in Creative mode");
+
+        let zombie = mob_manager.mobs.iter().find(|m| m.id == zombie_id).unwrap();
+        let angle_to_player = (player_pos.x - zombie.pos.x).atan2(player_pos.z - zombie.pos.z);
+        assert_ne!(zombie.target_yaw, angle_to_player, "Zombie must not target player in Creative mode");
+
+        // 2. Survival mode: update mobs
+        mob_manager.update(0.05, &world, player_pos, None, false);
+
+        let creeper = mob_manager.mobs.iter().find(|m| m.id == creeper_id).unwrap();
+        assert!(creeper.is_ignited, "Creeper should ignite when seeing player in Survival mode");
+
+        let zombie = mob_manager.mobs.iter().find(|m| m.id == zombie_id).unwrap();
+        let angle_to_player = (player_pos.x - zombie.pos.x).atan2(player_pos.z - zombie.pos.z);
+        assert!((zombie.target_yaw - angle_to_player).abs() < 1e-4, "Zombie should target player in Survival mode");
     }
 }

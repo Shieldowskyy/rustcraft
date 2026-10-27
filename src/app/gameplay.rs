@@ -1550,7 +1550,8 @@ impl RustCraftApp {
 
                 let mobs_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
                 let held_item = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
-                self.mob_manager.update(dt, &self.world, self.camera.position, held_item);
+                let is_creative = self.player.gamemode == GameMode::Creative;
+                self.mob_manager.update(dt, &self.world, self.camera.position, held_item, is_creative);
                 for pos in self.mob_manager.breeding_hearts.drain(..) {
                     self.particles.spawn_hearts(pos);
                 }
@@ -1577,8 +1578,8 @@ impl RustCraftApp {
                             self.horiz_velocity.z += push_z * 3.0;
                         }
 
-                        // Hostile mob attack (creepers do not melee, they explode)
-                        if mob.kind.is_hostile() && mob.kind != crate::gameplay::mob::MobKind::Creeper && dist_sq < 1.4 * 1.4 && (mob.pos.y - self.camera.position.y).abs() < 1.8 {
+                        // Hostile mob attack (creepers do not melee, they explode; ignored in creative mode)
+                        if !is_creative && mob.kind.is_hostile() && mob.kind != crate::gameplay::mob::MobKind::Creeper && dist_sq < 1.4 * 1.4 && (mob.pos.y - self.camera.position.y).abs() < 1.8 {
                             if self.player.take_damage(2.0) {
                                 self.damage_tilt_timer = 0.4;
                                 self.damage_tilt_dir = if mob.pos.x > self.camera.position.x { -1.0 } else { 1.0 };
