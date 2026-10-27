@@ -109,6 +109,11 @@ pub enum SoundId {
     // Atmospheric & Ambient
     AmbientWind,
     AmbientCave,
+    AmbientWater,
+    AmbientLeaves,
+    AmbientCaveRocks,
+    StepWoodCreak,
+    AmbientDesertSand,
 }
 
 impl SoundId {
@@ -168,11 +173,17 @@ impl SoundId {
             | SoundId::SkeletonDeath
             | SoundId::CreeperHiss
             | SoundId::CreeperHurt
-            | SoundId::CreeperDeath => SoundCategory::Sfx,
+            | SoundId::CreeperDeath
+            | SoundId::StepWoodCreak => SoundCategory::Sfx,
 
             SoundId::UiClick | SoundId::UiHover => SoundCategory::Ui,
 
-            SoundId::AmbientWind | SoundId::AmbientCave => SoundCategory::Ambient,
+            SoundId::AmbientWind
+            | SoundId::AmbientCave
+            | SoundId::AmbientWater
+            | SoundId::AmbientLeaves
+            | SoundId::AmbientCaveRocks
+            | SoundId::AmbientDesertSand => SoundCategory::Ambient,
         }
     }
 

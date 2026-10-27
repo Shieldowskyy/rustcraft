@@ -146,6 +146,29 @@ impl BiquadFilter {
         }
     }
 
+    pub fn highpass(cutoff_hz: f32, q: f32, sr: f32) -> Self {
+        let w0 = 2.0 * PI * cutoff_hz.clamp(20.0, sr * 0.48) / sr;
+        let alpha = w0.sin() / (2.0 * q.max(0.1));
+        let cos_w0 = w0.cos();
+        let b0 = (1.0 + cos_w0) * 0.5;
+        let b1 = -(1.0 + cos_w0);
+        let b2 = (1.0 + cos_w0) * 0.5;
+        let a0 = 1.0 + alpha;
+        let a1 = -2.0 * cos_w0;
+        let a2 = 1.0 - alpha;
+        Self {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
     #[inline(always)]
     pub fn process(&mut self, in_val: f32) -> f32 {
         let out = self.b0 * in_val + self.b1 * self.x1 + self.b2 * self.x2
@@ -219,6 +242,11 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::CreeperDeath => 818,
         SoundId::AmbientWind => 701,
         SoundId::AmbientCave => 702,
+        SoundId::AmbientWater => 703,
+        SoundId::AmbientLeaves => 704,
+        SoundId::AmbientCaveRocks => 705,
+        SoundId::StepWoodCreak => 706,
+        SoundId::AmbientDesertSand => 707,
     });
 
     let samples = match id {
@@ -226,7 +254,8 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::StepGrass => synth_noise_burst(&mut rng, sr, 0.12, 1800.0, 3200.0, 1.2, 0.6),
         SoundId::StepDirt => synth_noise_burst(&mut rng, sr, 0.14, 300.0, 1400.0, 1.8, 0.8),
         SoundId::StepStone => synth_impact(&mut rng, sr, 0.09, 320.0, 1600.0, 0.015, 0.7),
-        SoundId::StepWood => synth_resonant_knock(sr, 0.12, 220.0, 1.4, 0.8),
+        SoundId::StepWood => synth_wood_step(&mut rng, sr, 0.14, 0.85),
+        SoundId::StepWoodCreak => synth_wood_creak(&mut rng, sr, 0.24, 0.70),
         SoundId::StepSand => synth_noise_burst(&mut rng, sr, 0.15, 600.0, 2400.0, 1.0, 0.75),
         SoundId::StepGravel => synth_noise_burst(&mut rng, sr, 0.16, 400.0, 2800.0, 1.4, 0.85),
         SoundId::StepWater => synth_water_splash(&mut rng, sr, 0.22, 0.4),
@@ -250,7 +279,7 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::PlaceGrass => synth_noise_burst(&mut rng, sr, 0.11, 800.0, 2600.0, 1.8, 0.7),
         SoundId::PlaceDirt => synth_impact(&mut rng, sr, 0.14, 180.0, 900.0, 0.03, 0.85),
         SoundId::PlaceStone => synth_impact(&mut rng, sr, 0.12, 280.0, 1800.0, 0.02, 0.9),
-        SoundId::PlaceWood => synth_resonant_knock(sr, 0.15, 190.0, 1.2, 0.9),
+        SoundId::PlaceWood => synth_wood_step(&mut rng, sr, 0.16, 0.90),
         SoundId::PlaceSand => synth_noise_burst(&mut rng, sr, 0.16, 350.0, 1600.0, 1.5, 0.75),
         SoundId::PlaceGeneric => synth_impact(&mut rng, sr, 0.12, 240.0, 1200.0, 0.02, 0.8),
 
@@ -292,8 +321,12 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::CreeperDeath => synth_creeper_death(&mut rng, sr, 0.45, 0.95),
 
         // Ambient (loops or long tones)
-        SoundId::AmbientWind => synth_wind_loop(&mut rng, sr, 3.0, 0.4),
-        SoundId::AmbientCave => synth_cave_chord(sr, 3.5, 0.45),
+        SoundId::AmbientWind => synth_wind_ambient(&mut rng, sr, 4.5, 0.45),
+        SoundId::AmbientCave => synth_cave_chord(&mut rng, sr, 4.0, 0.45),
+        SoundId::AmbientWater => synth_water_ambient(&mut rng, sr, 3.8, 0.50),
+        SoundId::AmbientLeaves => synth_leaves_rustle(&mut rng, sr, 3.2, 0.45),
+        SoundId::AmbientCaveRocks => synth_cave_rocks(&mut rng, sr, 2.2, 0.65),
+        SoundId::AmbientDesertSand => synth_desert_sand(&mut rng, sr, 3.5, 0.45),
     };
 
     SoundSample::new(samples, sample_rate, 1) // Mono procedural source for 3D spatial panning
@@ -357,24 +390,6 @@ fn synth_impact(
         let noise_val = lp.process(rng.next_f32()) * noise_env * 0.7;
 
         out.push((sine_val + noise_val) * volume);
-    }
-    out
-}
-
-/// Synthesizes a resonant hollow wood knock.
-fn synth_resonant_knock(sr: f32, duration: f32, base_freq: f32, decay_exp: f32, volume: f32) -> Vec<f32> {
-    let count = (sr * duration) as usize;
-    let mut out = Vec::with_capacity(count);
-    let mut phase1 = 0.0f32;
-    let mut phase2 = 0.0f32;
-
-    for i in 0..count {
-        let t = i as f32 / count as f32;
-        let env = (1.0 - t).powf(decay_exp);
-        phase1 += 2.0 * PI * base_freq / sr;
-        phase2 += 2.0 * PI * (base_freq * 2.15) / sr;
-        let s = phase1.sin() * 0.7 + phase2.sin() * 0.3;
-        out.push(s * env * volume);
     }
     out
 }
@@ -847,43 +862,329 @@ fn synth_explosion(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Ve
     out
 }
 
-/// Seamless ambient breeze / wind drone.
-fn synth_wind_loop(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
-    let count = (sr * duration) as usize;
+/// Tactical and resonant wood step: solid foot strike thump + hollow wooden board cavity resonance + sole friction.
+fn synth_wood_step(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.12)) as usize;
     let mut out = Vec::with_capacity(count);
-    let mut lp = IirFilter::lowpass(650.0, sr);
-    let mut hp = IirFilter::highpass(120.0, sr);
+    let mut bp_cavity = BiquadFilter::bandpass(320.0, 3.2, sr);
+    let mut bp_board = BiquadFilter::bandpass(680.0, 3.5, sr);
+    let mut hp_tap = IirFilter::highpass(1200.0, sr);
+    let mut lp_tap = IirFilter::lowpass(3800.0, sr);
 
+    let mut phase = 0.0f32;
     for i in 0..count {
-        let t = i as f32 / count as f32;
-        // Smooth swell modulation
-        let swell = (t * 2.0 * PI).sin() * 0.25 + 0.75;
-        let raw = rng.next_f32();
-        let filtered = hp.process(lp.process(raw));
-        out.push(filtered * swell * volume);
+        let t = i as f32 / sr;
+        let norm_t = i as f32 / count as f32;
+
+        // 1. Hollow plank thump (dropping pitch 180 Hz -> 85 Hz)
+        let freq = (180.0 - norm_t * 95.0).max(70.0);
+        phase += 2.0 * PI * freq / sr;
+        let thump = (phase.sin() * 0.7 + (phase * 2.1).sin() * 0.3) * (-t * 38.0).exp();
+
+        // 2. Resonant board acoustic modes excited by impulse
+        let raw_imp = if i < 3 { 1.5 } else { rng.next_f32() * 0.3 };
+        let cavity = bp_cavity.process(raw_imp) * (-t * 32.0).exp();
+        let board = bp_board.process(raw_imp) * (-t * 42.0).exp();
+
+        // 3. Crisp shoe sole tap
+        let sole = lp_tap.process(hp_tap.process(rng.next_f32())) * (-t * 65.0).exp();
+
+        let s = thump * 0.65 + cavity * 0.75 + board * 0.45 + sole * 0.40;
+        out.push(s * volume);
     }
     out
 }
 
-/// Atmospheric resonant cave drone chord.
-fn synth_cave_chord(sr: f32, duration: f32, volume: f32) -> Vec<f32> {
-    let count = (sr * duration) as usize;
+/// Authentic wooden floorboard strain and creak under foot pressure.
+/// Utilizes FM synthesis with stick-slip micro-impulses and wooden cavity formants.
+fn synth_wood_creak(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.20)) as usize;
     let mut out = Vec::with_capacity(count);
-    let f1 = 65.41; // C2
-    let f2 = 77.78; // Eb2
-    let f3 = 98.00; // G2
-    let mut p1 = 0.0f32;
-    let mut p2 = 0.0f32;
-    let mut p3 = 0.0f32;
+
+    let mut bp1 = BiquadFilter::bandpass(380.0, 4.2, sr);
+    let mut bp2 = BiquadFilter::bandpass(940.0, 3.6, sr);
+    let mut bp_high = BiquadFilter::bandpass(1750.0, 4.0, sr);
+
+    let mut car_phase = 0.0f32;
+    let mut mod_phase = 0.0f32;
 
     for i in 0..count {
         let t = i as f32 / count as f32;
-        let env = (t * PI).sin(); // Smooth rise and fall
-        p1 += 2.0 * PI * f1 / sr;
-        p2 += 2.0 * PI * f2 / sr;
-        p3 += 2.0 * PI * f3 / sr;
-        let s = (p1.sin() * 0.45 + p2.sin() * 0.3 + p3.sin() * 0.25) * env;
-        out.push(s * volume);
+        let cur_time = i as f32 / sr;
+
+        // Wood tension pitch bend: begins under sudden weight, groans slightly down
+        let base_pitch = 320.0 - (t * 2.0 * PI).sin() * 35.0 - t * 45.0;
+        let mod_ratio = 2.82; // Inharmonic wood grain acoustic ratio
+        let mod_freq = base_pitch * mod_ratio;
+
+        // Stick-slip micro friction events (wood fibers catching & slipping)
+        let slip_trigger = (cur_time * 55.0 * 2.0 * PI).sin() > 0.85;
+        let friction_burst = if slip_trigger { rng.next_f32() * 0.35 } else { 0.0 };
+
+        // FM index envelope
+        let mod_idx = (1.8 * (1.0 - t).powf(0.8) + friction_burst).max(0.1);
+
+        mod_phase += 2.0 * PI * mod_freq / sr;
+        let mod_signal = mod_phase.sin() * mod_idx;
+
+        car_phase += 2.0 * PI * base_pitch / sr;
+        let raw_fm = (car_phase + mod_signal).sin();
+
+        // Pass through wood formant resonators
+        let body = bp1.process(raw_fm) * 0.70 + bp2.process(raw_fm) * 0.45 + bp_high.process(raw_fm + friction_burst) * 0.25;
+
+        // Natural smooth swell & decay
+        let env = (t * PI).sin().powf(0.7) * (1.0 - t * 0.3);
+
+        // Soft analog warmth / saturation
+        let saturated = body / (1.0 + body.abs() * 0.4);
+        out.push(saturated * env * volume * 1.3);
+    }
+    out
+}
+
+/// Atmospheric wind gust with multi-band air turbulence and Aeolian whistle.
+fn synth_wind_ambient(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(3.0)) as usize;
+    let mut out = Vec::with_capacity(count);
+
+    let mut lp_sub = IirFilter::lowpass(170.0, sr);
+    let mut hp_sub = IirFilter::highpass(35.0, sr);
+    let mut bp_gust = BiquadFilter::bandpass(480.0, 1.6, sr);
+    let mut whistle_phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+
+        // Gust profile: smooth rise to peak, secondary breeze, soft tail
+        let gust_env = (t * PI).sin().powf(1.4);
+
+        // 1. Deep atmospheric pressure rumble
+        let raw = rng.next_f32();
+        let sub_rumble = hp_sub.process(lp_sub.process(raw)) * 1.4;
+
+        // 2. Gust turbulence
+        let gust_body = bp_gust.process(raw);
+
+        // 3. Aeolian whistling breeze (Mega Drive FM whistle harmonic)
+        let whistle_vibrato = (i as f32 / sr * 5.2 * 2.0 * PI).sin() * 22.0;
+        let whistle_freq = 1140.0 + whistle_vibrato + (t * PI).sin() * 180.0;
+        whistle_phase += 2.0 * PI * whistle_freq / sr;
+        let whistle = (whistle_phase.sin() * 0.16 + (whistle_phase * 2.0).sin() * 0.05) * gust_env.powf(2.0);
+
+        let composite = (sub_rumble * 0.55 + gust_body * 0.70 + whistle) * gust_env;
+        out.push(composite * volume * 1.25);
+    }
+    out
+}
+
+/// Rich subterranean cavern drone with deep sub-bass and ominous FM beating.
+fn synth_cave_chord(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(3.0)) as usize;
+    let mut out = Vec::with_capacity(count);
+
+    let f0 = 55.0;  // A1 sub
+    let f1 = 65.41; // C2
+    let f2 = 77.78; // Eb2
+    let f3 = 98.00; // G2
+    let mut p0 = 0.0f32;
+    let mut p1 = 0.0f32;
+    let mut p2 = 0.0f32;
+    let mut p3 = 0.0f32;
+    let mut lp_cave = IirFilter::lowpass(480.0, sr);
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let env = (t * PI).sin().powf(0.85);
+
+        // Subtle slow frequency drifting (subterranean draft)
+        let drift = (i as f32 / sr * 0.3 * 2.0 * PI).sin() * 0.8;
+        p0 += 2.0 * PI * (f0 + drift) / sr;
+        p1 += 2.0 * PI * (f1 - drift * 0.5) / sr;
+        p2 += 2.0 * PI * (f2 + drift * 0.7) / sr;
+        p3 += 2.0 * PI * (f3 + drift) / sr;
+
+        // Subterranean hollow breeze noise
+        let cavern_draft = lp_cave.process(rng.next_f32()) * 0.15;
+
+        let tone = p0.sin() * 0.35 + p1.sin() * 0.30 + p2.sin() * 0.22 + p3.sin() * 0.18 + cavern_draft;
+        out.push(tone * env * volume * 1.3);
+    }
+    out
+}
+
+/// Gentle flowing water current with organic bubbling brook droplet pops.
+fn synth_water_ambient(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(3.0)) as usize;
+    let mut out = vec![0.0f32; count];
+
+    let mut bp_stream = BiquadFilter::bandpass(420.0, 1.4, sr);
+    let mut lp_stream = IirFilter::lowpass(750.0, sr);
+
+    // 1. Continuous stream turbulence with undulating ripples
+    for i in 0..count {
+        let t = i as f32 / sr;
+        let norm_t = i as f32 / count as f32;
+        let ripple = 0.75 + 0.25 * (t * 2.8 * 2.0 * PI).sin() * (t * 0.7 * 2.0 * PI).cos();
+        let raw_noise = rng.next_f32();
+        let filtered = lp_stream.process(bp_stream.process(raw_noise));
+        let env = (norm_t * PI).sin().powf(0.4);
+        out[i] = filtered * ripple * env * 0.55;
+    }
+
+    // 2. Organic FM water droplet / bubble pops
+    let bubble_times = [0.35, 0.78, 1.25, 1.72, 2.15, 2.65, 3.10, 3.48];
+    let bubble_freqs = [620.0, 840.0, 520.0, 950.0, 710.0, 880.0, 600.0, 760.0];
+
+    for (b_idx, &bt) in bubble_times.iter().enumerate() {
+        let start = (bt * sr) as usize;
+        let len = (sr * 0.045) as usize;
+        let base_f = bubble_freqs[b_idx];
+        let mut b_phase = 0.0f32;
+
+        for i in 0..len {
+            let idx = start + i;
+            if idx >= count { break; }
+            let tau = i as f32 / sr;
+            // Rising chirp characteristic of water bubbles
+            let f = base_f + (base_f * 0.8) * (1.0 - (-tau * 85.0).exp());
+            b_phase += 2.0 * PI * f / sr;
+            let env = (-tau * 55.0).exp();
+            let pop = b_phase.sin() * env * 0.65;
+            out[idx] += pop;
+        }
+    }
+
+    // Apply master volume and soft saturation
+    for sample in out.iter_mut() {
+        let s = *sample;
+        *sample = (s / (1.0 + s.abs() * 0.35)) * volume;
+    }
+
+    out
+}
+
+/// Tree leaves rustling in the wind: multi-layered foliage flutter and air movement.
+fn synth_leaves_rustle(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(2.5)) as usize;
+    let mut out = Vec::with_capacity(count);
+
+    let mut bp_leaf1 = BiquadFilter::bandpass(2800.0, 1.8, sr);
+    let mut bp_leaf2 = BiquadFilter::bandpass(5200.0, 2.2, sr);
+    let mut bp_branch = BiquadFilter::bandpass(480.0, 2.8, sr);
+    let mut hp_leaf = IirFilter::highpass(1600.0, sr);
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let cur_time = i as f32 / sr;
+
+        // Wind gust envelope: swells, flutters, gently dies down
+        let swell = (t * PI).sin().powf(1.2);
+
+        // Foliage micro-flutter (leaves fluttering against each other at 14-22 Hz)
+        let flutter = 0.55 + 0.30 * (cur_time * 16.5 * 2.0 * PI).sin()
+            + 0.15 * (cur_time * 23.0 * 2.0 * PI).cos();
+
+        let raw = rng.next_f32();
+        let high_rustle = bp_leaf1.process(hp_leaf.process(raw)) * 0.65
+            + bp_leaf2.process(raw) * 0.40;
+        let branch_hum = bp_branch.process(raw) * 0.20;
+
+        let composite = (high_rustle * flutter + branch_hum) * swell;
+        out.push(composite * volume * 1.35);
+    }
+    out
+}
+
+/// Falling pebbles and rocks tumbling down cavern walls with echoing acoustics.
+fn synth_cave_rocks(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(1.8)) as usize;
+    let mut out = vec![0.0f32; count];
+
+    // Accelerating bounce pattern of tumbling pebbles
+    let impacts = [
+        (0.04f32, 1800.0f32, 0.90f32),
+        (0.16f32, 2400.0f32, 0.75f32),
+        (0.31f32, 1500.0f32, 0.65f32),
+        (0.44f32, 2900.0f32, 0.55f32),
+        (0.55f32, 2100.0f32, 0.45f32),
+        (0.63f32, 2600.0f32, 0.35f32),
+        (0.70f32, 3300.0f32, 0.25f32),
+    ];
+
+    for &(it, freq, amp) in &impacts {
+        let start = (it * sr) as usize;
+        let len = (sr * 0.035) as usize;
+        let mut bp = BiquadFilter::bandpass(freq, 3.5, sr);
+        let mut phase_thump = 0.0f32;
+
+        for i in 0..len {
+            let idx = start + i;
+            if idx >= count { break; }
+            let t = i as f32 / len as f32;
+            let impulse = if i < 3 { 1.6 } else { rng.next_f32() * 0.3 };
+            let clack = bp.process(impulse) * (1.0 - t).powi(2);
+
+            phase_thump += 2.0 * PI * (140.0 - t * 40.0) / sr;
+            let thump = phase_thump.sin() * (1.0 - t).powi(3) * 0.4;
+
+            out[idx] += (clack + thump) * amp;
+        }
+    }
+
+    // Cavern echo: multi-tap delayed reverberation
+    let echo_delays = [(0.065 * sr) as usize, (0.135 * sr) as usize, (0.220 * sr) as usize];
+    let echo_gains = [0.35, 0.22, 0.14];
+
+    for tap in 0..3 {
+        let delay = echo_delays[tap];
+        let gain = echo_gains[tap];
+        let mut lp = IirFilter::lowpass(1400.0, sr);
+        for i in delay..count {
+            let delayed = out[i - delay];
+            let filtered = lp.process(delayed);
+            out[i] += filtered * gain;
+        }
+    }
+
+    // Master gain
+    for s in out.iter_mut() {
+        *s *= volume * 1.2;
+    }
+
+    out
+}
+
+/// Shifting sand cascades and parched desert wind across dunes.
+fn synth_desert_sand(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(2.8)) as usize;
+    let mut out = Vec::with_capacity(count);
+
+    let mut hp_wind = IirFilter::highpass(780.0, sr);
+    let mut bp_sand1 = BiquadFilter::bandpass(2400.0, 1.8, sr);
+    let mut bp_sand2 = BiquadFilter::bandpass(4600.0, 2.4, sr);
+    let mut warm_phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let cur_time = i as f32 / sr;
+
+        // Sand trickle cascade envelope: small start, swells to cascade, settles
+        let cascade_env = (t * PI).sin().powf(1.6);
+
+        // Granular silica micro-shimmer (individual grains sliding against each other)
+        let grain_shimmer = 0.65 + 0.35 * (cur_time * 42.0 * 2.0 * PI).sin();
+
+        let raw = rng.next_f32();
+        let desert_breeze = hp_wind.process(raw) * 0.35;
+        let sand_cascade = (bp_sand1.process(raw) * 0.60 + bp_sand2.process(raw) * 0.40) * grain_shimmer;
+
+        // Warm low desert drone harmonic (Mega Drive FM vibe)
+        warm_phase += 2.0 * PI * 110.0 / sr;
+        let desert_heat = (warm_phase.sin() * 0.08) * (1.0 - t * 0.5);
+
+        let composite = (desert_breeze + sand_cascade + desert_heat) * cascade_env;
+        out.push(composite * volume * 1.3);
     }
     out
 }

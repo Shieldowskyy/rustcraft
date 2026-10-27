@@ -27,6 +27,43 @@ pub struct AudioStats {
     pub commands_processed: u64,
 }
 
+/// Contextual information about the player's immediate surrounding environment,
+/// used to trigger realistic ambient soundscapes (wind, water, leaves, cave debris, desert sand).
+#[derive(Clone, Copy, Debug)]
+pub struct AmbientContext {
+    /// True if the player is underground in a cave or deep mine.
+    pub is_underground: bool,
+    /// True if the sky is directly visible above the player.
+    pub sky_exposed: bool,
+    /// True if there is water nearby (river, ocean, lake, or submerged).
+    pub near_water: bool,
+    /// Approximate 3D position of the nearest water body, if known.
+    pub water_pos: Option<Vec3>,
+    /// True if tree leaves / foliage are nearby.
+    pub near_leaves: bool,
+    /// Approximate 3D position of nearby foliage.
+    pub leaves_pos: Option<Vec3>,
+    /// True if the player is in an arid / desert biome or on sand dunes.
+    pub is_desert: bool,
+    /// Approximate position of nearby sand dunes.
+    pub sand_pos: Option<Vec3>,
+}
+
+impl Default for AmbientContext {
+    fn default() -> Self {
+        Self {
+            is_underground: false,
+            sky_exposed: true,
+            near_water: false,
+            water_pos: None,
+            near_leaves: false,
+            leaves_pos: None,
+            is_desert: false,
+            sand_pos: None,
+        }
+    }
+}
+
 /// The core cross-platform RustCraft audio engine.
 pub struct AudioEngine {
     soundbank: HashMap<SoundId, SoundSample>,
@@ -47,7 +84,12 @@ pub struct AudioEngine {
 
     // Cadence & Ambient timers
     footstep_dist: f32,
-    ambient_timer: f32,
+    ambient_wind_timer: f32,
+    ambient_cave_timer: f32,
+    ambient_water_timer: f32,
+    ambient_leaves_timer: f32,
+    ambient_rocks_timer: f32,
+    ambient_sand_timer: f32,
     rng_seed: u32,
 
     // Volumes
@@ -126,6 +168,11 @@ impl AudioEngine {
             SoundId::CreeperDeath,
             SoundId::AmbientWind,
             SoundId::AmbientCave,
+            SoundId::AmbientWater,
+            SoundId::AmbientLeaves,
+            SoundId::AmbientCaveRocks,
+            SoundId::StepWoodCreak,
+            SoundId::AmbientDesertSand,
         ];
 
         for &id in &all_sounds {
@@ -310,7 +357,12 @@ impl AudioEngine {
             sync_mixer,
             sync_backend,
             footstep_dist: 0.0,
-            ambient_timer: 20.0,
+            ambient_wind_timer: 6.0,
+            ambient_cave_timer: 16.0,
+            ambient_water_timer: 3.5,
+            ambient_leaves_timer: 5.0,
+            ambient_rocks_timer: 9.0,
+            ambient_sand_timer: 6.5,
             rng_seed: 0x9E3779B9,
             master_vol: 0.8,
             sfx_vol: 1.0,
@@ -476,6 +528,7 @@ impl AudioEngine {
         is_grounded: bool,
         is_sprinting: bool,
         block_below: BlockId,
+        ambient_ctx: AmbientContext,
     ) {
         if self.is_muted {
             return;
@@ -491,22 +544,108 @@ impl AudioEngine {
                 let feet_pos = player_pos - Vec3::new(0.0, 1.4, 0.0);
                 let vol = if is_sprinting { 0.85 } else { 0.65 };
                 self.play_sound_3d_varied(step_sound, feet_pos, vol);
+
+                // Wood creaking when walking on wooden surfaces
+                if block_below.is_wood()
+                    || matches!(
+                        block_below,
+                        BlockId::Wood
+                            | BlockId::Planks
+                            | BlockId::CraftingTable
+                            | BlockId::Chest
+                            | BlockId::Door
+                            | BlockId::DoorOpen
+                    )
+                {
+                    if self.rand_f32(0.0, 1.0) < 0.55 {
+                        let creak_vol = self.rand_f32(0.40, 0.65);
+                        let creak_pitch = self.rand_f32(0.88, 1.12);
+                        self.play_sound_3d(SoundId::StepWoodCreak, feet_pos, creak_vol, creak_pitch);
+                    }
+                }
             }
         } else {
             self.footstep_dist = (self.footstep_dist - dt * 2.0).max(0.0);
         }
 
-        // Ambient atmosphere generator
-        self.ambient_timer -= dt;
-        if self.ambient_timer <= 0.0 {
-            self.ambient_timer = self.rand_f32(35.0, 75.0);
-            if player_pos.y < 32.0 {
-                // Underground cave atmosphere
-                self.play_sound_3d(SoundId::AmbientCave, player_pos, 0.55, 1.0);
-            } else {
-                // Surface wind breeze
-                self.play_sound(SoundId::AmbientWind, 0.35, 1.0);
+        // Ambient atmosphere system
+        // 1. Underground Cave Ambience (Drones & Falling Rocks)
+        if ambient_ctx.is_underground {
+            // Echoing rock & pebble tumble in caverns
+            self.ambient_rocks_timer -= dt;
+            if self.ambient_rocks_timer <= 0.0 {
+                self.ambient_rocks_timer = self.rand_f32(11.0, 24.0);
+                let offset_x = self.rand_f32(-8.0, 8.0);
+                let offset_y = self.rand_f32(1.0, 6.0);
+                let offset_z = self.rand_f32(-8.0, 8.0);
+                let rock_pos = player_pos + Vec3::new(offset_x, offset_y, offset_z);
+                let rock_vol = self.rand_f32(0.50, 0.75);
+                let rock_pitch = self.rand_f32(0.92, 1.08);
+                self.play_sound_3d(SoundId::AmbientCaveRocks, rock_pos, rock_vol, rock_pitch);
             }
+
+            // Deep cave drone
+            self.ambient_cave_timer -= dt;
+            if self.ambient_cave_timer <= 0.0 {
+                self.ambient_cave_timer = self.rand_f32(30.0, 65.0);
+                self.play_sound_3d(SoundId::AmbientCave, player_pos, 0.55, 1.0);
+            }
+        } else {
+            // 2. Surface Wind Breeze (Open air / high elevations)
+            self.ambient_wind_timer -= dt;
+            if self.ambient_wind_timer <= 0.0 {
+                let wind_interval = if player_pos.y > 80.0 {
+                    self.rand_f32(10.0, 18.0)
+                } else {
+                    self.rand_f32(16.0, 32.0)
+                };
+                self.ambient_wind_timer = wind_interval;
+                let wind_vol = if player_pos.y > 85.0 { 0.50 } else { 0.38 };
+                let wind_pitch = self.rand_f32(0.95, 1.05);
+                self.play_sound(SoundId::AmbientWind, wind_vol, wind_pitch);
+            }
+        }
+
+        // 3. Water Ambience (Gentle bubbling brook & shore lapping)
+        if ambient_ctx.near_water {
+            self.ambient_water_timer -= dt;
+            if self.ambient_water_timer <= 0.0 {
+                self.ambient_water_timer = self.rand_f32(6.0, 13.0);
+                let target_pos = ambient_ctx.water_pos.unwrap_or(player_pos);
+                let water_vol = self.rand_f32(0.45, 0.65);
+                let water_pitch = self.rand_f32(0.95, 1.06);
+                self.play_sound_3d(SoundId::AmbientWater, target_pos, water_vol, water_pitch);
+            }
+        } else {
+            self.ambient_water_timer = (self.ambient_water_timer - dt * 0.5).max(1.5);
+        }
+
+        // 4. Tree Leaves Rustling Ambience
+        if ambient_ctx.near_leaves && !ambient_ctx.is_underground {
+            self.ambient_leaves_timer -= dt;
+            if self.ambient_leaves_timer <= 0.0 {
+                self.ambient_leaves_timer = self.rand_f32(7.0, 16.0);
+                let target_pos = ambient_ctx.leaves_pos.unwrap_or(player_pos + Vec3::new(0.0, 2.5, 0.0));
+                let leaves_vol = self.rand_f32(0.40, 0.60);
+                let leaves_pitch = self.rand_f32(0.94, 1.06);
+                self.play_sound_3d(SoundId::AmbientLeaves, target_pos, leaves_vol, leaves_pitch);
+            }
+        } else {
+            self.ambient_leaves_timer = (self.ambient_leaves_timer - dt * 0.5).max(2.0);
+        }
+
+        // 5. Desert Sand Cascades / Trickling
+        if (ambient_ctx.is_desert || ambient_ctx.sand_pos.is_some()) && !ambient_ctx.is_underground {
+            self.ambient_sand_timer -= dt;
+            if self.ambient_sand_timer <= 0.0 {
+                self.ambient_sand_timer = self.rand_f32(9.0, 20.0);
+                let target_pos = ambient_ctx.sand_pos.unwrap_or(player_pos - Vec3::new(0.0, 1.0, 0.0));
+                let sand_vol = self.rand_f32(0.42, 0.62);
+                let sand_pitch = self.rand_f32(0.95, 1.05);
+                self.play_sound_3d(SoundId::AmbientDesertSand, target_pos, sand_vol, sand_pitch);
+            }
+        } else {
+            self.ambient_sand_timer = (self.ambient_sand_timer - dt * 0.5).max(2.5);
         }
     }
 

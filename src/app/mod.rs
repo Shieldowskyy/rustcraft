@@ -143,6 +143,8 @@ pub struct RustCraftApp {
     pub audio: crate::audio::AudioEngine,
     pub soundtrack: crate::audio::SoundtrackManager,
     pub was_on_ground: bool,
+    pub ambient_probe_timer: f32,
+    pub cached_ambient_ctx: crate::audio::AmbientContext,
 
     // Controls toggle states
     pub sprint_toggled: bool,
@@ -396,6 +398,8 @@ impl RustCraftApp {
             audio,
             soundtrack,
             was_on_ground: false,
+            ambient_probe_timer: 0.0,
+            cached_ambient_ctx: crate::audio::AmbientContext::default(),
 
             sprint_toggled: false,
             crouch_toggled: false,

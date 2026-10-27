@@ -22,7 +22,7 @@ pub mod soundtrack;
 pub mod spatial;
 pub mod synth;
 
-pub use engine::{AudioEngine, AudioStats};
+pub use engine::{AudioEngine, AudioStats, AmbientContext};
 pub use sound::{SoundCategory, SoundId, SoundSample};
 pub use soundtrack::{MusicToast, SoundtrackCategory, SoundtrackManager, SoundtrackTrack};
 pub use spatial::AudioListener;
@@ -81,6 +81,11 @@ mod tests {
             SoundId::SkeletonDeath,
             SoundId::AmbientWind,
             SoundId::AmbientCave,
+            SoundId::AmbientWater,
+            SoundId::AmbientLeaves,
+            SoundId::AmbientCaveRocks,
+            SoundId::StepWoodCreak,
+            SoundId::AmbientDesertSand,
         ];
 
         for &id in &test_sounds {
@@ -196,7 +201,15 @@ mod tests {
         engine.play_sound_3d_varied_occluded(SoundId::BreakWood, Vec3::new(3.0, 0.0, 3.0), 0.85, 0.7);
 
         // Cadence update
-        engine.update(0.016, Vec3::new(0.0, 50.0, 0.0), 4.0, true, false, crate::world::block::BlockId::Grass);
+        engine.update(
+            0.016,
+            Vec3::new(0.0, 50.0, 0.0),
+            4.0,
+            true,
+            false,
+            crate::world::block::BlockId::Grass,
+            AmbientContext::default(),
+        );
     }
 
     #[test]

@@ -532,6 +532,68 @@ impl RustCraftApp {
                         self.camera.position.z.floor() as i32,
                     );
                     let block_below = self.world.get_block(block_below_pos);
+
+                    // Low-frequency sparse environmental probe for ambient soundscapes (~3 Hz)
+                    self.ambient_probe_timer -= dt;
+                    if self.ambient_probe_timer <= 0.0 {
+                        self.ambient_probe_timer = 0.35;
+                        let p_block = self.camera.position.floor_to_ivec();
+                        let (biome, _) = crate::world::get_biome_at(p_block.x, p_block.z, self.world.seed);
+                        let is_desert = matches!(biome, crate::world::Biome::Desert | crate::world::Biome::Badlands);
+
+                        // Vertical profile check: solid roof indicates cave / underground
+                        let mut solid_above = 0;
+                        for &dy in &[2, 4, 8, 14, 22] {
+                            let test_pos = IVec3::new(p_block.x, p_block.y + dy, p_block.z);
+                            if self.world.get_block(test_pos).is_solid() {
+                                solid_above += 1;
+                            }
+                        }
+                        let is_underground = p_block.y < 55 && solid_above >= 2;
+                        let sky_exposed = solid_above == 0;
+
+                        // Radial sparse probe around player for water, leaves, sand
+                        let mut near_water = in_water;
+                        let mut water_pos = if in_water { Some(self.camera.position) } else { None };
+                        let mut near_leaves = false;
+                        let mut leaves_pos = None;
+                        let mut near_sand = block_below == BlockId::Sand;
+                        let mut sand_pos = if near_sand { Some(self.camera.position) } else { None };
+
+                        const PROBE_OFFSETS: [(i32, i32, i32); 16] = [
+                            (3, 0, 0), (-3, 0, 0), (0, 0, 3), (0, 0, -3),
+                            (5, 1, 2), (-5, 1, -2), (2, 2, 5), (-2, 2, -5),
+                            (0, 3, 0), (0, -2, 0), (4, -1, 4), (-4, -1, -4),
+                            (6, 0, -3), (-6, 0, 3), (2, 4, 2), (-2, 4, -2),
+                        ];
+
+                        for &(ox, oy, oz) in &PROBE_OFFSETS {
+                            let probe = IVec3::new(p_block.x + ox, p_block.y + oy, p_block.z + oz);
+                            let b = self.world.get_block(probe);
+                            if b == BlockId::Water && !near_water {
+                                near_water = true;
+                                water_pos = Some(Vec3::new(probe.x as f32 + 0.5, probe.y as f32 + 0.5, probe.z as f32 + 0.5));
+                            } else if b.is_leaf() && !near_leaves {
+                                near_leaves = true;
+                                leaves_pos = Some(Vec3::new(probe.x as f32 + 0.5, probe.y as f32 + 0.5, probe.z as f32 + 0.5));
+                            } else if b == BlockId::Sand && !near_sand {
+                                near_sand = true;
+                                sand_pos = Some(Vec3::new(probe.x as f32 + 0.5, probe.y as f32 + 0.5, probe.z as f32 + 0.5));
+                            }
+                        }
+
+                        self.cached_ambient_ctx = crate::audio::AmbientContext {
+                            is_underground,
+                            sky_exposed,
+                            near_water,
+                            water_pos,
+                            near_leaves,
+                            leaves_pos,
+                            is_desert,
+                            sand_pos,
+                        };
+                    }
+
                     self.audio.update(
                         dt,
                         self.camera.position,
@@ -539,6 +601,7 @@ impl RustCraftApp {
                         self.on_ground,
                         is_sprinting,
                         block_below,
+                        self.cached_ambient_ctx,
                     );
                     self.audio.update_listener(
                         self.camera.position,
