@@ -1277,7 +1277,7 @@ impl RustCraftApp {
                     (Vec3::zero(), 0.0)
                 };
                 #[cfg(not(target_os = "vita"))]
-                let effective_camera = match self.camera_perspective {
+                let mut effective_camera = match self.camera_perspective {
                     CameraPerspective::FirstPerson => self.camera.clone(),
                     CameraPerspective::ThirdPersonBack => {
                         let eye_pos = self.camera.position;
@@ -1300,8 +1300,10 @@ impl RustCraftApp {
                         cam
                     }
                 };
+                effective_camera.position += shake_offset;
+                effective_camera.roll += roll;
                 #[cfg(not(target_os = "vita"))]
-                let view_proj = self.proj_matrix.mul(&effective_camera.view_matrix_with_tilt(shake_offset, roll));
+                let view_proj = self.proj_matrix.mul(&effective_camera.view_matrix());
                 #[cfg(not(target_os = "vita"))]
                 {
                     let render_terrain_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
@@ -1394,7 +1396,7 @@ impl RustCraftApp {
 
                         if self.settings.particles {
                             for p in &self.particles.particles {
-                                self.renderer.draw_billboard(p.pos, p.size, p.color, &self.camera, &view_proj);
+                                self.renderer.draw_billboard(p.pos, p.size, p.color, &effective_camera, &view_proj);
                             }
                         }
                     }
@@ -1435,8 +1437,8 @@ impl RustCraftApp {
                             .map(|s| s.block.to_u8());
                         let aspect = (self.width as f32) / (self.height as f32);
                         let hand_proj = Mat4::perspective(68.0_f32.to_radians(), aspect, 0.01, 20.0);
-                        let hand_view_proj = hand_proj.mul(&self.camera.view_matrix_with_tilt(shake_offset, roll));
-                        self.renderer.draw_hand_3d(&self.camera, &hand_view_proj, hand_block, self.walk_phase, hand_speed, self.hand_animation);
+                        let hand_view_proj = hand_proj.mul(&effective_camera.view_matrix());
+                        self.renderer.draw_hand_3d(&effective_camera, &hand_view_proj, hand_block, self.walk_phase, hand_speed, self.hand_animation);
                         if let Some(h_start) = hand_start {
                             cur_profiler.render_hand_ms = h_start.elapsed().as_secs_f32() * 1000.0;
                         }

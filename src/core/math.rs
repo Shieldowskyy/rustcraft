@@ -1,7 +1,7 @@
 // Minimal math library: vectors and a 4x4 matrix, written from scratch so
 // the project has zero rendering-related dependencies.
 
-use std::ops::{Add, Sub, Mul, Neg};
+use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Vec3 {
@@ -81,11 +81,27 @@ impl Add for Vec3 {
         Vec3::new(self.x + o.x, self.y + o.y, self.z + o.z)
     }
 }
+impl AddAssign for Vec3 {
+    #[inline(always)]
+    fn add_assign(&mut self, o: Vec3) {
+        self.x += o.x;
+        self.y += o.y;
+        self.z += o.z;
+    }
+}
 impl Sub for Vec3 {
     type Output = Vec3;
     #[inline(always)]
     fn sub(self, o: Vec3) -> Vec3 {
         Vec3::new(self.x - o.x, self.y - o.y, self.z - o.z)
+    }
+}
+impl SubAssign for Vec3 {
+    #[inline(always)]
+    fn sub_assign(&mut self, o: Vec3) {
+        self.x -= o.x;
+        self.y -= o.y;
+        self.z -= o.z;
     }
 }
 impl Mul<f32> for Vec3 {

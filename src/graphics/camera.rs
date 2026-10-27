@@ -6,6 +6,7 @@ pub struct Camera {
     pub yaw: f32,   // rotation around Y axis, radians
     pub pitch: f32, // rotation around X axis, radians
     pub fov_y: f32,
+    pub roll: f32,
 }
 
 const PITCH_LIMIT: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
@@ -17,6 +18,7 @@ impl Camera {
             yaw: -std::f32::consts::FRAC_PI_2, // face -Z initially
             pitch: 0.0,
             fov_y: 70.0_f32.to_radians(),
+            roll: 0.0,
         }
     }
 
@@ -52,19 +54,26 @@ impl Camera {
         r.cross(f).normalized()
     }
 
+    pub fn rolled_up(&self) -> Vec3 {
+        let base_up = Vec3::new(0.0, 1.0, 0.0);
+        if self.roll.abs() > 0.00001 {
+            let right = self.right_flat();
+            (base_up * self.roll.cos() + right * self.roll.sin()).normalized()
+        } else {
+            base_up
+        }
+    }
+
     pub fn view_matrix(&self) -> Mat4 {
         let target = self.position + self.forward();
-        Mat4::look_at(self.position, target, Vec3::new(0.0, 1.0, 0.0))
+        Mat4::look_at(self.position, target, self.rolled_up())
     }
 
     pub fn view_matrix_with_tilt(&self, shake_offset: Vec3, roll_rad: f32) -> Mat4 {
-        let pos = self.position + shake_offset;
-        let forward = self.forward();
-        let target = pos + forward;
-        let right = self.right_flat();
-        let up = Vec3::new(0.0, 1.0, 0.0);
-        let rolled_up = (up * roll_rad.cos() + right * roll_rad.sin()).normalized();
-        Mat4::look_at(pos, target, rolled_up)
+        let mut cam = self.clone();
+        cam.position += shake_offset;
+        cam.roll += roll_rad;
+        cam.view_matrix()
     }
 
     pub fn projection_matrix(&self, aspect: f32) -> Mat4 {
