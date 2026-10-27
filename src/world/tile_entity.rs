@@ -29,6 +29,9 @@ pub fn fuel_burn_time(block: BlockId) -> Option<f32> {
 
 /// Returns the output block/item produced by smelting the input block.
 pub fn smelting_result(input: BlockId) -> Option<BlockId> {
+    if let Some(res) = crate::engine::modding::get_custom_smelting(input) {
+        return Some(res);
+    }
     match input {
         BlockId::RawPorkchop => Some(BlockId::CookedPorkchop),
         BlockId::RawBeef => Some(BlockId::CookedBeef),

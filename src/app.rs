@@ -357,9 +357,12 @@ pub struct RustCraftApp {
 
 impl RustCraftApp {
     pub fn new(width: usize, height: usize, renderer_choice: &str, seed: u32) -> Self {
-        crate::log_info!("APP", "[Step 1/5] Loading game configuration and language...");
+        crate::log_info!("APP", "[Step 1/5] Loading game configuration, mods and language...");
         let settings = GameSettings::load();
         crate::core::i18n::set_language(settings.language);
+
+        let mut recipe_book = RecipeBook::new();
+        crate::engine::modding::ModManager::load_mods(&mut recipe_book);
 
         crate::log_info!("APP", "[Step 2/5] Initializing renderer ({})...", renderer_choice);
         let mut renderer = match renderer_choice {
@@ -448,7 +451,7 @@ impl RustCraftApp {
             mob_manager: MobManager::new(),
             player,
             items: Vec::new(),
-            recipe_book: RecipeBook::new(),
+            recipe_book,
             crafting_table_open: false,
             settings,
             state: initial_state,
@@ -946,9 +949,13 @@ impl RustCraftApp {
                     let events = client.update(dt);
                     let mut connected_result = None;
                     let mut disconnected_err = None;
+                    let mut pending_mods = Vec::new();
 
                     for ev in events {
                         match ev {
+                            crate::net::NetworkEvent::ModsSynchronized { mods } => {
+                                pending_mods.extend(mods);
+                            }
                             crate::net::NetworkEvent::Connected {
                                 player_id,
                                 seed,
@@ -965,6 +972,11 @@ impl RustCraftApp {
                             }
                             _ => {}
                         }
+                    }
+
+                    if !pending_mods.is_empty() {
+                        let downloaded = self.sync_server_mods(pending_mods);
+                        self.multiplayer_status = Some(format!("Synchronized {} mod(s) from server...", downloaded));
                     }
 
                     if let Some((player_id, seed, spawn_x, spawn_y, spawn_z, time_of_day, modified_blocks)) = connected_result {
@@ -2227,6 +2239,7 @@ impl RustCraftApp {
                     }
                     let events = client.update(dt);
                     let mut should_disconnect = None;
+                    let mut pending_mods = Vec::new();
                     for ev in events {
                         match ev {
                             crate::net::NetworkEvent::BlockChanged { x, y, z, block } => {
@@ -2260,11 +2273,17 @@ impl RustCraftApp {
                                     self.particles.spawn_mob_hit(rp.pos);
                                 }
                             }
+                            crate::net::NetworkEvent::ModsSynchronized { mods } => {
+                                pending_mods.extend(mods);
+                            }
                             crate::net::NetworkEvent::Disconnected { reason } => {
                                 should_disconnect = Some(reason);
                             }
                             _ => {}
                         }
+                    }
+                    if !pending_mods.is_empty() {
+                        self.sync_server_mods(pending_mods);
                     }
                     if let Some(reason) = should_disconnect {
                         crate::log_info!("NETWORK", "Disconnected from server: {}", reason);
@@ -3006,7 +3025,9 @@ impl RustCraftApp {
                                     let rx = ((seed % 100) as f32 / 100.0 - 0.5) * 1.8;
                                     let rz = (((seed / 10) % 100) as f32 / 100.0 - 0.5) * 1.8;
                                     let drop_vel = Vec3::new(rx, 3.2, rz);
-                                    if broken_block != BlockId::Glass {
+                                    if let Some((drop_id, count)) = crate::engine::modding::get_custom_block_drop(broken_block) {
+                                        self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, drop_id, count));
+                                    } else if broken_block != BlockId::Glass {
                                         let drop_block = if matches!(broken_block, BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves) {
                                             if seed % 25 == 0 { Some(BlockId::Apple) } else { None }
                                         } else if matches!(broken_block, BlockId::Door | BlockId::DoorOpen) {
@@ -4900,6 +4921,62 @@ impl RustCraftApp {
     pub fn connect_to_server(&mut self, addr: &str) {
         self.multiplayer_server_addr = addr.to_string();
         self.start_multiplayer_connect();
+    }
+
+    /// Automatically synchronizes and downloads server mods (Source engine style).
+    ///
+    /// Saves mod manifests to `./mods/<mod_id>/mod.json`, parses and registers custom blocks/items,
+    /// updates the recipe book, and refreshes the GPU/software texture atlas.
+    pub fn sync_server_mods(&mut self, mods: Vec<crate::net::protocol::ModSyncEntry>) -> usize {
+        let mut installed_count = 0;
+        let mods_dir = std::path::Path::new("mods");
+        let _ = std::fs::create_dir_all(&mods_dir);
+
+        for m in &mods {
+            let mod_dir = mods_dir.join(&m.mod_id);
+            let _ = std::fs::create_dir_all(&mod_dir);
+            let manifest_path = mod_dir.join("mod.json");
+
+            // Compare with existing file on disk
+            let needs_write = match std::fs::read_to_string(&manifest_path) {
+                Ok(existing) => existing != m.content,
+                Err(_) => true,
+            };
+
+            if needs_write {
+                if let Err(err) = std::fs::write(&manifest_path, &m.content) {
+                    crate::log_error!("MODS", "Failed to save downloaded mod '{}': {}", m.mod_id, err);
+                    continue;
+                }
+                crate::log_info!("MODS", "Saved downloaded server mod '{}' to '{}'", m.mod_id, manifest_path.display());
+            }
+
+            // Register mod into game engine
+            match crate::engine::modding::ModManager::register_mod_from_str(
+                &m.content,
+                &mod_dir,
+                &mut self.recipe_book,
+            ) {
+                Ok(manifest) => {
+                    crate::log_info!("MODS", "Synchronized server mod '{}' [{}] v{}", manifest.name, manifest.id, manifest.version);
+                    installed_count += 1;
+                }
+                Err(err) => {
+                    crate::log_warn!("MODS", "Failed to register synchronized mod '{}': {}", m.mod_id, err);
+                }
+            }
+        }
+
+        if installed_count > 0 {
+            // Refresh texture atlas to upload new custom textures to GPU and software renderer
+            self.renderer.update_textures(self.settings.fancy_leaves);
+            self.chat.add_message(
+                format!("[Mods] Synchronized {} mod(s) from server", installed_count),
+                crate::ui::pack_color(0.4, 1.0, 0.4),
+            );
+        }
+
+        installed_count
     }
 
     /// Resizes internal framebuffers, camera aspect projection, and UI interactive hitboxes.

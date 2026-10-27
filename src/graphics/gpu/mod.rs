@@ -7,7 +7,7 @@ use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId, TEX_SIZE};
 use crate::world::mesher::Triangle;
 
-pub const TEXTURE_LAYER_COUNT: u32 = 111;
+pub const TEXTURE_LAYER_COUNT: u32 = 121 + 64;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -1297,6 +1297,10 @@ impl VulkanContext {
             TextureId::CreeperSkin => 118,
             TextureId::CreeperFace => 119,
             TextureId::Gunpowder => 120,
+            TextureId::Custom(idx) => {
+                let clamped = if (idx as u32) > 63 { 63 } else { idx as u32 };
+                121 + clamped
+            }
         }
     }
 
@@ -1423,6 +1427,7 @@ impl VulkanContext {
             118 => TextureId::CreeperSkin,
             119 => TextureId::CreeperFace,
             120 => TextureId::Gunpowder,
+            l if l >= 121 && l < 121 + 64 => TextureId::Custom((l - 121) as u8),
             _ => TextureId::CraftingTableFront,
         }
     }

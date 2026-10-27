@@ -3,7 +3,7 @@
 use crate::core::math::IVec3;
 use crate::graphics::atlas::TextureId;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum BlockId {
     Air,
     Grass,
@@ -131,6 +131,8 @@ pub enum BlockId {
     Bone,
     /// Gunpowder dropped by creepers
     Gunpowder,
+    /// Custom modded block or item (ID 80..=255)
+    Custom(u8),
 }
 
 impl BlockId {
@@ -215,6 +217,7 @@ impl BlockId {
             77 => BlockId::Ladder,
             78 => BlockId::Bone,
             79 => BlockId::Gunpowder,
+            v if v >= 80 => BlockId::Custom(v),
             _ => BlockId::Air,
         }
     }
@@ -301,54 +304,58 @@ impl BlockId {
             BlockId::Ladder => 77,
             BlockId::Bone => 78,
             BlockId::Gunpowder => 79,
+            BlockId::Custom(id) => id,
         }
     }
 
     pub fn is_placeable(self) -> bool {
-        !matches!(
-            self,
-            BlockId::Air
-                | BlockId::DoorOpen
-                | BlockId::Stick
-                | BlockId::WoodenPickaxe
-                | BlockId::StonePickaxe
-                | BlockId::IronPickaxe
-                | BlockId::WoodenAxe
-                | BlockId::StoneAxe
-                | BlockId::IronAxe
-                | BlockId::WoodenShovel
-                | BlockId::StoneShovel
-                | BlockId::IronShovel
-                | BlockId::WoodenSword
-                | BlockId::StoneSword
-                | BlockId::IronSword
-                | BlockId::RawPorkchop
-                | BlockId::CookedPorkchop
-                | BlockId::RawBeef
-                | BlockId::CookedBeef
-                | BlockId::Apple
-                | BlockId::IronIngot
-                | BlockId::GoldIngot
-                | BlockId::IronOunce
-                | BlockId::GoldOunce
-                | BlockId::RawChicken
-                | BlockId::CookedChicken
-                | BlockId::Feather
-                | BlockId::PigSpawnEgg
-                | BlockId::CowSpawnEgg
-                | BlockId::ChickenSpawnEgg
-                | BlockId::Diamond
-                | BlockId::DiamondPickaxe
-                | BlockId::DiamondAxe
-                | BlockId::DiamondShovel
-                | BlockId::DiamondSword
-                | BlockId::GoldPickaxe
-                | BlockId::GoldAxe
-                | BlockId::GoldShovel
-                | BlockId::GoldSword
-                | BlockId::Bone
-                | BlockId::Gunpowder
-        )
+        match self {
+            BlockId::Custom(id) => !crate::engine::modding::is_custom_item_only(id),
+            _ => !matches!(
+                self,
+                BlockId::Air
+                    | BlockId::DoorOpen
+                    | BlockId::Stick
+                    | BlockId::WoodenPickaxe
+                    | BlockId::StonePickaxe
+                    | BlockId::IronPickaxe
+                    | BlockId::WoodenAxe
+                    | BlockId::StoneAxe
+                    | BlockId::IronAxe
+                    | BlockId::WoodenShovel
+                    | BlockId::StoneShovel
+                    | BlockId::IronShovel
+                    | BlockId::WoodenSword
+                    | BlockId::StoneSword
+                    | BlockId::IronSword
+                    | BlockId::RawPorkchop
+                    | BlockId::CookedPorkchop
+                    | BlockId::RawBeef
+                    | BlockId::CookedBeef
+                    | BlockId::Apple
+                    | BlockId::IronIngot
+                    | BlockId::GoldIngot
+                    | BlockId::IronOunce
+                    | BlockId::GoldOunce
+                    | BlockId::RawChicken
+                    | BlockId::CookedChicken
+                    | BlockId::Feather
+                    | BlockId::PigSpawnEgg
+                    | BlockId::CowSpawnEgg
+                    | BlockId::ChickenSpawnEgg
+                    | BlockId::Diamond
+                    | BlockId::DiamondPickaxe
+                    | BlockId::DiamondAxe
+                    | BlockId::DiamondShovel
+                    | BlockId::DiamondSword
+                    | BlockId::GoldPickaxe
+                    | BlockId::GoldAxe
+                    | BlockId::GoldShovel
+                    | BlockId::GoldSword
+                    | BlockId::Bone
+                    | BlockId::Gunpowder
+            ),
+        }
     }
 
     #[inline(always)]
@@ -381,53 +388,62 @@ impl BlockId {
 
     #[inline(always)]
     pub fn is_solid(self) -> bool {
-        const SOLID_MASK: u128 = !(
-            (1u128 << 0)   // Air
-            | (1u128 << 11) // Water
-            | (1u128 << 13) // Lava
-            | (1u128 << 21) // Stick
-            | (1u128 << 22) // WoodenPickaxe
-            | (1u128 << 23) // StonePickaxe
-            | (1u128 << 24) // IronPickaxe
-            | (1u128 << 25) // WoodenAxe
-            | (1u128 << 26) // StoneAxe
-            | (1u128 << 27) // IronAxe
-            | (1u128 << 28) // WoodenShovel
-            | (1u128 << 29) // StoneShovel
-            | (1u128 << 30) // IronShovel
-            | (1u128 << 31) // WoodenSword
-            | (1u128 << 32) // StoneSword
-            | (1u128 << 33) // IronSword
-            | (1u128 << 37) // Torch
-            | (1u128 << 38) // RawPorkchop
-            | (1u128 << 39) // CookedPorkchop
-            | (1u128 << 40) // RawBeef
-            | (1u128 << 41) // CookedBeef
-            | (1u128 << 42) // Apple
-            | (1u128 << 43) // DoorOpen (passable)
-            | (1u128 << 47) // IronIngot
-            | (1u128 << 48) // GoldIngot
-            | (1u128 << 49) // IronOunce
-            | (1u128 << 51) // GoldOunce
-            | (1u128 << 55) // RawChicken
-            | (1u128 << 56) // CookedChicken
-            | (1u128 << 57) // Feather
-            | (1u128 << 58) // PigSpawnEgg
-            | (1u128 << 59) // CowSpawnEgg
-            | (1u128 << 60) // ChickenSpawnEgg
-            | (1u128 << 62) // Diamond (item)
-            | (1u128 << 64) // DiamondPickaxe
-            | (1u128 << 65) // DiamondAxe
-            | (1u128 << 66) // DiamondShovel
-            | (1u128 << 67) // DiamondSword
-            | (1u128 << 68) // GoldPickaxe
-            | (1u128 << 69) // GoldAxe
-            | (1u128 << 70) // GoldShovel
-            | (1u128 << 71) // GoldSword
-            | (1u128 << 77) // Ladder (passable/climbable)
-        );
-        let id = self.to_u8() as u32;
-        ((SOLID_MASK >> id) & 1) != 0
+        match self {
+            BlockId::Custom(id) => crate::engine::modding::is_custom_solid(id),
+            _ => {
+                const SOLID_MASK: u128 = !(
+                    (1u128 << 0)   // Air
+                    | (1u128 << 11) // Water
+                    | (1u128 << 13) // Lava
+                    | (1u128 << 21) // Stick
+                    | (1u128 << 22) // WoodenPickaxe
+                    | (1u128 << 23) // StonePickaxe
+                    | (1u128 << 24) // IronPickaxe
+                    | (1u128 << 25) // WoodenAxe
+                    | (1u128 << 26) // StoneAxe
+                    | (1u128 << 27) // IronAxe
+                    | (1u128 << 28) // WoodenShovel
+                    | (1u128 << 29) // StoneShovel
+                    | (1u128 << 30) // IronShovel
+                    | (1u128 << 31) // WoodenSword
+                    | (1u128 << 32) // StoneSword
+                    | (1u128 << 33) // IronSword
+                    | (1u128 << 37) // Torch
+                    | (1u128 << 38) // RawPorkchop
+                    | (1u128 << 39) // CookedPorkchop
+                    | (1u128 << 40) // RawBeef
+                    | (1u128 << 41) // CookedBeef
+                    | (1u128 << 42) // Apple
+                    | (1u128 << 43) // DoorOpen (passable)
+                    | (1u128 << 47) // IronIngot
+                    | (1u128 << 48) // GoldIngot
+                    | (1u128 << 49) // IronOunce
+                    | (1u128 << 51) // GoldOunce
+                    | (1u128 << 55) // RawChicken
+                    | (1u128 << 56) // CookedChicken
+                    | (1u128 << 57) // Feather
+                    | (1u128 << 58) // PigSpawnEgg
+                    | (1u128 << 59) // CowSpawnEgg
+                    | (1u128 << 60) // ChickenSpawnEgg
+                    | (1u128 << 62) // Diamond (item)
+                    | (1u128 << 64) // DiamondPickaxe
+                    | (1u128 << 65) // DiamondAxe
+                    | (1u128 << 66) // DiamondShovel
+                    | (1u128 << 67) // DiamondSword
+                    | (1u128 << 68) // GoldPickaxe
+                    | (1u128 << 69) // GoldAxe
+                    | (1u128 << 70) // GoldShovel
+                    | (1u128 << 71) // GoldSword
+                    | (1u128 << 77) // Ladder (passable/climbable)
+                );
+                let id = self.to_u8() as u32;
+                if id < 80 {
+                    ((SOLID_MASK >> id) & 1) != 0
+                } else {
+                    true
+                }
+            }
+        }
     }
 
     pub fn spawn_mob_kind(self) -> Option<crate::gameplay::mob::MobKind> {
@@ -458,21 +474,25 @@ impl BlockId {
     }
 
     pub fn is_food(self) -> bool {
-        matches!(
-            self,
-            BlockId::RawPorkchop
-                | BlockId::CookedPorkchop
-                | BlockId::RawBeef
-                | BlockId::CookedBeef
-                | BlockId::Apple
-                | BlockId::RawChicken
-                | BlockId::CookedChicken
-        )
+        match self {
+            BlockId::Custom(id) => crate::engine::modding::is_custom_food(id),
+            _ => matches!(
+                self,
+                BlockId::RawPorkchop
+                    | BlockId::CookedPorkchop
+                    | BlockId::RawBeef
+                    | BlockId::CookedBeef
+                    | BlockId::Apple
+                    | BlockId::RawChicken
+                    | BlockId::CookedChicken
+            ),
+        }
     }
 
     /// Returns (hunger_points, saturation_points)
     pub fn food_nutrition(self) -> Option<(f32, f32)> {
         match self {
+            BlockId::Custom(id) => crate::engine::modding::get_custom_nutrition(id),
             BlockId::RawPorkchop => Some((3.0, 1.8)),
             BlockId::CookedPorkchop => Some((8.0, 12.8)),
             BlockId::RawBeef => Some((3.0, 1.8)),
@@ -665,25 +685,34 @@ impl BlockId {
 
     #[inline(always)]
     pub fn is_transparent(self) -> bool {
-        const TRANSPARENT_MASK: u128 = (1u128 << 0)   // Air
-            | (1u128 << 6)  // Leaves
-            | (1u128 << 11) // Water
-            | (1u128 << 13) // Lava
-            | (1u128 << 14) // SnowLeaves
-            | (1u128 << 16) // Door (thin)
-            | (1u128 << 17) // Glass
-            | (1u128 << 34) // CherryLeaves
-            | (1u128 << 36) // AutumnLeaves
-            | (1u128 << 37) // Torch
-            | (1u128 << 43) // DoorOpen
-            | (1u128 << 72) // Bed
-            | (1u128 << 73) // WoodenSlab
-            | (1u128 << 74) // StoneSlab
-            | (1u128 << 75) // WoodenStairs
-            | (1u128 << 76) // StoneStairs
-            | (1u128 << 77); // Ladder
-        let id = self.to_u8() as u32;
-        ((TRANSPARENT_MASK >> id) & 1) != 0
+        match self {
+            BlockId::Custom(id) => crate::engine::modding::is_custom_transparent(id),
+            _ => {
+                const TRANSPARENT_MASK: u128 = (1u128 << 0)   // Air
+                    | (1u128 << 6)  // Leaves
+                    | (1u128 << 11) // Water
+                    | (1u128 << 13) // Lava
+                    | (1u128 << 14) // SnowLeaves
+                    | (1u128 << 16) // Door (thin)
+                    | (1u128 << 17) // Glass
+                    | (1u128 << 34) // CherryLeaves
+                    | (1u128 << 36) // AutumnLeaves
+                    | (1u128 << 37) // Torch
+                    | (1u128 << 43) // DoorOpen
+                    | (1u128 << 72) // Bed
+                    | (1u128 << 73) // WoodenSlab
+                    | (1u128 << 74) // StoneSlab
+                    | (1u128 << 75) // WoodenStairs
+                    | (1u128 << 76) // StoneStairs
+                    | (1u128 << 77); // Ladder
+                let id = self.to_u8() as u32;
+                if id < 80 {
+                    ((TRANSPARENT_MASK >> id) & 1) != 0
+                } else {
+                    false
+                }
+            }
+        }
     }
 
     pub fn name(self) -> &'static str {
@@ -768,6 +797,7 @@ impl BlockId {
             BlockId::Ladder => "drabina",
             BlockId::Bone => "kosc",
             BlockId::Gunpowder => "proch",
+            BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
 
@@ -857,6 +887,7 @@ impl BlockId {
             BlockId::DiamondPickaxe | BlockId::DiamondAxe | BlockId::DiamondShovel | BlockId::DiamondSword => [0.25, 0.90, 0.95],
             BlockId::Bone => [0.88, 0.88, 0.84],
             BlockId::Gunpowder => [0.28, 0.28, 0.28],
+            BlockId::Custom(id) => crate::engine::modding::get_custom_face_color(id, face),
             BlockId::Air => [0.0, 0.0, 0.0],
         }
     }
@@ -950,6 +981,7 @@ impl BlockId {
             BlockId::Ladder => TextureId::Ladder,
             BlockId::Bone => TextureId::Bone,
             BlockId::Gunpowder => TextureId::Gunpowder,
+            BlockId::Custom(id) => crate::engine::modding::get_custom_texture_id(id),
             _ => TextureId::Planks,
         }
     }

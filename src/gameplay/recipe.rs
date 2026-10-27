@@ -1,7 +1,7 @@
 use crate::gameplay::inventory::ItemStack;
 use crate::world::block::BlockId;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Recipe {
     pub width: usize,
     pub height: usize,
@@ -90,9 +90,11 @@ impl RecipeBook {
         book
     }
 
-    /// Add a recipe to the recipe book.
+    /// Add a recipe to the recipe book if not already present.
     pub fn add(&mut self, recipe: Recipe) {
-        self.recipes.push(recipe);
+        if !self.recipes.contains(&recipe) {
+            self.recipes.push(recipe);
+        }
     }
 
     /// Read-only access to all registered recipes.

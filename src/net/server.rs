@@ -283,6 +283,16 @@ pub fn run_dedicated_server(preferred_port: u16, seed: u32) {
     let mut time_of_day: f32 = 120.0;
     let spawn_pos = config.spawn_pos;
 
+    let mut recipe_book = crate::gameplay::recipe::RecipeBook::new();
+    crate::engine::modding::ModManager::load_mods(&mut recipe_book);
+    let active_server_mods = crate::engine::modding::ModManager::get_active_mod_files();
+    if !active_server_mods.is_empty() {
+        println!("[SERVER] Active mod(s) enabled for auto-download (Source engine style):");
+        for m in &active_server_mods {
+            println!("         - {}", m.mod_id);
+        }
+    }
+
     let start_time = Instant::now();
     let tick_duration = Duration::from_millis(50); // 20 TPS
     let mut tick_counter: u64 = 0;
@@ -372,7 +382,12 @@ pub fn run_dedicated_server(preferred_port: u16, seed: u32) {
                                 client.nickname = nickname.clone();
                                 println!("[SERVER] Player '{}' (ID {}) logged in from {}", nickname, id, client.addr);
 
-                                // Send LoginSuccess with seed, time, and all modified blocks
+                                // 1. Synchronize active server mods (Source engine style auto-download)
+                                let _ = client.send_packet(&ServerPacket::ModSync {
+                                    mods: active_server_mods.clone(),
+                                });
+
+                                // 2. Send LoginSuccess with seed, time, and all modified blocks
                                 let block_list: Vec<(i32, i32, i32, u8)> = modified_blocks
                                     .iter()
                                     .map(|(&(bx, by, bz), &blk)| (bx, by, bz, blk))

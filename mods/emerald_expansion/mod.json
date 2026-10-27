@@ -1,0 +1,218 @@
+{
+  "id": "emerald_expansion",
+  "name": "Emerald & Ruby Expansion",
+  "version": "1.0.0",
+  "author": "Shieldziak & RustCraft Team",
+  "description": "Adds Emerald and Ruby ores, mineral blocks, gems, enchanted Emerald Apple, custom crafting, smelting, mob drops, and in-game commands.",
+
+  // Custom Blocks placed in the 3D voxel world
+  "blocks": [
+    {
+      "id": 80,
+      "identifier": "emerald_ore",
+      "name": "Emerald Ore",
+      "solid": true,
+      "opaque": true,
+      "hardness": 3.0,
+      "light": 0,
+      "texture": {
+        "pattern": "ore",
+        "background_color": [0.55, 0.55, 0.55],
+        "ore_color": [0.05, 0.95, 0.35]
+      },
+      "drops": {
+        "item": "emerald",
+        "count": 1
+      }
+    },
+    {
+      "id": 81,
+      "identifier": "emerald_block",
+      "name": "Block of Emerald",
+      "solid": true,
+      "opaque": true,
+      "hardness": 4.5,
+      "light": 4,
+      "texture": {
+        "pattern": "mineral",
+        "base_color": [0.1, 0.85, 0.35],
+        "border_color": [0.05, 0.45, 0.18]
+      }
+    },
+    {
+      "id": 82,
+      "identifier": "ruby_ore",
+      "name": "Ruby Ore",
+      "solid": true,
+      "opaque": true,
+      "hardness": 3.5,
+      "light": 0,
+      "texture": {
+        "pattern": "ore",
+        "background_color": [0.55, 0.55, 0.55],
+        "ore_color": [0.95, 0.12, 0.28]
+      },
+      "drops": {
+        "item": "ruby",
+        "count": 1
+      }
+    },
+    {
+      "id": 83,
+      "identifier": "ruby_block",
+      "name": "Block of Ruby",
+      "solid": true,
+      "opaque": true,
+      "hardness": 5.0,
+      "light": 5,
+      "texture": {
+        "pattern": "mineral",
+        "base_color": [0.9, 0.15, 0.25],
+        "border_color": [0.5, 0.05, 0.12]
+      }
+    }
+  ],
+
+  // Custom Items (inventory, food, crafting materials)
+  "items": [
+    {
+      "id": 84,
+      "identifier": "emerald",
+      "name": "Emerald",
+      "is_food": false,
+      "texture": {
+        "pattern": "gem",
+        "color": [0.05, 0.95, 0.35]
+      }
+    },
+    {
+      "id": 85,
+      "identifier": "ruby",
+      "name": "Ruby",
+      "is_food": false,
+      "texture": {
+        "pattern": "gem",
+        "color": [0.95, 0.12, 0.28]
+      }
+    },
+    {
+      "id": 86,
+      "identifier": "emerald_apple",
+      "name": "Emerald Apple",
+      "is_food": true,
+      "nutrition": [10.0, 16.0],
+      "texture": {
+        "pattern": "apple",
+        "color": [0.1, 0.95, 0.4]
+      }
+    }
+  ],
+
+  // 1x1, 2x2, or 3x3 Crafting Table Recipes
+  "recipes": [
+    {
+      "type": "crafting",
+      "grid": [
+        ["emerald", "emerald", "emerald"],
+        ["emerald", "emerald", "emerald"],
+        ["emerald", "emerald", "emerald"]
+      ],
+      "result": "emerald_block",
+      "count": 1
+    },
+    {
+      "type": "crafting",
+      "grid": [
+        ["emerald_block"]
+      ],
+      "result": "emerald",
+      "count": 9
+    },
+    {
+      "type": "crafting",
+      "grid": [
+        ["ruby", "ruby", "ruby"],
+        ["ruby", "ruby", "ruby"],
+        ["ruby", "ruby", "ruby"]
+      ],
+      "result": "ruby_block",
+      "count": 1
+    },
+    {
+      "type": "crafting",
+      "grid": [
+        ["ruby_block"]
+      ],
+      "result": "ruby",
+      "count": 9
+    },
+    {
+      "type": "crafting",
+      "grid": [
+        ["emerald", "emerald", "emerald"],
+        ["emerald", "apple",   "emerald"],
+        ["emerald", "emerald", "emerald"]
+      ],
+      "result": "emerald_apple",
+      "count": 1
+    }
+  ],
+
+  // Furnace Smelting Recipes
+  "smelting": [
+    {
+      "input": "emerald_ore",
+      "output": "emerald"
+    },
+    {
+      "input": "ruby_ore",
+      "output": "ruby"
+    }
+  ],
+
+  // Mob Defeat Loot Tables
+  "loot": [
+    {
+      "target": "zombie",
+      "item": "emerald",
+      "count": 1,
+      "chance": 0.35
+    },
+    {
+      "target": "skeleton",
+      "item": "ruby",
+      "count": 1,
+      "chance": 0.40
+    }
+  ],
+
+  // In-Game Chat Commands
+  "commands": [
+    {
+      "name": "emerald",
+      "description": "Grants starter emeralds and an Emerald Apple",
+      "actions": [
+        { "type": "give", "item": "emerald", "count": 16 },
+        { "type": "give", "item": "emerald_apple", "count": 2 },
+        { "type": "message", "text": "Received Emerald Starter Kit!" }
+      ]
+    },
+    {
+      "name": "ruby",
+      "description": "Grants starter rubies and a ruby block",
+      "actions": [
+        { "type": "give", "item": "ruby", "count": 16 },
+        { "type": "give", "item": "ruby_block", "count": 1 },
+        { "type": "message", "text": "Received Ruby Starter Kit!" }
+      ]
+    },
+    {
+      "name": "magic_heal",
+      "description": "Restores full health and hunger with emerald blessing",
+      "actions": [
+        { "type": "heal" },
+        { "type": "message", "text": "Emerald light fully restores your vitality!" }
+      ]
+    }
+  ]
+}

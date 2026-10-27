@@ -620,6 +620,15 @@ impl MobManager {
                             }
                         }
                     }
+
+                    // Mod-defined mob death drops
+                    for (drop_block, drop_count) in crate::engine::modding::get_custom_mob_drops(m.kind.name()) {
+                        self.dying_drops.push(MobDrop {
+                            pos: m.center_pos() + crate::core::math::Vec3::new(0.0, 0.2, 0.0),
+                            block: drop_block,
+                            count: drop_count,
+                        });
+                    }
                 }
                 false
             } else {

@@ -22,10 +22,12 @@ pub mod platform;
 pub mod registry;
 pub mod module;
 pub mod fonts;
+pub mod modding;
 
 pub use platform::{PlatformBackend, PlatformConfig};
 pub use registry::{BlockProperties, BlockRegistry};
 pub use module::{EngineModule, ModuleContext, ModuleManager};
+pub use modding::{ModManager, CustomBlockDef, ModCommandDef};
 pub use fonts::{BitmapFont, FontId, RustcraftLight, RustcraftRegular, default_font, get_font, list_fonts};
 pub use crate::graphics::traits::RenderBackend;
 

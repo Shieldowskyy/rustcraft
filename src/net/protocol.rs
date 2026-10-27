@@ -23,6 +23,12 @@ pub struct PlayerPosUpdate {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct ModSyncEntry {
+    pub mod_id: String,
+    pub content: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum ClientPacket {
     Handshake {
         protocol_version: u32,
@@ -115,6 +121,9 @@ pub enum ServerPacket {
         damage: f32,
         knockback_x: f32,
         knockback_z: f32,
+    },
+    ModSync {
+        mods: Vec<ModSyncEntry>,
     },
 }
 
@@ -464,6 +473,17 @@ impl ServerPacket {
                 pw.write_f32(*knockback_z);
                 pw.finish()
             }
+            ServerPacket::ModSync { mods } => {
+                let mut pw = PacketWriter::new(0x8D);
+                pw.write_u16(mods.len().min(u16::MAX as usize) as u16);
+                for m in mods {
+                    pw.write_string(&m.mod_id);
+                    let bytes = m.content.as_bytes();
+                    pw.write_u32(bytes.len().min(u32::MAX as usize) as u32);
+                    pw.buf.extend_from_slice(bytes);
+                }
+                pw.finish()
+            }
         }
     }
 
@@ -574,6 +594,22 @@ impl ServerPacket {
                 let knockback_z = r.read_f32()?;
                 Ok(ServerPacket::PlayerHurt { victim_id, attacker_id, damage, knockback_x, knockback_z })
             }
+            0x8D => {
+                let count = r.read_u16()? as usize;
+                let mut mods = Vec::with_capacity(count.min(256));
+                for _ in 0..count {
+                    let mod_id = r.read_string()?;
+                    let len = r.read_u32()? as usize;
+                    if r.remaining() < len {
+                        return Err("Unexpected EOF reading mod payload content");
+                    }
+                    let content_bytes = &r.data[r.cursor..r.cursor + len];
+                    r.cursor += len;
+                    let content = String::from_utf8_lossy(content_bytes).into_owned();
+                    mods.push(ModSyncEntry { mod_id, content });
+                }
+                Ok(ServerPacket::ModSync { mods })
+            }
             _ => Err("Unknown server packet ID"),
         }
     }
@@ -670,5 +706,15 @@ mod tests {
         let mut framed_chat = chat.serialize();
         let packets_chat = extract_packets(&mut framed_chat);
         assert_eq!(ServerPacket::deserialize(&packets_chat[0]).unwrap(), chat);
+
+        let mod_sync = ServerPacket::ModSync {
+            mods: vec![ModSyncEntry {
+                mod_id: "emerald_expansion".to_string(),
+                content: r#"{"id":"emerald_expansion","name":"Emerald Expansion"}"#.to_string(),
+            }],
+        };
+        let mut framed_mod_sync = mod_sync.serialize();
+        let packets_mod_sync = extract_packets(&mut framed_mod_sync);
+        assert_eq!(ServerPacket::deserialize(&packets_mod_sync[0]).unwrap(), mod_sync);
     }
 }

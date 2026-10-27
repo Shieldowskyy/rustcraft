@@ -420,6 +420,18 @@ impl ChatState {
                 self.add_info("/reloadchunks - Reload chunks and rebuild mesh cache");
                 self.add_info("/fly - Toggle flight mode");
                 self.add_info("/difficulty <peaceful|easy|normal|hard>");
+
+                let mod_cmds = crate::engine::modding::get_all_mod_commands();
+                if !mod_cmds.is_empty() {
+                    self.add_info("--- Mod Commands ---");
+                    for (c_name, c_desc) in mod_cmds {
+                        if c_desc.is_empty() {
+                            self.add_info(format!("/{}", c_name));
+                        } else {
+                            self.add_info(format!("/{} - {}", c_name, c_desc));
+                        }
+                    }
+                }
             }
 
             "gamemode" | "gm" => {
@@ -659,7 +671,11 @@ impl ChatState {
             }
 
             unknown => {
-                self.add_error(format!("Unknown command: '/{}'. Type /help for help.", unknown));
+                if let Some(cmd_def) = crate::engine::modding::find_mod_command(&cmd) {
+                    crate::engine::modding::execute_mod_command(&cmd_def, self, ctx);
+                } else {
+                    self.add_error(format!("Unknown command: '/{}'. Type /help for help.", unknown));
+                }
             }
         }
     }
@@ -721,8 +737,8 @@ impl ChatState {
     }
 }
 
-/// Parses an item/block string into a `BlockId`.
-pub fn parse_block_id(s: &str) -> Option<BlockId> {
+/// Parses a vanilla item/block string or numeric ID into a `BlockId`.
+pub fn parse_vanilla_block_id(s: &str) -> Option<BlockId> {
     let s = s.trim().to_ascii_lowercase().replace('-', "_");
     match s.as_str() {
         "grass" | "grass_block" | "trawa" => Some(BlockId::Grass),
@@ -779,13 +795,22 @@ pub fn parse_block_id(s: &str) -> Option<BlockId> {
         "gunpowder" | "proch" => Some(BlockId::Gunpowder),
         _ => {
             if let Ok(id) = s.parse::<u8>() {
-                if id > 0 && id <= 100 {
+                if id > 0 {
                     return Some(BlockId::from_u8(id));
                 }
             }
             None
         }
     }
+}
+
+/// Parses an item/block string into a `BlockId` (supports both vanilla and registered mod items).
+pub fn parse_block_id(s: &str) -> Option<BlockId> {
+    if let Some(b) = parse_vanilla_block_id(s) {
+        return Some(b);
+    }
+    let s = s.trim().to_ascii_lowercase().replace('-', "_");
+    crate::engine::modding::find_custom_block_by_name(&s)
 }
 
 #[cfg(test)]

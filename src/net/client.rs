@@ -33,6 +33,9 @@ pub enum NetworkEvent {
         time_of_day: f32,
         modified_blocks: Vec<(i32, i32, i32, u8)>,
     },
+    ModsSynchronized {
+        mods: Vec<ModSyncEntry>,
+    },
     Disconnected {
         reason: String,
     },
@@ -324,6 +327,9 @@ impl NetworkClient {
                         rp.hurt_timer = 0.4;
                     }
                     events.push(NetworkEvent::PlayerHurt { victim_id, attacker_id, damage, knockback_x, knockback_z });
+                }
+                Ok(ServerPacket::ModSync { mods }) => {
+                    events.push(NetworkEvent::ModsSynchronized { mods });
                 }
                 Ok(ServerPacket::Pong { seq: _ }) => {}
                 Err(err) => {

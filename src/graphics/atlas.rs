@@ -3,7 +3,7 @@
 
 pub const TEX_SIZE: usize = 16;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Texture {
     pub texels: Vec<[f32; 3]>, // len == TEX_SIZE * TEX_SIZE
 }
@@ -1036,6 +1036,8 @@ pub enum TextureId {
     CreeperSkin,
     CreeperFace,
     Gunpowder,
+    /// Custom modded texture (index 0..=63)
+    Custom(u8),
 }
 
 impl TextureId {
@@ -1455,6 +1457,7 @@ pub struct TextureAtlas {
     pub creeper_skin: Texture,
     pub creeper_face: Texture,
     pub gunpowder: Texture,
+    pub custom: Vec<Texture>,
 }
 
 fn diamond_ore() -> Texture {
@@ -2598,6 +2601,7 @@ impl TextureAtlas {
             creeper_skin: creeper_skin(),
             creeper_face: creeper_face(),
             gunpowder: gunpowder(),
+            custom: crate::engine::modding::generate_mod_textures(),
         }
     }
 
@@ -2724,6 +2728,7 @@ impl TextureAtlas {
             TextureId::CreeperSkin => &self.creeper_skin,
             TextureId::CreeperFace => &self.creeper_face,
             TextureId::Gunpowder => &self.gunpowder,
+            TextureId::Custom(idx) => self.custom.get(idx as usize).unwrap_or(&self.stone),
         }
     }
     /// Returns a reference to the texture corresponding to the specified `TextureId`.
