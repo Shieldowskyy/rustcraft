@@ -438,4 +438,94 @@ impl SoundSample {
 
         Ok(Self::new(samples, sample_rate, channels))
     }
+
+    /// Decodes an Ogg Opus audio byte buffer (.ogg or .opus) into float samples.
+    ///
+    /// Pure Rust implementation (RFC 6716 / RFC 7845) without native C dependencies,
+    /// supporting Stereo, 64kbps and any Opus configuration across all target platforms.
+    pub fn from_ogg_opus_bytes(bytes: &[u8]) -> Result<Self, String> {
+        let cursor = std::io::Cursor::new(bytes);
+        let mut reader = opus_pure::OggOpusReader::new(cursor)
+            .map_err(|e| format!("Ogg Opus header error: {:?}", e))?;
+
+        let channels = reader.head().channel_count as usize;
+        let mut decoder = reader.head().decoder(48000)
+            .map_err(|e| format!("Opus decoder init error: {:?}", e))?;
+
+        let mut samples = Vec::new();
+        let max_samples = opus_pure::MAX_PACKET_SAMPLES;
+        let mut pcm_buf = vec![0.0f32; max_samples * channels];
+
+        while let Some(packet) = reader.read_packet()
+            .map_err(|e| format!("Ogg Opus packet read error: {:?}", e))?
+        {
+            let samples_per_channel = decoder
+                .decode(&packet.data, max_samples, &mut pcm_buf)
+                .map_err(|e| format!("Opus packet decode error: {:?}", e))?;
+            let total_samples = samples_per_channel * channels;
+            samples.extend_from_slice(&pcm_buf[..total_samples]);
+        }
+
+        if samples.is_empty() {
+            return Err("Empty Ogg Opus audio stream".to_string());
+        }
+
+        // Discard encoder roll-in delay (pre_skip) per RFC 7845
+        let pre_skip = (reader.head().pre_skip as usize * channels).min(samples.len());
+        if pre_skip > 0 {
+            samples.drain(0..pre_skip);
+        }
+
+        Ok(Self::new(samples, 48000, channels as u16))
+    }
+
+    /// Decodes an Ogg Vorbis audio byte buffer (.ogg) into float samples.
+    pub fn from_ogg_vorbis_bytes(bytes: &[u8]) -> Result<Self, String> {
+        let cursor = std::io::Cursor::new(bytes);
+        let mut reader = lewton::inside_ogg::OggStreamReader::new(cursor)
+            .map_err(|e| format!("OGG Vorbis header decode error: {:?}", e))?;
+
+        let sample_rate = reader.ident_hdr.audio_sample_rate;
+        let channels = reader.ident_hdr.audio_channels as u16;
+
+        let mut samples = Vec::new();
+        while let Some(packet) = reader
+            .read_dec_packet_itl()
+            .map_err(|e| format!("OGG Vorbis packet decode error: {:?}", e))?
+        {
+            samples.reserve(packet.len());
+            for s in packet {
+                samples.push(s as f32 / 32768.0);
+            }
+        }
+
+        if samples.is_empty() {
+            return Err("Empty OGG Vorbis audio stream".to_string());
+        }
+
+        Ok(Self::new(samples, sample_rate, channels))
+    }
+
+    /// Decodes an Ogg container (automatically detecting Opus or Vorbis).
+    pub fn from_ogg_bytes(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.windows(8).take(128).any(|w| w == b"OpusHead") {
+            Self::from_ogg_opus_bytes(bytes)
+        } else {
+            Self::from_ogg_vorbis_bytes(bytes)
+                .or_else(|_| Self::from_ogg_opus_bytes(bytes))
+        }
+    }
+
+    /// Automatically detects file format from magic bytes (Opus, Vorbis, or WAV) and decodes it.
+    pub fn from_file_bytes(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.len() >= 4 && &bytes[0..4] == b"OggS" {
+            Self::from_ogg_bytes(bytes)
+        } else if bytes.len() >= 4 && &bytes[0..4] == b"RIFF" {
+            Self::from_wav_bytes(bytes)
+        } else {
+            Self::from_ogg_bytes(bytes).or_else(|_| Self::from_wav_bytes(bytes))
+        }
+    }
 }
+
+

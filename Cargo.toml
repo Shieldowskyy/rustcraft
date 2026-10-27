@@ -22,6 +22,8 @@ autotest = []
 bytemuck = { version = "1.16", features = ["derive"] }
 getrandom = { version = "=0.2.15", features = ["js", "custom"] }
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
+lewton = "0.10.2"
+opus-pure = "0.2.2"
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "vita")))'.dependencies]
 rayon = "1.8"

@@ -58,6 +58,7 @@
   "settings.ambient_volume": "AMBIENT / ATMOSPHERE: < {}% >",
   "settings.ui_volume": "UI SOUNDS: < {}% >",
   "settings.mute_audio": "MUTE AUDIO: {}",
+  "toast.now_playing": "NOW PLAYING",
   "settings.profiler_server": "PROFILER WEB SERVER: {}",
   "settings.profiler_server_status": "STATUS: {}",
   "settings.profiler_server_port": "SERVER PORT: < {} >",

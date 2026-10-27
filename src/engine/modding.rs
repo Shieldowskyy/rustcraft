@@ -1162,7 +1162,7 @@ fn rand_hash(x: u32, y: u32) -> u32 {
 // ============================================================================
 
 #[derive(Clone, Debug, PartialEq)]
-enum JsonNode {
+pub(crate) enum JsonNode {
     Str(String),
     Number(f64),
     Bool(bool),
@@ -1172,49 +1172,49 @@ enum JsonNode {
 }
 
 impl JsonNode {
-    fn as_str(&self) -> Option<&str> {
+    pub(crate) fn as_str(&self) -> Option<&str> {
         match self {
             JsonNode::Str(s) => Some(s),
             _ => None,
         }
     }
 
-    fn as_f32(&self) -> Option<f32> {
+    pub(crate) fn as_f32(&self) -> Option<f32> {
         match self {
             JsonNode::Number(n) => Some(*n as f32),
             _ => None,
         }
     }
 
-    fn as_u8(&self) -> Option<u8> {
+    pub(crate) fn as_u8(&self) -> Option<u8> {
         match self {
             JsonNode::Number(n) => Some(*n as u8),
             _ => None,
         }
     }
 
-    fn as_bool(&self) -> Option<bool> {
+    pub(crate) fn as_bool(&self) -> Option<bool> {
         match self {
             JsonNode::Bool(b) => Some(*b),
             _ => None,
         }
     }
 
-    fn as_array(&self) -> Option<&[JsonNode]> {
+    pub(crate) fn as_array(&self) -> Option<&[JsonNode]> {
         match self {
             JsonNode::Array(a) => Some(a),
             _ => None,
         }
     }
 
-    fn as_object(&self) -> Option<&HashMap<String, JsonNode>> {
+    pub(crate) fn as_object(&self) -> Option<&HashMap<String, JsonNode>> {
         match self {
             JsonNode::Object(o) => Some(o),
             _ => None,
         }
     }
 
-    fn as_color3(&self) -> Option<[f32; 3]> {
+    pub(crate) fn as_color3(&self) -> Option<[f32; 3]> {
         match self {
             JsonNode::Array(arr) if arr.len() >= 3 => {
                 let r = arr[0].as_f32().unwrap_or(0.0);
@@ -1233,7 +1233,7 @@ impl JsonNode {
     }
 }
 
-fn parse_json_value_root(input: &str) -> Result<JsonNode, String> {
+pub(crate) fn parse_json_value_root(input: &str) -> Result<JsonNode, String> {
     // Strip // single-line comments for user friendliness
     let mut cleaned = String::new();
     for line in input.lines() {

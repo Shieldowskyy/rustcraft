@@ -4,11 +4,12 @@
 //! to the real-time audio playback thread. Game ticks never block on audio I/O.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use crate::audio::sound::{SoundCategory, SoundId};
+use std::sync::Arc;
+use crate::audio::sound::{SoundCategory, SoundId, SoundSample};
 use crate::core::math::Vec3;
 
 /// Audio engine commands dispatched asynchronously from game code.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum AudioCommand {
     PlaySound {
         sound_id: SoundId,
@@ -22,6 +23,14 @@ pub enum AudioCommand {
         max_dist: f32,
         rolloff: f32,
         occlusion: f32,
+    },
+    PlayMusicSample {
+        sample: Arc<SoundSample>,
+        volume: f32,
+        looping: bool,
+    },
+    StopMusic {
+        fade_out_seconds: f32,
     },
     UpdateListener {
         position: Vec3,
@@ -51,10 +60,8 @@ pub struct SpscCommandQueue {
 
 impl SpscCommandQueue {
     pub fn new() -> Self {
-        // Safe initialization of array with None
-        const INIT_NONE: Option<AudioCommand> = None;
         Self {
-            buffer: Box::new([INIT_NONE; COMMAND_QUEUE_CAPACITY]),
+            buffer: Box::new(std::array::from_fn(|_| None)),
             write_head: AtomicUsize::new(0),
             read_tail: AtomicUsize::new(0),
         }

@@ -26,6 +26,7 @@ pub struct Voice {
     pub priority: u8,
     pub filter_alpha: f32,
     pub filter_state: f32,
+    pub channels: u16,
 }
 
 impl Default for Voice {
@@ -47,6 +48,7 @@ impl Default for Voice {
             priority: 0,
             filter_alpha: 1.0,
             filter_state: 0.0,
+            channels: 1,
         }
     }
 }
@@ -79,6 +81,7 @@ impl AudioMixer {
             priority: 0,
             filter_alpha: 1.0,
             filter_state: 0.0,
+            channels: 1,
         };
 
         Self {
@@ -136,6 +139,14 @@ impl AudioMixer {
         let target_l = (volume * left_pan_gain).clamp(0.0, 2.0);
         let target_r = (volume * right_pan_gain).clamp(0.0, 2.0);
 
+        let new_priority: u8 = match category {
+            SoundCategory::Ui => 20,
+            SoundCategory::Music => 250, // Music has highest priority, protected from sound stealing
+            SoundCategory::Sfx => 10,
+            SoundCategory::Ambient => 5,
+            SoundCategory::Master => 15,
+        };
+
         // Find free voice or pick voice to steal
         let mut best_slot = None;
         let mut lowest_score = f32::MAX;
@@ -145,8 +156,12 @@ impl AudioMixer {
                 best_slot = Some(i);
                 break;
             }
-            // Score based on loudness and age (steals quietest / oldest)
-            let score = (v.left_gain + v.right_gain) * 10.0 + (self.age_counter.saturating_sub(v.age) as f32 * 0.001);
+            // Do not steal active music voices for regular sfx/ambient
+            if v.category == SoundCategory::Music && category != SoundCategory::Music {
+                continue;
+            }
+            // Score based on priority, loudness and age (steals lower priority / quietest / oldest)
+            let score = (v.priority as f32 * 50.0) + (v.left_gain + v.right_gain) * 10.0 + (self.age_counter.saturating_sub(v.age) as f32 * 0.001);
             if score < lowest_score {
                 lowest_score = score;
                 best_slot = Some(i);
@@ -170,13 +185,8 @@ impl AudioMixer {
         v.fade_out_samples = 0;
         v.filter_alpha = filter_alpha.clamp(0.005, 1.0);
         v.filter_state = 0.0;
-        v.priority = match category {
-            SoundCategory::Ui => 3,
-            SoundCategory::Sfx => 2,
-            SoundCategory::Music => 1,
-            SoundCategory::Ambient => 0,
-            SoundCategory::Master => 2,
-        };
+        v.priority = new_priority;
+        v.channels = sample.channels;
     }
 
     /// Stops all currently active sounds with smooth fade-out to prevent clicks.
@@ -194,6 +204,27 @@ impl AudioMixer {
         }
     }
 
+    /// Stops voices in a specific category with optional smooth fade-out.
+    pub fn stop_category(&mut self, category: SoundCategory, fade_out_seconds: f32) {
+        let fade_samples = (fade_out_seconds * self.output_sample_rate as f32) as u32;
+        for v in &mut self.voices {
+            if v.active && v.category == category {
+                if fade_samples == 0 {
+                    v.active = false;
+                    v.sample = None;
+                } else {
+                    v.fade_out_samples = fade_samples.max(64);
+                }
+            }
+        }
+    }
+
+    /// Returns whether any voice in the given category is currently playing without fading out.
+    #[inline]
+    pub fn is_category_playing(&self, category: SoundCategory) -> bool {
+        self.voices.iter().any(|v| v.active && v.category == category && v.fade_out_samples == 0)
+    }
+
     /// Returns the number of currently playing polyphonic voices.
     #[inline]
     pub fn active_voice_count(&self) -> usize {
@@ -205,6 +236,7 @@ impl AudioMixer {
     /// Performance highlights:
     /// - Zero allocations in inner loop.
     /// - Linear interpolation resampling for sub-sample accuracy without aliasing.
+    /// - Native mono and stereo interleaving support.
     /// - Branchless constant-power panning and soft limiting.
     pub fn mix_interleaved_stereo(&mut self, output: &mut [f32]) {
         // Clear destination buffer
@@ -252,18 +284,21 @@ impl AudioMixer {
 
             let mut cursor = v.cursor;
             let step = v.step;
-            let mut left_gain = v.left_gain * cat_vol;
-            let mut right_gain = v.right_gain * cat_vol;
-            let target_l = v.target_left * cat_vol;
-            let target_r = v.target_right * cat_vol;
+            let mut left_gain = v.left_gain;
+            let mut right_gain = v.right_gain;
+            let target_l = v.target_left;
+            let target_r = v.target_right;
             let gain_ramp = 1.0 / (frame_count as f32).max(1.0);
+
+            let is_stereo = v.channels == 2;
+            let total_frames = if is_stereo { sample_len / 2 } else { sample_len };
 
             let mut frame = 0;
             while frame < frame_count {
                 let idx0 = cursor as usize;
-                if idx0 >= sample_len {
+                if idx0 >= total_frames {
                     if v.looping {
-                        cursor %= sample_len as f64;
+                        cursor %= total_frames as f64;
                     } else {
                         v.active = false;
                         break;
@@ -271,7 +306,7 @@ impl AudioMixer {
                 }
 
                 let idx0 = cursor as usize;
-                let idx1 = if idx0 + 1 < sample_len {
+                let idx1 = if idx0 + 1 < total_frames {
                     idx0 + 1
                 } else if v.looping {
                     0
@@ -280,15 +315,25 @@ impl AudioMixer {
                 };
 
                 let frac = (cursor - idx0 as f64) as f32;
-                let s0 = sample_data[idx0];
-                let s1 = sample_data[idx1];
-                // Linear interpolation
-                let mut s = s0 + (s1 - s0) * frac;
+
+                let (mut s_l, mut s_r) = if is_stereo {
+                    let s_l0 = sample_data[idx0 * 2];
+                    let s_l1 = sample_data[idx1 * 2];
+                    let s_r0 = sample_data[idx0 * 2 + 1];
+                    let s_r1 = sample_data[idx1 * 2 + 1];
+                    (s_l0 + (s_l1 - s_l0) * frac, s_r0 + (s_r1 - s_r0) * frac)
+                } else {
+                    let s0 = sample_data[idx0];
+                    let s1 = sample_data[idx1];
+                    let mono_s = s0 + (s1 - s0) * frac;
+                    (mono_s, mono_s)
+                };
 
                 // Atmospheric air absorption and wall acoustic occlusion lowpass filter
                 if v.filter_alpha < 0.999 {
-                    v.filter_state += v.filter_alpha * (s - v.filter_state);
-                    s = v.filter_state;
+                    v.filter_state += v.filter_alpha * (s_l - v.filter_state);
+                    s_l = v.filter_state;
+                    s_r = v.filter_state;
                 }
 
                 // Smooth gain ramping towards target gain to prevent pops
@@ -307,8 +352,11 @@ impl AudioMixer {
                     1.0
                 };
 
-                output[frame * 2] += s * left_gain * fade_mult;
-                output[frame * 2 + 1] += s * right_gain * fade_mult;
+                let eff_l = left_gain * cat_vol * fade_mult;
+                let eff_r = right_gain * cat_vol * fade_mult;
+
+                output[frame * 2] += s_l * eff_l;
+                output[frame * 2 + 1] += s_r * eff_r;
 
                 cursor += step;
                 frame += 1;
@@ -322,23 +370,24 @@ impl AudioMixer {
             v.right_gain = right_gain;
         }
 
-        // Apply fast polynomial soft limiting / anti-clipping
+        // Apply clean soft limiting / anti-clipping
         for sample in output.iter_mut() {
             *sample = fast_soft_clip(*sample);
         }
     }
 }
 
-/// Fast branchless rational soft limiter approximating tanh.
-/// Never clips harshly even under maximum volume bursts.
+/// Clean transparent soft limiter: bit-perfect linear for normal audio (|x| <= 0.8),
+/// and smoothly saturates signals exceeding headroom without digital clipping or discontinuities.
 #[inline(always)]
 fn fast_soft_clip(x: f32) -> f32 {
-    if x > 1.25 {
-        1.0
-    } else if x < -1.25 {
-        -1.0
+    if x > 0.8 {
+        let d = x - 0.8;
+        0.8 + (0.2 * d) / (0.2 + d)
+    } else if x < -0.8 {
+        let d = -x - 0.8;
+        -(0.8 + (0.2 * d) / (0.2 + d))
     } else {
-        // Rational soft clipping x / (1.0 + |x|^2)^0.5
-        x / (1.0 + x * x).sqrt()
+        x
     }
 }

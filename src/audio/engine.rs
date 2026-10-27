@@ -57,6 +57,7 @@ pub struct AudioEngine {
     ambient_vol: f32,
     ui_vol: f32,
     is_muted: bool,
+    music_playing: Arc<AtomicBool>,
 }
 
 impl AudioEngine {
@@ -145,11 +146,13 @@ impl AudioEngine {
         );
 
         let worker_running = Arc::new(AtomicBool::new(true));
+        let music_playing = Arc::new(AtomicBool::new(false));
 
         // Attempt to launch dedicated high-priority audio mixing thread
         #[cfg(not(target_arch = "wasm32"))]
         let (queue, worker_handle, sync_mixer, sync_backend) = {
             let running = Arc::clone(&worker_running);
+            let music_playing_worker = Arc::clone(&music_playing);
             let bank_clone = soundbank.clone();
 
             // We use a shared mutex queue or SpscCommandQueue for thread communication
@@ -161,8 +164,9 @@ impl AudioEngine {
                 .spawn(move || {
                     let mut mixer = AudioMixer::new(sample_rate);
                     let mut audio_backend = backend;
-                    let mut scratch_buffer = [0.0f32; 1024]; // 512 stereo frames = ~10.6ms latency
+                    let mut scratch_buffer = [0.0f32; 2048]; // 1024 stereo frames = ~21.3ms latency
                     let mut listener = AudioListener::default();
+                    let is_null_sink = !audio_backend.is_active() || audio_backend.name() == "Null Audio Sink";
 
                     while running.load(Ordering::Relaxed) {
                         // Drain pending commands from lock-free queue
@@ -208,6 +212,22 @@ impl AudioEngine {
                                             }
                                         }
                                     }
+                                    AudioCommand::PlayMusicSample { sample, volume, looping } => {
+                                        mixer.stop_category(SoundCategory::Music, 1.0);
+                                        mixer.play_sample(
+                                            &sample,
+                                            SoundCategory::Music,
+                                            volume,
+                                            1.0,
+                                            1.0,
+                                            1.0,
+                                            1.0,
+                                            looping,
+                                        );
+                                    }
+                                    AudioCommand::StopMusic { fade_out_seconds } => {
+                                        mixer.stop_category(SoundCategory::Music, fade_out_seconds);
+                                    }
                                     AudioCommand::UpdateListener {
                                         position,
                                         forward,
@@ -229,12 +249,24 @@ impl AudioEngine {
                             }
                         }
 
-                        // Render batch of stereo audio frames
-                        mixer.mix_interleaved_stereo(&mut scratch_buffer);
-                        audio_backend.write_samples(&scratch_buffer);
+                        let active_voices = mixer.active_voice_count();
+                        if active_voices > 0 {
+                            // Render batch of stereo audio frames
+                            mixer.mix_interleaved_stereo(&mut scratch_buffer);
+                            audio_backend.write_samples(&scratch_buffer);
+                            music_playing_worker.store(
+                                mixer.is_category_playing(SoundCategory::Music),
+                                Ordering::Relaxed,
+                            );
 
-                        // If the backend doesn't block internally, yield/sleep to prevent CPU spin
-                        std::thread::sleep(std::time::Duration::from_millis(5));
+                            // For non-blocking/null backend, yield to avoid pegging the CPU
+                            if is_null_sink {
+                                std::thread::sleep(std::time::Duration::from_millis(15));
+                            }
+                        } else {
+                            music_playing_worker.store(false, Ordering::Relaxed);
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
                     }
                 });
 
@@ -278,6 +310,7 @@ impl AudioEngine {
             ambient_vol: 0.7,
             ui_vol: 1.0,
             is_muted: false,
+            music_playing,
         }
     }
 
@@ -374,9 +407,7 @@ impl AudioEngine {
             if let Ok(mut q) = queue.lock() {
                 q.push(cmd);
             }
-        }
-        // Synchronous fallback handling
-        if let Some(mixer) = &mut self.sync_mixer {
+        } else if let Some(mixer) = &mut self.sync_mixer {
             match cmd {
                 AudioCommand::PlaySound {
                     sound_id,
@@ -403,6 +434,13 @@ impl AudioEngine {
                             mixer.play_sample(sample, sound_id.category(), volume, pitch, lg, rg, filter_alpha, looping);
                         }
                     }
+                }
+                AudioCommand::PlayMusicSample { sample, volume, looping } => {
+                    mixer.stop_category(SoundCategory::Music, 1.0);
+                    mixer.play_sample(&sample, SoundCategory::Music, volume, 1.0, 1.0, 1.0, 1.0, looping);
+                }
+                AudioCommand::StopMusic { fade_out_seconds } => {
+                    mixer.stop_category(SoundCategory::Music, fade_out_seconds);
                 }
                 AudioCommand::UpdateListener { position, forward, right, up } => {
                     self.listener.position = position;
@@ -507,6 +545,32 @@ impl AudioEngine {
             category: SoundCategory::Music,
             volume: self.music_vol,
         });
+    }
+
+    /// Plays a music soundtrack sample.
+    pub fn play_music(&mut self, sample: Arc<SoundSample>, volume: f32, looping: bool) {
+        if self.is_muted {
+            return;
+        }
+        self.dispatch_cmd(AudioCommand::PlayMusicSample {
+            sample,
+            volume,
+            looping,
+        });
+    }
+
+    /// Stops any playing music with a smooth fade-out.
+    pub fn stop_music(&mut self, fade_out_seconds: f32) {
+        self.dispatch_cmd(AudioCommand::StopMusic { fade_out_seconds });
+    }
+
+    /// Returns true if a soundtrack is actively playing in the background.
+    pub fn is_music_playing(&self) -> bool {
+        if let Some(sync_mixer) = &self.sync_mixer {
+            sync_mixer.is_category_playing(SoundCategory::Music)
+        } else {
+            self.music_playing.load(Ordering::Relaxed)
+        }
     }
 
     /// Toggles audio muting.

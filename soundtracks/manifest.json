@@ -1,0 +1,36 @@
+{
+  "settings": {
+    "min_delay_seconds": 12.0,
+    "max_delay_seconds": 35.0
+  },
+  "tracks": [
+    {
+      "id": "creative_calm",
+      "name": "Creative Calm",
+      "artist": "RustCraft",
+      "file": "creative/creative_calm.ogg",
+      "categories": ["creative"]
+    },
+    {
+      "id": "survival_depths",
+      "name": "Survival Depths",
+      "artist": "RustCraft",
+      "file": "survival/survival_depths.ogg",
+      "categories": ["survival"]
+    },
+    {
+      "id": "menu_theme",
+      "name": "RustCraft Main Theme",
+      "artist": "RustCraft",
+      "file": "menu/menu_theme.ogg",
+      "categories": ["menu"]
+    },
+    {
+      "id": "wanderer",
+      "name": "Wanderer",
+      "artist": "RustCraft",
+      "file": "uncategorized/wanderer.ogg",
+      "categories": ["uncategorized"]
+    }
+  ]
+}

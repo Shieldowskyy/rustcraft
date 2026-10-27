@@ -136,6 +136,7 @@ pub struct RustCraftApp {
     pub camera_perspective: CameraPerspective,
     pub autotest: Option<crate::gameplay::autotest::AutoTestRunner>,
     pub audio: crate::audio::AudioEngine,
+    pub soundtrack: crate::audio::SoundtrackManager,
     pub was_on_ground: bool,
 
     // Controls toggle states
@@ -267,6 +268,8 @@ impl RustCraftApp {
             audio.toggle_mute();
         }
 
+        let soundtrack = crate::audio::SoundtrackManager::new("soundtracks");
+
         let app = Self {
             width,
             height,
@@ -373,6 +376,7 @@ impl RustCraftApp {
             telemetry_timer: 0.0,
             camera_perspective: CameraPerspective::FirstPerson,
             audio,
+            soundtrack,
             was_on_ground: false,
 
             sprint_toggled: false,
@@ -552,6 +556,29 @@ impl RustCraftApp {
             GameState::DeathScreen => self.update_and_render_death_screen(input, mouse_moved, &mut out),
         }
 
+        // Context-aware soundtrack update (Creative vs Survival vs Menu)
+        let soundtrack_category = match self.state {
+            GameState::Playing
+            | GameState::Paused
+            | GameState::Inventory
+            | GameState::Chest { .. }
+            | GameState::Furnace { .. }
+            | GameState::DeathScreen => {
+                match self.player.gamemode {
+                    GameMode::Creative => crate::audio::SoundtrackCategory::Creative,
+                    GameMode::Survival => crate::audio::SoundtrackCategory::Survival,
+                }
+            }
+            _ => crate::audio::SoundtrackCategory::Menu,
+        };
+
+        self.soundtrack.update(
+            dt,
+            soundtrack_category,
+            &mut self.audio,
+            self.settings.music_volume,
+            self.settings.mute_audio,
+        );
 
         self.prev_left_down = left_down;
         self.prev_right_down = right_down;
@@ -647,6 +674,9 @@ impl RustCraftApp {
         if let Some(ref runner) = self.autotest {
             runner.render_overlay(self.renderer.pixel_buffer_mut(), self.width, self.height);
         }
+
+        // Draw Now-Playing soundtrack toast in bottom-right corner
+        self.soundtrack.draw_toast(self.renderer.pixel_buffer_mut(), self.width, self.height);
 
         out.rumble_request = self.pending_rumble.take();
         if !input.is_mouse_captured && !matches!(self.state, GameState::Playing) {

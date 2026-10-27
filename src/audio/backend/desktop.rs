@@ -164,9 +164,9 @@ impl PulseAudioDriver {
 
         let attr = PaBufferAttr {
             maxlength: u32::MAX,
-            tlength: 4096, // ~512 stereo float frames = ~10.6ms low latency
+            tlength: 16384, // 2048 stereo float frames = ~42.6ms buffer (eliminates underrun pops)
             prebuf: u32::MAX,
-            minreq: u32::MAX,
+            minreq: 4096,   // 512 stereo float frames request size
             fragsize: u32::MAX,
         };
 

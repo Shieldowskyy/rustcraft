@@ -18,11 +18,13 @@ pub mod engine;
 pub mod mixer;
 pub mod ring_buffer;
 pub mod sound;
+pub mod soundtrack;
 pub mod spatial;
 pub mod synth;
 
 pub use engine::{AudioEngine, AudioStats};
 pub use sound::{SoundCategory, SoundId, SoundSample};
+pub use soundtrack::{MusicToast, SoundtrackCategory, SoundtrackManager, SoundtrackTrack};
 pub use spatial::AudioListener;
 
 #[cfg(test)]
