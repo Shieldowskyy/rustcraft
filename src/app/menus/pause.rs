@@ -12,7 +12,8 @@ use crate::world::storage::{get_save_metadata, save_current_world};
 impl RustCraftApp {
     #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
     pub(crate) fn update_and_render_loading(&mut self, result: Option<WorldLoadResult>) {
-        self.renderer.draw_main_menu(None, &self.settings.nickname, false, self.is_gamepad_active);
+        let splash_text = crate::ui::splashes::SPLASH_TEXTS[self.splash_index % crate::ui::splashes::SPLASH_TEXTS.len()];
+        self.renderer.draw_main_menu(None, &self.settings.nickname, false, self.is_gamepad_active, splash_text, self.total_time);
 
         if let Some(result) = result {
             match result {
@@ -42,7 +43,8 @@ impl RustCraftApp {
 
     #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
     pub(crate) fn update_and_render_loading(&mut self) {
-        self.renderer.draw_main_menu(None, &self.settings.nickname, false, self.is_gamepad_active);
+        let splash_text = crate::ui::splashes::SPLASH_TEXTS[self.splash_index % crate::ui::splashes::SPLASH_TEXTS.len()];
+        self.renderer.draw_main_menu(None, &self.settings.nickname, false, self.is_gamepad_active, splash_text, self.total_time);
         self.state = GameState::Playing;
     }
 

@@ -188,6 +188,7 @@ pub struct RustCraftApp {
     pub controls: ControlsManager,
     pub minimap: crate::ui::minimap::MinimapState,
     pub worldmap: crate::ui::minimap::WorldMapState,
+    pub splash_index: usize,
 }
 
 
@@ -441,6 +442,7 @@ impl RustCraftApp {
             controls: ControlsManager::new(),
             minimap: crate::ui::minimap::MinimapState::new(1),
             worldmap: crate::ui::minimap::WorldMapState::new(start_player_pos),
+            splash_index: (seed as usize) % crate::ui::splashes::SPLASH_TEXTS.len(),
         };
         crate::log_info!("INIT", "RustCraftApp initialized ({}x{}, renderer: {}, seed: {})", width, height, renderer_choice, seed);
         app

@@ -96,7 +96,31 @@ impl RustCraftApp {
             crate::log_info!("STATE", "Quit requested from Main Menu");
         }
 
-        self.renderer.draw_main_menu(hovered_idx, &self.settings.nickname, self.main_menu_nick_hovered, self.is_gamepad_active);
+        // Easter egg: clicking splash text cycles to next text
+        if left_down && !self.prev_left_down {
+            if let Some((mx, my)) = mouse_pos {
+                let cx = self.width as i32 / 2;
+                let title_w = crate::graphics::font::measure_text("RUSTCRAFT", 4, 3);
+                let splash_cx = cx + title_w / 2 + 10;
+                let splash_cy = 138;
+                let px = mx as i32;
+                let py = my as i32;
+                if px >= splash_cx - 70 && px <= splash_cx + 110 && py >= splash_cy - 25 && py <= splash_cy + 25 {
+                    self.splash_index = (self.splash_index + 1) % crate::ui::splashes::SPLASH_TEXTS.len();
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.6, 1.2);
+                }
+            }
+        }
+
+        let splash_text = crate::ui::splashes::SPLASH_TEXTS[self.splash_index % crate::ui::splashes::SPLASH_TEXTS.len()];
+        self.renderer.draw_main_menu(
+            hovered_idx,
+            &self.settings.nickname,
+            self.main_menu_nick_hovered,
+            self.is_gamepad_active,
+            splash_text,
+            self.total_time,
+        );
     }
 
     pub(crate) fn update_and_render_nickname_dialog(
@@ -286,7 +310,8 @@ impl RustCraftApp {
         // Render background screen based on previous menu
         match prev {
             PreviousMenu::MainMenu => {
-                self.renderer.draw_main_menu(None, &self.settings.nickname, false, self.is_gamepad_active);
+                let splash_text = crate::ui::splashes::SPLASH_TEXTS[self.splash_index % crate::ui::splashes::SPLASH_TEXTS.len()];
+                self.renderer.draw_main_menu(None, &self.settings.nickname, false, self.is_gamepad_active, splash_text, self.total_time);
             }
             PreviousMenu::Paused => {
                 self.renderer.draw_pause_menu(self.fly_mode, None, self.is_gamepad_active);

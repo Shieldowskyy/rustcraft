@@ -57,6 +57,8 @@ pub fn draw_main_menu(
     nickname: &str,
     nick_hovered: bool,
     is_gamepad_active: bool,
+    splash_text: &str,
+    time_sec: f32,
 ) {
     let cx = width as i32 / 2;
     // Clear screen to prevent ghost frames from other menus
@@ -67,6 +69,13 @@ pub fn draw_main_menu(
     let title = "RUSTCRAFT";
     let title_w = font::measure_text(title, 4, 3);
     draw_text_colored_shadowed(buffer, width, height, title, cx - title_w / 2, 125, 4, 3, pack_color(0.95, 0.85, 0.42));
+
+    // Dynamic bouncing Minecraft-style splash text positioned at the bottom-right of the title logo
+    if !splash_text.is_empty() {
+        let splash_cx = cx + title_w / 2 + 10;
+        let splash_cy = 138;
+        crate::ui::splashes::draw_splash_text(buffer, width, height, splash_text, splash_cx, splash_cy, time_sec);
+    }
 
     let subtitle = "VOXEL ENGINE";
     let subtitle_w = font::measure_text(subtitle, 2, 2);

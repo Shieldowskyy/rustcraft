@@ -344,8 +344,8 @@ impl Renderer {
         crate::ui::multiplayer_menu_rects(self.width, self.height)
     }
 
-    pub fn draw_main_menu(&mut self, hovered: Option<usize>, nickname: &str, nick_hovered: bool, is_gamepad_active: bool) {
-        crate::ui::draw_main_menu(&mut self.color_buffer, self.width, self.height, hovered, nickname, nick_hovered, is_gamepad_active);
+    pub fn draw_main_menu(&mut self, hovered: Option<usize>, nickname: &str, nick_hovered: bool, is_gamepad_active: bool, splash_text: &str, time_sec: f32) {
+        crate::ui::draw_main_menu(&mut self.color_buffer, self.width, self.height, hovered, nickname, nick_hovered, is_gamepad_active, splash_text, time_sec);
     }
 
     #[inline(always)]
