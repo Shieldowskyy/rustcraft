@@ -25,6 +25,17 @@ pub fn soundtracks_dir() -> std::path::PathBuf {
             return dir;
         }
     }
+    #[cfg(target_os = "vita")]
+    {
+        let custom_dir = std::path::PathBuf::from("ux0:data/rustcraft/soundtracks");
+        if custom_dir.exists() {
+            return custom_dir;
+        }
+        let app_dir = std::path::PathBuf::from("app0:soundtracks");
+        if app_dir.exists() {
+            return app_dir;
+        }
+    }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             let dir = parent.join("soundtracks");

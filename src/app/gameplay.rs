@@ -1579,7 +1579,6 @@ impl RustCraftApp {
                     self.last_aspect = aspect;
                     self.proj_matrix = self.camera.projection_matrix(aspect);
                 }
-                #[cfg(not(target_os = "vita"))]
                 let (shake_offset, roll) = if self.settings.damage_tilt && self.damage_tilt_timer > 0.0 {
                     let progress = self.damage_tilt_timer / 0.4;
                     let roll = (progress * std::f32::consts::PI).sin() * 0.14 * self.damage_tilt_dir;
@@ -1589,7 +1588,6 @@ impl RustCraftApp {
                 } else {
                     (Vec3::zero(), 0.0)
                 };
-                #[cfg(not(target_os = "vita"))]
                 let mut effective_camera = match self.camera_perspective {
                     CameraPerspective::FirstPerson => self.camera.clone(),
                     CameraPerspective::ThirdPersonBack => {

@@ -43,8 +43,11 @@ impl AudioBackend for VitaAudioBackend {
             }
         }
 
-        self.active = true;
-        Ok(())
+        #[cfg(not(target_os = "vita"))]
+        {
+            self.active = true;
+            Ok(())
+        }
     }
 
     fn write_samples(&mut self, samples: &[f32]) {
@@ -77,10 +80,24 @@ impl AudioBackend for VitaAudioBackend {
     }
 }
 
+impl Drop for VitaAudioBackend {
+    fn drop(&mut self) {
+        #[cfg(target_os = "vita")]
+        if self.port >= 0 {
+            unsafe {
+                sceAudioOutReleasePort(self.port);
+            }
+            self.port = -1;
+            self.active = false;
+        }
+    }
+}
+
 #[cfg(target_os = "vita")]
+#[link(name = "SceAudio_stub")]
 extern "C" {
     fn sceAudioOutOpenPort(port_type: i32, len: i32, freq: i32, mode: i32) -> i32;
     fn sceAudioOutOutput(port: i32, buf: *const std::ffi::c_void) -> i32;
     fn sceAudioOutSetVolume(port: i32, ch: i32, vol: *const i32) -> i32;
-    fn sceAudioOutClosePort(port: i32) -> i32;
+    fn sceAudioOutReleasePort(port: i32) -> i32;
 }

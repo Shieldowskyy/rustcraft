@@ -66,7 +66,7 @@ echo "=== Building RustCraft for PlayStation Vita ($TARGET) ==="
 
 # 1. Compile Rust to ELF with built-in standard library
 echo "Compiling Rust project for target $TARGET..."
-export RUSTFLAGS="-C target-cpu=cortex-a9 -C link-arg=-Wl,--defsym=__sce_headroom=0x10000 -C link-arg=-lSceIme_stub -C link-arg=-lSceCommonDialog_stub -C link-arg=-lSceAppUtil_stub"
+export RUSTFLAGS="-C target-cpu=cortex-a9 -C link-arg=-Wl,--defsym=__sce_headroom=0x10000 -C link-arg=-lSceIme_stub -C link-arg=-lSceCommonDialog_stub -C link-arg=-lSceAppUtil_stub -C link-arg=-lSceAudio_stub"
 RUSTC_BOOTSTRAP=1 cargo build --target "$TARGET" -Z build-std=std,panic_abort --release $CARGO_FEATURES
 
 TARGET_ELF="target/$TARGET/release/rustcraft.elf"
@@ -87,6 +87,16 @@ if [ -d "vita/sce_sys" ]; then
     cp -r vita/sce_sys/* "$BUILD_DIR/sce_sys/"
 fi
 
+# Copy soundtracks and mods to build directory
+if [ -d "soundtracks" ]; then
+    echo "Copying soundtracks to $BUILD_DIR/soundtracks..."
+    cp -r soundtracks "$BUILD_DIR/"
+fi
+if [ -d "mods" ]; then
+    echo "Copying mods to $BUILD_DIR/mods..."
+    cp -r mods "$BUILD_DIR/"
+fi
+
 # 4. Create VELF and EBOOT.BIN
 echo "Converting ELF -> VELF -> EBOOT.BIN..."
 if command -v vita-elf-create &> /dev/null; then
@@ -100,14 +110,25 @@ if command -v vita-mksfoex &> /dev/null; then
 fi
 
 # 6. Package into VPK
+ADD_ARGS=()
+if [ -f "$BUILD_DIR/sce_sys/livearea/contents/template.xml" ]; then
+    ADD_ARGS+=(--add "$BUILD_DIR/sce_sys/livearea/contents/template.xml=sce_sys/livearea/contents/template.xml")
+fi
+if [ -d "$BUILD_DIR/soundtracks" ]; then
+    ADD_ARGS+=(--add "$BUILD_DIR/soundtracks=soundtracks")
+fi
+if [ -d "$BUILD_DIR/mods" ]; then
+    ADD_ARGS+=(--add "$BUILD_DIR/mods=mods")
+fi
+
 if command -v vita-pack-vpk &> /dev/null; then
     vita-pack-vpk -s "$BUILD_DIR/sce_sys/param.sfo" -b "$BUILD_DIR/eboot.bin" \
-        --add "$BUILD_DIR/sce_sys/livearea/contents/template.xml=sce_sys/livearea/contents/template.xml" \
+        "${ADD_ARGS[@]}" \
         "$VPK_NAME"
     echo "✓ Package created successfully: $VPK_NAME"
 elif command -v zip &> /dev/null; then
     cd "$BUILD_DIR"
-    zip -r "../../$VPK_NAME" eboot.bin sce_sys/
+    zip -r "../../$VPK_NAME" eboot.bin sce_sys/ soundtracks/ mods/
     cd ../..
     echo "✓ Packaged successfully: $VPK_NAME (zip/vpk)"
 fi

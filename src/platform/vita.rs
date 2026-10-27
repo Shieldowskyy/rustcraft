@@ -164,11 +164,15 @@ extern "C" {
 
 #[repr(C)]
 pub struct SceCommonDialogParam {
-    pub size: u32,
-    pub language: u32,
-    pub enter_button_assign: i32,
-    pub reserved: [u32; 8],
+    pub infobar_param: *const core::ffi::c_void,
+    pub bg_color: *const core::ffi::c_void,
+    pub dimmer_color: *const core::ffi::c_void,
+    pub reserved: [u8; 60],
+    pub magic: u32,
 }
+
+pub const SCE_COMMON_DIALOG_MAGIC_NUMBER: u32 = 0xC0D1A109;
+pub const PSP2_SDK_VERSION: u32 = 0x03570011;
 
 pub const SCE_IME_TYPE_DEFAULT: u32 = 0;
 pub const SCE_IME_LANGUAGE_ENGLISH: u64 = 0x0000000000000002;
@@ -198,6 +202,14 @@ pub struct SceImeDialogParam {
     pub reserved: [u8; 35],
 }
 
+#[inline]
+pub unsafe fn sceImeDialogParamInit(param: *mut SceImeDialogParam) {
+    core::ptr::write_bytes(param, 0, 1);
+    let common_ptr = core::ptr::addr_of_mut!((*param).common_param);
+    (*common_ptr).magic = SCE_COMMON_DIALOG_MAGIC_NUMBER.wrapping_add(common_ptr as usize as u32);
+    (*param).sdk_version = PSP2_SDK_VERSION;
+}
+
 #[repr(C)]
 pub struct SceImeDialogResult {
     pub result: i32,
@@ -208,7 +220,6 @@ pub struct SceImeDialogResult {
 #[link(name = "SceIme_stub")]
 #[link(name = "SceCommonDialog_stub")]
 extern "C" {
-    pub fn sceImeDialogParamInit(param: *mut SceImeDialogParam);
     pub fn sceImeDialogInit(param: *const SceImeDialogParam) -> i32;
     pub fn sceImeDialogGetStatus() -> i32;
     pub fn sceImeDialogGetResult(result: *mut SceImeDialogResult) -> i32;
@@ -640,6 +651,7 @@ impl VitaInputTracker {
 
             is_mouse_captured,
             gp_connected: true,
+            ..Default::default()
         }
     }
 }
@@ -735,6 +747,14 @@ pub fn run_vita_app() {
         let output = app.update_and_render(dt, &input);
 
         if output.quit_requested {
+            crate::vita_log!("Quit requested from menu. Saving world state...");
+            let _ = crate::world::storage::save_current_world(
+                &mut app.world,
+                &app.camera,
+                &app.player,
+                app.save_slot,
+                None,
+            );
             break;
         }
 
@@ -801,6 +821,10 @@ pub fn run_vita_app() {
             }
         }
     }
+
+    crate::vita_log!("Exiting RustCraft clean process shutdown...");
+    drop(app);
+    drop(gxm);
 
     unsafe {
         sceKernelExitProcess(0);

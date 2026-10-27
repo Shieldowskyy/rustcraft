@@ -327,6 +327,15 @@ impl SoundtrackManager {
                 }
             }
         }
+        #[cfg(target_os = "vita")]
+        {
+            if !base_dir.to_string_lossy().contains(':') {
+                let vita_dir = crate::world::storage::soundtracks_dir();
+                if vita_dir.exists() {
+                    base_dir = vita_dir;
+                }
+            }
+        }
         let mut manager = Self {
             base_dir,
             tracks: Vec::new(),

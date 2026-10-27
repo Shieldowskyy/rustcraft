@@ -489,6 +489,17 @@ impl ModManager {
                 return dir;
             }
         }
+        #[cfg(target_os = "vita")]
+        {
+            let custom_dir = PathBuf::from("ux0:data/rustcraft/mods");
+            if custom_dir.is_dir() {
+                return custom_dir;
+            }
+            let app_dir = PathBuf::from("app0:mods");
+            if app_dir.is_dir() {
+                return app_dir;
+            }
+        }
         if let Ok(exe) = std::env::current_exe() {
             if let Some(parent) = exe.parent() {
                 let dir = parent.join("mods");
