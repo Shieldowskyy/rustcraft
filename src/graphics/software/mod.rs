@@ -437,7 +437,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_graphics_rects(&self) -> [(i32, i32, i32, i32); 13] {
+    pub fn settings_graphics_rects(&self) -> [(i32, i32, i32, i32); 12] {
         crate::ui::settings_graphics_rects(self.width, self.height)
     }
 
@@ -452,7 +452,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 13] {
+    pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 12] {
         crate::ui::settings_graphics_rects(self.width, self.height)
     }
 
@@ -2785,6 +2785,85 @@ impl Renderer {
         }
     }
 
+    pub fn draw_feather_3d(
+        &mut self,
+        pos: Vec3,
+        feather_right: Vec3,
+        feather_up: Vec3,
+        feather_forward: Vec3,
+        scale: f32,
+        view_proj: &Mat4,
+    ) {
+        let quill_tex = TextureId::Bone;
+        let feather_tex = TextureId::ChickenFeathers;
+
+        // 1. Central quill shaft (slender shaft running through the feather)
+        self.draw_cube_3d(
+            pos + feather_up * (0.015 * scale),
+            feather_right,
+            feather_up,
+            feather_forward,
+            [0.008 * scale, 0.140 * scale, 0.008 * scale],
+            quill_tex,
+            view_proj,
+        );
+
+        // 2. Quill base (calamus / bare quill tip sticking out at bottom)
+        self.draw_cube_3d(
+            pos - feather_up * (0.135 * scale),
+            feather_right,
+            feather_up,
+            feather_forward,
+            [0.006 * scale, 0.035 * scale, 0.006 * scale],
+            quill_tex,
+            view_proj,
+        );
+
+        // 3. Lower vanes (feather barbs on both sides of lower shaft)
+        self.draw_cube_3d(
+            pos - feather_up * (0.045 * scale) + feather_right * (0.012 * scale),
+            feather_right,
+            feather_up,
+            feather_forward,
+            [0.038 * scale, 0.045 * scale, 0.005 * scale],
+            feather_tex,
+            view_proj,
+        );
+
+        // 4. Middle main broad vanes (broadest section of the feather)
+        self.draw_cube_3d(
+            pos + feather_up * (0.040 * scale) + feather_right * (0.016 * scale),
+            feather_right,
+            feather_up,
+            feather_forward,
+            [0.052 * scale, 0.055 * scale, 0.005 * scale],
+            feather_tex,
+            view_proj,
+        );
+
+        // 5. Upper tapered tip (tapering to a fine tip at the top)
+        self.draw_cube_3d(
+            pos + feather_up * (0.115 * scale) + feather_right * (0.008 * scale),
+            feather_right,
+            feather_up,
+            feather_forward,
+            [0.030 * scale, 0.038 * scale, 0.004 * scale],
+            feather_tex,
+            view_proj,
+        );
+
+        // 6. Feather apex tip
+        self.draw_cube_3d(
+            pos + feather_up * (0.155 * scale),
+            feather_right,
+            feather_up,
+            feather_forward,
+            [0.012 * scale, 0.018 * scale, 0.004 * scale],
+            feather_tex,
+            view_proj,
+        );
+    }
+
     pub fn draw_hand_3d(
         &mut self,
         camera: &Camera,
@@ -2841,6 +2920,14 @@ impl Renderer {
                 let meat_origin = hand_pos + forward * (0.08 + attack * 0.10) + up * (0.08 - attack * 0.08);
 
                 self.draw_meat_3d(block, meat_origin, meat_right, meat_up, meat_forward, 1.0, view_proj);
+            } else if block == crate::world::block::BlockId::Feather {
+                let swing_pitch = attack * 0.55;
+                let feather_up = (up * (1.0 - swing_pitch * 0.3) + forward * (0.6 + swing_pitch) - right * 0.15).normalized();
+                let feather_right = (right * 0.95 + up * 0.15).normalized();
+                let feather_forward = feather_up.cross(feather_right).normalized();
+                let feather_origin = hand_pos + forward * (0.10 + attack * 0.10) + up * (0.10 - attack * 0.08);
+
+                self.draw_feather_3d(feather_origin, feather_right, feather_up, feather_forward, 1.0, view_proj);
             } else {
                 // Held block: positioned far enough forward so it never penetrates the camera or near clipping plane
                 let block_forward_dist = 0.92 + attack * 0.06;
@@ -3043,6 +3130,12 @@ impl Renderer {
             let meat_right = (right * tilt_angle.cos() - up * tilt_angle.sin()).normalized();
             let meat_forward = forward;
             self.draw_meat_3d(block, pos, meat_right, meat_up, meat_forward, scale, view_proj);
+        } else if block == crate::world::block::BlockId::Feather {
+            let tilt_angle = 0.35f32;
+            let feather_up = (up * tilt_angle.cos() + right * tilt_angle.sin()).normalized();
+            let feather_right = (right * tilt_angle.cos() - up * tilt_angle.sin()).normalized();
+            let feather_forward = forward;
+            self.draw_feather_3d(pos, feather_right, feather_up, feather_forward, scale * 1.1, view_proj);
         } else {
             use crate::world::block::Face;
             let size = 0.28 * scale;

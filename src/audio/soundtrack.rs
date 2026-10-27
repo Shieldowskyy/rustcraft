@@ -14,6 +14,12 @@ use crate::core::i18n::t;
 use crate::engine::modding::parse_json_value_root;
 use crate::ui::draw::{draw_text_colored_shadowed, fill_rect, fill_rect_alpha, pack_color};
 
+/// Background loader for asynchronously decoding audio files without frame stalls.
+pub struct AsyncTrackLoader {
+    pub track_idx: usize,
+    pub receiver: std::sync::mpsc::Receiver<Result<Arc<SoundSample>, String>>,
+}
+
 /// Soundtrack playback categorization.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SoundtrackCategory {
@@ -147,35 +153,52 @@ impl MusicToast {
         }
     }
 
-    /// Renders the now-playing toast notification in the bottom-right corner with smooth fade and slide.
-    pub fn draw(&self, buffer: &mut [u32], width: usize, height: usize) {
-        if !self.visible || self.timer <= 0.0 || width < 300 || height < 100 {
+    /// Renders the now-playing toast notification in the bottom-right corner with smooth fade and slide,
+    /// along with a real-time progress bar.
+    pub fn draw(
+        &self,
+        buffer: &mut [u32],
+        width: usize,
+        height: usize,
+        force_show: bool,
+        progress: Option<f32>,
+        duration_sec: Option<f32>,
+    ) {
+        if (!force_show && (!self.visible || self.timer <= 0.0)) || width < 300 || height < 100 {
             return;
         }
 
-        let toast_w = 270i32;
-        let toast_h = 44i32;
+        let toast_w = 280i32;
+        let toast_h = 50i32;
         let margin = 14i32;
 
         let base_x = width as i32 - toast_w - margin;
         let base_y = height as i32 - toast_h - margin;
 
-        let elapsed = self.duration - self.timer;
-        let alpha = if elapsed < 0.4 {
-            (elapsed / 0.4).clamp(0.0, 1.0)
-        } else if self.timer < 0.6 {
-            (self.timer / 0.6).clamp(0.0, 1.0)
-        } else {
+        let alpha = if force_show {
             1.0
+        } else {
+            let elapsed = self.duration - self.timer;
+            if elapsed < 0.4 {
+                (elapsed / 0.4).clamp(0.0, 1.0)
+            } else if self.timer < 0.6 {
+                (self.timer / 0.6).clamp(0.0, 1.0)
+            } else {
+                1.0
+            }
         };
 
-        let slide_offset = ((1.0 - alpha) * 25.0) as i32;
+        let slide_offset = if force_show {
+            0
+        } else {
+            ((1.0 - alpha) * 25.0) as i32
+        };
         let bx = base_x + slide_offset;
         let by = base_y;
 
         // Dark glassmorphic background
         let bg_color = pack_color(0.08, 0.10, 0.14);
-        fill_rect_alpha(buffer, width, height, bx, by, toast_w, toast_h, bg_color, alpha * 0.88);
+        fill_rect_alpha(buffer, width, height, bx, by, toast_w, toast_h, bg_color, alpha * 0.90);
 
         // Card borders
         let border_top = pack_color(0.30, 0.38, 0.50);
@@ -237,11 +260,40 @@ impl MusicToast {
             height,
             &sub_text,
             content_x,
-            by + 28,
+            by + 27,
             1,
             1,
             sub_color,
         );
+
+        // Duration text on right side of subtext
+        if let (Some(p), Some(dur)) = (progress, duration_sec) {
+            if dur > 0.0 {
+                let cur_s = (p * dur) as u32;
+                let total_s = dur as u32;
+                let time_str = format!("{}:{:02}/{}:{:02}", cur_s / 60, cur_s % 60, total_s / 60, total_s % 60);
+                let tw = crate::graphics::font::measure_text(&time_str, 1, 1);
+                let tx = bx + toast_w - 12 - tw;
+                draw_text_colored_shadowed(buffer, width, height, &time_str, tx, by + 27, 1, 1, pack_color(0.60, 0.70, 0.82));
+            }
+        }
+
+        // Real-time playback progress bar
+        let bar_x = content_x;
+        let bar_y = by + 41;
+        let bar_w = toast_w - 24;
+        let bar_h = 3;
+        let track_bg = pack_color(0.18, 0.22, 0.28);
+        fill_rect(buffer, width, height, bar_x, bar_y, bar_w, bar_h, track_bg);
+
+        let prog_val = progress.unwrap_or(0.0).clamp(0.0, 1.0);
+        let fill_w = ((bar_w as f32) * prog_val).round() as i32;
+        if fill_w > 0 {
+            fill_rect(buffer, width, height, bar_x, bar_y, fill_w, bar_h, self.accent_color);
+            if fill_w < bar_w {
+                fill_rect(buffer, width, height, bar_x + fill_w - 1, bar_y, 2, bar_h, pack_color(1.0, 1.0, 1.0));
+            }
+        }
     }
 }
 
@@ -257,6 +309,8 @@ pub struct SoundtrackManager {
     pub toast: MusicToast,
     rng_seed: u32,
     pub last_played_idx: Option<usize>,
+    pub loading_track: Option<AsyncTrackLoader>,
+    pub current_duration_sec: f32,
 }
 
 impl SoundtrackManager {
@@ -274,6 +328,8 @@ impl SoundtrackManager {
             toast: MusicToast::default(),
             rng_seed: 0x517CC1B7,
             last_played_idx: None,
+            loading_track: None,
+            current_duration_sec: 0.0,
         };
 
         manager.reload();
@@ -479,7 +535,7 @@ impl SoundtrackManager {
 
     /// Primary game-loop update coordinator.
     ///
-    /// Manages track transitions, context switching (creative vs survival vs menu),
+    /// Manages non-blocking async track decoding, track transitions, context switching,
     /// pause intervals between songs, and toast expiration.
     pub fn update(
         &mut self,
@@ -490,6 +546,32 @@ impl SoundtrackManager {
         is_muted: bool,
     ) {
         self.toast.update(dt);
+
+        // Check if an asynchronously requested track has finished decoding in the background
+        if let Some(loader) = &self.loading_track {
+            match loader.receiver.try_recv() {
+                Ok(Ok(sample)) => {
+                    let idx = loader.track_idx;
+                    self.loading_track = None;
+                    if idx < self.tracks.len() {
+                        self.tracks[idx].sample = Some(Arc::clone(&sample));
+                        self.start_playing_sample(idx, sample, audio);
+                    }
+                }
+                Ok(Err(err)) => {
+                    crate::log_warn!("SOUNDTRACK", "Async track decode error: {}", err);
+                    self.loading_track = None;
+                    self.delay_timer = 2.0; // Retry after short pause
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    // Still decoding in background thread: zero main thread lag!
+                    return;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.loading_track = None;
+                }
+            }
+        }
 
         if is_muted || music_vol <= 0.001 {
             return;
@@ -511,8 +593,8 @@ impl SoundtrackManager {
 
         let is_playing = audio.is_music_playing();
 
-        if is_playing {
-            // Track is playing normally
+        if is_playing || self.loading_track.is_some() {
+            // Track is playing normally or actively loading in background
             return;
         }
 
@@ -556,20 +638,48 @@ impl SoundtrackManager {
         self.play_track_at_index(chosen_idx, audio);
     }
 
-    /// Plays a specific track by its index in the soundtrack list.
+    /// Plays a specific track asynchronously without blocking the main game loop thread.
     pub fn play_track_at_index(&mut self, idx: usize, audio: &mut AudioEngine) {
         if idx >= self.tracks.len() {
             return;
         }
 
-        let sample = match self.tracks[idx].load_sample() {
-            Ok(s) => s,
-            Err(e) => {
-                crate::log_warn!("SOUNDTRACK", "Failed to load soundtrack: {}", e);
+        // If sample is already in memory, start immediately!
+        if let Some(sample) = &self.tracks[idx].sample {
+            let sample_clone = Arc::clone(sample);
+            self.start_playing_sample(idx, sample_clone, audio);
+            return;
+        }
+
+        // If this track is already being loaded asynchronously in the background, don't re-spawn
+        if let Some(loader) = &self.loading_track {
+            if loader.track_idx == idx {
                 return;
             }
-        };
+        }
 
+        let (tx, rx) = std::sync::mpsc::channel();
+        let file_path = self.tracks[idx].file_path.clone();
+        let _ = std::thread::Builder::new()
+            .name("soundtrack-async-loader".to_string())
+            .spawn(move || {
+                let res = (|| -> Result<Arc<SoundSample>, String> {
+                    let bytes = fs::read(&file_path)
+                        .map_err(|e| format!("Could not read audio file '{}': {}", file_path.display(), e))?;
+                    let sample = SoundSample::from_file_bytes(&bytes)
+                        .map_err(|e| format!("Failed to decode audio file '{}': {}", file_path.display(), e))?;
+                    Ok(Arc::new(sample))
+                })();
+                let _ = tx.send(res);
+            });
+
+        self.loading_track = Some(AsyncTrackLoader {
+            track_idx: idx,
+            receiver: rx,
+        });
+    }
+
+    fn start_playing_sample(&mut self, idx: usize, sample: Arc<SoundSample>, audio: &mut AudioEngine) {
         let title = self.tracks[idx].title.clone();
         let artist = self.tracks[idx].artist.clone();
         let primary_cat = self.tracks[idx]
@@ -580,6 +690,7 @@ impl SoundtrackManager {
 
         self.current_track_idx = Some(idx);
         self.last_played_idx = Some(idx);
+        self.current_duration_sec = sample.duration_seconds();
 
         audio.play_music(sample, 1.0, false);
         self.toast.show(&title, &artist, primary_cat);
@@ -600,9 +711,39 @@ impl SoundtrackManager {
         self.delay_timer = self.rand_f32(self.min_delay_seconds, self.max_delay_seconds);
     }
 
-    /// Renders the now-playing toast notification.
-    pub fn draw_toast(&self, buffer: &mut [u32], width: usize, height: usize) {
-        self.toast.draw(buffer, width, height);
+    /// Renders the now-playing toast notification, always showing on pause menu with a progress bar.
+    pub fn draw_toast(
+        &mut self,
+        buffer: &mut [u32],
+        width: usize,
+        height: usize,
+        is_paused: bool,
+        audio: &AudioEngine,
+    ) {
+        let progress = audio.music_playback_progress();
+
+        if is_paused {
+            // Requirement 5: on pause menu ALWAYS display toast of current soundtrack with progress bar
+            let track_info = self.current_track_idx
+                .and_then(|i| self.tracks.get(i))
+                .map(|track| {
+                    let cat = track.categories.first().copied().unwrap_or(SoundtrackCategory::Uncategorized);
+                    (track.title.clone(), track.artist.clone(), cat)
+                });
+
+            if let Some((title, artist, cat)) = track_info {
+                self.toast.title = title;
+                self.toast.artist = artist;
+                self.toast.category_name = cat.display_name().to_string();
+                self.toast.accent_color = cat.accent_color();
+                self.toast.visible = true;
+                self.toast.draw(buffer, width, height, true, progress, Some(self.current_duration_sec));
+            } else if self.toast.visible {
+                self.toast.draw(buffer, width, height, true, progress, Some(self.current_duration_sec));
+            }
+        } else {
+            self.toast.draw(buffer, width, height, false, progress, Some(self.current_duration_sec));
+        }
     }
 
     /// Returns the currently active track metadata if any.
@@ -693,7 +834,7 @@ mod tests {
 
         // Render to dummy framebuffer
         let mut fb = vec![0u32; 800 * 600];
-        toast.draw(&mut fb, 800, 600);
+        toast.draw(&mut fb, 800, 600, false, Some(0.4), Some(180.0));
 
         // Verify pixels were written
         let painted_pixels = fb.iter().filter(|&&p| p != 0).count();
@@ -706,6 +847,12 @@ mod tests {
 
         toast.update(4.0);
         assert!(!toast.visible);
+
+        // Force show (e.g. pause menu) even when timer expired and not visible
+        let mut fb_pause = vec![0u32; 800 * 600];
+        toast.draw(&mut fb_pause, 800, 600, true, Some(0.75), Some(200.0));
+        let painted_pause = fb_pause.iter().filter(|&&p| p != 0).count();
+        assert!(painted_pause > 100, "Forced toast on pause menu must render pixels");
     }
 
     #[test]

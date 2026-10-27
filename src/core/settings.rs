@@ -249,6 +249,25 @@ impl Default for GameSettings {
     }
 }
 
+#[inline]
+pub fn round_to_5_pct(val: f32) -> f32 {
+    let pct = (val * 100.0).round() as i32;
+    let rounded = (((pct as f32 / 5.0).round() as i32) * 5).clamp(0, 100);
+    rounded as f32 / 100.0
+}
+
+#[inline]
+fn cycle_volume_5pct(current: f32, forward: bool) -> f32 {
+    let pct = (current * 100.0).round() as i32;
+    let rounded = (((pct as f32 / 5.0).round() as i32) * 5).clamp(0, 100);
+    let next = if forward {
+        if rounded >= 100 { 0 } else { (rounded + 5).min(100) }
+    } else {
+        if rounded <= 0 { 100 } else { (rounded - 5).max(0) }
+    };
+    next as f32 / 100.0
+}
+
 impl GameSettings {
     pub const FPS_LIMIT_PRESETS: [u32; 10] = [25, 30, 40, 60, 75, 90, 120, 144, 165, 0];
 
@@ -342,11 +361,11 @@ impl GameSettings {
                 };
 
                 let audio_offset = 35 + if bytes.len() >= 35 { bytes[34] as usize } else { 0 };
-                let master_volume = bytes.get(audio_offset).map(|&b| b as f32 / 100.0).unwrap_or(0.8);
-                let sfx_volume = bytes.get(audio_offset + 1).map(|&b| b as f32 / 100.0).unwrap_or(1.0);
-                let music_volume = bytes.get(audio_offset + 2).map(|&b| b as f32 / 100.0).unwrap_or(0.5);
-                let ambient_volume = bytes.get(audio_offset + 3).map(|&b| b as f32 / 100.0).unwrap_or(0.7);
-                let ui_volume = bytes.get(audio_offset + 4).map(|&b| b as f32 / 100.0).unwrap_or(1.0);
+                let master_volume = round_to_5_pct(bytes.get(audio_offset).map(|&b| b as f32 / 100.0).unwrap_or(0.8));
+                let sfx_volume = round_to_5_pct(bytes.get(audio_offset + 1).map(|&b| b as f32 / 100.0).unwrap_or(1.0));
+                let music_volume = round_to_5_pct(bytes.get(audio_offset + 2).map(|&b| b as f32 / 100.0).unwrap_or(0.5));
+                let ambient_volume = round_to_5_pct(bytes.get(audio_offset + 3).map(|&b| b as f32 / 100.0).unwrap_or(0.7));
+                let ui_volume = round_to_5_pct(bytes.get(audio_offset + 4).map(|&b| b as f32 / 100.0).unwrap_or(1.0));
                 let mute_audio = bytes.get(audio_offset + 5).copied().unwrap_or(0) != 0;
                 let vibration = bytes.get(audio_offset + 6).copied().unwrap_or(1) != 0;
 
@@ -453,48 +472,23 @@ impl GameSettings {
     }
 
     pub fn cycle_master_volume(&mut self, forward: bool) {
-        let step = 0.1;
-        self.master_volume = if forward {
-            if self.master_volume >= 0.95 { 0.0 } else { (self.master_volume + step).min(1.0) }
-        } else {
-            if self.master_volume <= 0.05 { 1.0 } else { (self.master_volume - step).max(0.0) }
-        };
+        self.master_volume = cycle_volume_5pct(self.master_volume, forward);
     }
 
     pub fn cycle_sfx_volume(&mut self, forward: bool) {
-        let step = 0.1;
-        self.sfx_volume = if forward {
-            if self.sfx_volume >= 0.95 { 0.0 } else { (self.sfx_volume + step).min(1.0) }
-        } else {
-            if self.sfx_volume <= 0.05 { 1.0 } else { (self.sfx_volume - step).max(0.0) }
-        };
+        self.sfx_volume = cycle_volume_5pct(self.sfx_volume, forward);
     }
 
     pub fn cycle_music_volume(&mut self, forward: bool) {
-        let step = 0.1;
-        self.music_volume = if forward {
-            if self.music_volume >= 0.95 { 0.0 } else { (self.music_volume + step).min(1.0) }
-        } else {
-            if self.music_volume <= 0.05 { 1.0 } else { (self.music_volume - step).max(0.0) }
-        };
+        self.music_volume = cycle_volume_5pct(self.music_volume, forward);
     }
 
     pub fn cycle_ambient_volume(&mut self, forward: bool) {
-        let step = 0.1;
-        self.ambient_volume = if forward {
-            if self.ambient_volume >= 0.95 { 0.0 } else { (self.ambient_volume + step).min(1.0) }
-        } else {
-            if self.ambient_volume <= 0.05 { 1.0 } else { (self.ambient_volume - step).max(0.0) }
-        };
+        self.ambient_volume = cycle_volume_5pct(self.ambient_volume, forward);
     }
 
     pub fn cycle_ui_volume(&mut self, forward: bool) {
-        let step = 0.1;
-        self.ui_volume = if forward {
-            if self.ui_volume >= 0.95 { 0.0 } else { (self.ui_volume + step).min(1.0) }
-        } else {
-            if self.ui_volume <= 0.05 { 1.0 } else { (self.ui_volume - step).max(0.0) }
-        };
+        self.ui_volume = cycle_volume_5pct(self.ui_volume, forward);
     }
 
     pub fn toggle_mute_audio(&mut self) {
@@ -721,5 +715,31 @@ mod tests {
 
         settings.cycle_profiler_server_port(false);
         assert_eq!(settings.profiler_server_port, 3000);
+    }
+
+    #[test]
+    fn test_volume_control_5_percent_and_rounding() {
+        let mut settings = GameSettings::default();
+        settings.master_volume = 0.83; // Non-multiple of 5%
+        // Cycling forward should first round to 85% (from 83 -> nearest 85, next -> 90) or cycle_volume_5pct
+        settings.cycle_master_volume(true);
+        assert_eq!((settings.master_volume * 100.0).round() as i32, 90);
+
+        settings.master_volume = 0.82; // 82 rounds to 80
+        settings.cycle_master_volume(true);
+        assert_eq!((settings.master_volume * 100.0).round() as i32, 85);
+
+        settings.cycle_master_volume(true);
+        assert_eq!((settings.master_volume * 100.0).round() as i32, 90);
+
+        settings.cycle_master_volume(false);
+        assert_eq!((settings.master_volume * 100.0).round() as i32, 85);
+
+        settings.master_volume = 1.0;
+        settings.cycle_master_volume(true);
+        assert_eq!((settings.master_volume * 100.0).round() as i32, 0);
+
+        settings.cycle_master_volume(false);
+        assert_eq!((settings.master_volume * 100.0).round() as i32, 100);
     }
 }

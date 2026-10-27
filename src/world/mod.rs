@@ -107,17 +107,17 @@ pub fn get_biome_at(wx: i32, wz: i32, seed: u32) -> (Biome, f32) {
         } else {
             Biome::Mountain
         }
-    } else if temp < -0.18 {
-        // Cold / Snowy zones
-        if temp < -0.25 && rarity > 0.32 {
+    } else if temp < -0.32 {
+        // Cold / Snowy zones (rare arctic regions)
+        if temp < -0.40 && rarity > 0.30 {
             // Ice Spikes: rare spikes of ice in frozen lands
             Biome::IceSpikes
-        } else if humidity > 0.05 {
+        } else if humidity > 0.08 {
             Biome::SnowyTaiga
         } else {
             Biome::SnowyTundra
         }
-    } else if temp < -0.01 {
+    } else if temp < -0.05 {
         // Cold-temperate zone
         if humidity > 0.16 {
             Biome::AutumnForest
@@ -131,8 +131,10 @@ pub fn get_biome_at(wx: i32, wz: i32, seed: u32) -> (Biome, f32) {
         if humidity > 0.28 {
             if rarity > 0.16 {
                 Biome::DarkForest // dense dark oak canopy
-            } else {
+            } else if temp < 0.10 {
                 Biome::Swamp
+            } else {
+                Biome::Forest
             }
         } else if humidity > 0.10 {
             if rarity < -0.18 {
@@ -185,7 +187,7 @@ pub fn get_height_at(wx: i32, wz: i32, seed: u32, biome: Biome, continentalness:
         }
         Biome::Desert => 25.0 + n * 8.0,
         Biome::Savanna => 26.0 + n * 5.0,
-        Biome::Jungle => 29.0 + n * 11.0,
+        Biome::Jungle => 27.0 + n * 8.0,
         Biome::DarkForest => 27.0 + n * 7.0,
         Biome::BirchForest => 28.0 + n * 9.0,
         Biome::AutumnForest | Biome::Forest | Biome::CherryGrove => 28.0 + n * 10.0,

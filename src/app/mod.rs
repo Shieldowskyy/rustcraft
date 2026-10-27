@@ -108,7 +108,7 @@ pub struct RustCraftApp {
     pub create_world_rects: [(i32, i32, i32, i32); 6],
     pub settings_tab: usize,
     pub settings_tab_rects: [(i32, i32, i32, i32); 4],
-    pub settings_rects: [(i32, i32, i32, i32); 13],
+    pub settings_rects: [(i32, i32, i32, i32); 12],
     pub settings_audio_rects: [(i32, i32, i32, i32); 7],
     pub settings_controls_rects: [(i32, i32, i32, i32); 7],
     pub settings_debug_rects: [(i32, i32, i32, i32); 5],
@@ -675,8 +675,9 @@ impl RustCraftApp {
             runner.render_overlay(self.renderer.pixel_buffer_mut(), self.width, self.height);
         }
 
-        // Draw Now-Playing soundtrack toast in bottom-right corner
-        self.soundtrack.draw_toast(self.renderer.pixel_buffer_mut(), self.width, self.height);
+        // Draw Now-Playing soundtrack toast in bottom-right corner (with progress bar on pause menu)
+        let is_paused = matches!(self.state, GameState::Paused);
+        self.soundtrack.draw_toast(self.renderer.pixel_buffer_mut(), self.width, self.height, is_paused, &self.audio);
 
         out.rumble_request = self.pending_rumble.take();
         if !input.is_mouse_captured && !matches!(self.state, GameState::Playing) {

@@ -225,6 +225,22 @@ impl AudioMixer {
         self.voices.iter().any(|v| v.active && v.category == category && v.fade_out_samples == 0)
     }
 
+    /// Returns the normalized playback progress [0.0, 1.0] of any actively playing voice in the given category.
+    #[inline]
+    pub fn category_playback_progress(&self, category: SoundCategory) -> Option<f32> {
+        for v in &self.voices {
+            if v.active && v.category == category && v.fade_out_samples == 0 {
+                if let Some(sample) = &v.sample {
+                    let total = sample.len() as f64;
+                    if total > 0.0 {
+                        return Some((v.cursor / total).clamp(0.0, 1.0) as f32);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Returns the number of currently playing polyphonic voices.
     #[inline]
     pub fn active_voice_count(&self) -> usize {

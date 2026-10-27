@@ -963,7 +963,7 @@ impl RustCraftApp {
                 }
 
                 let max_opts = match self.settings_tab {
-                    0 => 13,
+                    0 => 12,
                     1 => 7,
                     2 => 7,
                     _ => 5,
@@ -1085,10 +1085,6 @@ impl RustCraftApp {
                                 crate::log_info!("SETTINGS", "Underwater FX toggled to {}", self.settings.underwater_fx);
                             }
                             11 => {
-                                self.settings.debug_overlay = !self.settings.debug_overlay;
-                                crate::log_info!("SETTINGS", "Debug overlay toggled to {}", self.settings.debug_overlay);
-                            }
-                            12 => {
                                 let _ = self.settings.save();
                                 crate::log_info!("SETTINGS", "Saved settings and returned to {:?}", prev);
                                 self.state = match prev {
@@ -1154,10 +1150,6 @@ impl RustCraftApp {
                                     self.settings.underwater_fx = !self.settings.underwater_fx;
                                     crate::log_info!("SETTINGS", "Underwater FX toggled to {}", self.settings.underwater_fx);
                                 }
-                                11 => {
-                                    self.settings.debug_overlay = !self.settings.debug_overlay;
-                                    crate::log_info!("SETTINGS", "Debug overlay toggled to {}", self.settings.debug_overlay);
-                                }
                                 _ => {}
                             }
                         }
@@ -1215,10 +1207,6 @@ impl RustCraftApp {
                                 10 => {
                                     self.settings.underwater_fx = !self.settings.underwater_fx;
                                     crate::log_info!("SETTINGS", "Underwater FX toggled to {}", self.settings.underwater_fx);
-                                }
-                                11 => {
-                                    self.settings.debug_overlay = !self.settings.debug_overlay;
-                                    crate::log_info!("SETTINGS", "Debug overlay toggled to {}", self.settings.debug_overlay);
                                 }
                                 _ => {}
                             }

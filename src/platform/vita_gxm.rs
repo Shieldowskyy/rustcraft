@@ -2350,6 +2350,31 @@ fn append_dropped_item(
         );
         return;
     }
+    if block == BlockId::Feather {
+        let tilt_angle = 0.35f32;
+        let base_up = Vec3::new(0.0, 1.0, 0.0);
+        let base_right = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+        let base_forward = Vec3::new(yaw.sin(), 0.0, yaw.cos());
+
+        let feather_up = (base_up * tilt_angle.cos() + base_right * tilt_angle.sin()).normalized();
+        let feather_right = (base_right * tilt_angle.cos() - base_up * tilt_angle.sin()).normalized();
+        let feather_forward = base_forward;
+
+        append_feather_3d(
+            pos,
+            feather_right,
+            feather_up,
+            feather_forward,
+            0.95,
+            vb,
+            ib,
+            v_count,
+            i_count,
+            max_verts,
+            max_idx,
+        );
+        return;
+    }
     if block.is_tool() {
         let tilt_angle = 0.38f32;
         let base_up = Vec3::new(0.0, 1.0, 0.0);
@@ -3281,6 +3306,55 @@ fn append_meat_3d(
     }
 }
 
+fn append_feather_3d(
+    pos: Vec3,
+    feather_right: Vec3,
+    feather_up: Vec3,
+    feather_forward: Vec3,
+    scale: f32,
+    vb: *mut GxmVertex,
+    ib: *mut u16,
+    v_count: &mut usize,
+    i_count: &mut usize,
+    max_verts: usize,
+    max_idx: usize,
+) {
+    let quill_tex = TextureId::Bone;
+    let feather_tex = TextureId::ChickenFeathers;
+
+    let mut cube = |offset: Vec3, sz: [f32; 3], tex: TextureId| {
+        append_cube_oriented(
+            pos + offset,
+            feather_right,
+            feather_up,
+            feather_forward,
+            sz,
+            tex,
+            tex,
+            tex,
+            vb,
+            ib,
+            v_count,
+            i_count,
+            max_verts,
+            max_idx,
+        );
+    };
+
+    // 1. Central quill shaft
+    cube(feather_up * (0.015 * scale), [0.008 * scale, 0.140 * scale, 0.008 * scale], quill_tex);
+    // 2. Quill base
+    cube(-feather_up * (0.135 * scale), [0.006 * scale, 0.035 * scale, 0.006 * scale], quill_tex);
+    // 3. Lower vanes
+    cube(-feather_up * (0.045 * scale) + feather_right * (0.012 * scale), [0.038 * scale, 0.045 * scale, 0.005 * scale], feather_tex);
+    // 4. Middle main broad vanes
+    cube(feather_up * (0.040 * scale) + feather_right * (0.016 * scale), [0.052 * scale, 0.055 * scale, 0.005 * scale], feather_tex);
+    // 5. Upper tapered tip
+    cube(feather_up * (0.115 * scale) + feather_right * (0.008 * scale), [0.030 * scale, 0.038 * scale, 0.004 * scale], feather_tex);
+    // 6. Feather apex tip
+    cube(feather_up * (0.155 * scale), [0.012 * scale, 0.018 * scale, 0.004 * scale], feather_tex);
+}
+
 fn append_hand_3d(
     camera: &Camera,
     block_id: Option<u8>,
@@ -3363,6 +3437,26 @@ fn append_hand_3d(
                 meat_right,
                 meat_up,
                 meat_forward,
+                1.0,
+                vb,
+                ib,
+                v_count,
+                i_count,
+                max_verts,
+                max_idx,
+            );
+        } else if block == BlockId::Feather {
+            let swing_pitch = attack * 0.55;
+            let feather_up = (up * (1.0 - swing_pitch * 0.3) + forward * (0.6 + swing_pitch) - right * 0.15).normalized();
+            let feather_right = (right * 0.95 + up * 0.15).normalized();
+            let feather_forward = feather_up.cross(feather_right).normalized();
+            let feather_origin = hand_pos + forward * (0.10 + attack * 0.10) + up * (0.10 - attack * 0.08);
+
+            append_feather_3d(
+                feather_origin,
+                feather_right,
+                feather_up,
+                feather_forward,
                 1.0,
                 vb,
                 ib,

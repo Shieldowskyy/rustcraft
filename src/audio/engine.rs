@@ -4,7 +4,7 @@
 //! footstep cadence manager, and platform audio hardware stream.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
@@ -58,6 +58,7 @@ pub struct AudioEngine {
     ui_vol: f32,
     is_muted: bool,
     music_playing: Arc<AtomicBool>,
+    music_progress: Arc<AtomicU32>,
 }
 
 impl AudioEngine {
@@ -147,12 +148,14 @@ impl AudioEngine {
 
         let worker_running = Arc::new(AtomicBool::new(true));
         let music_playing = Arc::new(AtomicBool::new(false));
+        let music_progress = Arc::new(AtomicU32::new(0));
 
         // Attempt to launch dedicated high-priority audio mixing thread
         #[cfg(not(target_arch = "wasm32"))]
         let (queue, worker_handle, sync_mixer, sync_backend) = {
             let running = Arc::clone(&worker_running);
             let music_playing_worker = Arc::clone(&music_playing);
+            let music_progress_worker = Arc::clone(&music_progress);
             let bank_clone = soundbank.clone();
 
             // We use a shared mutex queue or SpscCommandQueue for thread communication
@@ -254,10 +257,14 @@ impl AudioEngine {
                             // Render batch of stereo audio frames
                             mixer.mix_interleaved_stereo(&mut scratch_buffer);
                             audio_backend.write_samples(&scratch_buffer);
-                            music_playing_worker.store(
-                                mixer.is_category_playing(SoundCategory::Music),
-                                Ordering::Relaxed,
-                            );
+                            let is_music = mixer.is_category_playing(SoundCategory::Music);
+                            music_playing_worker.store(is_music, Ordering::Relaxed);
+                            if is_music {
+                                let p = (mixer.category_playback_progress(SoundCategory::Music).unwrap_or(0.0) * 10000.0) as u32;
+                                music_progress_worker.store(p, Ordering::Relaxed);
+                            } else {
+                                music_progress_worker.store(0, Ordering::Relaxed);
+                            }
 
                             // For non-blocking/null backend, yield to avoid pegging the CPU
                             if is_null_sink {
@@ -265,6 +272,7 @@ impl AudioEngine {
                             }
                         } else {
                             music_playing_worker.store(false, Ordering::Relaxed);
+                            music_progress_worker.store(0, Ordering::Relaxed);
                             std::thread::sleep(std::time::Duration::from_millis(10));
                         }
                     }
@@ -311,6 +319,7 @@ impl AudioEngine {
             ui_vol: 1.0,
             is_muted: false,
             music_playing,
+            music_progress,
         }
     }
 
@@ -570,6 +579,17 @@ impl AudioEngine {
             sync_mixer.is_category_playing(SoundCategory::Music)
         } else {
             self.music_playing.load(Ordering::Relaxed)
+        }
+    }
+
+    /// Returns the normalized playback progress [0.0, 1.0] of current background music if playing.
+    pub fn music_playback_progress(&self) -> Option<f32> {
+        if let Some(sync_mixer) = &self.sync_mixer {
+            sync_mixer.category_playback_progress(SoundCategory::Music)
+        } else if self.is_music_playing() {
+            Some((self.music_progress.load(Ordering::Relaxed) as f32 / 10000.0).clamp(0.0, 1.0))
+        } else {
+            None
         }
     }
 
