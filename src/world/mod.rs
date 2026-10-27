@@ -693,6 +693,33 @@ impl Chunk {
                             Biome::Mountain | Biome::JaggedPeaks | Biome::FrozenPeaks | Biome::Ocean | Biome::DeepOcean => {}
                         }
                     }
+                } else if height < 20 {
+                    // Underwater vegetation: Kelp forests and Seagrass
+                    let bed_idx = Chunk::index(lx, height, lz);
+                    let bed_block = BlockId::from_u8(blocks[bed_idx]);
+                    if bed_block == BlockId::Sand || bed_block == BlockId::Dirt || bed_block == BlockId::Mud {
+                        let h = hash_coords(wx, wz, seed.wrapping_add(8831));
+                        let water_depth = 20 - height;
+                        if water_depth >= 3 && (biome == Biome::Ocean || biome == Biome::DeepOcean) {
+                            if h % 5 == 0 {
+                                // Kelp stalks growing upwards towards water surface
+                                let max_kelp_h = (water_depth - 1).clamp(1, 14);
+                                let kelp_len = 1 + (h % (max_kelp_h as u32)) as i32;
+                                for dy in 1..=kelp_len {
+                                    let y = height + dy;
+                                    if y < 20 {
+                                        blocks[Chunk::index(lx, y, lz)] = BlockId::Kelp.to_u8();
+                                    }
+                                }
+                            } else if h % 3 == 0 {
+                                // Seagrass on seabed
+                                blocks[Chunk::index(lx, height + 1, lz)] = BlockId::Seagrass.to_u8();
+                            }
+                        } else if water_depth >= 1 && h % 4 == 0 {
+                            // Shallow seagrass
+                            blocks[Chunk::index(lx, height + 1, lz)] = BlockId::Seagrass.to_u8();
+                        }
+                    }
                 }
             }
         }

@@ -92,6 +92,10 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::CowSpawnEgg,
                 BlockId::ChickenSpawnEgg,
                 BlockId::SheepSpawnEgg,
+                BlockId::DolphinSpawnEgg,
+                BlockId::FishSpawnEgg,
+                BlockId::Kelp,
+                BlockId::Seagrass,
                 BlockId::WhiteWool,
                 BlockId::OrangeWool,
                 BlockId::MagentaWool,
@@ -174,6 +178,16 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::CowSpawnEgg,
                 BlockId::ChickenSpawnEgg,
                 BlockId::SheepSpawnEgg,
+                BlockId::DolphinSpawnEgg,
+                BlockId::FishSpawnEgg,
+                BlockId::FishingRod,
+                BlockId::RawCod,
+                BlockId::CookedCod,
+                BlockId::RawSalmon,
+                BlockId::CookedSalmon,
+                BlockId::Pufferfish,
+                BlockId::TropicalFish,
+                BlockId::DriedKelp,
                 BlockId::Sapling,
                 BlockId::Water,
                 BlockId::Lava,
@@ -240,6 +254,18 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::CowSpawnEgg,
                 BlockId::ChickenSpawnEgg,
                 BlockId::SheepSpawnEgg,
+                BlockId::DolphinSpawnEgg,
+                BlockId::FishSpawnEgg,
+                BlockId::FishingRod,
+                BlockId::RawCod,
+                BlockId::CookedCod,
+                BlockId::RawSalmon,
+                BlockId::CookedSalmon,
+                BlockId::Pufferfish,
+                BlockId::TropicalFish,
+                BlockId::DriedKelp,
+                BlockId::Kelp,
+                BlockId::Seagrass,
                 BlockId::RawPorkchop,
                 BlockId::CookedPorkchop,
                 BlockId::RawBeef,
@@ -370,6 +396,18 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::CowSpawnEgg,
                 BlockId::ChickenSpawnEgg,
                 BlockId::SheepSpawnEgg,
+                BlockId::DolphinSpawnEgg,
+                BlockId::FishSpawnEgg,
+                BlockId::FishingRod,
+                BlockId::RawCod,
+                BlockId::CookedCod,
+                BlockId::RawSalmon,
+                BlockId::CookedSalmon,
+                BlockId::Pufferfish,
+                BlockId::TropicalFish,
+                BlockId::DriedKelp,
+                BlockId::Kelp,
+                BlockId::Seagrass,
                 BlockId::RawPorkchop,
                 BlockId::CookedPorkchop,
                 BlockId::RawBeef,
@@ -2023,7 +2061,7 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
             px(buffer, 9, 13, iron_dark);
             px(buffer, 9, 12, iron_hi);
         }
-        BlockId::PigSpawnEgg | BlockId::CowSpawnEgg | BlockId::ChickenSpawnEgg | BlockId::SheepSpawnEgg => {
+        BlockId::PigSpawnEgg | BlockId::CowSpawnEgg | BlockId::ChickenSpawnEgg | BlockId::SheepSpawnEgg | BlockId::DolphinSpawnEgg | BlockId::FishSpawnEgg => {
             let (base, spot, outline) = match block {
                 BlockId::PigSpawnEgg => (
                     pack_color(0.95, 0.62, 0.68),
@@ -2044,6 +2082,16 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                     pack_color(0.92, 0.90, 0.88),
                     pack_color(0.85, 0.68, 0.60),
                     pack_color(0.40, 0.38, 0.36),
+                ),
+                BlockId::DolphinSpawnEgg => (
+                    pack_color(0.22, 0.40, 0.62),
+                    pack_color(0.85, 0.88, 0.95),
+                    pack_color(0.12, 0.22, 0.35),
+                ),
+                BlockId::FishSpawnEgg => (
+                    pack_color(0.68, 0.52, 0.32),
+                    pack_color(0.92, 0.45, 0.22),
+                    pack_color(0.38, 0.28, 0.16),
                 ),
                 _ => unreachable!(),
             };
@@ -2069,6 +2117,8 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                                 BlockId::CowSpawnEgg => (lx == 6 && ly == 6) || (lx == 7 && ly == 6) || (lx == 9 && ly == 9) || (lx == 5 && ly == 11) || (lx == 6 && ly == 11),
                                 BlockId::ChickenSpawnEgg => (lx == 7 && ly == 5) || (lx == 6 && ly == 8) || (lx == 9 && ly == 10) || (lx == 7 && ly == 12),
                                 BlockId::SheepSpawnEgg => (lx == 7 && ly == 6) || (lx == 8 && ly == 6) || (lx == 6 && ly == 9) || (lx == 9 && ly == 10) || (lx == 7 && ly == 11),
+                                BlockId::DolphinSpawnEgg => (lx == 6 && ly == 5) || (lx == 8 && ly == 8) || (lx == 6 && ly == 11) || (lx == 9 && ly == 11),
+                                BlockId::FishSpawnEgg => (lx == 7 && ly == 5) || (lx == 8 && ly == 7) || (lx == 6 && ly == 9) || (lx == 8 && ly == 12),
                                 _ => false,
                             };
                             if is_spot {
@@ -2283,6 +2333,191 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
             fill_rect(buffer, buf_w, buf_h, x, y + size - 1, size, 1, dark_border);
             fill_rect(buffer, buf_w, buf_h, x + size - 1, y + half, 1, half, dark_border);
         }
+        BlockId::FishingRod => {
+            for i in 2..=13 {
+                px(buffer, i, 15 - i, wood_mid);
+                px(buffer, i - 1, 15 - i, wood_light);
+            }
+            let string_col = pack_color(0.88, 0.88, 0.90);
+            for y in 3..=11 {
+                px(buffer, 13, y, string_col);
+            }
+            px(buffer, 13, 12, pack_color(0.90, 0.15, 0.15));
+            px(buffer, 12, 13, pack_color(0.70, 0.70, 0.75));
+            px(buffer, 13, 13, pack_color(0.95, 0.95, 0.95));
+        }
+        BlockId::RawCod | BlockId::CookedCod => {
+            let is_cooked = block == BlockId::CookedCod;
+            let outline = if is_cooked { pack_color(0.35, 0.25, 0.12) } else { pack_color(0.30, 0.28, 0.24) };
+            let base = if is_cooked { pack_color(0.78, 0.60, 0.36) } else { pack_color(0.68, 0.62, 0.54) };
+            let belly = if is_cooked { pack_color(0.92, 0.78, 0.52) } else { pack_color(0.85, 0.82, 0.76) };
+            let fin = if is_cooked { pack_color(0.60, 0.42, 0.22) } else { pack_color(0.52, 0.46, 0.38) };
+            let eye = pack_color(0.12, 0.12, 0.12);
+
+            px(buffer, 2, 6, fin);
+            px(buffer, 2, 7, outline);
+            px(buffer, 2, 8, fin);
+            px(buffer, 3, 7, outline);
+
+            for lx in 4..=11 {
+                for ly in 6..=8 {
+                    let col = if lx >= 10 && ly == 7 { eye } else if ly == 8 { belly } else if ly == 6 { fin } else { base };
+                    px(buffer, lx, ly, col);
+                }
+            }
+            for lx in 3..=12 {
+                px(buffer, lx, 5, outline);
+                px(buffer, lx, 9, outline);
+            }
+            px(buffer, 13, 7, outline);
+        }
+        BlockId::RawSalmon | BlockId::CookedSalmon => {
+            let is_cooked = block == BlockId::CookedSalmon;
+            let outline = if is_cooked { pack_color(0.38, 0.15, 0.08) } else { pack_color(0.38, 0.18, 0.16) };
+            let base = if is_cooked { pack_color(0.85, 0.45, 0.22) } else { pack_color(0.82, 0.32, 0.28) };
+            let belly = if is_cooked { pack_color(0.95, 0.65, 0.40) } else { pack_color(0.92, 0.55, 0.48) };
+            let fin = if is_cooked { pack_color(0.65, 0.30, 0.12) } else { pack_color(0.55, 0.20, 0.18) };
+            let eye = pack_color(0.12, 0.12, 0.12);
+
+            px(buffer, 2, 5, fin);
+            px(buffer, 2, 6, outline);
+            px(buffer, 2, 7, fin);
+            px(buffer, 3, 6, outline);
+
+            for lx in 4..=12 {
+                for ly in 5..=8 {
+                    let col = if lx >= 11 && ly == 6 { eye } else if ly >= 7 { belly } else if ly == 5 { fin } else { base };
+                    px(buffer, lx, ly, col);
+                }
+            }
+            for lx in 3..=13 {
+                px(buffer, lx, 4, outline);
+                px(buffer, lx, 9, outline);
+            }
+            px(buffer, 14, 6, outline);
+            px(buffer, 14, 7, outline);
+        }
+        BlockId::Pufferfish => {
+            let outline = pack_color(0.40, 0.32, 0.08);
+            let base = pack_color(0.92, 0.78, 0.22);
+            let belly = pack_color(0.96, 0.92, 0.65);
+            let spike = pack_color(0.72, 0.58, 0.15);
+            let eye = pack_color(0.15, 0.25, 0.45);
+
+            px(buffer, 4, 3, spike);
+            px(buffer, 8, 2, spike);
+            px(buffer, 11, 3, spike);
+            px(buffer, 2, 8, spike);
+            px(buffer, 13, 8, spike);
+            px(buffer, 4, 12, spike);
+            px(buffer, 8, 13, spike);
+            px(buffer, 11, 12, spike);
+
+            for ly in 4..=11 {
+                for lx in 4..=11 {
+                    let in_circle = (lx - 7) * (lx - 7) + (ly - 7) * (ly - 7) <= 16;
+                    if in_circle {
+                        let is_border = (lx - 7) * (lx - 7) + (ly - 7) * (ly - 7) >= 12;
+                        if is_border {
+                            px(buffer, lx, ly, outline);
+                        } else if lx == 9 && ly == 6 {
+                            px(buffer, lx, ly, eye);
+                        } else if ly >= 8 {
+                            px(buffer, lx, ly, belly);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+        }
+        BlockId::TropicalFish => {
+            let outline = pack_color(0.45, 0.18, 0.05);
+            let orange = pack_color(0.95, 0.48, 0.12);
+            let white = pack_color(0.96, 0.96, 0.98);
+            let fin = pack_color(0.18, 0.72, 0.85);
+            let eye = pack_color(0.10, 0.10, 0.12);
+
+            px(buffer, 2, 6, fin);
+            px(buffer, 2, 7, fin);
+            px(buffer, 2, 8, fin);
+            px(buffer, 3, 7, outline);
+
+            for lx in 4..=12 {
+                for ly in 6..=8 {
+                    let is_white_stripe = lx == 6 || lx == 7 || lx == 10;
+                    let col = if lx == 11 && ly == 6 {
+                        eye
+                    } else if is_white_stripe {
+                        white
+                    } else {
+                        orange
+                    };
+                    px(buffer, lx, ly, col);
+                }
+            }
+            px(buffer, 7, 5, fin);
+            px(buffer, 8, 5, fin);
+
+            for lx in 3..=12 {
+                px(buffer, lx, 5, outline);
+                px(buffer, lx, 9, outline);
+            }
+            px(buffer, 13, 7, outline);
+        }
+        BlockId::DriedKelp => {
+            let dark = pack_color(0.12, 0.22, 0.10);
+            let mid = pack_color(0.20, 0.38, 0.16);
+            let hi = pack_color(0.28, 0.52, 0.22);
+            let tie = pack_color(0.68, 0.55, 0.30);
+
+            for ly in 4..=11 {
+                for lx in 4..=11 {
+                    let is_tie = ly == 7 || ly == 8;
+                    let col = if is_tie {
+                        tie
+                    } else if lx == 4 || lx == 11 || ly == 4 || ly == 11 {
+                        dark
+                    } else if (lx + ly) % 2 == 0 {
+                        hi
+                    } else {
+                        mid
+                    };
+                    px(buffer, lx, ly, col);
+                }
+            }
+        }
+        BlockId::Kelp => {
+            let stalk = pack_color(0.16, 0.32, 0.14);
+            let leaf = pack_color(0.24, 0.54, 0.20);
+            let hi = pack_color(0.35, 0.70, 0.28);
+            for y in 2..=14 {
+                px(buffer, 7, y, stalk);
+                px(buffer, 8, y, stalk);
+                if y % 3 == 0 {
+                    px(buffer, 5, y, leaf);
+                    px(buffer, 6, y, hi);
+                } else if y % 3 == 1 {
+                    px(buffer, 9, y, hi);
+                    px(buffer, 10, y, leaf);
+                }
+            }
+        }
+        BlockId::Seagrass => {
+            let leaf1 = pack_color(0.22, 0.58, 0.24);
+            let leaf2 = pack_color(0.30, 0.68, 0.32);
+            let dark = pack_color(0.15, 0.40, 0.18);
+            for y in 5..=14 {
+                let x1 = 5 + ((14 - y) / 3);
+                px(buffer, x1, y, leaf1);
+                px(buffer, x1 + 1, y, dark);
+            }
+            for y in 3..=14 {
+                let x2 = 9 + ((14 - y) % 2);
+                px(buffer, x2, y, leaf2);
+                px(buffer, x2 + 1, y, dark);
+            }
+        }
         _ => {
             // High-detail 3D beveled block
             let color = block.face_color(Face::Top);
@@ -2368,6 +2603,18 @@ mod tests {
         assert!(tab4.contains(&BlockId::CowSpawnEgg));
         assert!(tab4.contains(&BlockId::ChickenSpawnEgg));
         assert!(tab4.contains(&BlockId::SheepSpawnEgg));
+        assert!(tab4.contains(&BlockId::DolphinSpawnEgg));
+        assert!(tab4.contains(&BlockId::FishSpawnEgg));
+        assert!(tab4.contains(&BlockId::FishingRod));
+        assert!(tab4.contains(&BlockId::RawCod));
+        assert!(tab4.contains(&BlockId::CookedCod));
+        assert!(tab4.contains(&BlockId::RawSalmon));
+        assert!(tab4.contains(&BlockId::CookedSalmon));
+        assert!(tab4.contains(&BlockId::Pufferfish));
+        assert!(tab4.contains(&BlockId::TropicalFish));
+        assert!(tab4.contains(&BlockId::DriedKelp));
+        assert!(tab4.contains(&BlockId::Kelp));
+        assert!(tab4.contains(&BlockId::Seagrass));
         assert!(tab4.contains(&BlockId::Shears));
         assert!(tab4.contains(&BlockId::WhiteWool));
         assert!(tab4.contains(&BlockId::RedWool));

@@ -119,8 +119,16 @@ impl RecipeBook {
         // --- Cooking over Heat / Torches ---
         self.add(recipe!(1, 2, [RawPorkchop, CoalOre] => CookedPorkchop * 1));
         self.add(recipe!(1, 2, [RawBeef, CoalOre] => CookedBeef * 1));
+        self.add(recipe!(1, 2, [RawChicken, CoalOre] => CookedChicken * 1));
+        self.add(recipe!(1, 2, [RawCod, CoalOre] => CookedCod * 1));
+        self.add(recipe!(1, 2, [RawSalmon, CoalOre] => CookedSalmon * 1));
+        self.add(recipe!(1, 2, [Kelp, CoalOre] => DriedKelp * 1));
         self.add(recipe!(1, 2, [RawPorkchop, Torch] => CookedPorkchop * 1));
         self.add(recipe!(1, 2, [RawBeef, Torch] => CookedBeef * 1));
+        self.add(recipe!(1, 2, [RawChicken, Torch] => CookedChicken * 1));
+        self.add(recipe!(1, 2, [RawCod, Torch] => CookedCod * 1));
+        self.add(recipe!(1, 2, [RawSalmon, Torch] => CookedSalmon * 1));
+        self.add(recipe!(1, 2, [Kelp, Torch] => DriedKelp * 1));
 
         // --- 3x3 Hollow Rings (Storage & Processing) ---
         self.add(recipe!(3, 3, [
@@ -278,6 +286,26 @@ impl RecipeBook {
             IronIngot, _,
             _,         IronIngot,
         ] => Shears * 1));
+
+        // Fishing Rod (3x3: 3 Sticks diagonally + 2 Feathers or Wool vertically)
+        self.add(recipe!(3, 3, [
+            _,     _,     Stick,
+            _,     Stick, Feather,
+            Stick, _,     Feather,
+        ] => FishingRod * 1));
+        self.add(recipe!(3, 3, [
+            _,     _,     Stick,
+            _,     Stick, WhiteWool,
+            Stick, _,     WhiteWool,
+        ] => FishingRod * 1));
+        self.add(recipe!(2, 2, [
+            Stick, Feather,
+            Stick, Feather,
+        ] => FishingRod * 1));
+        self.add(recipe!(2, 2, [
+            Stick, WhiteWool,
+            Stick, WhiteWool,
+        ] => FishingRod * 1));
 
         // Beds (3x2: 3 Wool, Feathers or Leaves over 3 Planks)
         for &wool in &crate::world::block::BlockId::WOOL_BLOCKS {

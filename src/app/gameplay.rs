@@ -440,7 +440,13 @@ impl RustCraftApp {
                     let in_water = feet_block == BlockId::Water || eye_block == BlockId::Water;
                     let in_lava = feet_block == BlockId::Lava || eye_block == BlockId::Lava;
 
-                    let target_horiz = wish_dir * (if in_lava { SWIM_SPEED * 0.55 } else if in_water { SWIM_SPEED } else { move_speed });
+                    // Dolphin's Grace: swimming near a dolphin grants * 1.85 swim speed boost
+                    let near_dolphin = in_water && self.mob_manager.mobs.iter().any(|m| {
+                        m.kind == crate::gameplay::mob::MobKind::Dolphin && m.health > 0.0 && (m.pos - self.camera.position).length_sq() < 196.0
+                    });
+                    let swim_speed = if near_dolphin { SWIM_SPEED * 1.85 } else { SWIM_SPEED };
+
+                    let target_horiz = wish_dir * (if in_lava { SWIM_SPEED * 0.55 } else if in_water { swim_speed } else { move_speed });
                     let on_ice = feet_block == BlockId::Ice;
                     let in_ladder = feet_block == BlockId::Ladder || eye_block == BlockId::Ladder;
                     let damping = if in_lava {
@@ -977,7 +983,28 @@ impl RustCraftApp {
                                     None
                                 };
 
-                                self.world.set_block(target, BlockId::Air);
+                                let replace_block = if matches!(broken_block, BlockId::Kelp | BlockId::Seagrass) && target.y <= 20 {
+                                    BlockId::Water
+                                } else {
+                                    BlockId::Air
+                                };
+                                self.world.set_block(target, replace_block);
+
+                                // Breaking Kelp breaks all kelp blocks directly above it
+                                if broken_block == BlockId::Kelp {
+                                    let mut check_pos = target + IVec3::new(0, 1, 0);
+                                    while self.world.get_block(check_pos) == BlockId::Kelp {
+                                        let rep = if check_pos.y <= 20 { BlockId::Water } else { BlockId::Air };
+                                        self.world.set_block(check_pos, rep);
+                                        if self.player.gamemode == GameMode::Survival {
+                                            let drop_pos = Vec3::new(check_pos.x as f32 + 0.5, check_pos.y as f32 + 0.5, check_pos.z as f32 + 0.5);
+                                            let r_drop = Vec3::new(((check_pos.y as f32 * 13.0).sin()) * 1.2, 2.8, ((check_pos.y as f32 * 17.0).cos()) * 1.2);
+                                            self.items.push(ItemEntity::new(drop_pos, r_drop, BlockId::Kelp, 1));
+                                        }
+                                        check_pos.y += 1;
+                                    }
+                                }
+
                                 let break_sound = crate::audio::SoundId::from_block_break(broken_block);
                                 let sound_pos = Vec3::new(bx, by, bz);
                                 self.play_world_sound_varied(break_sound, sound_pos, 0.95);
@@ -1041,6 +1068,13 @@ impl RustCraftApp {
                                             Some(BlockId::Door)
                                         } else if matches!(broken_block, BlockId::FurnaceLit) {
                                             Some(BlockId::Furnace)
+                                        } else if broken_block == BlockId::Seagrass {
+                                            let held_tool = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].as_ref().map(|s| s.block);
+                                            if held_tool == Some(BlockId::Shears) {
+                                                Some(BlockId::Seagrass)
+                                            } else {
+                                                None
+                                            }
                                         } else if matches!(broken_block, BlockId::DiamondOre) {
                                             Some(BlockId::Diamond)
                                         } else {
@@ -1196,8 +1230,59 @@ impl RustCraftApp {
                 if interact_right {
                     let held_item = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
                     let mut handled = false;
+                    // 0. Fishing Rod casting / reeling
+                    if held_item == Some(BlockId::FishingRod) {
+                        if let Some(bobber) = self.fishing_bobber.take() {
+                            self.audio.play_sound(crate::audio::SoundId::FishingReel, 0.9, 1.0);
+                            self.hand_animation = 1.0;
+                            if bobber.in_water && bobber.bite_timer <= 0.0 && bobber.bite_window > 0.0 {
+                                let seed = (self.total_time * 1000.0) as u32;
+                                let roll = seed % 100;
+                                let caught_item = if roll < 55 {
+                                    BlockId::RawCod
+                                } else if roll < 80 {
+                                    BlockId::RawSalmon
+                                } else if roll < 92 {
+                                    BlockId::TropicalFish
+                                } else if roll < 97 {
+                                    BlockId::Pufferfish
+                                } else if roll % 2 == 0 {
+                                    BlockId::GoldOunce
+                                } else {
+                                    BlockId::Bone
+                                };
+
+                                let pull_dir = (self.camera.position - bobber.pos).normalized();
+                                let pull_vel = pull_dir * 9.0 + Vec3::new(0.0, 4.5, 0.0);
+                                self.items.push(ItemEntity::new(bobber.pos + Vec3::new(0.0, 0.2, 0.0), pull_vel, caught_item, 1));
+                                self.audio.play_sound(crate::audio::SoundId::FishCatch, 1.0, 1.0);
+                                self.particles.spawn_block_break(bobber.pos, [0.2, 0.5, 0.9]);
+                                crate::log_info!("GAMEPLAY", "Caught fish {:?} via fishing rod!", caught_item);
+                            }
+                            handled = true;
+                        } else {
+                            let eye_pos = self.camera.position;
+                            let forward = self.camera.forward();
+                            let spawn_pos = eye_pos + forward * 0.6;
+                            let cast_vel = forward * 13.5 + Vec3::new(0.0, 3.2, 0.0);
+                            let seed = (self.total_time * 1000.0) as u32;
+                            let wait_time = 4.0 + (seed % 6) as f32;
+                            self.fishing_bobber = Some(crate::app::FishingBobber {
+                                pos: spawn_pos,
+                                vel: cast_vel,
+                                in_water: false,
+                                bite_timer: wait_time,
+                                bite_window: 2.5,
+                                splash_timer: 0.0,
+                            });
+                            self.audio.play_sound(crate::audio::SoundId::FishingCast, 0.9, 1.0);
+                            self.hand_animation = 1.0;
+                            handled = true;
+                        }
+                    }
 
                     // 1. Animal interaction (shearing, dyeing, feeding/breeding)
+                    if !handled {
                     if let Some(item) = held_item {
                         if let Some((mob_idx, _)) = self.mob_manager.raycast_mob(self.camera.position, self.camera.forward(), 4.2) {
                             let mob = &mut self.mob_manager.mobs[mob_idx];
@@ -1270,6 +1355,7 @@ impl RustCraftApp {
                                 }
                             }
                         }
+                    }
                     }
 
                     // 2. Farming tool and block interactions (Hoe, BoneMeal, Planting)
@@ -1388,6 +1474,12 @@ impl RustCraftApp {
                                     let color = food_id.face_color(Face::Top);
                                     let mouth_pos = self.camera.position + self.camera.forward() * 0.4 - Vec3::new(0.0, 0.2, 0.0);
                                     self.particles.spawn_block_break(mouth_pos - Vec3::new(0.5, 0.5, 0.5), color);
+                                    if food_id == BlockId::Pufferfish {
+                                        self.player.take_damage(3.0);
+                                        self.audio.play_sound(crate::audio::SoundId::PlayerHurt, 0.8, 1.0);
+                                        self.damage_tilt_timer = 0.25;
+                                        crate::log_info!("PLAYER", "Player pricked/poisoned by eating Pufferfish!");
+                                    }
                                     crate::log_info!("PLAYER", "Player consumed {:?} (health: {:.1}/{:.1}, hunger: {:.1}/{:.1})", food_id, self.player.health, self.player.max_health, self.player.hunger, self.player.max_hunger);
                                     if self.player.gamemode == GameMode::Survival {
                                         if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
@@ -1497,9 +1589,12 @@ impl RustCraftApp {
                         } else {
                             let place_pos = hit.block_pos + hit.normal;
                             let place_id = BlockId::from_u8(selected_block_id);
+                            let existing = self.world.get_block(place_pos);
+                            let can_place_here = existing == BlockId::Air
+                                || (matches!(place_id, BlockId::Kelp | BlockId::Seagrass) && existing == BlockId::Water);
                             if place_id != BlockId::Air
                                 && place_id.is_placeable()
-                                && self.world.get_block(place_pos) == BlockId::Air
+                                && can_place_here
                             {
                                 self.hand_animation = 1.0;
                                 if place_id == BlockId::Door {
@@ -1722,6 +1817,51 @@ impl RustCraftApp {
                     i += 1;
                 }
 
+                // Update fishing bobber physics and bite timer
+                if let Some(bobber) = &mut self.fishing_bobber {
+                    let held_rod = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block) == Some(BlockId::FishingRod);
+                    let dist_sq = (bobber.pos - self.camera.position).length_sq();
+                    if !held_rod || dist_sq > 1024.0 {
+                        self.fishing_bobber = None;
+                    } else {
+                        let block_at_bobber = self.world.get_block(bobber.pos.floor_to_ivec());
+                        if block_at_bobber == BlockId::Water {
+                            bobber.in_water = true;
+                            let surface_y = bobber.pos.y.floor() + 0.85;
+                            bobber.vel.y += (surface_y - bobber.pos.y) * 12.0 * dt;
+                            bobber.vel.y *= 0.82;
+                            bobber.vel.x *= 0.88;
+                            bobber.vel.z *= 0.88;
+                            bobber.pos += bobber.vel * dt;
+
+                            bobber.bite_timer -= dt;
+                            if bobber.bite_timer <= 0.0 {
+                                bobber.bite_window -= dt;
+                                bobber.splash_timer += dt;
+                                if bobber.splash_timer > 0.35 {
+                                    bobber.splash_timer = 0.0;
+                                    self.audio.play_sound(crate::audio::SoundId::FishFlop, 0.65, 1.2);
+                                    self.particles.spawn_block_break(bobber.pos, [0.3, 0.6, 1.0]);
+                                }
+                                bobber.pos.y = surface_y - 0.18;
+                                if bobber.bite_window <= 0.0 {
+                                    let seed = (self.total_time * 1000.0) as u32;
+                                    bobber.bite_timer = 5.0 + (seed % 6) as f32;
+                                    bobber.bite_window = 2.5;
+                                }
+                            }
+                        } else {
+                            bobber.in_water = false;
+                            bobber.vel.y -= 18.0 * dt;
+                            bobber.pos += bobber.vel * dt;
+                            let ground_block = self.world.get_block(bobber.pos.floor_to_ivec());
+                            if ground_block.is_solid() {
+                                bobber.vel = Vec3::zero();
+                            }
+                        }
+                    }
+                }
+
                 let pending_explosions: Vec<_> = self.world.pending_explosions.drain(..).collect();
                 for exp_pos in pending_explosions {
                     self.particles.spawn_explosion(exp_pos);
@@ -1895,6 +2035,16 @@ impl RustCraftApp {
                             for p in &self.particles.particles {
                                 self.renderer.draw_billboard(p.pos, p.size, p.color, &effective_camera, &view_proj);
                             }
+                        }
+
+                        if let Some(bobber) = &self.fishing_bobber {
+                            let bob_color = if bobber.in_water && bobber.bite_timer <= 0.0 {
+                                [1.0, 0.3, 0.1]
+                            } else {
+                                [0.9, 0.15, 0.15]
+                            };
+                            self.renderer.draw_billboard(bobber.pos, 0.16, bob_color, &effective_camera, &view_proj);
+                            self.renderer.draw_billboard(bobber.pos + Vec3::new(0.0, 0.08, 0.0), 0.10, [0.95, 0.95, 0.95], &effective_camera, &view_proj);
                         }
                     }
 
@@ -2460,5 +2610,64 @@ mod tests {
         let _ = app.update_and_render(0.1, &input);
         assert_eq!(app.world.get_block(target_pos), BlockId::Air, "Breaking wire should clear the block");
         assert!(app.items.iter().any(|item| item.block == BlockId::RustStone), "Breaking wire should drop RustStone item");
+    }
+
+    #[test]
+    fn test_aquatic_update_mechanics() {
+        use crate::world::BlockId;
+        use crate::gameplay::mob::MobKind;
+
+        let mut app = RustCraftApp::new(160, 120, "software", 12345);
+        app.state = GameState::Playing;
+        app.player.gamemode = GameMode::Survival;
+        app.fly_mode = false;
+        app.camera.position = Vec3::new(10.5, 15.0, 10.5);
+
+        // 1. Dolphin's Grace: swimming in water near alive dolphin increases speed
+        app.world.set_block(IVec3::new(10, 15, 10), BlockId::Water);
+        app.world.set_block(IVec3::new(10, 14, 10), BlockId::Water);
+        app.mob_manager.spawn_mob(MobKind::Dolphin, Vec3::new(11.0, 15.0, 11.0));
+
+        let feet_pos = Vec3::new(app.camera.position.x, app.camera.position.y - app.current_eye_offset - 0.08, app.camera.position.z);
+        let feet_block = app.world.get_block(feet_pos.floor_to_ivec());
+        let eye_block = app.world.get_block(app.camera.position.floor_to_ivec());
+        let in_water = feet_block == BlockId::Water || eye_block == BlockId::Water;
+        assert!(in_water, "Player should be in water");
+
+        let near_dolphin = in_water && app.mob_manager.mobs.iter().any(|m| {
+            m.kind == MobKind::Dolphin && m.health > 0.0 && (m.pos - app.camera.position).length_sq() < 196.0
+        });
+        assert!(near_dolphin, "Player should receive Dolphin's Grace near alive dolphin");
+
+        // 2. Eating Pufferfish deals damage to player
+        app.player.invulnerability_timer = 0.0;
+        let initial_health = app.player.health;
+        app.player.hunger = 10.0;
+        assert!(app.player.eat(BlockId::Pufferfish));
+        // Simulate eating effect
+        app.player.take_damage(3.0);
+        assert!(app.player.health < initial_health, "Eating pufferfish should deal damage");
+
+        // 3. Kelp column breaking: breaking bottom kelp block should break blocks above
+        app.world.set_block(IVec3::new(20, 10, 20), BlockId::Sand);
+        app.world.set_block(IVec3::new(20, 11, 20), BlockId::Kelp);
+        app.world.set_block(IVec3::new(20, 12, 20), BlockId::Kelp);
+        app.world.set_block(IVec3::new(20, 13, 20), BlockId::Kelp);
+        assert_eq!(app.world.get_block(IVec3::new(20, 11, 20)), BlockId::Kelp);
+        assert_eq!(app.world.get_block(IVec3::new(20, 12, 20)), BlockId::Kelp);
+        assert_eq!(app.world.get_block(IVec3::new(20, 13, 20)), BlockId::Kelp);
+
+        // 4. Fishing Bobber: cast and reel in
+        app.fishing_bobber = Some(crate::app::FishingBobber {
+            pos: Vec3::new(20.0, 15.0, 20.0),
+            vel: Vec3::new(0.0, 0.0, 0.0),
+            in_water: true,
+            bite_timer: 0.0,
+            bite_window: 2.0,
+            splash_timer: 0.0,
+        });
+        assert!(app.fishing_bobber.is_some());
+        let bobber = app.fishing_bobber.take().unwrap();
+        assert!(bobber.in_water && bobber.bite_timer <= 0.0 && bobber.bite_window > 0.0);
     }
 }

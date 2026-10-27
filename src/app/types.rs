@@ -208,3 +208,13 @@ pub struct AppOutput {
     pub rumble_request: Option<RumbleRequest>,
     pub cursor_visible: Option<bool>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FishingBobber {
+    pub pos: Vec3,
+    pub vel: Vec3,
+    pub in_water: bool,
+    pub bite_timer: f32,
+    pub bite_window: f32,
+    pub splash_timer: f32,
+}
