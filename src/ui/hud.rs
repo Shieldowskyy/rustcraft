@@ -55,6 +55,35 @@ pub fn draw_lava_overlay(buffer: &mut [u32], width: usize, height: usize, time: 
     }
 }
 
+pub fn draw_burning_fire_overlay(buffer: &mut [u32], width: usize, height: usize, time: f32) {
+    let fire_height = 68i32;
+    let base_y = height as i32 - fire_height;
+    for x in 0..width as i32 {
+        let fx = x as f32 * 0.12;
+        let wave = ((fx + time * 14.0).sin() * 0.5 + (fx * 0.5 - time * 9.0).cos() * 0.5) * 18.0;
+        let flame_top = (base_y + 16 - wave as i32).clamp(0, height as i32);
+        for y in flame_top..height as i32 {
+            let dy = y - flame_top;
+            let total_h = (height as i32 - flame_top).max(1);
+            let prog = dy as f32 / total_h as f32;
+            let (r, g, b, alpha) = if prog < 0.30 {
+                (1.0f32, 0.90f32, 0.20f32, 0.50f32)
+            } else if prog < 0.65 {
+                (0.98f32, 0.48f32, 0.08f32, 0.60f32)
+            } else {
+                (0.85f32, 0.15f32, 0.02f32, 0.68f32)
+            };
+            let idx = y as usize * width + x as usize;
+            let (br, bg, bb) = crate::ui::draw::unpack_color(buffer[idx]);
+            buffer[idx] = crate::ui::draw::pack_color(
+                r * alpha + br * (1.0 - alpha),
+                g * alpha + bg * (1.0 - alpha),
+                b * alpha + bb * (1.0 - alpha),
+            );
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum HeartIconState {
     Full,

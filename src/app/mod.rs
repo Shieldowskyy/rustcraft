@@ -108,7 +108,7 @@ pub struct RustCraftApp {
     pub create_world_rects: [(i32, i32, i32, i32); 6],
     pub settings_tab: usize,
     pub settings_tab_rects: [(i32, i32, i32, i32); 4],
-    pub settings_rects: [(i32, i32, i32, i32); 12],
+    pub settings_rects: [(i32, i32, i32, i32); 13],
     pub settings_audio_rects: [(i32, i32, i32, i32); 7],
     pub settings_controls_rects: [(i32, i32, i32, i32); 7],
     pub settings_debug_rects: [(i32, i32, i32, i32); 5],
@@ -225,6 +225,8 @@ impl RustCraftApp {
         let multiplayer_menu_rects = renderer.multiplayer_menu_rects();
         let save_card_rects = renderer.save_card_rects();
         let save_btn_rects = renderer.save_bottom_button_rects();
+        renderer.render_distance = settings.render_distance;
+        renderer.brightness = settings.brightness;
         let create_world_rects = renderer.create_world_rects();
         let settings_tab_rects = renderer.settings_tab_rects();
         let settings_rects = renderer.settings_graphics_rects();

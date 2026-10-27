@@ -402,6 +402,145 @@ impl InventoryLayout {
     }
 }
 
+/// Renders an animated Minecraft-style Steve player model inside the inventory character preview window.
+///
+/// Features dynamic head tracking toward cursor position, iconic cyan shirt, blue jeans,
+/// hair, skin, eyes, and ground drop shadow.
+pub fn draw_player_inventory_preview(
+    buffer: &mut [u32],
+    width: usize,
+    height: usize,
+    center_x: i32,
+    center_y: i32,
+    mouse_pos: Option<(f32, f32)>,
+) {
+    // 1. Shadow on ground
+    let ground_y = center_y + 44;
+    fill_rect_alpha(buffer, width, height, center_x - 22, ground_y, 44, 4, pack_color(0.04, 0.04, 0.06), 0.70);
+    fill_rect_alpha(buffer, width, height, center_x - 17, ground_y - 1, 34, 6, pack_color(0.02, 0.02, 0.03), 0.55);
+
+    // 2. Mouse tracking gaze
+    let (look_x, look_y) = if let Some((mx, my)) = mouse_pos {
+        let dx = (mx - center_x as f32) / 110.0;
+        let dy = (my - (center_y - 20) as f32) / 110.0;
+        (dx.clamp(-1.0, 1.0) * 3.0, dy.clamp(-1.0, 1.0) * 2.0)
+    } else {
+        (0.6, -0.4)
+    };
+    let lx = look_x.round() as i32;
+    let ly = look_y.round() as i32;
+
+    // Palette
+    let skin_base = pack_color(0.78, 0.56, 0.44);
+    let skin_shadow = pack_color(0.66, 0.46, 0.35);
+    let skin_highlight = pack_color(0.85, 0.64, 0.52);
+
+    let hair_base = pack_color(0.28, 0.18, 0.11);
+    let hair_dark = pack_color(0.20, 0.12, 0.08);
+
+    let eye_white = pack_color(0.96, 0.96, 0.98);
+    let eye_blue = pack_color(0.25, 0.35, 0.75);
+    let mouth_color = pack_color(0.38, 0.22, 0.15);
+
+    let shirt_cyan = pack_color(0.00, 0.65, 0.65);
+    let shirt_shadow = pack_color(0.00, 0.50, 0.50);
+    let shirt_dark = pack_color(0.00, 0.40, 0.40);
+    let shirt_highlight = pack_color(0.12, 0.76, 0.76);
+
+    let pants_blue = pack_color(0.18, 0.24, 0.55);
+    let pants_shadow = pack_color(0.12, 0.16, 0.42);
+    let pants_highlight = pack_color(0.25, 0.32, 0.66);
+
+    let shoes_gray = pack_color(0.32, 0.32, 0.35);
+    let shoes_dark = pack_color(0.22, 0.22, 0.24);
+
+    // 3. LEGS (Nogi) - 2x 9px wide x 28px tall
+    let legs_y = center_y + 16;
+    // Left leg (z perspektywy ekranu po lewej)
+    fill_rect(buffer, width, height, center_x - 10, legs_y, 9, 22, pants_blue);
+    fill_rect(buffer, width, height, center_x - 10, legs_y, 2, 22, pants_highlight);
+    fill_rect(buffer, width, height, center_x - 3, legs_y, 2, 22, pants_shadow);
+    // Left shoe
+    fill_rect(buffer, width, height, center_x - 10, legs_y + 22, 9, 6, shoes_gray);
+    fill_rect(buffer, width, height, center_x - 10, legs_y + 26, 9, 2, shoes_dark);
+
+    // Right leg (z perspektywy ekranu po prawej)
+    fill_rect(buffer, width, height, center_x + 1, legs_y, 9, 22, pants_blue);
+    fill_rect(buffer, width, height, center_x + 1, legs_y, 2, 22, pants_highlight);
+    fill_rect(buffer, width, height, center_x + 8, legs_y, 2, 22, pants_shadow);
+    // Right shoe
+    fill_rect(buffer, width, height, center_x + 1, legs_y + 22, 9, 6, shoes_gray);
+    fill_rect(buffer, width, height, center_x + 1, legs_y + 26, 9, 2, shoes_dark);
+
+    // 4. TORSO (Tułów) - 20px wide x 28px tall
+    let torso_x = center_x - 10;
+    let torso_y = center_y - 12;
+    fill_rect(buffer, width, height, torso_x, torso_y, 20, 28, shirt_cyan);
+    fill_rect(buffer, width, height, torso_x, torso_y, 2, 28, shirt_highlight);
+    fill_rect(buffer, width, height, torso_x + 18, torso_y, 2, 28, shirt_shadow);
+    fill_rect(buffer, width, height, torso_x, torso_y + 26, 20, 2, shirt_dark);
+    // Neck cut-out (dekolt pokazujący skórę)
+    fill_rect(buffer, width, height, torso_x + 7, torso_y, 6, 4, skin_base);
+    fill_rect(buffer, width, height, torso_x + 8, torso_y + 4, 4, 2, skin_shadow);
+
+    // 5. ARMS (Ręce) - each 8px wide x 28px tall
+    // Left arm
+    let left_arm_x = torso_x - 9;
+    let left_arm_y = torso_y;
+    // Sleeve
+    fill_rect(buffer, width, height, left_arm_x, left_arm_y, 8, 9, shirt_cyan);
+    fill_rect(buffer, width, height, left_arm_x, left_arm_y, 2, 9, shirt_highlight);
+    fill_rect(buffer, width, height, left_arm_x + 6, left_arm_y, 2, 9, shirt_shadow);
+    // Forearm & Hand
+    fill_rect(buffer, width, height, left_arm_x, left_arm_y + 9, 8, 19, skin_base);
+    fill_rect(buffer, width, height, left_arm_x, left_arm_y + 9, 2, 19, skin_highlight);
+    fill_rect(buffer, width, height, left_arm_x + 6, left_arm_y + 9, 2, 19, skin_shadow);
+
+    // Right arm
+    let right_arm_x = torso_x + 21;
+    let right_arm_y = torso_y;
+    // Sleeve
+    fill_rect(buffer, width, height, right_arm_x, right_arm_y, 8, 9, shirt_cyan);
+    fill_rect(buffer, width, height, right_arm_x, right_arm_y, 2, 9, shirt_highlight);
+    fill_rect(buffer, width, height, right_arm_x + 6, right_arm_y, 2, 9, shirt_shadow);
+    // Forearm & Hand
+    fill_rect(buffer, width, height, right_arm_x, right_arm_y + 9, 8, 19, skin_base);
+    fill_rect(buffer, width, height, right_arm_x, right_arm_y + 9, 2, 19, skin_highlight);
+    fill_rect(buffer, width, height, right_arm_x + 6, right_arm_y + 9, 2, 19, skin_shadow);
+
+    // 6. HEAD (Głowa) - 20px wide x 20px tall, obraca się w stronę kursora
+    let head_x = center_x - 10 + lx;
+    let head_y = torso_y - 20 + ly;
+
+    // Head base skin
+    fill_rect(buffer, width, height, head_x, head_y, 20, 20, skin_base);
+
+    // Hair top (grzywka i włosy)
+    fill_rect(buffer, width, height, head_x, head_y, 20, 6, hair_base);
+    fill_rect(buffer, width, height, head_x, head_y, 20, 2, hair_dark);
+    fill_rect(buffer, width, height, head_x, head_y + 6, 3, 5, hair_base);
+    fill_rect(buffer, width, height, head_x + 17, head_y + 6, 3, 5, hair_base);
+    fill_rect(buffer, width, height, head_x + 6, head_y + 6, 2, 2, hair_base);
+
+    // Eyes (Oczy z białkami i niebieskimi tęczówkami)
+    let eye_y = head_y + 9;
+    let eye_dx = lx.clamp(-1, 1);
+    fill_rect(buffer, width, height, head_x + 3, eye_y, 5, 3, eye_white);
+    fill_rect(buffer, width, height, head_x + 5 + eye_dx, eye_y, 2, 3, eye_blue);
+
+    fill_rect(buffer, width, height, head_x + 12, eye_y, 5, 3, eye_white);
+    fill_rect(buffer, width, height, head_x + 12 + eye_dx, eye_y, 2, 3, eye_blue);
+
+    // Nose (Nos)
+    let nose_x = head_x + 9 + eye_dx;
+    let nose_y = head_y + 12;
+    fill_rect(buffer, width, height, nose_x, nose_y, 3, 2, skin_shadow);
+
+    // Mouth / Beard (Usta i zarost Steve'a)
+    fill_rect(buffer, width, height, head_x + 7 + eye_dx, head_y + 15, 6, 3, mouth_color);
+    fill_rect(buffer, width, height, head_x + 8 + eye_dx, head_y + 15, 4, 1, pack_color(0.50, 0.30, 0.20));
+}
+
 pub fn draw_inventory_screen(
     buffer: &mut [u32],
     width: usize,
@@ -550,13 +689,35 @@ pub fn draw_inventory_screen(
             // Tab 3: Survival Inventory inside Creative
             draw_text_shadowed(buffer, width, height, "SURVIVAL INVENTORY", start_x + 18, start_y + 14, 2, 1);
 
-            // Character Info Box
-            fill_rect_alpha(buffer, width, height, start_x + 22, start_y + 38, 130, 92, pack_color(0.08, 0.08, 0.10), 0.85);
-            draw_text_shadowed(buffer, width, height, "CHARACTER (CREATIVE)", start_x + 30, start_y + 46, 1, 1);
-            draw_text_colored_shadowed(buffer, width, height, "INFINITE RESOURCES", start_x + 30, start_y + 68, 1, 1, pack_color(0.4, 0.9, 0.4));
-            draw_text_colored_shadowed(buffer, width, height, "FLYING: ENABLED", start_x + 30, start_y + 88, 1, 1, pack_color(0.4, 0.8, 1.0));
+            // Character Preview Box
+            let box_x = start_x + 18;
+            let box_y = start_y + 34;
+            let box_w = 180;
+            let box_h = 104;
+            fill_rect_alpha(buffer, width, height, box_x, box_y, box_w, box_h, pack_color(0.08, 0.08, 0.10), 0.95);
+            fill_rect(buffer, width, height, box_x, box_y, box_w, 2, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, box_x, box_y, 2, box_h, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, box_x, box_y + box_h - 2, box_w, 2, pack_color(0.26, 0.26, 0.30));
+            fill_rect(buffer, width, height, box_x + box_w - 2, box_y, 2, box_h, pack_color(0.26, 0.26, 0.30));
+
+            // Character floor shadow & model
+            fill_rect_alpha(buffer, width, height, box_x + 12, box_y + 86, 64, 12, pack_color(0.14, 0.14, 0.18), 0.7);
+            draw_player_inventory_preview(buffer, width, height, box_x + 44, box_y + 54, mouse_pos);
+
+            draw_text_colored_shadowed(buffer, width, height, "PLAYER", box_x + 85, box_y + 16, 1, 1, pack_color(1.0, 0.88, 0.25));
+            draw_text_colored_shadowed(buffer, width, height, "CREATIVE", box_x + 85, box_y + 38, 1, 1, pack_color(0.4, 0.9, 0.4));
+            draw_text_colored_shadowed(buffer, width, height, "FLYING: ON", box_x + 85, box_y + 58, 1, 1, pack_color(0.4, 0.8, 1.0));
+            draw_text_colored_shadowed(buffer, width, height, "GODMODE", box_x + 85, box_y + 78, 1, 1, pack_color(0.9, 0.7, 0.3));
 
             // 2x2 Crafting Grid
+            let craft_panel_x = start_x + 208;
+            let craft_panel_y = start_y + 34;
+            fill_rect_alpha(buffer, width, height, craft_panel_x, craft_panel_y, 242, 104, pack_color(0.10, 0.10, 0.12), 0.85);
+            fill_rect(buffer, width, height, craft_panel_x, craft_panel_y, 242, 2, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, craft_panel_x, craft_panel_y, 2, 104, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, craft_panel_x, craft_panel_y + 102, 242, 2, pack_color(0.26, 0.26, 0.30));
+            fill_rect(buffer, width, height, craft_panel_x + 240, craft_panel_y, 2, 104, pack_color(0.26, 0.26, 0.30));
+
             draw_text_colored_shadowed(buffer, width, height, "Crafting 2x2", start_x + 220, start_y + 26, 1, 1, pack_color(0.85, 0.85, 0.85));
             let craft_x = start_x + 220;
             let craft_y = start_y + 42;
@@ -578,7 +739,13 @@ pub fn draw_inventory_screen(
             let is_out_hovered = hovered_slot == Some(InventorySlotTarget::CraftingOutput);
             draw_slot(buffer, width, height, out_x, out_y, 42, 42, result_item, is_out_hovered);
 
-            // Main 27 slots
+            // Main 27 slots inset panel
+            fill_rect_alpha(buffer, width, height, start_x + 14, start_y + 140, 436, 126, pack_color(0.10, 0.10, 0.12), 0.85);
+            fill_rect(buffer, width, height, start_x + 14, start_y + 140, 436, 2, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, start_x + 14, start_y + 140, 2, 126, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, start_x + 14, start_y + 264, 436, 2, pack_color(0.26, 0.26, 0.30));
+            fill_rect(buffer, width, height, start_x + 448, start_y + 140, 2, 126, pack_color(0.26, 0.26, 0.30));
+
             draw_text_colored_shadowed(buffer, width, height, "Backpack", start_x + 22, start_y + 132, 1, 1, pack_color(0.75, 0.75, 0.75));
             let main_x = start_x + 22;
             let main_y = start_y + 144;
@@ -592,7 +759,13 @@ pub fn draw_inventory_screen(
                 }
             }
 
-            // Hotbar & Trash
+            // Hotbar & Trash inset panel
+            fill_rect_alpha(buffer, width, height, start_x + 10, start_y + 270, 444, 52, pack_color(0.10, 0.10, 0.12), 0.85);
+            fill_rect(buffer, width, height, start_x + 10, start_y + 270, 444, 2, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, start_x + 10, start_y + 270, 2, 52, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, start_x + 10, start_y + 320, 444, 2, pack_color(0.26, 0.26, 0.30));
+            fill_rect(buffer, width, height, start_x + 452, start_y + 270, 2, 52, pack_color(0.26, 0.26, 0.30));
+
             draw_text_colored_shadowed(buffer, width, height, "Hotbar", start_x + 16, start_y + 264, 1, 1, pack_color(0.85, 0.85, 0.4));
             draw_text_colored_shadowed(buffer, width, height, "TRASH", start_x + 424, start_y + 264, 1, 1, pack_color(1.0, 0.4, 0.4));
             let hotbar_x = start_x + 16;
@@ -632,17 +805,52 @@ pub fn draw_inventory_screen(
         }
     } else {
         // Survival Mode
+        let win_x = start_x - 8;
+        let win_y = start_y;
+        let win_w = 480;
+        let win_h = 360;
+
+        // Main window panel background
+        fill_rect_alpha(buffer, width, height, win_x, win_y, win_w, win_h, pack_color(0.15, 0.15, 0.18), 0.98);
+        // Beveled window borders
+        fill_rect(buffer, width, height, win_x, win_y, win_w, 3, pack_color(0.38, 0.38, 0.44));
+        fill_rect(buffer, width, height, win_x, win_y, 3, win_h, pack_color(0.38, 0.38, 0.44));
+        fill_rect(buffer, width, height, win_x, win_y + win_h - 3, win_w, 3, pack_color(0.05, 0.05, 0.06));
+        fill_rect(buffer, width, height, win_x + win_w - 3, win_y, 3, win_h, pack_color(0.05, 0.05, 0.06));
+        // Inner highlight
+        fill_rect(buffer, width, height, win_x + 3, win_y + 3, win_w - 6, 1, pack_color(0.48, 0.48, 0.54));
+
+        // Window Header Bar
+        fill_rect(buffer, width, height, win_x + 3, win_y + 3, win_w - 6, 25, pack_color(0.11, 0.11, 0.14));
+        fill_rect(buffer, width, height, win_x + 3, win_y + 27, win_w - 6, 1, pack_color(0.07, 0.07, 0.09));
+
         let title = if crafting_table_open { "CRAFTING TABLE" } else { "INVENTORY" };
-        draw_text_shadowed(buffer, width, height, title, start_x + 10, start_y + 8, 2, 1);
+        draw_text_colored_shadowed(buffer, width, height, title, win_x + 14, win_y + 7, 2, 1, pack_color(1.0, 0.88, 0.25));
+        draw_text_colored_shadowed(buffer, width, height, "[SURVIVAL]", win_x + win_w - 90, win_y + 9, 1, 1, pack_color(0.45, 0.85, 0.50));
+
         let surv_footer = if is_gamepad_active {
             "[A]: ALL | [X]: 1 ITEM/HALF | [Y]: QUICK MOVE | [B]: CLOSE"
         } else {
             "LMB: ALL | RMB: 1 ITEM / HALF | [E]/[ESC]/[B]: CLOSE"
         };
-        draw_text_shadowed(buffer, width, height, surv_footer, start_x + 10, start_y + 342, 1, 1);
+        // Window Footer Bar
+        fill_rect(buffer, width, height, win_x + 3, win_y + win_h - 22, win_w - 6, 19, pack_color(0.11, 0.11, 0.14));
+        fill_rect(buffer, width, height, win_x + 3, win_y + win_h - 22, win_w - 6, 1, pack_color(0.07, 0.07, 0.09));
+        draw_text_colored_shadowed(buffer, width, height, surv_footer, win_x + 12, win_y + win_h - 16, 1, 1, pack_color(0.70, 0.70, 0.75));
 
         // Crafting section
         if crafting_table_open {
+            // 3x3 crafting inset panel
+            let craft_box_x = start_x + 14;
+            let craft_box_y = start_y + 30;
+            let craft_box_w = 276;
+            let craft_box_h = 108;
+            fill_rect_alpha(buffer, width, height, craft_box_x, craft_box_y, craft_box_w, craft_box_h, pack_color(0.10, 0.10, 0.12), 0.85);
+            fill_rect(buffer, width, height, craft_box_x, craft_box_y, craft_box_w, 2, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, craft_box_x, craft_box_y, 2, craft_box_h, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, craft_box_x, craft_box_y + craft_box_h - 2, craft_box_w, 2, pack_color(0.26, 0.26, 0.30));
+            fill_rect(buffer, width, height, craft_box_x + craft_box_w - 2, craft_box_y, 2, craft_box_h, pack_color(0.26, 0.26, 0.30));
+
             draw_text_colored_shadowed(buffer, width, height, "3x3 Grid", start_x + 40, start_y + 20, 1, 1, pack_color(0.8, 0.8, 0.8));
             // 3x3 input slots
             let craft_x = start_x + 40;
@@ -666,15 +874,72 @@ pub fn draw_inventory_screen(
             let result_item = recipes.match_grid(&player.inventory.crafting_3x3, 3, 3);
             let is_out_hovered = hovered_slot == Some(InventorySlotTarget::CraftingOutput);
             draw_slot(buffer, width, height, out_x, out_y, 42, 42, result_item, is_out_hovered);
+
+            // Character preview box on the right of crafting table
+            let char_box_x = start_x + 300;
+            let char_box_y = start_y + 30;
+            let char_box_w = 150;
+            let char_box_h = 108;
+            fill_rect_alpha(buffer, width, height, char_box_x, char_box_y, char_box_w, char_box_h, pack_color(0.08, 0.08, 0.10), 0.95);
+            fill_rect(buffer, width, height, char_box_x, char_box_y, char_box_w, 2, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, char_box_x, char_box_y, 2, char_box_h, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, char_box_x, char_box_y + char_box_h - 2, char_box_w, 2, pack_color(0.26, 0.26, 0.30));
+            fill_rect(buffer, width, height, char_box_x + char_box_w - 2, char_box_y, 2, char_box_h, pack_color(0.26, 0.26, 0.30));
+
+            fill_rect_alpha(buffer, width, height, char_box_x + 10, char_box_y + 88, 55, 12, pack_color(0.14, 0.14, 0.18), 0.7);
+            draw_player_inventory_preview(buffer, width, height, char_box_x + 38, char_box_y + 54, mouse_pos);
+
+            draw_text_colored_shadowed(buffer, width, height, "PLAYER", char_box_x + 72, char_box_y + 12, 1, 1, pack_color(1.0, 0.88, 0.25));
+            let hp_text = format!("HP: {}/20", player.health as i32);
+            draw_text_colored_shadowed(buffer, width, height, &hp_text, char_box_x + 72, char_box_y + 30, 1, 1, pack_color(1.0, 0.35, 0.35));
+            let hp_ratio = (player.health / 20.0).clamp(0.0, 1.0);
+            fill_rect(buffer, width, height, char_box_x + 72, char_box_y + 44, 70, 5, pack_color(0.25, 0.05, 0.05));
+            fill_rect(buffer, width, height, char_box_x + 72, char_box_y + 44, (70.0 * hp_ratio) as i32, 5, pack_color(0.9, 0.2, 0.2));
+            if player.fire_timer > 0.0 {
+                draw_text_colored_shadowed(buffer, width, height, "BURNING!", char_box_x + 72, char_box_y + 58, 1, 1, pack_color(1.0, 0.5, 0.1));
+            } else {
+                draw_text_colored_shadowed(buffer, width, height, "STATUS: OK", char_box_x + 72, char_box_y + 58, 1, 1, pack_color(0.4, 0.85, 0.4));
+            }
         } else {
             // Player character info area
-            fill_rect_alpha(buffer, width, height, start_x + 22, start_y + 38, 130, 95, pack_color(0.08, 0.08, 0.10), 0.8);
-            draw_text_shadowed(buffer, width, height, "CHARACTER", start_x + 60, start_y + 48, 1, 1);
-            let hp_text = format!("HP: {}/20", player.health as i32);
-            draw_text_colored_shadowed(buffer, width, height, &hp_text, start_x + 35, start_y + 78, 1, 1, pack_color(1.0, 0.3, 0.3));
+            let char_box_x = start_x + 14;
+            let char_box_y = start_y + 32;
+            let char_box_w = 186;
+            let char_box_h = 106;
+            fill_rect_alpha(buffer, width, height, char_box_x, char_box_y, char_box_w, char_box_h, pack_color(0.08, 0.08, 0.10), 0.95);
+            fill_rect(buffer, width, height, char_box_x, char_box_y, char_box_w, 2, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, char_box_x, char_box_y, 2, char_box_h, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, char_box_x, char_box_y + char_box_h - 2, char_box_w, 2, pack_color(0.26, 0.26, 0.30));
+            fill_rect(buffer, width, height, char_box_x + char_box_w - 2, char_box_y, 2, char_box_h, pack_color(0.26, 0.26, 0.30));
 
-            // 2x2 Crafting
-            draw_text_colored_shadowed(buffer, width, height, "Crafting 2x2", start_x + 220, start_y + 32, 1, 1, pack_color(0.85, 0.85, 0.85));
+            // Floor pedestal under player & model preview
+            fill_rect_alpha(buffer, width, height, char_box_x + 12, char_box_y + 88, 66, 12, pack_color(0.14, 0.14, 0.18), 0.7);
+            draw_player_inventory_preview(buffer, width, height, char_box_x + 45, char_box_y + 54, mouse_pos);
+
+            draw_text_colored_shadowed(buffer, width, height, "PLAYER", char_box_x + 85, char_box_y + 12, 1, 1, pack_color(1.0, 0.88, 0.25));
+            let hp_text = format!("HP: {}/20", player.health as i32);
+            draw_text_colored_shadowed(buffer, width, height, &hp_text, char_box_x + 85, char_box_y + 30, 1, 1, pack_color(1.0, 0.35, 0.35));
+            let hp_ratio = (player.health / 20.0).clamp(0.0, 1.0);
+            fill_rect(buffer, width, height, char_box_x + 85, char_box_y + 44, 85, 6, pack_color(0.25, 0.05, 0.05));
+            fill_rect(buffer, width, height, char_box_x + 85, char_box_y + 44, (85.0 * hp_ratio) as i32, 6, pack_color(0.9, 0.2, 0.2));
+            if player.fire_timer > 0.0 {
+                draw_text_colored_shadowed(buffer, width, height, "BURNING!", char_box_x + 85, char_box_y + 58, 1, 1, pack_color(1.0, 0.5, 0.1));
+            } else {
+                draw_text_colored_shadowed(buffer, width, height, "STATUS: OK", char_box_x + 85, char_box_y + 58, 1, 1, pack_color(0.4, 0.85, 0.4));
+            }
+
+            // 2x2 Crafting inset panel
+            let craft_box_x = start_x + 208;
+            let craft_box_y = start_y + 32;
+            let craft_box_w = 242;
+            let craft_box_h = 106;
+            fill_rect_alpha(buffer, width, height, craft_box_x, craft_box_y, craft_box_w, craft_box_h, pack_color(0.10, 0.10, 0.12), 0.85);
+            fill_rect(buffer, width, height, craft_box_x, craft_box_y, craft_box_w, 2, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, craft_box_x, craft_box_y, 2, craft_box_h, pack_color(0.05, 0.05, 0.06));
+            fill_rect(buffer, width, height, craft_box_x, craft_box_y + craft_box_h - 2, craft_box_w, 2, pack_color(0.26, 0.26, 0.30));
+            fill_rect(buffer, width, height, craft_box_x + craft_box_w - 2, craft_box_y, 2, craft_box_h, pack_color(0.26, 0.26, 0.30));
+
+            draw_text_colored_shadowed(buffer, width, height, "CRAFTING (2x2)", craft_box_x + 12, craft_box_y + 8, 1, 1, pack_color(0.85, 0.85, 0.85));
             let craft_x = start_x + 220;
             let craft_y = start_y + 48;
             for row in 0..2 {
@@ -698,8 +963,14 @@ pub fn draw_inventory_screen(
             draw_slot(buffer, width, height, out_x, out_y, 42, 42, result_item, is_out_hovered);
         }
 
-        // Main Inventory
-        draw_text_colored_shadowed(buffer, width, height, "Backpack", start_x + 22, start_y + 146, 1, 1, pack_color(0.75, 0.75, 0.75));
+        // Main Inventory Inset Panel
+        fill_rect_alpha(buffer, width, height, start_x + 14, start_y + 144, 436, 134, pack_color(0.10, 0.10, 0.12), 0.85);
+        fill_rect(buffer, width, height, start_x + 14, start_y + 144, 436, 2, pack_color(0.05, 0.05, 0.06));
+        fill_rect(buffer, width, height, start_x + 14, start_y + 144, 2, 134, pack_color(0.05, 0.05, 0.06));
+        fill_rect(buffer, width, height, start_x + 14, start_y + 276, 436, 2, pack_color(0.26, 0.26, 0.30));
+        fill_rect(buffer, width, height, start_x + 448, start_y + 144, 2, 134, pack_color(0.26, 0.26, 0.30));
+
+        draw_text_colored_shadowed(buffer, width, height, "BACKPACK", start_x + 22, start_y + 146, 1, 1, pack_color(0.75, 0.75, 0.80));
         let main_x = start_x + 22;
         let main_y = start_y + 160;
         for row in 0..3 {
@@ -712,8 +983,14 @@ pub fn draw_inventory_screen(
             }
         }
 
-        // Hotbar
-        draw_text_colored_shadowed(buffer, width, height, "Hotbar", start_x + 16, start_y + 282, 1, 1, pack_color(0.75, 0.75, 0.75));
+        // Hotbar Inset Panel
+        fill_rect_alpha(buffer, width, height, start_x + 10, start_y + 282, 444, 52, pack_color(0.10, 0.10, 0.12), 0.85);
+        fill_rect(buffer, width, height, start_x + 10, start_y + 282, 444, 2, pack_color(0.05, 0.05, 0.06));
+        fill_rect(buffer, width, height, start_x + 10, start_y + 282, 2, 52, pack_color(0.05, 0.05, 0.06));
+        fill_rect(buffer, width, height, start_x + 10, start_y + 332, 444, 2, pack_color(0.26, 0.26, 0.30));
+        fill_rect(buffer, width, height, start_x + 452, start_y + 282, 2, 52, pack_color(0.26, 0.26, 0.30));
+
+        draw_text_colored_shadowed(buffer, width, height, "QUICK ACCESS HOTBAR", start_x + 16, start_y + 284, 1, 1, pack_color(0.85, 0.85, 0.40));
         let hotbar_x = start_x + 16;
         let hotbar_y = start_y + 295;
         for i in 0..10 {
@@ -1710,6 +1987,31 @@ mod tests {
         // Shift-trash action: clear entire hotbar
         inv.hotbar.fill(None);
         assert!(inv.hotbar.iter().all(|s| s.is_none()));
+    }
+
+    #[test]
+    fn test_draw_inventory_screen_renders_player_preview_and_background() {
+        let width = 640;
+        let height = 480;
+        let mut buffer = vec![0u32; width * height];
+        let player = Player::new();
+        let recipes = RecipeBook::new();
+
+        draw_inventory_screen(
+            &mut buffer,
+            width,
+            height,
+            &player,
+            None,
+            false,
+            &recipes,
+            Some((320.0, 240.0)),
+            false,
+        );
+
+        // Ensure pixels were drawn to the buffer
+        let colored_pixels = buffer.iter().filter(|&&p| p != 0).count();
+        assert!(colored_pixels > 1000);
     }
 }
 

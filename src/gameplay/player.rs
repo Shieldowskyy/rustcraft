@@ -27,6 +27,8 @@ pub struct Player {
     pub invulnerability_timer: f32,
     pub has_landed: bool,
     pub spawn_point: Option<crate::core::math::IVec3>,
+    pub fire_timer: f32,
+    pub fire_damage_timer: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -69,6 +71,8 @@ impl Player {
             invulnerability_timer: 3.0,
             has_landed: false,
             spawn_point: None,
+            fire_timer: 0.0,
+            fire_damage_timer: 0.0,
         }
     }
 
@@ -229,6 +233,17 @@ mod tests {
         assert_eq!(player.hunger, 12.0);
         assert_eq!(player.selected_hotbar_slot, 3);
         assert_eq!(player.inventory.hotbar[3].unwrap().block, BlockId::IronPickaxe);
+    }
+
+    #[test]
+    fn test_player_fire_state() {
+        let mut player = Player::new();
+        assert_eq!(player.fire_timer, 0.0);
+        assert_eq!(player.fire_damage_timer, 0.0);
+
+        player.fire_timer = 5.0;
+        player.reset(GameMode::Survival);
+        assert_eq!(player.fire_timer, 0.0);
     }
 }
 

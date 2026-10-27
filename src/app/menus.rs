@@ -963,7 +963,7 @@ impl RustCraftApp {
                 }
 
                 let max_opts = match self.settings_tab {
-                    0 => 12,
+                    0 => 13,
                     1 => 7,
                     2 => 7,
                     _ => 5,
@@ -1073,18 +1073,23 @@ impl RustCraftApp {
                                 crate::log_info!("SETTINGS", "FOV changed to {} deg", self.settings.fov_deg);
                             }
                             8 => {
+                                self.settings.cycle_brightness(click_direction_forward);
+                                self.renderer.brightness = self.settings.brightness;
+                                crate::log_info!("SETTINGS", "Brightness changed to {:.2}", self.settings.brightness);
+                            }
+                            9 => {
                                 self.settings.cycle_msaa(click_direction_forward);
                                 crate::log_info!("SETTINGS", "MSAA changed to {}", self.settings.msaa);
                             }
-                            9 => {
+                            10 => {
                                 self.settings.cycle_fps_limit(click_direction_forward);
                                 crate::log_info!("SETTINGS", "FPS limit changed to {}", self.settings.fps_limit);
                             }
-                            10 => {
+                            11 => {
                                 self.settings.underwater_fx = !self.settings.underwater_fx;
                                 crate::log_info!("SETTINGS", "Underwater FX toggled to {}", self.settings.underwater_fx);
                             }
-                            11 => {
+                            12 => {
                                 let _ = self.settings.save();
                                 crate::log_info!("SETTINGS", "Saved settings and returned to {:?}", prev);
                                 self.state = match prev {
@@ -1139,14 +1144,19 @@ impl RustCraftApp {
                                     crate::log_info!("SETTINGS", "FOV changed to {} deg", self.settings.fov_deg);
                                 }
                                 8 => {
+                                    self.settings.cycle_brightness(false);
+                                    self.renderer.brightness = self.settings.brightness;
+                                    crate::log_info!("SETTINGS", "Brightness changed to {:.2}", self.settings.brightness);
+                                }
+                                9 => {
                                     self.settings.cycle_msaa(false);
                                     crate::log_info!("SETTINGS", "MSAA changed to {}", self.settings.msaa);
                                 }
-                                9 => {
+                                10 => {
                                     self.settings.cycle_fps_limit(false);
                                     crate::log_info!("SETTINGS", "FPS limit changed to {}", self.settings.fps_limit);
                                 }
-                                10 => {
+                                11 => {
                                     self.settings.underwater_fx = !self.settings.underwater_fx;
                                     crate::log_info!("SETTINGS", "Underwater FX toggled to {}", self.settings.underwater_fx);
                                 }
@@ -1197,14 +1207,19 @@ impl RustCraftApp {
                                     crate::log_info!("SETTINGS", "FOV changed to {} deg", self.settings.fov_deg);
                                 }
                                 8 => {
+                                    self.settings.cycle_brightness(true);
+                                    self.renderer.brightness = self.settings.brightness;
+                                    crate::log_info!("SETTINGS", "Brightness changed to {:.2}", self.settings.brightness);
+                                }
+                                9 => {
                                     self.settings.cycle_msaa(true);
                                     crate::log_info!("SETTINGS", "MSAA changed to {}", self.settings.msaa);
                                 }
-                                9 => {
+                                10 => {
                                     self.settings.cycle_fps_limit(true);
                                     crate::log_info!("SETTINGS", "FPS limit changed to {}", self.settings.fps_limit);
                                 }
-                                10 => {
+                                11 => {
                                     self.settings.underwater_fx = !self.settings.underwater_fx;
                                     crate::log_info!("SETTINGS", "Underwater FX toggled to {}", self.settings.underwater_fx);
                                 }

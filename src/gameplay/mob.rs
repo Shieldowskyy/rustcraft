@@ -638,7 +638,8 @@ impl MobManager {
 
         self.spawn_timer -= dt;
         if self.spawn_timer <= 0.0 {
-            self.spawn_timer = 4.0;
+            let is_night = world.sunlight_factor() < 0.50;
+            self.spawn_timer = if is_night { 2.0 } else { 4.0 };
             self.try_natural_spawn(world, player_pos, &mut rng);
         }
 
@@ -672,86 +673,96 @@ impl MobManager {
     }
 
     fn try_natural_spawn(&mut self, world: &World, player_pos: Vec3, rng: &mut u32) {
-        const MAX_NEARBY_MOBS: usize = 16;
-        if self.mobs.len() >= MAX_NEARBY_MOBS {
-            return;
-        }
-
         let rand_f32 = |state: &mut u32| -> f32 {
             *state = state.wrapping_mul(1664525).wrapping_add(1013904223);
             (*state as f32) / (u32::MAX as f32)
         };
 
-        if rand_f32(rng) > 0.50 {
-            return;
+        let is_night = world.sunlight_factor() < 0.50;
+        let hostile_count = self.mobs.iter().filter(|m| m.kind.is_hostile() && !m.is_dead).count();
+        let passive_count = self.mobs.iter().filter(|m| !m.kind.is_hostile() && !m.is_dead).count();
+
+        // Separate caps for hostile mobs and passive mobs so passive animals don't block night spawns
+        if is_night {
+            if hostile_count >= 14 {
+                return;
+            }
+        } else {
+            if passive_count >= 10 {
+                return;
+            }
+            if rand_f32(rng) > 0.40 {
+                return;
+            }
         }
 
-        let is_night = world.sunlight_factor() < 0.45;
-        let angle = rand_f32(rng) * PI * 2.0;
-        let dist = 16.0 + rand_f32(rng) * 26.0;
-        let target_x = (player_pos.x + angle.cos() * dist).floor() as i32;
-        let target_z = (player_pos.z + angle.sin() * dist).floor() as i32;
+        // Try several attempts to find a valid location near the player
+        let attempts = if is_night { 5 } else { 2 };
+        for _ in 0..attempts {
+            let angle = rand_f32(rng) * PI * 2.0;
+            let dist = 14.0 + rand_f32(rng) * 24.0;
+            let target_x = (player_pos.x + angle.cos() * dist).floor() as i32;
+            let target_z = (player_pos.z + angle.sin() * dist).floor() as i32;
 
-        // 1. Try spawning in caves around player's Y level
-        let mut cave_spawn = None;
-        let py = player_pos.y.floor() as i32;
-        let y_min = (py - 14).clamp(2, 58);
-        let y_max = (py + 8).clamp(3, 60);
-
-        for y in y_min..=y_max {
-            let floor_block = world.get_block(IVec3::new(target_x, y, target_z));
-            if floor_block.is_solid() && floor_block != BlockId::Lava && floor_block != BlockId::Water {
-                let above1 = world.get_block(IVec3::new(target_x, y + 1, target_z));
-                let above2 = world.get_block(IVec3::new(target_x, y + 2, target_z));
-                if above1 == BlockId::Air && above2 == BlockId::Air {
-                    // Check if there is a ceiling above (i.e. inside a cave / underground)
-                    let mut has_roof = false;
-                    for cy in (y + 3)..=63 {
-                        if world.get_block(IVec3::new(target_x, cy, target_z)).is_solid() {
-                            has_roof = true;
+            if is_night {
+                // In night mode, prioritize surface spawns first so players actually see hostile mobs!
+                let mut surface_y = None;
+                for y in (1..63).rev() {
+                    let block = world.get_block(IVec3::new(target_x, y, target_z));
+                    if block.is_solid() && block != BlockId::Leaves && block != BlockId::SnowLeaves && block != BlockId::Lava && block != BlockId::Water {
+                        let above1 = world.get_block(IVec3::new(target_x, y + 1, target_z));
+                        let above2 = world.get_block(IVec3::new(target_x, y + 2, target_z));
+                        if above1 == BlockId::Air && above2 == BlockId::Air {
+                            surface_y = Some(y + 1);
                             break;
                         }
                     }
-                    if has_roof {
-                        cave_spawn = Some(y + 1);
-                        break;
+                }
+
+                if let Some(sy) = surface_y {
+                    let roll = rand_f32(rng);
+                    let kind = if roll < 0.42 {
+                        MobKind::Zombie
+                    } else if roll < 0.74 {
+                        MobKind::Skeleton
+                    } else {
+                        MobKind::Creeper
+                    };
+                    let spawn_pos = Vec3::new(target_x as f32 + 0.5, sy as f32, target_z as f32 + 0.5);
+                    self.spawn_mob(kind, spawn_pos);
+                    crate::log_info!("MOB", "Night surface spawn: {:?} at ({:.1}, {:.1}, {:.1})", kind, spawn_pos.x, spawn_pos.y, spawn_pos.z);
+                    return;
+                }
+            }
+
+            // Cave spawn (underground): Hostile mobs
+            let mut cave_spawn = None;
+            let py = player_pos.y.floor() as i32;
+            let y_min = (py - 12).clamp(2, 58);
+            let y_max = (py + 8).clamp(3, 60);
+
+            for y in y_min..=y_max {
+                let floor_block = world.get_block(IVec3::new(target_x, y, target_z));
+                if floor_block.is_solid() && floor_block != BlockId::Lava && floor_block != BlockId::Water {
+                    let above1 = world.get_block(IVec3::new(target_x, y + 1, target_z));
+                    let above2 = world.get_block(IVec3::new(target_x, y + 2, target_z));
+                    if above1 == BlockId::Air && above2 == BlockId::Air {
+                        let mut has_roof = false;
+                        for cy in (y + 3)..=63 {
+                            if world.get_block(IVec3::new(target_x, cy, target_z)).is_solid() {
+                                has_roof = true;
+                                break;
+                            }
+                        }
+                        if has_roof {
+                            cave_spawn = Some(y + 1);
+                            break;
+                        }
                     }
                 }
             }
-        }
 
-        if let Some(cy) = cave_spawn {
-            // Cave spawn: Always hostile mobs (Zombie / Skeleton / Creeper) day or night
-            let roll = rand_f32(rng);
-            let kind = if roll < 0.45 {
-                MobKind::Zombie
-            } else if roll < 0.75 {
-                MobKind::Skeleton
-            } else {
-                MobKind::Creeper
-            };
-            let spawn_pos = Vec3::new(target_x as f32 + 0.5, cy as f32, target_z as f32 + 0.5);
-            self.spawn_mob(kind, spawn_pos);
-            return;
-        }
-
-        // 2. Surface spawn (from top down)
-        let mut surface_y = None;
-        for y in (1..63).rev() {
-            let block = world.get_block(IVec3::new(target_x, y, target_z));
-            if block.is_solid() && block != BlockId::Leaves && block != BlockId::SnowLeaves {
-                let above1 = world.get_block(IVec3::new(target_x, y + 1, target_z));
-                let above2 = world.get_block(IVec3::new(target_x, y + 2, target_z));
-                if above1 == BlockId::Air && above2 == BlockId::Air {
-                    surface_y = Some((y + 1, block));
-                    break;
-                }
-            }
-        }
-
-        if let Some((sy, block_below)) = surface_y {
-            if is_night {
-                // Surface night spawn: Hostile mobs (Zombie / Skeleton / Creeper)
+            if let Some(cy) = cave_spawn {
                 let roll = rand_f32(rng);
                 let kind = if roll < 0.45 {
                     MobKind::Zombie
@@ -760,20 +771,41 @@ impl MobManager {
                 } else {
                     MobKind::Creeper
                 };
-                let spawn_pos = Vec3::new(target_x as f32 + 0.5, sy as f32, target_z as f32 + 0.5);
+                let spawn_pos = Vec3::new(target_x as f32 + 0.5, cy as f32, target_z as f32 + 0.5);
                 self.spawn_mob(kind, spawn_pos);
-            } else if block_below == BlockId::Grass {
-                // Surface day spawn: Peaceful mobs (Pig, Cow, Chicken) on grass
-                let roll = rand_f32(rng);
-                let kind = if roll < 0.35 {
-                    MobKind::Pig
-                } else if roll < 0.70 {
-                    MobKind::Cow
-                } else {
-                    MobKind::Chicken
-                };
-                let spawn_pos = Vec3::new(target_x as f32 + 0.5, sy as f32, target_z as f32 + 0.5);
-                self.spawn_mob(kind, spawn_pos);
+                return;
+            }
+
+            // Surface day spawn
+            if !is_night {
+                let mut surface_y = None;
+                for y in (1..63).rev() {
+                    let block = world.get_block(IVec3::new(target_x, y, target_z));
+                    if block.is_solid() && block != BlockId::Leaves && block != BlockId::SnowLeaves {
+                        let above1 = world.get_block(IVec3::new(target_x, y + 1, target_z));
+                        let above2 = world.get_block(IVec3::new(target_x, y + 2, target_z));
+                        if above1 == BlockId::Air && above2 == BlockId::Air {
+                            surface_y = Some((y + 1, block));
+                            break;
+                        }
+                    }
+                }
+
+                if let Some((sy, block_below)) = surface_y {
+                    if block_below == BlockId::Grass {
+                        let roll = rand_f32(rng);
+                        let kind = if roll < 0.35 {
+                            MobKind::Pig
+                        } else if roll < 0.70 {
+                            MobKind::Cow
+                        } else {
+                            MobKind::Chicken
+                        };
+                        let spawn_pos = Vec3::new(target_x as f32 + 0.5, sy as f32, target_z as f32 + 0.5);
+                        self.spawn_mob(kind, spawn_pos);
+                        return;
+                    }
+                }
             }
         }
     }

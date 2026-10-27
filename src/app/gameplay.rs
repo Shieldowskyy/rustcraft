@@ -533,22 +533,51 @@ impl RustCraftApp {
                         }
                     }
 
-                    // Lava damage (4.0 dmg = 2 hearts every 0.5s)
-                    if in_lava && self.player.gamemode == GameMode::Survival {
-                        self.lava_damage_timer += dt;
-                        if self.lava_damage_timer >= 0.5 {
-                            self.lava_damage_timer = 0.0;
-                            if self.player.take_damage(4.0) {
-                                self.audio.play_sound(crate::audio::SoundId::PlayerHurt, 0.9, 1.0);
-                                self.damage_tilt_timer = 0.4;
-                                self.damage_tilt_dir = 1.0;
-                                self.particles.spawn_lava_burn(feet_pos);
-                                self.request_rumble(0.85, 0.6, 220);
-                                crate::log_info!("PLAYER", "Player took 4.0 lava damage (health: {:.1}/{:.1})", self.player.health, self.player.max_health);
+                    // Lava contact & fire burning mechanics (burns for ~5 seconds after contact)
+                    if in_lava {
+                        self.player.fire_timer = 5.0;
+                        if self.player.gamemode == GameMode::Survival {
+                            self.lava_damage_timer += dt;
+                            if self.lava_damage_timer >= 0.5 {
+                                self.lava_damage_timer = 0.0;
+                                if self.player.take_damage(4.0) {
+                                    self.audio.play_sound(crate::audio::SoundId::PlayerHurt, 0.9, 1.0);
+                                    self.damage_tilt_timer = 0.4;
+                                    self.damage_tilt_dir = 1.0;
+                                    self.particles.spawn_lava_burn(feet_pos);
+                                    self.request_rumble(0.85, 0.6, 220);
+                                    crate::log_info!("PLAYER", "Player took 4.0 lava direct damage (health: {:.1}/{:.1})", self.player.health, self.player.max_health);
+                                }
                             }
                         }
-                    } else if !in_lava {
+                    } else {
                         self.lava_damage_timer = 0.45;
+                        if in_water && self.player.fire_timer > 0.0 {
+                            // Water immediately extinguishes burning
+                            self.player.fire_timer = 0.0;
+                            self.player.fire_damage_timer = 0.0;
+                            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.6, 0.5);
+                            crate::log_info!("PLAYER", "Player fire extinguished by water");
+                        } else if self.player.fire_timer > 0.0 {
+                            self.player.fire_timer = (self.player.fire_timer - dt).max(0.0);
+                            if self.player.gamemode == GameMode::Survival {
+                                self.player.fire_damage_timer += dt;
+                                // Fire deals 1.0 damage (~half a heart) every 1.0 second
+                                if self.player.fire_damage_timer >= 1.0 {
+                                    self.player.fire_damage_timer = 0.0;
+                                    if self.player.take_damage(1.0) {
+                                        self.audio.play_sound(crate::audio::SoundId::PlayerHurt, 0.8, 1.0);
+                                        self.damage_tilt_timer = 0.3;
+                                        self.damage_tilt_dir = if (self.player.fire_timer as i32 % 2) == 0 { 1.0 } else { -1.0 };
+                                        self.particles.spawn_lava_burn(feet_pos);
+                                        self.request_rumble(0.5, 0.3, 150);
+                                        crate::log_info!("PLAYER", "Player took 1.0 fire burn damage (remaining burn: {:.1}s, health: {:.1}/{:.1})", self.player.fire_timer, self.player.health, self.player.max_health);
+                                    }
+                                }
+                            }
+                        } else {
+                            self.player.fire_damage_timer = 0.0;
+                        }
                     }
 
                     // Oxygen and underwater breathing mechanics
@@ -1404,8 +1433,13 @@ impl RustCraftApp {
                     let block_at_camera = self.world.get_block(self.camera.position.floor_to_ivec());
                     if block_at_camera == BlockId::Lava {
                         self.renderer.draw_lava_overlay(self.total_time);
-                    } else if self.settings.underwater_fx && block_at_camera == BlockId::Water {
-                        self.renderer.draw_underwater_overlay(self.total_time);
+                    } else {
+                        if self.settings.underwater_fx && block_at_camera == BlockId::Water {
+                            self.renderer.draw_underwater_overlay(self.total_time);
+                        }
+                        if self.player.fire_timer > 0.0 {
+                            self.renderer.draw_burning_fire_overlay(self.total_time);
+                        }
                     }
 
                     if self.damage_tilt_timer > 0.0 {

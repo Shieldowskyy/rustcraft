@@ -160,6 +160,8 @@ pub struct GameSettings {
     pub chunk_anim: bool,
     /// Camera field of view in degrees (default: 70.0).
     pub fov_deg: f32,
+    /// Brightness setting [0.0, 1.0] (default: 0.50).
+    pub brightness: f32,
     /// Underwater tint and caustic effects enabled (default: true).
     pub underwater_fx: bool,
     /// In-game F3 debug text overlay enabled (default: true).
@@ -226,6 +228,7 @@ impl Default for GameSettings {
             particles: true,
             chunk_anim: true,
             fov_deg: 70.0,
+            brightness: 0.50,
             underwater_fx: true,
             debug_overlay: true,
             msaa: default_msaa,
@@ -368,6 +371,7 @@ impl GameSettings {
                 let ui_volume = round_to_5_pct(bytes.get(audio_offset + 4).map(|&b| b as f32 / 100.0).unwrap_or(1.0));
                 let mute_audio = bytes.get(audio_offset + 5).copied().unwrap_or(0) != 0;
                 let vibration = bytes.get(audio_offset + 6).copied().unwrap_or(1) != 0;
+                let brightness = bytes.get(audio_offset + 7).copied().map(|b| (b as f32 / 100.0).clamp(0.0, 1.0)).unwrap_or(0.50);
 
                 crate::core::i18n::set_language(language);
 
@@ -381,6 +385,7 @@ impl GameSettings {
                     particles,
                     chunk_anim,
                     fov_deg,
+                    brightness,
                     underwater_fx,
                     debug_overlay,
                     msaa,
@@ -467,6 +472,7 @@ impl GameSettings {
         bytes.push((self.ui_volume.clamp(0.0, 1.0) * 100.0) as u8);
         bytes.push(if self.mute_audio { 1 } else { 0 });
         bytes.push(if self.vibration { 1 } else { 0 });
+        bytes.push((self.brightness.clamp(0.0, 1.0) * 100.0) as u8);
 
         std::fs::write(&path, bytes).map_err(|e| e.to_string())
     }
@@ -562,6 +568,28 @@ impl GameSettings {
             idx - 1
         };
         self.fov_deg = CHOICES[next_idx];
+    }
+
+    pub const BRIGHTNESS_LEVELS: [f32; 5] = [0.0, 0.25, 0.50, 0.75, 1.0];
+
+    pub fn cycle_brightness(&mut self, forward: bool) {
+        let mut idx = 2;
+        let mut min_diff = f32::MAX;
+        for (i, &lvl) in Self::BRIGHTNESS_LEVELS.iter().enumerate() {
+            let diff = (self.brightness - lvl).abs();
+            if diff < min_diff {
+                min_diff = diff;
+                idx = i;
+            }
+        }
+        let next_idx = if forward {
+            (idx + 1) % Self::BRIGHTNESS_LEVELS.len()
+        } else if idx == 0 {
+            Self::BRIGHTNESS_LEVELS.len() - 1
+        } else {
+            idx - 1
+        };
+        self.brightness = Self::BRIGHTNESS_LEVELS[next_idx];
     }
 
     pub fn cycle_msaa(&mut self, forward: bool) {
@@ -741,5 +769,23 @@ mod tests {
 
         settings.cycle_master_volume(false);
         assert_eq!((settings.master_volume * 100.0).round() as i32, 100);
+    }
+
+    #[test]
+    fn test_cycle_brightness() {
+        let mut settings = GameSettings::default();
+        assert_eq!(settings.brightness, 0.5);
+
+        settings.cycle_brightness(true);
+        assert_eq!(settings.brightness, 0.75);
+
+        settings.cycle_brightness(true);
+        assert_eq!(settings.brightness, 1.0);
+
+        settings.cycle_brightness(true);
+        assert_eq!(settings.brightness, 0.0);
+
+        settings.cycle_brightness(false);
+        assert_eq!(settings.brightness, 1.0);
     }
 }

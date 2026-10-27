@@ -77,6 +77,7 @@ pub struct Renderer {
     pub particles: Vec<Particle>,
     pub fog_enabled: bool,
     pub render_distance: i32,
+    pub brightness: f32,
     pub current_daylight: f32,
     pub current_fog_color: [f32; 3],
     pub last_draw_calls: u32,
@@ -130,6 +131,7 @@ impl Renderer {
             particles: Vec::new(),
             fog_enabled: true,
             render_distance: 6,
+            brightness: 0.50,
             current_daylight: 1.0,
             current_fog_color: [0.75, 0.85, 1.0],
             last_draw_calls: 0,
@@ -437,7 +439,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_graphics_rects(&self) -> [(i32, i32, i32, i32); 12] {
+    pub fn settings_graphics_rects(&self) -> [(i32, i32, i32, i32); 13] {
         crate::ui::settings_graphics_rects(self.width, self.height)
     }
 
@@ -452,7 +454,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 12] {
+    pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 13] {
         crate::ui::settings_graphics_rects(self.width, self.height)
     }
 
@@ -561,6 +563,10 @@ impl Renderer {
 
     pub fn draw_lava_overlay(&mut self, time: f32) {
         crate::ui::draw_lava_overlay(&mut self.color_buffer, self.width, self.height, time);
+    }
+
+    pub fn draw_burning_fire_overlay(&mut self, time: f32) {
+        crate::ui::draw_burning_fire_overlay(&mut self.color_buffer, self.width, self.height, time);
     }
 
     pub fn draw_hotbar(&mut self, player: &crate::gameplay::Player) {
@@ -902,6 +908,7 @@ impl Renderer {
         };
         let daylight = self.current_daylight;
         let fog_color = self.current_fog_color;
+        let brightness = self.brightness;
         let render_tile = |(tile_idx, (c_slice, d_slice)): (usize, (&mut [u32], &mut [f32]))| {
             let tile_y_start = tile_idx * TILE_HEIGHT;
             let tile_y_end = (tile_y_start + TILE_HEIGHT).min(height);
@@ -925,6 +932,7 @@ impl Renderer {
                     fog_dist,
                     daylight,
                     fog_color,
+                    brightness,
                 );
             }
 
@@ -947,6 +955,7 @@ impl Renderer {
                     fog_dist,
                     daylight,
                     fog_color,
+                    brightness,
                 );
             }
         };
@@ -1088,6 +1097,7 @@ impl Renderer {
             fog_dist,
             self.current_daylight,
             self.current_fog_color,
+            self.brightness,
         );
     }
 
@@ -1283,8 +1293,21 @@ impl Renderer {
                                             let depth = 1.0 / inv_w;
                                             let idx = row_offset + px as usize;
                                             if depth < renderer.depth_buffer[idx] {
+                                                let daylight = renderer.current_daylight.clamp(0.0, 1.0);
+                                                let fog_col = renderer.current_fog_color;
+                                                let day_cloud = [0.94, 0.95, 0.98];
+                                                let night_cloud = [0.07, 0.09, 0.16];
+                                                let cloud_base = [
+                                                    night_cloud[0] + (day_cloud[0] - night_cloud[0]) * daylight + (fog_col[0] - 0.72).max(0.0) * 0.35,
+                                                    night_cloud[1] + (day_cloud[1] - night_cloud[1]) * daylight + (fog_col[1] - 0.84).max(0.0) * 0.35,
+                                                    night_cloud[2] + (day_cloud[2] - night_cloud[2]) * daylight,
+                                                ];
+
                                                 let ao = (l0 * sa.ao_over_w + l1 * sb.ao_over_w + l2 * sc.ao_over_w) * depth;
-                                                let base_val = (0.95 * ao).clamp(0.0, 1.0);
+                                                let cloud_r = (cloud_base[0] * ao).clamp(0.0, 1.0);
+                                                let cloud_g = (cloud_base[1] * ao).clamp(0.0, 1.0);
+                                                let cloud_b = (cloud_base[2] * ao).clamp(0.0, 1.0);
+
                                                 let fog_dist = if renderer.fog_enabled {
                                                     (renderer.render_distance as f32 * 16.0).max(32.0)
                                                 } else {
@@ -1295,9 +1318,9 @@ impl Renderer {
                                                 } else {
                                                     0.0
                                                 };
-                                                let cr = base_val * (1.0 - fog_t) + 0.75 * fog_t;
-                                                let cg = base_val * (1.0 - fog_t) + 0.85 * fog_t;
-                                                let cb = base_val * (1.0 - fog_t) + 1.0 * fog_t;
+                                                let cr = cloud_r * (1.0 - fog_t) + fog_col[0] * fog_t;
+                                                let cg = cloud_g * (1.0 - fog_t) + fog_col[1] * fog_t;
+                                                let cb = cloud_b * (1.0 - fog_t) + fog_col[2] * fog_t;
 
                                                 let (br, bg, bb) = unpack_color(renderer.color_buffer[idx]);
                                                 renderer.color_buffer[idx] = pack_color(
@@ -3448,6 +3471,7 @@ fn raster_triangle_tile(
     fog_dist: f32,
     daylight: f32,
     fog_color: [f32; 3],
+    brightness: f32,
 ) {
     let c0 = to_clip_ao(tri.v0, view_proj);
     let c1 = to_clip_ao(tri.v1, view_proj);
@@ -3464,7 +3488,7 @@ fn raster_triangle_tile(
         let sc = project_to_screen_ao(&clipped[i + 1], width, height);
 
         raster_screen_triangle_ao_tile(
-            sa, sb, sc, tri.texture, hurt_tint, width, tile_y_start, tile_y_end, color_buffer, depth_buffer, textures, fog_dist, daylight, fog_color,
+            sa, sb, sc, tri.texture, hurt_tint, width, tile_y_start, tile_y_end, color_buffer, depth_buffer, textures, fog_dist, daylight, fog_color, brightness,
         );
     }
 }
@@ -3484,6 +3508,7 @@ fn raster_screen_triangle_ao_tile(
     fog_dist: f32,
     daylight: f32,
     fog_color: [f32; 3],
+    brightness: f32,
 ) {
     let area = edge(a.x, a.y, b.x, b.y, c.x, c.y);
     if area <= 0.0 {
@@ -3548,6 +3573,7 @@ fn raster_screen_triangle_ao_tile(
                 fog_dist,
                 daylight,
                 fog_color,
+                brightness,
             );
 
             px += 4;
@@ -3576,6 +3602,7 @@ fn raster_screen_triangle_ao_tile(
                 fog_dist,
                 daylight,
                 fog_color,
+                brightness,
             );
 
             px += 1;
@@ -3613,6 +3640,7 @@ fn raster_scanline_simd_4x(
     fog_dist: f32,
     daylight: f32,
     fog_color: [f32; 3],
+    brightness: f32,
 ) {
     let w0 = [
         w0_start,
@@ -3681,9 +3709,11 @@ fn raster_scanline_simd_4x(
                     let torch_g = 0.88 * block;
                     let torch_b = 0.42 * block;
 
-                    let lr = ((natural_r + torch_r + 0.045) * ao).clamp(0.04, 1.35);
-                    let lg = ((natural_g + torch_g + 0.045) * ao).clamp(0.04, 1.35);
-                    let lb = ((natural_b + torch_b + 0.055) * ao).clamp(0.04, 1.35);
+                    let ambient_boost = brightness * 0.16;
+                    let bright_scale = 1.0 + brightness * 0.22;
+                    let lr = (((natural_r + torch_r + 0.045 + ambient_boost) * ao) * bright_scale).clamp(0.04, 1.45);
+                    let lg = (((natural_g + torch_g + 0.045 + ambient_boost) * ao) * bright_scale).clamp(0.04, 1.45);
+                    let lb = (((natural_b + torch_b + 0.055 + ambient_boost) * ao) * bright_scale).clamp(0.04, 1.45);
 
                     let mut r = texel[0] * lr;
                     let mut g = texel[1] * lg;
@@ -3749,6 +3779,7 @@ fn raster_scanline_pixel(
     fog_dist: f32,
     daylight: f32,
     fog_color: [f32; 3],
+    brightness: f32,
 ) {
     if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
         let l0 = w0 * inv_area;
@@ -3786,9 +3817,11 @@ fn raster_scanline_pixel(
                 let torch_g = 0.88 * block;
                 let torch_b = 0.42 * block;
 
-                let lr = ((natural_r + torch_r + 0.045) * ao).clamp(0.04, 1.35);
-                let lg = ((natural_g + torch_g + 0.045) * ao).clamp(0.04, 1.35);
-                let lb = ((natural_b + torch_b + 0.055) * ao).clamp(0.04, 1.35);
+                let ambient_boost = brightness * 0.16;
+                let bright_scale = 1.0 + brightness * 0.22;
+                let lr = (((natural_r + torch_r + 0.045 + ambient_boost) * ao) * bright_scale).clamp(0.04, 1.45);
+                let lg = (((natural_g + torch_g + 0.045 + ambient_boost) * ao) * bright_scale).clamp(0.04, 1.45);
+                let lb = (((natural_b + torch_b + 0.055 + ambient_boost) * ao) * bright_scale).clamp(0.04, 1.45);
 
                 let mut r = texel[0] * lr;
                 let mut g = texel[1] * lg;
