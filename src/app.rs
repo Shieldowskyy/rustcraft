@@ -234,6 +234,8 @@ pub struct RustCraftApp {
     pub save_select_slot: u8,
     pub save_select_scroll: usize,
     pub save_metadata_cache: [SaveMetadata; MAX_SAVE_SLOTS as usize],
+    pub save_card_double_click_timer: f32,
+    pub save_card_last_clicked_slot: Option<u8>,
     pub settings_hovered_opt: Option<usize>,
     pub menu_hovered_btn: Option<usize>,
     pub pause_hovered_btn: Option<usize>,
@@ -460,6 +462,8 @@ impl RustCraftApp {
             save_select_slot: 1,
             save_select_scroll: 0,
             save_metadata_cache,
+            save_card_double_click_timer: 0.0,
+            save_card_last_clicked_slot: None,
             settings_tab: 0,
             settings_hovered_opt: Some(0),
             menu_hovered_btn: Some(0),
@@ -753,24 +757,32 @@ impl RustCraftApp {
 
         match self.state {
             GameState::MainMenu => {
+                let (mouse_nick_hovered, mouse_hovered_btn) = if self.is_gamepad_active && !mouse_moved {
+                    (false, None)
+                } else if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    let (nx, ny, nw, nh) = self.main_menu_nick_rect;
+                    let nick = px >= nx && px < nx + nw && py >= ny && py < ny + nh;
+                    let btn = self.main_menu_rects.iter().enumerate().find_map(|(i, &(bx, by, bw, bh))| {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            Some(i)
+                        } else {
+                            None
+                        }
+                    });
+                    (nick, btn)
+                } else {
+                    (false, None)
+                };
+
+                self.main_menu_nick_hovered = mouse_nick_hovered;
                 let mut hovered_idx = self.menu_hovered_btn;
-                self.main_menu_nick_hovered = false;
-                if mouse_moved {
-                    if let Some((mx, my)) = mouse_pos {
-                        let px = mx as i32;
-                        let py = my as i32;
-                        let (nx, ny, nw, nh) = self.main_menu_nick_rect;
-                        if px >= nx && px < nx + nw && py >= ny && py < ny + nh {
-                            self.main_menu_nick_hovered = true;
-                        }
-                        for (i, &(bx, by, bw, bh)) in self.main_menu_rects.iter().enumerate() {
-                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                hovered_idx = Some(i);
-                                self.menu_hovered_btn = Some(i);
-                                break;
-                            }
-                        }
-                    }
+                if let Some(btn) = mouse_hovered_btn {
+                    hovered_idx = Some(btn);
+                    self.menu_hovered_btn = Some(btn);
+                } else if !self.is_gamepad_active && mouse_pos.is_some() {
+                    hovered_idx = None;
                 }
 
                 if input.gp_dpad_up_just_pressed || input.gp_menu_up || (up_arrow_down && !self.prev_up_arrow_down) {
@@ -790,7 +802,9 @@ impl RustCraftApp {
                     hovered_idx = Some(next);
                 }
 
-                let click_button = if (left_down && !self.prev_left_down) || input.gp_south_just_pressed {
+                let click_button = if left_down && !self.prev_left_down {
+                    mouse_hovered_btn
+                } else if input.gp_south_just_pressed {
                     hovered_idx
                 } else {
                     None
@@ -1021,10 +1035,19 @@ impl RustCraftApp {
                 );
             }
             GameState::SaveSelect => {
-                if input.scroll_delta > 0.0 || input.gp_lb_just_pressed {
+                if self.save_card_double_click_timer > 0.0 {
+                    self.save_card_double_click_timer = (self.save_card_double_click_timer - dt).max(0.0);
+                }
+
+                if input.scroll_delta > 0.0 {
+                    self.save_select_scroll = self.save_select_scroll.saturating_sub(1);
+                } else if input.scroll_delta < 0.0 {
+                    let max_scroll = (MAX_SAVE_SLOTS as usize).saturating_sub(VISIBLE_SAVE_ROWS);
+                    self.save_select_scroll = (self.save_select_scroll + 1).min(max_scroll);
+                } else if input.gp_lb_just_pressed {
                     self.save_select_scroll = self.save_select_scroll.saturating_sub(VISIBLE_SAVE_ROWS);
                     self.save_select_slot = (self.save_select_scroll + 1) as u8;
-                } else if input.scroll_delta < 0.0 || input.gp_rb_just_pressed {
+                } else if input.gp_rb_just_pressed {
                     let max_scroll = (MAX_SAVE_SLOTS as usize).saturating_sub(VISIBLE_SAVE_ROWS);
                     self.save_select_scroll = (self.save_select_scroll + VISIBLE_SAVE_ROWS).min(max_scroll);
                     self.save_select_slot = (self.save_select_scroll + 1) as u8;
@@ -1049,47 +1072,54 @@ impl RustCraftApp {
                     }
                 }
 
-                let mut save_select_hovered_card = None;
-                let mut save_select_hovered_btn = None;
+                let (save_select_hovered_card, save_select_hovered_btn) = if self.is_gamepad_active && !mouse_moved {
+                    (None, None)
+                } else if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+
+                    // Save cards hover
+                    let card = self.save_card_rects.iter().enumerate().find_map(|(row, &(bx, by, bw, bh))| {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            Some(row)
+                        } else {
+                            None
+                        }
+                    });
+
+                    // Bottom buttons hover
+                    let btn = self.save_btn_rects.iter().enumerate().find_map(|(i, &(bx, by, bw, bh))| {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            Some(i)
+                        } else {
+                            None
+                        }
+                    });
+
+                    (card, btn)
+                } else {
+                    (None, None)
+                };
 
                 let mut card_launch_action = false;
-                if mouse_moved {
-                    if let Some((mx, my)) = mouse_pos {
-                        let px = mx as i32;
-                        let py = my as i32;
-
-                        // Save cards hover
-                        for (row, &(bx, by, bw, bh)) in self.save_card_rects.iter().enumerate() {
-                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                save_select_hovered_card = Some(row);
-                                break;
-                            }
-                        }
-
-                        // Bottom buttons hover
-                        for (i, &(bx, by, bw, bh)) in self.save_btn_rects.iter().enumerate() {
-                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                save_select_hovered_btn = Some(i);
-                                break;
-                            }
-                        }
-                    }
-                }
-
                 if let Some((mx, my)) = mouse_pos {
                     let px = mx as i32;
                     let py = my as i32;
 
-                    // Save cards touch click
+                    // Save cards touch/mouse click
                     if left_down && !self.prev_left_down {
                         for (row, &(bx, by, bw, bh)) in self.save_card_rects.iter().enumerate() {
                             if px >= bx && px < bx + bw && py >= by && py < by + bh {
                                 let target_slot = (self.save_select_scroll + row + 1) as u8;
-                                if self.save_select_slot == target_slot {
+                                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                                if self.save_card_last_clicked_slot == Some(target_slot) && self.save_card_double_click_timer > 0.0 {
                                     card_launch_action = true;
+                                    self.save_card_double_click_timer = 0.0;
                                 } else {
-                                    self.save_select_slot = target_slot;
+                                    self.save_card_last_clicked_slot = Some(target_slot);
+                                    self.save_card_double_click_timer = 0.35;
                                 }
+                                self.save_select_slot = target_slot;
                                 break;
                             }
                         }
@@ -1099,8 +1129,8 @@ impl RustCraftApp {
                     let cx = self.width as i32 / 2;
                     let sb_x = cx + 340;
                     let sb_w = 40; // enlarged touch target for scrollbar
-                    let sb_y = 70;
-                    let sb_h = (VISIBLE_SAVE_ROWS as i32) * 76;
+                    let sb_y = 75;
+                    let sb_h = (VISIBLE_SAVE_ROWS as i32) * 80 - 10;
                     if px >= sb_x && px <= sb_x + sb_w && py >= sb_y && py <= sb_y + sb_h && left_down {
                         let rel_y = ((py - sb_y) as f32 / sb_h as f32).clamp(0.0, 1.0);
                         let max_scroll = (MAX_SAVE_SLOTS as usize).saturating_sub(VISIBLE_SAVE_ROWS);
@@ -1108,18 +1138,28 @@ impl RustCraftApp {
                     }
                 }
 
+                let mouse_clicked_btn = if left_down && !self.prev_left_down {
+                    save_select_hovered_btn
+                } else {
+                    None
+                };
+
+                if mouse_clicked_btn.is_some() {
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                }
+
                 let play_action = (enter_down && !self.prev_enter_down)
-                    || (left_down && !self.prev_left_down && save_select_hovered_btn == Some(0))
+                    || mouse_clicked_btn == Some(0)
                     || card_launch_action
                     || input.gp_south_just_pressed;
                 let new_action = (n_down && !self.prev_n_down)
-                    || (left_down && !self.prev_left_down && save_select_hovered_btn == Some(1))
+                    || mouse_clicked_btn == Some(1)
                     || input.gp_north_just_pressed;
                 let delete_action = (del_down && !self.prev_del_down)
-                    || (left_down && !self.prev_left_down && save_select_hovered_btn == Some(2))
+                    || mouse_clicked_btn == Some(2)
                     || input.gp_west_just_pressed;
                 let back_action = (escape_down && !self.prev_escape_down)
-                    || (left_down && !self.prev_left_down && save_select_hovered_btn == Some(3))
+                    || mouse_clicked_btn == Some(3)
                     || input.gp_east_just_pressed;
 
                 if play_action {
@@ -1211,34 +1251,34 @@ impl RustCraftApp {
                 }
             }
             GameState::CreateWorld => {
-                let mut hovered_elem = None;
-                if mouse_moved {
-                    if let Some((mx, my)) = mouse_pos {
-                        let px = mx as i32;
-                        let py = my as i32;
-                        for (i, &(bx, by, bw, bh)) in self.create_world_rects.iter().enumerate() {
-                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                hovered_elem = Some(i);
-                                break;
-                            }
+                let hovered_elem = if self.is_gamepad_active && !mouse_moved {
+                    None
+                } else if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    self.create_world_rects.iter().enumerate().find_map(|(i, &(bx, by, bw, bh))| {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            Some(i)
+                        } else {
+                            None
                         }
-                    }
-                }
-                if left_down && !self.prev_left_down {
-                    if let Some((mx, my)) = mouse_pos {
-                        let px = mx as i32;
-                        let py = my as i32;
-                        for (i, &(bx, by, bw, bh)) in self.create_world_rects.iter().enumerate() {
-                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                if self.create_world_focus != i {
-                                    self.create_world_selected = false;
-                                }
-                                self.create_world_focus = i;
-                                break;
-                            }
+                    })
+                } else {
+                    None
+                };
+
+                let click_elem = if left_down && !self.prev_left_down {
+                    if let Some(i) = hovered_elem {
+                        self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                        if self.create_world_focus != i {
+                            self.create_world_selected = false;
                         }
+                        self.create_world_focus = i;
                     }
-                }
+                    hovered_elem
+                } else {
+                    None
+                };
 
                 let tab_just = tab_down && !self.prev_tab_down;
                 let up_just = (up_arrow_down && !self.prev_up_arrow_down) || input.gp_dpad_up_just_pressed || input.gp_menu_up;
@@ -1373,7 +1413,6 @@ impl RustCraftApp {
 
                 let enter_just = enter_down && !self.prev_enter_down;
                 let south_just = input.gp_south_just_pressed;
-                let click_elem = if left_down && !self.prev_left_down { hovered_elem } else { None };
 
                 let do_cancel = (escape_down && !self.prev_escape_down)
                     || input.gp_east_just_pressed
@@ -1465,57 +1504,49 @@ impl RustCraftApp {
                 }
             }
             GameState::Settings(prev) => {
-                let mut hovered_tab = None;
-                let mut hovered_opt = self.settings_hovered_opt;
+                let (hovered_tab, mouse_hovered_opt) = if self.is_gamepad_active && !mouse_moved {
+                    (None, None)
+                } else if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
 
-                if mouse_moved {
-                    if let Some((mx, my)) = mouse_pos {
-                        let px = mx as i32;
-                        let py = my as i32;
+                    let tab = self.settings_tab_rects.iter().enumerate().find_map(|(t_idx, &(bx, by, bw, bh))| {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            Some(t_idx)
+                        } else {
+                            None
+                        }
+                    });
 
-                        for (t_idx, &(bx, by, bw, bh)) in self.settings_tab_rects.iter().enumerate() {
+                    let opt = if tab.is_none() {
+                        let rects: &[(i32, i32, i32, i32)] = match self.settings_tab {
+                            0 => &self.settings_rects,
+                            1 => &self.settings_audio_rects,
+                            2 => &self.settings_controls_rects,
+                            _ => &self.settings_debug_rects,
+                        };
+                        rects.iter().enumerate().find_map(|(i, &(bx, by, bw, bh))| {
                             if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                hovered_tab = Some(t_idx);
-                                break;
-                            }
-                        }
-
-                        if hovered_tab.is_none() {
-                            if self.settings_tab == 0 {
-                                for (i, &(bx, by, bw, bh)) in self.settings_rects.iter().enumerate() {
-                                    if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                        hovered_opt = Some(i);
-                                        self.settings_hovered_opt = Some(i);
-                                        break;
-                                    }
-                                }
-                            } else if self.settings_tab == 1 {
-                                for (i, &(bx, by, bw, bh)) in self.settings_audio_rects.iter().enumerate() {
-                                    if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                        hovered_opt = Some(i);
-                                        self.settings_hovered_opt = Some(i);
-                                        break;
-                                    }
-                                }
-                            } else if self.settings_tab == 2 {
-                                for (i, &(bx, by, bw, bh)) in self.settings_controls_rects.iter().enumerate() {
-                                    if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                        hovered_opt = Some(i);
-                                        self.settings_hovered_opt = Some(i);
-                                        break;
-                                    }
-                                }
+                                Some(i)
                             } else {
-                                for (i, &(bx, by, bw, bh)) in self.settings_debug_rects.iter().enumerate() {
-                                    if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                        hovered_opt = Some(i);
-                                        self.settings_hovered_opt = Some(i);
-                                        break;
-                                    }
-                                }
+                                None
                             }
-                        }
-                    }
+                        })
+                    } else {
+                        None
+                    };
+
+                    (tab, opt)
+                } else {
+                    (None, None)
+                };
+
+                let mut hovered_opt = self.settings_hovered_opt;
+                if let Some(opt) = mouse_hovered_opt {
+                    hovered_opt = Some(opt);
+                    self.settings_hovered_opt = Some(opt);
+                } else if !self.is_gamepad_active && mouse_pos.is_some() && hovered_tab.is_none() {
+                    hovered_opt = None;
                 }
 
                 // Tab switching via keyboard (Tab / 1 / 2 / 3 / 4) or Gamepad LB / RB
@@ -3904,19 +3935,28 @@ impl RustCraftApp {
                 let t_fov = 1.0 - (-8.0 * dt).exp();
                 self.camera.fov_y += (self.settings.fov_deg.to_radians() - self.camera.fov_y) * t_fov;
 
-                let mut hovered_idx = self.pause_hovered_btn;
-                if mouse_moved {
-                    if let Some((mx, my)) = mouse_pos {
-                        let px = mx as i32;
-                        let py = my as i32;
-                        for (i, &(bx, by, bw, bh)) in self.pause_menu_rects.iter().enumerate() {
-                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                hovered_idx = Some(i);
-                                self.pause_hovered_btn = Some(i);
-                                break;
-                            }
+                let mouse_hovered_btn = if self.is_gamepad_active && !mouse_moved {
+                    None
+                } else if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    self.pause_menu_rects.iter().enumerate().find_map(|(i, &(bx, by, bw, bh))| {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            Some(i)
+                        } else {
+                            None
                         }
-                    }
+                    })
+                } else {
+                    None
+                };
+
+                let mut hovered_idx = self.pause_hovered_btn;
+                if let Some(btn) = mouse_hovered_btn {
+                    hovered_idx = Some(btn);
+                    self.pause_hovered_btn = Some(btn);
+                } else if !self.is_gamepad_active && mouse_pos.is_some() {
+                    hovered_idx = None;
                 }
 
                 if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
@@ -3936,7 +3976,9 @@ impl RustCraftApp {
                     hovered_idx = Some(next);
                 }
 
-                let click_pause_btn = if (left_down && !self.prev_left_down) || input.gp_south_just_pressed || (enter_down && !self.prev_enter_down) {
+                let click_pause_btn = if left_down && !self.prev_left_down {
+                    mouse_hovered_btn
+                } else if input.gp_south_just_pressed || (enter_down && !self.prev_enter_down) {
                     hovered_idx
                 } else {
                     None
@@ -4581,19 +4623,28 @@ impl RustCraftApp {
                 );
             }
             GameState::DeathScreen => {
-                let mut hovered_idx = self.death_hovered_btn;
-                if mouse_moved {
-                    if let Some((mx, my)) = mouse_pos {
-                        let px = mx as i32;
-                        let py = my as i32;
-                        for (i, &(bx, by, bw, bh)) in self.death_screen_rects.iter().enumerate() {
-                            if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                                hovered_idx = Some(i);
-                                self.death_hovered_btn = Some(i);
-                                break;
-                            }
+                let mouse_hovered_btn = if self.is_gamepad_active && !mouse_moved {
+                    None
+                } else if let Some((mx, my)) = mouse_pos {
+                    let px = mx as i32;
+                    let py = my as i32;
+                    self.death_screen_rects.iter().enumerate().find_map(|(i, &(bx, by, bw, bh))| {
+                        if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                            Some(i)
+                        } else {
+                            None
                         }
-                    }
+                    })
+                } else {
+                    None
+                };
+
+                let mut hovered_idx = self.death_hovered_btn;
+                if let Some(btn) = mouse_hovered_btn {
+                    hovered_idx = Some(btn);
+                    self.death_hovered_btn = Some(btn);
+                } else if !self.is_gamepad_active && mouse_pos.is_some() {
+                    hovered_idx = None;
                 }
 
                 if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
@@ -4613,7 +4664,9 @@ impl RustCraftApp {
                     hovered_idx = Some(next);
                 }
 
-                let click_death_btn = if (left_down && !self.prev_left_down) || input.gp_south_just_pressed || (enter_down && !self.prev_enter_down) {
+                let click_death_btn = if left_down && !self.prev_left_down {
+                    mouse_hovered_btn
+                } else if input.gp_south_just_pressed || (enter_down && !self.prev_enter_down) {
                     hovered_idx
                 } else {
                     None
