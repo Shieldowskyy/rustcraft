@@ -227,6 +227,30 @@ pub enum BlockId {
     SheepSpawnEgg,
     /// Shears tool for shearing sheep and fast leaf/wool harvesting
     Shears,
+    /// Underwater kelp plant / item
+    Kelp,
+    /// Underwater seagrass vegetation
+    Seagrass,
+    /// Raw Cod dropped by cod fish
+    RawCod,
+    /// Cooked Cod food item
+    CookedCod,
+    /// Raw Salmon dropped by salmon fish
+    RawSalmon,
+    /// Cooked Salmon food item
+    CookedSalmon,
+    /// Pufferfish item (poisonous if eaten!)
+    Pufferfish,
+    /// Tropical Fish food item
+    TropicalFish,
+    /// Dried Kelp quick snack
+    DriedKelp,
+    /// Dolphin spawn egg
+    DolphinSpawnEgg,
+    /// Fish spawn egg
+    FishSpawnEgg,
+    /// Fishing rod tool
+    FishingRod,
     /// Custom modded block or item (ID 140..=255)
     Custom(u8),
 }
@@ -361,6 +385,18 @@ impl BlockId {
             125 => BlockId::BlackWool,
             126 => BlockId::SheepSpawnEgg,
             127 => BlockId::Shears,
+            128 => BlockId::Kelp,
+            129 => BlockId::Seagrass,
+            130 => BlockId::RawCod,
+            131 => BlockId::CookedCod,
+            132 => BlockId::RawSalmon,
+            133 => BlockId::CookedSalmon,
+            134 => BlockId::Pufferfish,
+            135 => BlockId::TropicalFish,
+            136 => BlockId::DriedKelp,
+            137 => BlockId::DolphinSpawnEgg,
+            138 => BlockId::FishSpawnEgg,
+            139 => BlockId::FishingRod,
             v if v >= 140 => BlockId::Custom(v),
             _ => BlockId::Air,
         }
@@ -496,6 +532,18 @@ impl BlockId {
             BlockId::BlackWool => 125,
             BlockId::SheepSpawnEgg => 126,
             BlockId::Shears => 127,
+            BlockId::Kelp => 128,
+            BlockId::Seagrass => 129,
+            BlockId::RawCod => 130,
+            BlockId::CookedCod => 131,
+            BlockId::RawSalmon => 132,
+            BlockId::CookedSalmon => 133,
+            BlockId::Pufferfish => 134,
+            BlockId::TropicalFish => 135,
+            BlockId::DriedKelp => 136,
+            BlockId::DolphinSpawnEgg => 137,
+            BlockId::FishSpawnEgg => 138,
+            BlockId::FishingRod => 139,
             BlockId::Custom(id) => id,
         }
     }
@@ -654,6 +702,18 @@ impl BlockId {
                     | BlockId::LeverOn
                     | BlockId::ButtonPressed
                     | BlockId::PressurePlatePressed
+                    | BlockId::Shears
+                    | BlockId::SheepSpawnEgg
+                    | BlockId::RawCod
+                    | BlockId::CookedCod
+                    | BlockId::RawSalmon
+                    | BlockId::CookedSalmon
+                    | BlockId::Pufferfish
+                    | BlockId::TropicalFish
+                    | BlockId::DriedKelp
+                    | BlockId::DolphinSpawnEgg
+                    | BlockId::FishSpawnEgg
+                    | BlockId::FishingRod
             ),
         }
     }
@@ -766,7 +826,8 @@ impl BlockId {
                 if id < 128 {
                     ((SOLID_MASK >> id) & 1) != 0
                 } else if id < 140 {
-                    true
+                    // Kelp (128), Seagrass (129), and items (130..=139) are non-solid
+                    false
                 } else {
                     true
                 }
@@ -780,6 +841,8 @@ impl BlockId {
             BlockId::CowSpawnEgg => Some(crate::gameplay::mob::MobKind::Cow),
             BlockId::ChickenSpawnEgg => Some(crate::gameplay::mob::MobKind::Chicken),
             BlockId::SheepSpawnEgg => Some(crate::gameplay::mob::MobKind::Sheep),
+            BlockId::DolphinSpawnEgg => Some(crate::gameplay::mob::MobKind::Dolphin),
+            BlockId::FishSpawnEgg => Some(crate::gameplay::mob::MobKind::Cod),
             _ => None,
         }
     }
@@ -804,6 +867,8 @@ impl BlockId {
                     | BlockId::ButtonPressed
                     | BlockId::PressurePlate
                     | BlockId::PressurePlatePressed
+                    | BlockId::Kelp
+                    | BlockId::Seagrass
             )
     }
 
@@ -836,6 +901,13 @@ impl BlockId {
                     | BlockId::Carrot
                     | BlockId::Potato
                     | BlockId::BakedPotato
+                    | BlockId::RawCod
+                    | BlockId::CookedCod
+                    | BlockId::RawSalmon
+                    | BlockId::CookedSalmon
+                    | BlockId::Pufferfish
+                    | BlockId::TropicalFish
+                    | BlockId::DriedKelp
             ),
         }
     }
@@ -855,6 +927,13 @@ impl BlockId {
             BlockId::Carrot => Some((3.0, 3.6)),
             BlockId::Potato => Some((1.0, 0.6)),
             BlockId::BakedPotato => Some((5.0, 6.0)),
+            BlockId::RawCod => Some((2.0, 0.4)),
+            BlockId::CookedCod => Some((5.0, 6.0)),
+            BlockId::RawSalmon => Some((2.0, 0.4)),
+            BlockId::CookedSalmon => Some((6.0, 9.6)),
+            BlockId::Pufferfish => Some((1.0, 0.2)),
+            BlockId::TropicalFish => Some((1.0, 0.2)),
+            BlockId::DriedKelp => Some((1.0, 0.6)),
             _ => None,
         }
     }
@@ -868,6 +947,22 @@ impl BlockId {
                 | BlockId::CookedBeef
                 | BlockId::RawChicken
                 | BlockId::CookedChicken
+                | BlockId::RawCod
+                | BlockId::CookedCod
+                | BlockId::RawSalmon
+                | BlockId::CookedSalmon
+        )
+    }
+
+    pub fn is_fish(self) -> bool {
+        matches!(
+            self,
+            BlockId::RawCod
+                | BlockId::CookedCod
+                | BlockId::RawSalmon
+                | BlockId::CookedSalmon
+                | BlockId::Pufferfish
+                | BlockId::TropicalFish
         )
     }
 
@@ -919,6 +1014,7 @@ impl BlockId {
                 | BlockId::DiamondHoe
                 | BlockId::GoldHoe
                 | BlockId::Shears
+                | BlockId::FishingRod
         )
     }
 
@@ -1065,6 +1161,7 @@ impl BlockId {
             BlockId::Ladder => 0.4,
             BlockId::Farmland | BlockId::FarmlandWet => 0.6,
             BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop | BlockId::Sapling => 0.05,
+            BlockId::Kelp | BlockId::Seagrass => 0.05,
             BlockId::RustStoneOre => 3.0,
             BlockId::RustStoneBlock => 5.0,
             BlockId::RustStoneLamp | BlockId::RustStoneLampLit => 0.3,
@@ -1122,6 +1219,9 @@ impl BlockId {
                 let id = self.to_u8() as u32;
                 if id < 128 {
                     ((TRANSPARENT_MASK >> id) & 1) != 0
+                } else if id < 140 {
+                    // Kelp (128), Seagrass (129), and item entities (130..=139) are transparent
+                    true
                 } else {
                     false
                 }
@@ -1259,6 +1359,18 @@ impl BlockId {
             BlockId::BlackWool => "czarna welna",
             BlockId::SheepSpawnEgg => "jajko owcy",
             BlockId::Shears => "nozyce",
+            BlockId::Kelp => "wodorosty (kelp)",
+            BlockId::Seagrass => "trawa morska",
+            BlockId::RawCod => "surowy dorsz",
+            BlockId::CookedCod => "pieczony dorsz",
+            BlockId::RawSalmon => "surowy losos",
+            BlockId::CookedSalmon => "pieczony losos",
+            BlockId::Pufferfish => "rozdymka",
+            BlockId::TropicalFish => "tropikalna ryba",
+            BlockId::DriedKelp => "suszone wodorosty",
+            BlockId::DolphinSpawnEgg => "jajko delfina",
+            BlockId::FishSpawnEgg => "jajko ryby",
+            BlockId::FishingRod => "wedka",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -1394,6 +1506,18 @@ impl BlockId {
             BlockId::BlackWool => "Black Wool",
             BlockId::SheepSpawnEgg => "Spawn Sheep",
             BlockId::Shears => "Shears",
+            BlockId::Kelp => "Kelp",
+            BlockId::Seagrass => "Seagrass",
+            BlockId::RawCod => "Raw Cod",
+            BlockId::CookedCod => "Cooked Cod",
+            BlockId::RawSalmon => "Raw Salmon",
+            BlockId::CookedSalmon => "Cooked Salmon",
+            BlockId::Pufferfish => "Pufferfish",
+            BlockId::TropicalFish => "Tropical Fish",
+            BlockId::DriedKelp => "Dried Kelp",
+            BlockId::DolphinSpawnEgg => "Spawn Dolphin",
+            BlockId::FishSpawnEgg => "Spawn Fish",
+            BlockId::FishingRod => "Fishing Rod",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -1538,6 +1662,18 @@ impl BlockId {
             BlockId::BlackWool => [0.08, 0.08, 0.10],
             BlockId::SheepSpawnEgg => [0.88, 0.88, 0.86],
             BlockId::Shears => [0.75, 0.75, 0.78],
+            BlockId::Kelp => [0.18, 0.44, 0.16],
+            BlockId::Seagrass => [0.22, 0.58, 0.22],
+            BlockId::RawCod => [0.72, 0.68, 0.58],
+            BlockId::CookedCod => [0.82, 0.70, 0.45],
+            BlockId::RawSalmon => [0.88, 0.42, 0.38],
+            BlockId::CookedSalmon => [0.92, 0.55, 0.32],
+            BlockId::Pufferfish => [0.88, 0.80, 0.25],
+            BlockId::TropicalFish => [0.96, 0.48, 0.15],
+            BlockId::DriedKelp => [0.14, 0.28, 0.12],
+            BlockId::DolphinSpawnEgg => [0.55, 0.68, 0.78],
+            BlockId::FishSpawnEgg => [0.78, 0.55, 0.35],
+            BlockId::FishingRod => [0.55, 0.38, 0.22],
             BlockId::Custom(id) => crate::engine::modding::get_custom_face_color(id, face),
             BlockId::Air => [0.0, 0.0, 0.0],
         }
@@ -1680,6 +1816,18 @@ impl BlockId {
             BlockId::BlackWool => TextureId::BlackWool,
             BlockId::SheepSpawnEgg => TextureId::SheepSpawnEgg,
             BlockId::Shears => TextureId::Shears,
+            BlockId::Kelp => TextureId::Kelp,
+            BlockId::Seagrass => TextureId::Seagrass,
+            BlockId::RawCod => TextureId::RawCod,
+            BlockId::CookedCod => TextureId::CookedCod,
+            BlockId::RawSalmon => TextureId::RawSalmon,
+            BlockId::CookedSalmon => TextureId::CookedSalmon,
+            BlockId::Pufferfish => TextureId::Pufferfish,
+            BlockId::TropicalFish => TextureId::TropicalFish,
+            BlockId::DriedKelp => TextureId::DriedKelp,
+            BlockId::DolphinSpawnEgg => TextureId::DolphinSpawnEgg,
+            BlockId::FishSpawnEgg => TextureId::FishSpawnEgg,
+            BlockId::FishingRod => TextureId::FishingRod,
             BlockId::Custom(id) => crate::engine::modding::get_custom_texture_id(id),
             _ => TextureId::Planks,
         }
@@ -1771,7 +1919,7 @@ mod tests {
     #[test]
     fn test_new_blocks_and_tools() {
         // Roundtrip u8
-        for id in 0..=127u8 {
+        for id in 0..=139u8 {
             let block = BlockId::from_u8(id);
             assert_eq!(block.to_u8(), id);
             // Verify is_solid and is_transparent don't panic on u128 masks
@@ -1781,6 +1929,18 @@ mod tests {
         let custom = BlockId::from_u8(140);
         assert_eq!(custom, BlockId::Custom(140));
         assert_eq!(custom.to_u8(), 140);
+
+        // Aquatic properties
+        assert!(BlockId::Kelp.is_placeable());
+        assert!(BlockId::Seagrass.is_placeable());
+        assert!(!BlockId::RawCod.is_placeable());
+        assert!(!BlockId::FishingRod.is_placeable());
+        assert!(!BlockId::Kelp.is_solid());
+        assert!(BlockId::Kelp.is_transparent());
+        assert!(BlockId::RawCod.is_fish());
+        assert!(BlockId::RawSalmon.is_meat());
+        assert!(BlockId::FishingRod.is_tool());
+        assert!(BlockId::DriedKelp.is_food());
 
         // Wool properties
         assert!(BlockId::WhiteWool.is_wool());

@@ -244,6 +244,14 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::SheepHurt => 820,
         SoundId::SheepDeath => 821,
         SoundId::SheepShear => 822,
+        SoundId::FishFlop => 823,
+        SoundId::DolphinIdle => 824,
+        SoundId::DolphinHurt => 825,
+        SoundId::DolphinDeath => 826,
+        SoundId::DolphinJump => 827,
+        SoundId::FishingCast => 828,
+        SoundId::FishingReel => 829,
+        SoundId::FishCatch => 830,
         SoundId::AmbientWind => 701,
         SoundId::AmbientCave => 702,
         SoundId::AmbientWater => 703,
@@ -327,6 +335,14 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::SheepHurt => synth_sheep_hurt(&mut rng, sr, 0.28, 0.95),
         SoundId::SheepDeath => synth_sheep_death(&mut rng, sr, 0.70, 0.95),
         SoundId::SheepShear => synth_shears(&mut rng, sr, 0.15, 0.90),
+        SoundId::FishFlop => synth_fish_flop(&mut rng, sr, 0.18, 0.85),
+        SoundId::DolphinIdle => synth_dolphin_idle(&mut rng, sr, 0.45, 0.85),
+        SoundId::DolphinHurt => synth_dolphin_hurt(&mut rng, sr, 0.28, 0.95),
+        SoundId::DolphinDeath => synth_dolphin_death(&mut rng, sr, 0.75, 0.95),
+        SoundId::DolphinJump => synth_dolphin_jump(&mut rng, sr, 0.40, 0.90),
+        SoundId::FishingCast => synth_fishing_cast(sr, 0.16, 0.85),
+        SoundId::FishingReel => synth_fishing_reel(&mut rng, sr, 0.22, 0.85),
+        SoundId::FishCatch => synth_fish_catch(&mut rng, sr, 0.35, 0.95),
 
         // Ambient (loops or long tones)
         SoundId::AmbientWind => synth_wind_ambient(&mut rng, sr, 4.5, 0.45),
@@ -1898,5 +1914,105 @@ fn synth_shears(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f
         out.push(sample * volume * 1.7);
     }
     out
+}
+
+/// Fish flop: wet slapping impact and flopping flutter on dry land.
+fn synth_fish_flop(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.12)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut lp = IirFilter::lowpass(1800.0, sr);
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let flap = (t * 36.0 * std::f32::consts::PI).sin().abs();
+        let noise = rng.next_f32() * 2.0 - 1.0;
+        let filtered = lp.process(noise);
+        let env = ((1.0 - t).max(0.0)).powf(1.5);
+        out.push((filtered * 0.6 + noise * flap * 0.4) * env * volume * 1.4);
+    }
+    out
+}
+
+/// Dolphin idle: cheerful aquatic chirp and clicking whistle.
+fn synth_dolphin_idle(_rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.3)) as usize;
+    let mut out = Vec::with_capacity(count);
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let freq = 1800.0 + (t * 6.0 * std::f32::consts::PI).sin() * 500.0 + t * 400.0;
+        let phase = i as f32 * freq * 2.0 * std::f32::consts::PI / sr;
+        let chirp = phase.sin();
+        let click = if (i % (sr as usize / 55)) < 4 { 0.45 } else { 0.0 };
+        let env = ((1.0 - t).max(0.0)).powf(1.2);
+        out.push((chirp * 0.75 + click * 0.25) * env * volume * 1.3);
+    }
+    out
+}
+
+/// Dolphin hurt: startled high-pitched aquatic squeak.
+fn synth_dolphin_hurt(_rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.2)) as usize;
+    let mut out = Vec::with_capacity(count);
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let freq = 2400.0 - t * 1500.0;
+        let phase = i as f32 * freq * 2.0 * std::f32::consts::PI / sr;
+        let env = ((1.0 - t).max(0.0)).powf(1.8);
+        out.push(phase.sin() * env * volume * 1.4);
+    }
+    out
+}
+
+/// Dolphin death: mournful descending whistle fading out.
+fn synth_dolphin_death(_rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.5)) as usize;
+    let mut out = Vec::with_capacity(count);
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let freq = 1600.0 - t * 900.0;
+        let phase = i as f32 * freq * 2.0 * std::f32::consts::PI / sr;
+        let env = ((1.0 - t).max(0.0)).powf(1.3);
+        out.push(phase.sin() * env * volume * 1.3);
+    }
+    out
+}
+
+/// Dolphin jump: energetic water splash and surge sound.
+fn synth_dolphin_jump(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    synth_water_splash(rng, sr, duration, volume)
+}
+
+/// Fishing rod cast: swoosh of rod bending and line launching.
+fn synth_fishing_cast(sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    synth_sweep(sr, duration, 220.0, 950.0, volume)
+}
+
+/// Fishing reel: mechanical clicks of reel turning.
+fn synth_fishing_reel(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.15)) as usize;
+    let mut out = Vec::with_capacity(count);
+
+    for i in 0..count {
+        let is_click = (i % 280) < 35;
+        let click = if is_click { (rng.next_f32() * 2.0 - 1.0) * 0.8 } else { 0.0 };
+        let env = (1.0 - i as f32 / count as f32).powf(1.2);
+        out.push(click * env * volume);
+    }
+    out
+}
+
+/// Fish catch: big satisfying water splash and pop item catch!
+fn synth_fish_catch(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let mut splash = synth_water_splash(rng, sr, duration, volume * 0.8);
+    let pop = synth_sweep(sr, 0.12, 380.0, 880.0, volume * 0.9);
+    for (i, p) in pop.into_iter().enumerate() {
+        if i < splash.len() {
+            splash[i] = (splash[i] + p).clamp(-1.0, 1.0);
+        }
+    }
+    splash
 }
 

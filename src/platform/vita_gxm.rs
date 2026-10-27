@@ -771,6 +771,11 @@ pub const ALL_TEXTURES: &[TextureId] = &[
     TextureId::LightGrayWool, TextureId::CyanWool, TextureId::PurpleWool, TextureId::BlueWool,
     TextureId::BrownWool, TextureId::GreenWool, TextureId::RedWool, TextureId::BlackWool,
     TextureId::SheepSkin, TextureId::SheepFace, TextureId::Shears, TextureId::SheepSpawnEgg,
+    TextureId::Kelp, TextureId::Seagrass, TextureId::RawCod, TextureId::CookedCod,
+    TextureId::RawSalmon, TextureId::CookedSalmon, TextureId::Pufferfish, TextureId::TropicalFish,
+    TextureId::DriedKelp, TextureId::DolphinSpawnEgg, TextureId::FishSpawnEgg, TextureId::FishingRod,
+    TextureId::DolphinSkin, TextureId::DolphinBelly, TextureId::CodSkin, TextureId::SalmonSkin,
+    TextureId::PufferfishSkin, TextureId::TropicalFishSkin,
 ];
 
 unsafe fn populate_atlas(pixels: *mut u32, atlas: &TextureAtlas) {
@@ -995,6 +1000,24 @@ pub fn atlas_uv(tex_id: TextureId) -> (f32, f32, f32, f32) {
         TextureId::SheepFace => 131,
         TextureId::Shears => 132,
         TextureId::SheepSpawnEgg => 133,
+        TextureId::Kelp => 134,
+        TextureId::Seagrass => 135,
+        TextureId::RawCod => 136,
+        TextureId::CookedCod => 137,
+        TextureId::RawSalmon => 138,
+        TextureId::CookedSalmon => 139,
+        TextureId::Pufferfish => 140,
+        TextureId::TropicalFish => 141,
+        TextureId::DriedKelp => 142,
+        TextureId::DolphinSpawnEgg => 143,
+        TextureId::FishSpawnEgg => 144,
+        TextureId::FishingRod => 145,
+        TextureId::DolphinSkin => 146,
+        TextureId::DolphinBelly => 147,
+        TextureId::CodSkin => 148,
+        TextureId::SalmonSkin => 149,
+        TextureId::PufferfishSkin => 150,
+        TextureId::TropicalFishSkin => 151,
         _ => 0,
     };
     const TILE_NORM: f32 = 1.0 / ATLAS_TILES_PER_ROW as f32;
@@ -3192,6 +3215,232 @@ fn append_mob(
                 };
                 append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
             }
+        }
+        MobKind::Dolphin => {
+            let scale = if mob.is_baby { 0.5f32 } else { 1.0f32 };
+            let swim_pitch = mob.swim_pitch;
+
+            let body_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.35 * scale, 0.0),
+                size: Vec3::new(0.48 * scale, 0.42 * scale, 0.95 * scale),
+                yaw,
+                pitch: swim_pitch,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::DolphinSkin,
+                tex_bottom: TextureId::DolphinBelly,
+                tex_side: TextureId::DolphinSkin,
+                tex_front: TextureId::DolphinSkin,
+            };
+            append_mob_box(&body_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let snout_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.28 * scale, 0.60 * scale),
+                size: Vec3::new(0.24 * scale, 0.18 * scale, 0.32 * scale),
+                yaw,
+                pitch: swim_pitch,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::DolphinSkin,
+                tex_bottom: TextureId::DolphinBelly,
+                tex_side: TextureId::DolphinSkin,
+                tex_front: TextureId::DolphinSkin,
+            };
+            append_mob_box(&snout_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let dorsal_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.64 * scale, -0.06 * scale),
+                size: Vec3::new(0.08 * scale, 0.28 * scale, 0.24 * scale),
+                yaw,
+                pitch: swim_pitch,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::DolphinSkin,
+                tex_bottom: TextureId::DolphinSkin,
+                tex_side: TextureId::DolphinSkin,
+                tex_front: TextureId::DolphinSkin,
+            };
+            append_mob_box(&dorsal_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            for side in &[-1.0f32, 1.0f32] {
+                let flipper_box = GxmMobBox {
+                    center: Vec3::new(side * 0.32 * scale, 0.24 * scale, 0.20 * scale),
+                    size: Vec3::new(0.24 * scale, 0.06 * scale, 0.22 * scale),
+                    yaw: yaw + side * 0.25,
+                    pitch: swim_pitch,
+                    roll: roll_angle + side * 0.3,
+                    origin: base_pos,
+                    tex_top: TextureId::DolphinSkin,
+                    tex_bottom: TextureId::DolphinBelly,
+                    tex_side: TextureId::DolphinSkin,
+                    tex_front: TextureId::DolphinSkin,
+                };
+                append_mob_box(&flipper_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+            }
+
+            let fluke_pitch = swim_pitch + (mob.walk_phase).sin() * 0.38;
+            let fluke_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.35 * scale, -0.80 * scale),
+                size: Vec3::new(0.55 * scale, 0.06 * scale, 0.28 * scale),
+                yaw,
+                pitch: fluke_pitch,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::DolphinSkin,
+                tex_bottom: TextureId::DolphinSkin,
+                tex_side: TextureId::DolphinSkin,
+                tex_front: TextureId::DolphinSkin,
+            };
+            append_mob_box(&fluke_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+        }
+        MobKind::Cod => {
+            let tail_swish = (mob.walk_phase).sin() * 0.42;
+            let swim_pitch = mob.swim_pitch;
+
+            let body_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.16, 0.0),
+                size: Vec3::new(0.18, 0.24, 0.48),
+                yaw,
+                pitch: swim_pitch,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::CodSkin,
+                tex_bottom: TextureId::CodSkin,
+                tex_side: TextureId::CodSkin,
+                tex_front: TextureId::CodSkin,
+            };
+            append_mob_box(&body_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let tail_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.16, -0.32),
+                size: Vec3::new(0.04, 0.22, 0.20),
+                yaw: yaw + tail_swish,
+                pitch: swim_pitch,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::CodSkin,
+                tex_bottom: TextureId::CodSkin,
+                tex_side: TextureId::CodSkin,
+                tex_front: TextureId::CodSkin,
+            };
+            append_mob_box(&tail_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+        }
+        MobKind::Salmon => {
+            let tail_swish = (mob.walk_phase).sin() * 0.45;
+            let swim_pitch = mob.swim_pitch;
+
+            let body_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.20, -0.05),
+                size: Vec3::new(0.22, 0.30, 0.55),
+                yaw,
+                pitch: swim_pitch,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::SalmonSkin,
+                tex_bottom: TextureId::SalmonSkin,
+                tex_side: TextureId::SalmonSkin,
+                tex_front: TextureId::SalmonSkin,
+            };
+            append_mob_box(&body_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let head_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.20, 0.30),
+                size: Vec3::new(0.20, 0.26, 0.22),
+                yaw,
+                pitch: swim_pitch,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::CodSkin,
+                tex_bottom: TextureId::CodSkin,
+                tex_side: TextureId::CodSkin,
+                tex_front: TextureId::CodSkin,
+            };
+            append_mob_box(&head_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let tail_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.20, -0.42),
+                size: Vec3::new(0.04, 0.28, 0.26),
+                yaw: yaw + tail_swish,
+                pitch: swim_pitch,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::SalmonSkin,
+                tex_bottom: TextureId::SalmonSkin,
+                tex_side: TextureId::SalmonSkin,
+                tex_front: TextureId::SalmonSkin,
+            };
+            append_mob_box(&tail_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+        }
+        MobKind::Pufferfish => {
+            let is_puffed = mob.is_puffed;
+            let (size, y_center) = if is_puffed {
+                (Vec3::new(0.65, 0.65, 0.65), 0.35)
+            } else {
+                (Vec3::new(0.28, 0.28, 0.28), 0.16)
+            };
+
+            let body_box = GxmMobBox {
+                center: Vec3::new(0.0, y_center, 0.0),
+                size,
+                yaw,
+                pitch: mob.swim_pitch,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::PufferfishSkin,
+                tex_bottom: TextureId::PufferfishSkin,
+                tex_side: TextureId::PufferfishSkin,
+                tex_front: TextureId::Pufferfish,
+            };
+            append_mob_box(&body_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let fin_flap = (mob.walk_phase * 2.0).sin() * 0.4;
+            for side in &[-1.0f32, 1.0f32] {
+                let fin_box = GxmMobBox {
+                    center: Vec3::new(side * (size.x * 0.55), y_center, 0.0),
+                    size: Vec3::new(0.04, 0.14, 0.14),
+                    yaw: yaw + side * 0.2,
+                    pitch: mob.swim_pitch + fin_flap,
+                    roll: roll_angle + side * 0.3,
+                    origin: base_pos,
+                    tex_top: TextureId::PufferfishSkin,
+                    tex_bottom: TextureId::PufferfishSkin,
+                    tex_side: TextureId::PufferfishSkin,
+                    tex_front: TextureId::PufferfishSkin,
+                };
+                append_mob_box(&fin_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+            }
+        }
+        MobKind::TropicalFish => {
+            let tail_swish = (mob.walk_phase).sin() * 0.50;
+            let swim_pitch = mob.swim_pitch;
+
+            let body_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.16, 0.0),
+                size: Vec3::new(0.14, 0.26, 0.36),
+                yaw,
+                pitch: swim_pitch,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::TropicalFishSkin,
+                tex_bottom: TextureId::TropicalFishSkin,
+                tex_side: TextureId::TropicalFishSkin,
+                tex_front: TextureId::TropicalFish,
+            };
+            append_mob_box(&body_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let tail_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.16, -0.24),
+                size: Vec3::new(0.04, 0.24, 0.18),
+                yaw: yaw + tail_swish,
+                pitch: swim_pitch,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::TropicalFishSkin,
+                tex_bottom: TextureId::TropicalFishSkin,
+                tex_side: TextureId::TropicalFishSkin,
+                tex_front: TextureId::TropicalFishSkin,
+            };
+            append_mob_box(&tail_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
         }
     }
 }

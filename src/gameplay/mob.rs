@@ -12,9 +12,25 @@ pub enum MobKind {
     Zombie,
     Skeleton,
     Creeper,
+    Dolphin,
+    Cod,
+    Salmon,
+    Pufferfish,
+    TropicalFish,
 }
 
 impl MobKind {
+    pub fn is_aquatic(&self) -> bool {
+        matches!(
+            self,
+            MobKind::Dolphin
+                | MobKind::Cod
+                | MobKind::Salmon
+                | MobKind::Pufferfish
+                | MobKind::TropicalFish
+        )
+    }
+
     pub fn max_health(&self) -> f32 {
         match self {
             MobKind::Pig => 10.0,
@@ -24,6 +40,11 @@ impl MobKind {
             MobKind::Zombie => 20.0,
             MobKind::Skeleton => 20.0,
             MobKind::Creeper => 20.0,
+            MobKind::Dolphin => 10.0,
+            MobKind::Cod => 3.0,
+            MobKind::Salmon => 3.0,
+            MobKind::Pufferfish => 3.0,
+            MobKind::TropicalFish => 3.0,
         }
     }
 
@@ -36,6 +57,11 @@ impl MobKind {
             MobKind::Zombie => 0.35,
             MobKind::Skeleton => 0.30,
             MobKind::Creeper => 0.30,
+            MobKind::Dolphin => 0.38,
+            MobKind::Cod => 0.20,
+            MobKind::Salmon => 0.24,
+            MobKind::Pufferfish => 0.25,
+            MobKind::TropicalFish => 0.18,
         }
     }
 
@@ -48,6 +74,11 @@ impl MobKind {
             MobKind::Zombie => 1.85,
             MobKind::Skeleton => 1.85,
             MobKind::Creeper => 1.70,
+            MobKind::Dolphin => 0.60,
+            MobKind::Cod => 0.30,
+            MobKind::Salmon => 0.35,
+            MobKind::Pufferfish => 0.35,
+            MobKind::TropicalFish => 0.28,
         }
     }
 
@@ -55,6 +86,7 @@ impl MobKind {
     pub fn is_hostile(&self) -> bool {
         match self {
             MobKind::Pig | MobKind::Cow | MobKind::Chicken | MobKind::Sheep => false,
+            MobKind::Dolphin | MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => false,
             MobKind::Zombie | MobKind::Skeleton | MobKind::Creeper => true,
         }
     }
@@ -64,6 +96,10 @@ impl MobKind {
             MobKind::Cow | MobKind::Sheep => item == BlockId::Wheat,
             MobKind::Pig => matches!(item, BlockId::Carrot | BlockId::Potato | BlockId::BakedPotato),
             MobKind::Chicken => item == BlockId::WheatSeeds,
+            MobKind::Dolphin => matches!(item, BlockId::RawCod | BlockId::RawSalmon),
+            MobKind::Cod | MobKind::Salmon | MobKind::TropicalFish | MobKind::Pufferfish => {
+                matches!(item, BlockId::WheatSeeds | BlockId::Kelp | BlockId::Seagrass)
+            }
             _ => false,
         }
     }
@@ -78,6 +114,11 @@ impl MobKind {
             MobKind::Zombie => "Zombie",
             MobKind::Skeleton => "Skeleton",
             MobKind::Creeper => "Creeper",
+            MobKind::Dolphin => "Dolphin",
+            MobKind::Cod => "Cod",
+            MobKind::Salmon => "Salmon",
+            MobKind::Pufferfish => "Pufferfish",
+            MobKind::TropicalFish => "Tropical Fish",
         }
     }
 
@@ -90,6 +131,8 @@ impl MobKind {
             MobKind::Zombie => Some(crate::audio::SoundId::ZombieIdle),
             MobKind::Skeleton => Some(crate::audio::SoundId::SkeletonIdle),
             MobKind::Creeper => None,
+            MobKind::Dolphin => Some(crate::audio::SoundId::DolphinIdle),
+            MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => None,
         }
     }
 
@@ -102,6 +145,8 @@ impl MobKind {
             MobKind::Zombie => crate::audio::SoundId::ZombieHurt,
             MobKind::Skeleton => crate::audio::SoundId::SkeletonHurt,
             MobKind::Creeper => crate::audio::SoundId::CreeperHurt,
+            MobKind::Dolphin => crate::audio::SoundId::DolphinHurt,
+            MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => crate::audio::SoundId::FishFlop,
         }
     }
 
@@ -114,6 +159,8 @@ impl MobKind {
             MobKind::Zombie => crate::audio::SoundId::ZombieDeath,
             MobKind::Skeleton => crate::audio::SoundId::SkeletonDeath,
             MobKind::Creeper => crate::audio::SoundId::CreeperDeath,
+            MobKind::Dolphin => crate::audio::SoundId::DolphinDeath,
+            MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => crate::audio::SoundId::FishFlop,
         }
     }
 }
@@ -150,6 +197,12 @@ pub struct Mob {
     pub wool_color: u8,
     pub is_sheared: bool,
     pub eat_grass_timer: f32,
+    pub is_puffed: bool,
+    pub puff_timer: f32,
+    pub swim_pitch: f32,
+    pub jump_timer: f32,
+    pub out_of_water_timer: f32,
+    pub fish_variant: u8,
 }
 
 impl Mob {
@@ -204,13 +257,22 @@ impl Mob {
             wool_color,
             is_sheared: false,
             eat_grass_timer: 0.0,
+            is_puffed: false,
+            puff_timer: 0.0,
+            swim_pitch: 0.0,
+            jump_timer: 3.0 + ((id % 7) as f32),
+            out_of_water_timer: 0.0,
+            fish_variant: (id % 4) as u8,
         }
     }
 
     pub fn aabb(&self) -> (Vec3, Vec3) {
         let scale = if self.is_baby { 0.5 } else { 1.0 };
-        let hw = self.kind.half_width() * scale;
-        let h = self.kind.height() * scale;
+        let (hw, h) = if self.kind == MobKind::Pufferfish && self.is_puffed {
+            (0.46 * scale, 0.65 * scale)
+        } else {
+            (self.kind.half_width() * scale, self.kind.height() * scale)
+        };
         (
             Vec3::new(self.pos.x - hw, self.pos.y, self.pos.z - hw),
             Vec3::new(self.pos.x + hw, self.pos.y + h, self.pos.z + hw),
@@ -353,6 +415,146 @@ impl Mob {
             }
         }
 
+        let mut in_water = false;
+        for x in min_x..=max_x {
+            for y in min_y..=max_y {
+                for z in min_z..=max_z {
+                    let b = world.get_block(IVec3::new(x, y, z));
+                    if matches!(b, BlockId::Water | BlockId::Kelp | BlockId::Seagrass) {
+                        in_water = true;
+                        break;
+                    }
+                }
+                if in_water { break; }
+            }
+            if in_water { break; }
+        }
+
+        // Aquatic mobs 3D swimming & flopping AI
+        if self.kind.is_aquatic() {
+            if in_water {
+                self.out_of_water_timer = 0.0;
+                self.ai_timer -= dt;
+                if self.ai_timer <= 0.0 {
+                    let roll = rand_f32(rng);
+                    if roll < 0.22 {
+                        self.ai_state_is_moving = false;
+                        self.ai_timer = 1.0 + rand_f32(rng) * 2.0;
+                    } else {
+                        self.ai_state_is_moving = true;
+                        self.target_yaw = rand_f32(rng) * PI * 2.0;
+                        self.ai_timer = 2.0 + rand_f32(rng) * 4.0;
+                    }
+                }
+
+                if let Some(target) = player_pos {
+                    let dx = target.x - self.pos.x;
+                    let dy = target.y - self.pos.y;
+                    let dz = target.z - self.pos.z;
+                    let dist_sq = dx * dx + dy * dy + dz * dz;
+
+                    if self.kind == MobKind::Pufferfish {
+                        if dist_sq < 3.2 * 3.2 {
+                            self.is_puffed = true;
+                            self.puff_timer = 2.5;
+                        }
+                    }
+
+                    if self.kind == MobKind::Dolphin {
+                        if dist_sq < 14.0 * 14.0 && dist_sq > 2.5 * 2.5 {
+                            self.target_yaw = dx.atan2(dz) + (rand_f32(rng) - 0.5) * 0.4;
+                            self.ai_state_is_moving = true;
+                        }
+                    }
+                }
+
+                if self.puff_timer > 0.0 {
+                    self.puff_timer -= dt;
+                    if self.puff_timer <= 0.0 {
+                        self.is_puffed = false;
+                    }
+                }
+
+                if self.kind == MobKind::Dolphin {
+                    self.jump_timer -= dt;
+                    let above_pos = (self.pos + Vec3::new(0.0, 1.2, 0.0)).floor_to_ivec();
+                    if self.jump_timer <= 0.0 && world.get_block(above_pos) == BlockId::Air && self.ai_state_is_moving {
+                        self.jump_timer = 4.5 + rand_f32(rng) * 5.0;
+                        self.velocity.y = 5.2;
+                        self.pending_sound = Some(crate::audio::SoundId::DolphinJump);
+                    }
+                }
+
+                let mut diff = self.target_yaw - self.yaw;
+                while diff > PI { diff -= PI * 2.0; }
+                while diff < -PI { diff += PI * 2.0; }
+                self.yaw += diff * (4.5 * dt).min(1.0);
+
+                let swim_speed = match self.kind {
+                    MobKind::Dolphin => if self.ai_state_is_moving { 4.2 } else { 1.5 },
+                    MobKind::Salmon => if self.ai_state_is_moving { 2.4 } else { 0.9 },
+                    _ => if self.ai_state_is_moving { 1.8 } else { 0.6 },
+                };
+
+                let forward = Vec3::new(self.yaw.sin(), 0.0, self.yaw.cos());
+                let target_vx = forward.x * swim_speed;
+                let target_vz = forward.z * swim_speed;
+
+                let surface_above = world.get_block((self.pos + Vec3::new(0.0, 0.6, 0.0)).floor_to_ivec());
+                let floor_below = world.get_block((self.pos - Vec3::new(0.0, 0.4, 0.0)).floor_to_ivec());
+                let target_vy = if floor_below.is_solid() {
+                    1.2
+                } else if surface_above == BlockId::Air && self.velocity.y <= 0.5 {
+                    -0.8
+                } else {
+                    (self.id.wrapping_mul(101) % 5) as f32 * 0.3 - 0.6
+                };
+
+                self.velocity.x += (target_vx - self.velocity.x) * (6.0 * dt).min(1.0);
+                self.velocity.z += (target_vz - self.velocity.z) * (6.0 * dt).min(1.0);
+                if self.velocity.y < 3.0 {
+                    self.velocity.y += (target_vy - self.velocity.y) * (4.0 * dt).min(1.0);
+                } else {
+                    self.velocity.y -= 18.0 * dt;
+                }
+
+                let current_pitch = (-self.velocity.y * 0.22).clamp(-0.55, 0.55);
+                self.swim_pitch += (current_pitch - self.swim_pitch) * (6.0 * dt).min(1.0);
+
+                let _ = self.apply_movement(dt, world);
+
+                let h_speed = self.velocity.x.hypot(self.velocity.z);
+                self.walk_phase += dt * (h_speed * 5.0 + 3.0);
+                return;
+            } else {
+                // Out of water (flopping on land)
+                self.out_of_water_timer += dt;
+                self.velocity.y -= 22.0 * dt;
+                self.velocity.x *= (1.0 - 5.0 * dt).max(0.0);
+                self.velocity.z *= (1.0 - 5.0 * dt).max(0.0);
+
+                self.walk_phase += dt * 16.0;
+                if self.on_ground {
+                    self.ai_timer -= dt;
+                    if self.ai_timer <= 0.0 {
+                        self.ai_timer = 0.5 + rand_f32(rng) * 0.8;
+                        self.velocity.y = 3.0 + rand_f32(rng) * 1.5;
+                        self.velocity.x = (rand_f32(rng) - 0.5) * 2.8;
+                        self.velocity.z = (rand_f32(rng) - 0.5) * 2.8;
+                        self.on_ground = false;
+                        self.pending_sound = Some(crate::audio::SoundId::FishFlop);
+                    }
+                }
+
+                if self.out_of_water_timer >= 12.0 && self.hurt_timer <= 0.0 {
+                    self.take_damage(2.0, Vec3::new(0.0, 1.0, 0.0));
+                }
+
+                let _ = self.apply_movement(dt, world);
+                return;
+            }
+        }
+
         if self.panic_timer > 0.0 {
             self.panic_timer = (self.panic_timer - dt).max(0.0);
         }
@@ -480,10 +682,16 @@ impl Mob {
             self.velocity.z *= (1.0 - 2.0 * dt).max(0.0);
         }
 
-        self.velocity.y -= 22.0 * dt;
-        let max_fall_speed = if self.kind == MobKind::Chicken { -3.2 } else { -30.0 };
-        if self.velocity.y < max_fall_speed {
-            self.velocity.y = max_fall_speed;
+        if in_water {
+            self.velocity.y = (self.velocity.y + 12.0 * dt).min(1.8);
+            self.velocity.x *= (1.0 - 4.0 * dt).max(0.0);
+            self.velocity.z *= (1.0 - 4.0 * dt).max(0.0);
+        } else {
+            self.velocity.y -= 22.0 * dt;
+            let max_fall_speed = if self.kind == MobKind::Chicken { -3.2 } else { -30.0 };
+            if self.velocity.y < max_fall_speed {
+                self.velocity.y = max_fall_speed;
+            }
         }
 
         if self.on_ground && (self.ai_state_is_moving || self.panic_timer > 0.0 || pursuing_player) {
@@ -832,6 +1040,57 @@ impl MobManager {
                                 });
                             }
                         }
+                        MobKind::Dolphin => {
+                            if m.id % 2 == 0 {
+                                self.dying_drops.push(MobDrop {
+                                    pos: m.center_pos(),
+                                    block: BlockId::RawCod,
+                                    count: 1,
+                                });
+                            }
+                        }
+                        MobKind::Cod => {
+                            self.dying_drops.push(MobDrop {
+                                pos: m.center_pos(),
+                                block: BlockId::RawCod,
+                                count: 1,
+                            });
+                            if m.id % 5 == 0 {
+                                self.dying_drops.push(MobDrop {
+                                    pos: m.center_pos() + Vec3::new(0.05, 0.05, 0.05),
+                                    block: BlockId::Bone,
+                                    count: 1,
+                                });
+                            }
+                        }
+                        MobKind::Salmon => {
+                            self.dying_drops.push(MobDrop {
+                                pos: m.center_pos(),
+                                block: BlockId::RawSalmon,
+                                count: 1,
+                            });
+                            if m.id % 5 == 0 {
+                                self.dying_drops.push(MobDrop {
+                                    pos: m.center_pos() + Vec3::new(0.05, 0.05, 0.05),
+                                    block: BlockId::Bone,
+                                    count: 1,
+                                });
+                            }
+                        }
+                        MobKind::Pufferfish => {
+                            self.dying_drops.push(MobDrop {
+                                pos: m.center_pos(),
+                                block: BlockId::Pufferfish,
+                                count: 1,
+                            });
+                        }
+                        MobKind::TropicalFish => {
+                            self.dying_drops.push(MobDrop {
+                                pos: m.center_pos(),
+                                block: BlockId::TropicalFish,
+                                count: 1,
+                            });
+                        }
                     }
                     }
 
@@ -1021,6 +1280,48 @@ impl MobManager {
                         self.spawn_mob(kind, spawn_pos);
                         return;
                     }
+                }
+            }
+
+            // Aquatic water spawn check
+            let mut water_column = None;
+            for y in (2..=21).rev() {
+                if world.get_block(IVec3::new(target_x, y, target_z)) == BlockId::Water {
+                    let mut bot_y = y;
+                    for by in (1..y).rev() {
+                        let b = world.get_block(IVec3::new(target_x, by, target_z));
+                        if b != BlockId::Water && b != BlockId::Kelp && b != BlockId::Seagrass {
+                            bot_y = by + 1;
+                            break;
+                        }
+                    }
+                    if y - bot_y >= 2 {
+                        water_column = Some((bot_y, y));
+                    }
+                    break;
+                }
+            }
+
+            if let Some((bot, top)) = water_column {
+                let aquatic_count = self.mobs.iter().filter(|m| m.kind.is_aquatic() && !m.is_dead).count();
+                if aquatic_count < 14 {
+                    let spawn_y = bot as f32 + 0.5 + rand_f32(rng) * ((top - bot) as f32 - 0.5);
+                    let roll = rand_f32(rng);
+                    let kind = if roll < 0.35 {
+                        MobKind::Cod
+                    } else if roll < 0.60 {
+                        MobKind::Salmon
+                    } else if roll < 0.75 {
+                        MobKind::TropicalFish
+                    } else if roll < 0.88 {
+                        MobKind::Pufferfish
+                    } else {
+                        MobKind::Dolphin
+                    };
+                    let spawn_pos = Vec3::new(target_x as f32 + 0.5, spawn_y, target_z as f32 + 0.5);
+                    self.spawn_mob(kind, spawn_pos);
+                    crate::log_info!("MOB", "Aquatic spawn: {:?} at ({:.1}, {:.1}, {:.1})", kind, spawn_pos.x, spawn_pos.y, spawn_pos.z);
+                    return;
                 }
             }
         }

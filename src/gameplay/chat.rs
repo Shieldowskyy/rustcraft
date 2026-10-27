@@ -588,6 +588,11 @@ impl ChatState {
                     "zombie" | "zombi" => Some(MobKind::Zombie),
                     "skeleton" | "szkielet" => Some(MobKind::Skeleton),
                     "creeper" => Some(MobKind::Creeper),
+                    "dolphin" | "delfin" => Some(MobKind::Dolphin),
+                    "cod" | "dorsz" => Some(MobKind::Cod),
+                    "salmon" | "losos" => Some(MobKind::Salmon),
+                    "pufferfish" | "rozdymka" => Some(MobKind::Pufferfish),
+                    "tropical_fish" | "tropikalna_ryba" => Some(MobKind::TropicalFish),
                     _ => None,
                 };
 
@@ -602,7 +607,7 @@ impl ChatState {
                     self.add_success(format!("Spawned {} {:?}(s)", count, kind));
                     crate::log_debug!("Command", "Spawned {} {:?} mobs", count, kind);
                 } else {
-                    self.add_error("Usage: /spawn <pig|cow|chicken|zombie|skeleton|creeper> [count]");
+                    self.add_error("Usage: /spawn <pig|cow|chicken|sheep|zombie|skeleton|creeper|dolphin|cod|salmon|pufferfish|tropical_fish> [count]");
                 }
             }
 
@@ -710,6 +715,11 @@ impl ChatState {
         let mut zombies = 0;
         let mut skeletons = 0;
         let mut creepers = 0;
+        let mut dolphins = 0;
+        let mut cod = 0;
+        let mut salmon = 0;
+        let mut pufferfish = 0;
+        let mut tropical_fish = 0;
 
         for mob in &ctx.mob_manager.mobs {
             match mob.kind {
@@ -720,6 +730,11 @@ impl ChatState {
                 MobKind::Zombie => zombies += 1,
                 MobKind::Skeleton => skeletons += 1,
                 MobKind::Creeper => creepers += 1,
+                MobKind::Dolphin => dolphins += 1,
+                MobKind::Cod => cod += 1,
+                MobKind::Salmon => salmon += 1,
+                MobKind::Pufferfish => pufferfish += 1,
+                MobKind::TropicalFish => tropical_fish += 1,
             }
             let dist = (mob.pos - player_pos).length();
             let hostile_tag = if mob.kind.is_hostile() { " [HOSTILE]" } else { "" };
@@ -745,8 +760,8 @@ impl ChatState {
         }
 
         self.add_info(format!(
-            "Summary: Pigs: {}, Cows: {}, Chickens: {}, Sheep: {}, Zombies: {}, Skeletons: {}, Creepers: {}",
-            pigs, cows, chickens, sheep, zombies, skeletons, creepers
+            "Summary: Pigs: {}, Cows: {}, Chickens: {}, Sheep: {}, Zombies: {}, Skeletons: {}, Creepers: {}, Dolphins: {}, Fish: {}",
+            pigs, cows, chickens, sheep, zombies, skeletons, creepers, dolphins, cod + salmon + pufferfish + tropical_fish
         ));
     }
 }
@@ -832,6 +847,18 @@ pub fn parse_vanilla_block_id(s: &str) -> Option<BlockId> {
         "green_wool" | "zielona_welna" => Some(BlockId::GreenWool),
         "red_wool" | "czerwona_welna" => Some(BlockId::RedWool),
         "black_wool" | "czarna_welna" => Some(BlockId::BlackWool),
+        "kelp" | "wodorosty" => Some(BlockId::Kelp),
+        "seagrass" | "trawa_morska" => Some(BlockId::Seagrass),
+        "raw_cod" | "cod" | "dorsz" => Some(BlockId::RawCod),
+        "cooked_cod" | "pieczony_dorsz" => Some(BlockId::CookedCod),
+        "raw_salmon" | "salmon" | "losos" => Some(BlockId::RawSalmon),
+        "cooked_salmon" | "pieczony_losos" => Some(BlockId::CookedSalmon),
+        "pufferfish" | "rozdymka" => Some(BlockId::Pufferfish),
+        "tropical_fish" | "tropikalna_ryba" => Some(BlockId::TropicalFish),
+        "dried_kelp" | "suszone_wodorosty" => Some(BlockId::DriedKelp),
+        "dolphin_spawn_egg" | "dolphin_egg" | "jajko_delfina" => Some(BlockId::DolphinSpawnEgg),
+        "fish_spawn_egg" | "fish_egg" | "jajko_ryby" => Some(BlockId::FishSpawnEgg),
+        "fishing_rod" | "wedka" => Some(BlockId::FishingRod),
         _ => {
             if let Ok(id) = s.parse::<u8>() {
                 if id > 0 {

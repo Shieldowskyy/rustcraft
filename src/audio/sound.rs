@@ -110,6 +110,16 @@ pub enum SoundId {
     SheepDeath,
     SheepShear,
 
+    // Aquatic & Fishing
+    FishFlop,
+    DolphinIdle,
+    DolphinHurt,
+    DolphinDeath,
+    DolphinJump,
+    FishingCast,
+    FishingReel,
+    FishCatch,
+
     // Atmospheric & Ambient
     AmbientWind,
     AmbientCave,
@@ -182,6 +192,14 @@ impl SoundId {
             | SoundId::SheepHurt
             | SoundId::SheepDeath
             | SoundId::SheepShear
+            | SoundId::FishFlop
+            | SoundId::DolphinIdle
+            | SoundId::DolphinHurt
+            | SoundId::DolphinDeath
+            | SoundId::DolphinJump
+            | SoundId::FishingCast
+            | SoundId::FishingReel
+            | SoundId::FishCatch
             | SoundId::StepWoodCreak => SoundCategory::Sfx,
 
             SoundId::UiClick | SoundId::UiHover => SoundCategory::Ui,

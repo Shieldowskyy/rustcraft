@@ -1080,6 +1080,25 @@ pub enum TextureId {
     SheepFace,
     Shears,
     SheepSpawnEgg,
+    // Aquatic textures
+    Kelp,
+    Seagrass,
+    RawCod,
+    CookedCod,
+    RawSalmon,
+    CookedSalmon,
+    Pufferfish,
+    TropicalFish,
+    DriedKelp,
+    DolphinSpawnEgg,
+    FishSpawnEgg,
+    FishingRod,
+    DolphinSkin,
+    DolphinBelly,
+    CodSkin,
+    SalmonSkin,
+    PufferfishSkin,
+    TropicalFishSkin,
     /// Custom modded texture (index 0..=63)
     Custom(u8),
 }
@@ -1545,6 +1564,24 @@ pub struct TextureAtlas {
     pub sheep_face: Texture,
     pub shears: Texture,
     pub sheep_spawn_egg: Texture,
+    pub kelp: Texture,
+    pub seagrass: Texture,
+    pub raw_cod: Texture,
+    pub cooked_cod: Texture,
+    pub raw_salmon: Texture,
+    pub cooked_salmon: Texture,
+    pub pufferfish: Texture,
+    pub tropical_fish: Texture,
+    pub dried_kelp: Texture,
+    pub dolphin_spawn_egg: Texture,
+    pub fish_spawn_egg: Texture,
+    pub fishing_rod: Texture,
+    pub dolphin_skin: Texture,
+    pub dolphin_belly: Texture,
+    pub cod_skin: Texture,
+    pub salmon_skin: Texture,
+    pub pufferfish_skin: Texture,
+    pub tropical_fish_skin: Texture,
     pub custom: Vec<Texture>,
 }
 
@@ -3129,6 +3166,401 @@ fn sheep_spawn_egg() -> Texture {
     Texture { texels }
 }
 
+fn kelp_texture() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let dark_green = [0.10, 0.32, 0.12];
+    let mid_green = [0.18, 0.48, 0.20];
+    let light_green = [0.26, 0.62, 0.26];
+    let highlight = [0.35, 0.75, 0.35];
+
+    for y in 0..TEX_SIZE {
+        texels[y * TEX_SIZE + 7] = if (y % 4) == 0 { highlight } else { mid_green };
+        texels[y * TEX_SIZE + 8] = if (y % 4) == 0 { mid_green } else { dark_green };
+    }
+
+    for y in 0..TEX_SIZE {
+        let side = (y / 3) % 2;
+        if side == 0 {
+            let width = 3 + (y % 3);
+            for x in (8 - width)..7 {
+                let is_edge = x == (8 - width);
+                texels[y * TEX_SIZE + x] = if is_edge { dark_green } else if (x + y) % 2 == 0 { light_green } else { mid_green };
+            }
+        } else {
+            let width = 3 + (y % 3);
+            for x in 9..(9 + width).min(TEX_SIZE) {
+                let is_edge = x == (8 + width);
+                texels[y * TEX_SIZE + x] = if is_edge { dark_green } else if (x + y) % 2 == 0 { light_green } else { mid_green };
+            }
+        }
+    }
+    Texture { texels }
+}
+
+fn seagrass_texture() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let d_green = [0.14, 0.38, 0.16];
+    let m_green = [0.24, 0.58, 0.26];
+    let l_green = [0.36, 0.72, 0.36];
+
+    let stalks = [(3, 11), (6, 14), (9, 13), (12, 10)];
+    for &(sx, h) in &stalks {
+        for y in (TEX_SIZE - h)..TEX_SIZE {
+            let wave = if y < 8 { 1 } else { 0 };
+            let x = (sx + wave).clamp(1, 14);
+            texels[y * TEX_SIZE + x] = if y == (TEX_SIZE - h) { l_green } else if (x + y) % 2 == 0 { m_green } else { d_green };
+            if y > 10 {
+                texels[y * TEX_SIZE + x - 1] = d_green;
+            }
+        }
+    }
+    Texture { texels }
+}
+
+fn raw_cod_texture() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let scale_mid = [0.65, 0.60, 0.52];
+    let scale_hi = [0.78, 0.74, 0.66];
+    let scale_dark = [0.48, 0.44, 0.38];
+    let belly_white = [0.90, 0.88, 0.82];
+    let eye_black = [0.10, 0.10, 0.12];
+    let eye_white = [0.98, 0.98, 0.98];
+
+    for y in 6..=10 {
+        for x in 2..=14 {
+            let is_body = match y {
+                6 => (4..=11).contains(&x),
+                7 => (3..=12).contains(&x),
+                8 => (2..=13).contains(&x),
+                9 => (3..=13).contains(&x),
+                10 => (4..=11).contains(&x),
+                _ => false,
+            };
+            if is_body {
+                let color = if y == 9 || y == 10 {
+                    belly_white
+                } else if (x + y) % 2 == 0 {
+                    scale_hi
+                } else if x == 2 || y == 6 {
+                    scale_dark
+                } else {
+                    scale_mid
+                };
+                texels[y * TEX_SIZE + x] = color;
+            }
+        }
+    }
+    texels[6 * TEX_SIZE + 14] = scale_dark;
+    texels[7 * TEX_SIZE + 13] = scale_mid;
+    texels[8 * TEX_SIZE + 12] = scale_dark;
+    texels[9 * TEX_SIZE + 13] = scale_mid;
+    texels[10 * TEX_SIZE + 14] = scale_dark;
+    texels[7 * TEX_SIZE + 4] = eye_white;
+    texels[7 * TEX_SIZE + 3] = eye_black;
+    texels[5 * TEX_SIZE + 7] = scale_dark;
+    texels[5 * TEX_SIZE + 8] = scale_mid;
+    Texture { texels }
+}
+
+fn cooked_cod_texture() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let roasted_mid = [0.84, 0.68, 0.44];
+    let roasted_hi = [0.94, 0.82, 0.58];
+    let roasted_crust = [0.55, 0.38, 0.20];
+    let white_meat = [0.96, 0.92, 0.86];
+
+    for y in 6..=10 {
+        for x in 3..=13 {
+            let is_body = match y {
+                6 => (5..=11).contains(&x),
+                7 => (4..=12).contains(&x),
+                8 => (3..=13).contains(&x),
+                9 => (4..=12).contains(&x),
+                10 => (5..=11).contains(&x),
+                _ => false,
+            };
+            if is_body {
+                let color = if x == 6 || x == 9 || x == 12 {
+                    roasted_crust
+                } else if (x + y) % 3 == 0 {
+                    white_meat
+                } else if (x + y) % 2 == 0 {
+                    roasted_hi
+                } else {
+                    roasted_mid
+                };
+                texels[y * TEX_SIZE + x] = color;
+            }
+        }
+    }
+    texels[7 * TEX_SIZE + 14] = roasted_crust;
+    texels[9 * TEX_SIZE + 14] = roasted_crust;
+    Texture { texels }
+}
+
+fn raw_salmon_texture() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let salmon_pink = [0.92, 0.42, 0.36];
+    let salmon_light = [0.98, 0.58, 0.52];
+    let head_teal = [0.28, 0.52, 0.48];
+    let eye = [0.10, 0.10, 0.12];
+    let fin_dark = [0.65, 0.28, 0.24];
+
+    for y in 5..=11 {
+        for x in 2..=14 {
+            let is_body = match y {
+                5 => (5..=11).contains(&x),
+                6 => (4..=12).contains(&x),
+                7 => (3..=13).contains(&x),
+                8 => (2..=13).contains(&x),
+                9 => (3..=13).contains(&x),
+                10 => (4..=12).contains(&x),
+                11 => (5..=10).contains(&x),
+                _ => false,
+            };
+            if is_body {
+                let color = if x <= 4 {
+                    head_teal
+                } else if (x + y) % 3 == 0 {
+                    salmon_light
+                } else {
+                    salmon_pink
+                };
+                texels[y * TEX_SIZE + x] = color;
+            }
+        }
+    }
+    texels[7 * TEX_SIZE + 3] = eye;
+    texels[6 * TEX_SIZE + 14] = fin_dark;
+    texels[8 * TEX_SIZE + 13] = fin_dark;
+    texels[10 * TEX_SIZE + 14] = fin_dark;
+    texels[4 * TEX_SIZE + 8] = fin_dark;
+    Texture { texels }
+}
+
+fn cooked_salmon_texture() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let roast_salmon = [0.88, 0.52, 0.32];
+    let roast_hi = [0.95, 0.65, 0.42];
+    let crust = [0.52, 0.28, 0.15];
+    let flake = [0.96, 0.80, 0.65];
+
+    for y in 5..=11 {
+        for x in 3..=13 {
+            let is_body = match y {
+                5 => (5..=11).contains(&x),
+                6 => (4..=12).contains(&x),
+                7 => (3..=13).contains(&x),
+                8 => (3..=13).contains(&x),
+                9 => (4..=12).contains(&x),
+                10 => (5..=11).contains(&x),
+                _ => false,
+            };
+            if is_body {
+                let color = if x == 6 || x == 9 {
+                    crust
+                } else if (x + y) % 3 == 0 {
+                    flake
+                } else if (x + y) % 2 == 0 {
+                    roast_hi
+                } else {
+                    roast_salmon
+                };
+                texels[y * TEX_SIZE + x] = color;
+            }
+        }
+    }
+    texels[6 * TEX_SIZE + 14] = crust;
+    texels[8 * TEX_SIZE + 13] = crust;
+    texels[10 * TEX_SIZE + 14] = crust;
+    Texture { texels }
+}
+
+fn pufferfish_texture() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let body_yellow = [0.92, 0.82, 0.24];
+    let spine_tan = [0.76, 0.64, 0.20];
+    let belly_white = [0.96, 0.94, 0.82];
+    let blue_fin = [0.28, 0.60, 0.78];
+    let eye = [0.10, 0.10, 0.15];
+
+    for y in 4..=12 {
+        for x in 4..=12 {
+            let dx = (x as f32 - 8.0).abs();
+            let dy = (y as f32 - 8.0).abs();
+            if dx * dx + dy * dy <= 17.0 {
+                let color = if y >= 10 {
+                    belly_white
+                } else if x == 4 || x == 12 || y == 4 || y == 12 {
+                    spine_tan
+                } else {
+                    body_yellow
+                };
+                texels[y * TEX_SIZE + x] = color;
+            }
+        }
+    }
+    texels[6 * TEX_SIZE + 6] = eye;
+    texels[6 * TEX_SIZE + 10] = eye;
+    texels[3 * TEX_SIZE + 8] = spine_tan;
+    texels[8 * TEX_SIZE + 3] = spine_tan;
+    texels[8 * TEX_SIZE + 13] = spine_tan;
+    texels[13 * TEX_SIZE + 8] = spine_tan;
+    texels[8 * TEX_SIZE + 2] = blue_fin;
+    texels[8 * TEX_SIZE + 14] = blue_fin;
+    texels[4 * TEX_SIZE + 11] = blue_fin;
+    Texture { texels }
+}
+
+fn tropical_fish_texture() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let orange = [0.98, 0.48, 0.12];
+    let white = [0.96, 0.96, 0.96];
+    let black = [0.10, 0.10, 0.12];
+
+    for y in 5..=11 {
+        for x in 3..=13 {
+            let is_body = match y {
+                5 => (6..=10).contains(&x),
+                6 => (5..=11).contains(&x),
+                7 => (4..=12).contains(&x),
+                8 => (3..=13).contains(&x),
+                9 => (4..=12).contains(&x),
+                10 => (5..=11).contains(&x),
+                11 => (6..=10).contains(&x),
+                _ => false,
+            };
+            if is_body {
+                let color = if x == 7 || x == 8 || x == 11 {
+                    white
+                } else if x == 6 || x == 9 || x == 10 {
+                    black
+                } else {
+                    orange
+                };
+                texels[y * TEX_SIZE + x] = color;
+            }
+        }
+    }
+    texels[7 * TEX_SIZE + 4] = black;
+    texels[6 * TEX_SIZE + 14] = white;
+    texels[8 * TEX_SIZE + 14] = orange;
+    texels[10 * TEX_SIZE + 14] = white;
+    Texture { texels }
+}
+
+fn dried_kelp_texture() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let dark_leaf = [0.12, 0.24, 0.10];
+    let mid_leaf = [0.18, 0.32, 0.14];
+    let salt = [0.78, 0.84, 0.72];
+
+    for y in 4..=12 {
+        for x in 4..=12 {
+            let is_salt = (x * 7 + y * 13) % 11 == 0;
+            texels[y * TEX_SIZE + x] = if is_salt {
+                salt
+            } else if (x + y) % 2 == 0 {
+                mid_leaf
+            } else {
+                dark_leaf
+            };
+        }
+    }
+    Texture { texels }
+}
+
+fn dolphin_spawn_egg_texture() -> Texture {
+    let base = [0.55, 0.68, 0.78];
+    let spot = [0.82, 0.90, 0.95];
+    let outline = [0.38, 0.48, 0.58];
+    render_aquatic_egg_tex(base, spot, outline)
+}
+
+fn fish_spawn_egg_texture() -> Texture {
+    let base = [0.76, 0.56, 0.38];
+    let spot = [0.94, 0.46, 0.20];
+    let outline = [0.52, 0.36, 0.24];
+    render_aquatic_egg_tex(base, spot, outline)
+}
+
+fn render_aquatic_egg_tex(base: [f32; 3], spot: [f32; 3], outline: [f32; 3]) -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    for y in 2..=14 {
+        for x in 3..=12 {
+            let dx = (x as f32 - 7.5).abs();
+            let dy = y as f32;
+            let width_at_y = if dy <= 6.0 {
+                (dy - 1.0) * 0.7 + 0.5
+            } else if dy <= 11.0 {
+                4.2
+            } else {
+                (14.5 - dy) * 1.1 + 0.5
+            };
+            if dx <= width_at_y {
+                let is_border = dx > width_at_y - 0.9 || y == 2 || y == 14;
+                let is_spot = (x == 6 && y == 5) || (x == 9 && y == 8) || (x == 5 && y == 10) || (x == 8 && y == 12);
+                texels[y * TEX_SIZE + x] = if is_border {
+                    outline
+                } else if is_spot {
+                    spot
+                } else {
+                    base
+                };
+            }
+        }
+    }
+    Texture { texels }
+}
+
+fn fishing_rod_texture() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let wood_dark = [0.42, 0.26, 0.12];
+    let wood_light = [0.65, 0.44, 0.22];
+    let iron_reel = [0.75, 0.75, 0.80];
+    let line = [0.88, 0.88, 0.92];
+    let hook = [0.60, 0.60, 0.65];
+
+    for i in 0..12 {
+        let x = 2 + i;
+        let y = 13 - i;
+        texels[y * TEX_SIZE + x] = if i % 2 == 0 { wood_light } else { wood_dark };
+    }
+    texels[12 * TEX_SIZE + 4] = iron_reel;
+    texels[13 * TEX_SIZE + 3] = iron_reel;
+    texels[12 * TEX_SIZE + 3] = [0.35, 0.35, 0.38];
+    for y in 3..=11 {
+        texels[y * TEX_SIZE + 13] = line;
+    }
+    texels[12 * TEX_SIZE + 13] = hook;
+    texels[12 * TEX_SIZE + 12] = hook;
+    Texture { texels }
+}
+
+fn dolphin_skin() -> Texture {
+    speckled([0.52, 0.62, 0.74], 0.04, 881)
+}
+
+fn dolphin_belly() -> Texture {
+    speckled([0.84, 0.90, 0.94], 0.03, 882)
+}
+
+fn cod_skin() -> Texture {
+    speckled([0.68, 0.62, 0.52], 0.06, 883)
+}
+
+fn salmon_skin() -> Texture {
+    speckled([0.88, 0.38, 0.34], 0.06, 884)
+}
+
+fn pufferfish_skin() -> Texture {
+    speckled([0.90, 0.80, 0.25], 0.06, 885)
+}
+
+fn tropical_fish_skin() -> Texture {
+    speckled([0.96, 0.50, 0.14], 0.05, 886)
+}
+
 impl TextureAtlas {
     pub fn generate() -> TextureAtlas {
         Self::generate_with_fancy(true)
@@ -3292,6 +3724,24 @@ impl TextureAtlas {
             sheep_face: sheep_face(),
             shears: shears_texture(),
             sheep_spawn_egg: sheep_spawn_egg(),
+            kelp: kelp_texture(),
+            seagrass: seagrass_texture(),
+            raw_cod: raw_cod_texture(),
+            cooked_cod: cooked_cod_texture(),
+            raw_salmon: raw_salmon_texture(),
+            cooked_salmon: cooked_salmon_texture(),
+            pufferfish: pufferfish_texture(),
+            tropical_fish: tropical_fish_texture(),
+            dried_kelp: dried_kelp_texture(),
+            dolphin_spawn_egg: dolphin_spawn_egg_texture(),
+            fish_spawn_egg: fish_spawn_egg_texture(),
+            fishing_rod: fishing_rod_texture(),
+            dolphin_skin: dolphin_skin(),
+            dolphin_belly: dolphin_belly(),
+            cod_skin: cod_skin(),
+            salmon_skin: salmon_skin(),
+            pufferfish_skin: pufferfish_skin(),
+            tropical_fish_skin: tropical_fish_skin(),
             custom: crate::engine::modding::generate_mod_textures(),
         }
     }
@@ -3463,6 +3913,24 @@ impl TextureAtlas {
             TextureId::SheepFace => &self.sheep_face,
             TextureId::Shears => &self.shears,
             TextureId::SheepSpawnEgg => &self.sheep_spawn_egg,
+            TextureId::Kelp => &self.kelp,
+            TextureId::Seagrass => &self.seagrass,
+            TextureId::RawCod => &self.raw_cod,
+            TextureId::CookedCod => &self.cooked_cod,
+            TextureId::RawSalmon => &self.raw_salmon,
+            TextureId::CookedSalmon => &self.cooked_salmon,
+            TextureId::Pufferfish => &self.pufferfish,
+            TextureId::TropicalFish => &self.tropical_fish,
+            TextureId::DriedKelp => &self.dried_kelp,
+            TextureId::DolphinSpawnEgg => &self.dolphin_spawn_egg,
+            TextureId::FishSpawnEgg => &self.fish_spawn_egg,
+            TextureId::FishingRod => &self.fishing_rod,
+            TextureId::DolphinSkin => &self.dolphin_skin,
+            TextureId::DolphinBelly => &self.dolphin_belly,
+            TextureId::CodSkin => &self.cod_skin,
+            TextureId::SalmonSkin => &self.salmon_skin,
+            TextureId::PufferfishSkin => &self.pufferfish_skin,
+            TextureId::TropicalFishSkin => &self.tropical_fish_skin,
             TextureId::Custom(idx) => self.custom.get(idx as usize).unwrap_or(&self.stone),
         }
     }

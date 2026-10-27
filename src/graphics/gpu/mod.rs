@@ -6,7 +6,7 @@ use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId, TEX_SIZE};
 use crate::world::mesher::Triangle;
 
-pub const TEXTURE_LAYER_COUNT: u32 = 165 + 64;
+pub const TEXTURE_LAYER_COUNT: u32 = 183 + 64;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -1503,9 +1503,27 @@ impl VulkanContext {
             TextureId::SheepFace => 162,
             TextureId::Shears => 163,
             TextureId::SheepSpawnEgg => 164,
+            TextureId::Kelp => 165,
+            TextureId::Seagrass => 166,
+            TextureId::RawCod => 167,
+            TextureId::CookedCod => 168,
+            TextureId::RawSalmon => 169,
+            TextureId::CookedSalmon => 170,
+            TextureId::Pufferfish => 171,
+            TextureId::TropicalFish => 172,
+            TextureId::DriedKelp => 173,
+            TextureId::DolphinSpawnEgg => 174,
+            TextureId::FishSpawnEgg => 175,
+            TextureId::FishingRod => 176,
+            TextureId::DolphinSkin => 177,
+            TextureId::DolphinBelly => 178,
+            TextureId::CodSkin => 179,
+            TextureId::SalmonSkin => 180,
+            TextureId::PufferfishSkin => 181,
+            TextureId::TropicalFishSkin => 182,
             TextureId::Custom(idx) => {
                 let clamped = if (idx as u32) > 63 { 63 } else { idx as u32 };
-                165 + clamped
+                183 + clamped
             }
         }
     }
@@ -1677,7 +1695,25 @@ impl VulkanContext {
             162 => TextureId::SheepFace,
             163 => TextureId::Shears,
             164 => TextureId::SheepSpawnEgg,
-            l if l >= 165 && l < 165 + 64 => TextureId::Custom((l - 165) as u8),
+            165 => TextureId::Kelp,
+            166 => TextureId::Seagrass,
+            167 => TextureId::RawCod,
+            168 => TextureId::CookedCod,
+            169 => TextureId::RawSalmon,
+            170 => TextureId::CookedSalmon,
+            171 => TextureId::Pufferfish,
+            172 => TextureId::TropicalFish,
+            173 => TextureId::DriedKelp,
+            174 => TextureId::DolphinSpawnEgg,
+            175 => TextureId::FishSpawnEgg,
+            176 => TextureId::FishingRod,
+            177 => TextureId::DolphinSkin,
+            178 => TextureId::DolphinBelly,
+            179 => TextureId::CodSkin,
+            180 => TextureId::SalmonSkin,
+            181 => TextureId::PufferfishSkin,
+            182 => TextureId::TropicalFishSkin,
+            l if l >= 183 && l < 183 + 64 => TextureId::Custom((l - 183) as u8),
             _ => TextureId::CraftingTableFront,
         }
     }
