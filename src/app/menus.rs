@@ -92,12 +92,14 @@ impl RustCraftApp {
                 }
 
                 if (enter_down && !self.prev_enter_down && (hovered_idx == Some(0) || hovered_idx.is_none())) || click_button == Some(0) {
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                     self.state = GameState::SaveSelect;
                     self.save_select_slot = self.save_slot;
                     self.save_select_scroll = ((self.save_slot as usize - 1).saturating_sub(1))
                         .min(MAX_SAVE_SLOTS as usize - VISIBLE_SAVE_ROWS);
                     crate::log_info!("MENU", "Opened Save Selection menu from Main Menu");
                 } else if click_button == Some(1) || (enter_down && !self.prev_enter_down && hovered_idx == Some(1)) {
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                     self.state = GameState::MultiplayerMenu;
                     self.multiplayer_status = None;
                     self.multiplayer_is_connecting = false;
@@ -105,10 +107,12 @@ impl RustCraftApp {
                     self.lan_discovery.refresh();
                     crate::log_info!("MENU", "Opened Multiplayer menu from Main Menu");
                 } else if click_button == Some(2) || (enter_down && !self.prev_enter_down && hovered_idx == Some(2)) {
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                     self.state = GameState::Settings(PreviousMenu::MainMenu);
                     self.settings_hovered_opt = Some(0);
                     crate::log_info!("MENU", "Opened Settings menu from Main Menu");
                 } else if (q_down && !self.prev_q_down) || click_button == Some(3) || input.gp_east_just_pressed || (enter_down && !self.prev_enter_down && hovered_idx == Some(3)) {
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                     out.quit_requested = true;
                     crate::log_info!("STATE", "Quit requested from Main Menu");
                 }
@@ -477,6 +481,10 @@ impl RustCraftApp {
                     || mouse_clicked_btn == Some(3)
                     || input.gp_east_just_pressed;
 
+                if mouse_clicked_btn.is_none() && (play_action || new_action || delete_action || back_action) {
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                }
+
                 if play_action {
                     self.save_slot = self.save_select_slot;
                     let meta = &self.save_metadata_cache[self.save_slot as usize - 1];
@@ -771,6 +779,10 @@ impl RustCraftApp {
                 let do_rand_seed = (self.create_world_focus == 2 && (enter_just || south_just)) || click_elem == Some(2);
                 let do_toggle_mode = (self.create_world_focus == 3 && (enter_just || south_just)) || click_elem == Some(3);
 
+                if click_elem.is_none() && (do_cancel || do_create || do_rand_seed || do_toggle_mode) {
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                }
+
                 if do_rand_seed {
                     self.create_world_seed = format!("{}", generate_random_seed());
                     self.create_world_selected = false;
@@ -977,6 +989,7 @@ impl RustCraftApp {
                 let left_click_just = left_down && !self.prev_left_down;
                 if let Some(t_idx) = hovered_tab {
                     if left_click_just {
+                        self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                         self.settings_tab = t_idx;
                         self.settings_hovered_opt = Some(0);
                         hovered_opt = Some(0);
@@ -1018,6 +1031,7 @@ impl RustCraftApp {
                 if self.settings_tab == 0 {
                     // GRAPHICS TAB
                     if let Some(opt_idx) = click_opt {
+                        self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                         match opt_idx {
                             0 => {
                                 self.settings.cycle_language(click_direction_forward);
@@ -1087,6 +1101,7 @@ impl RustCraftApp {
                         }
                     } else if input.gp_dpad_left_just_pressed || left_key_just {
                         if let Some(opt_idx) = hovered_opt {
+                            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                             match opt_idx {
                                 0 => {
                                     self.settings.cycle_language(false);
@@ -1148,6 +1163,7 @@ impl RustCraftApp {
                         }
                     } else if input.gp_dpad_right_just_pressed || right_key_just {
                         if let Some(opt_idx) = hovered_opt {
+                            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                             match opt_idx {
                                 0 => {
                                     self.settings.cycle_language(true);
@@ -1252,6 +1268,7 @@ impl RustCraftApp {
                             }
                             6 => {
                                 let _ = self.settings.save();
+                                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                                 crate::log_info!("SETTINGS", "Saved settings and returned to {:?}", prev);
                                 self.state = match prev {
                                     PreviousMenu::MainMenu => GameState::MainMenu,
@@ -1353,6 +1370,7 @@ impl RustCraftApp {
                 } else if self.settings_tab == 2 {
                     // CONTROLS TAB
                     if let Some(opt_idx) = click_opt {
+                        self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                         match opt_idx {
                             0 => {
                                 self.settings.cycle_sprint_mode(click_direction_forward);
@@ -1394,6 +1412,7 @@ impl RustCraftApp {
                         }
                     } else if input.gp_dpad_left_just_pressed || left_key_just {
                         if let Some(opt_idx) = hovered_opt {
+                            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                             match opt_idx {
                                 0 => {
                                     self.settings.cycle_sprint_mode(false);
@@ -1427,6 +1446,7 @@ impl RustCraftApp {
                         }
                     } else if input.gp_dpad_right_just_pressed || right_key_just {
                         if let Some(opt_idx) = hovered_opt {
+                            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                             match opt_idx {
                                 0 => {
                                     self.settings.cycle_sprint_mode(true);
@@ -1462,6 +1482,7 @@ impl RustCraftApp {
                 } else {
                     // DEBUG TAB
                     if let Some(opt_idx) = click_opt {
+                        self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                         match opt_idx {
                             0 => {
                                 self.settings.toggle_profiler_server();
@@ -1508,6 +1529,7 @@ impl RustCraftApp {
                         }
                     } else if input.gp_dpad_left_just_pressed || left_key_just {
                         if let Some(opt_idx) = hovered_opt {
+                            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                             match opt_idx {
                                 0 => {
                                     self.settings.toggle_profiler_server();
@@ -1537,6 +1559,7 @@ impl RustCraftApp {
                         }
                     } else if input.gp_dpad_right_just_pressed || right_key_just {
                         if let Some(opt_idx) = hovered_opt {
+                            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                             match opt_idx {
                                 0 => {
                                     self.settings.toggle_profiler_server();
@@ -1568,6 +1591,7 @@ impl RustCraftApp {
                 }
 
                 if (escape_down && !self.prev_escape_down) || (p_down && !self.prev_p_down) || input.gp_east_just_pressed {
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                     let _ = self.settings.save();
                     crate::log_info!("SETTINGS", "Saved settings and returned to {:?}", prev);
                     self.state = match prev {
@@ -1693,6 +1717,7 @@ impl RustCraftApp {
                 };
 
                 if let Some(btn) = click_pause_btn {
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                     match btn {
                         0 => {
                             self.state = GameState::Playing;
@@ -1741,6 +1766,7 @@ impl RustCraftApp {
                 }
 
                 if self.controls.is_just_pressed(Action::Pause) || input.gp_east_just_pressed {
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                     self.state = GameState::Playing;
                     out.request_capture_mouse = true;
                     crate::log_info!("STATE", "Game resumed via pause shortcut");
@@ -1843,6 +1869,7 @@ impl RustCraftApp {
                 };
 
                 if let Some(btn) = click_death_btn {
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                     match btn {
                         0 => {
                             self.player.health = self.player.max_health;
@@ -1885,6 +1912,7 @@ impl RustCraftApp {
                 }
 
                 if (escape_down && !self.prev_escape_down) || (p_down && !self.prev_p_down) || input.gp_east_just_pressed {
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                     self.player.reset(self.player.gamemode);
                     self.camera.position = self.world.player_position;
                     let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());

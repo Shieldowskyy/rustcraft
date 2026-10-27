@@ -263,7 +263,7 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
 
         // UI & world interactions
         SoundId::ItemPop => synth_sweep(sr, 0.09, 440.0, 980.0, 0.7),
-        SoundId::UiClick => synth_click(sr, 0.04, 950.0, 0.7),
+        SoundId::UiClick => synth_click(sr, 0.04, 1000.0, 0.85),
         SoundId::UiHover => synth_click(sr, 0.02, 1400.0, 0.35),
         SoundId::ChestOpen => synth_chest_creak(sr, 0.28, true, 0.8),
         SoundId::ChestClose => synth_chest_creak(sr, 0.25, false, 0.8),
@@ -715,17 +715,30 @@ fn synth_sweep(sr: f32, duration: f32, start_freq: f32, end_freq: f32, volume: f
     out
 }
 
-/// UI click or hover impulse.
+/// UI click or hover impulse with crisp mechanical contact transient and fast resonant body.
 fn synth_click(sr: f32, duration: f32, freq: f32, volume: f32) -> Vec<f32> {
     let count = (sr * duration) as usize;
     let mut out = Vec::with_capacity(count);
     let mut phase = 0.0f32;
+    let mut click_rng = 0x2A3B4C5Du32;
 
     for i in 0..count {
         let t = i as f32 / count as f32;
-        let env = (1.0 - t).powf(3.0);
-        phase += 2.0 * PI * freq / sr;
-        out.push(phase.sin() * env * volume);
+        let cur_time = i as f32 / sr;
+        // Fast exponential decay envelope
+        let env = (-cur_time * 85.0).exp();
+        // Pitch drop mimicking mechanical switch contact
+        let f = freq * (1.18 - 0.35 * t);
+        phase += 2.0 * PI * f / sr;
+        let tone = phase.sin();
+
+        // Sharp transient snap in first ~1.5ms
+        let snap_env = (-cur_time * 500.0).exp();
+        click_rng = click_rng.wrapping_mul(1664525).wrapping_add(1013904223);
+        let noise = ((click_rng >> 16) as f32 / 32768.0) - 1.0;
+        let snap = noise * snap_env * 0.75;
+
+        out.push(((tone * 0.65 + snap) * env * volume).clamp(-1.0, 1.0));
     }
     out
 }

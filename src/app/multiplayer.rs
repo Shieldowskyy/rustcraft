@@ -48,6 +48,7 @@ impl RustCraftApp {
         let click = (left_down && !self.prev_left_down) || input.gp_south_just_pressed;
         if click {
             if let Some(idx) = hovered_idx {
+                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                 match idx {
                     0 => {
                         self.multiplayer_focus = 0;
@@ -90,11 +91,13 @@ impl RustCraftApp {
             self.multiplayer_focus = 1 - self.multiplayer_focus;
         }
         if (escape_down && !self.prev_escape_down) || (q_down && !self.prev_q_down) || input.gp_east_just_pressed {
+            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
             let _ = self.settings.save();
             self.state = GameState::MainMenu;
             crate::log_info!("MENU", "Returned to Main Menu from Multiplayer menu");
         }
         if enter_down && !self.prev_enter_down {
+            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
             self.start_multiplayer_connect();
         }
 

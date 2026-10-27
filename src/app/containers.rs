@@ -134,6 +134,7 @@ impl RustCraftApp {
 
         if click_left || (click_right && inv_hovered_target.map_or(false, |t| matches!(t, InventorySlotTarget::CreativeTab(_) | InventorySlotTarget::Creative(_) | InventorySlotTarget::Trash | InventorySlotTarget::CraftingOutput))) {
             if let Some(target) = inv_hovered_target {
+                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                 match target {
                     InventorySlotTarget::CreativeTab(tab_idx) => {
                         self.player.creative_tab = tab_idx;
@@ -299,6 +300,7 @@ impl RustCraftApp {
         if click_left || click_right {
             let chest = self.world.get_or_create_chest(chest_pos);
             if let Some(target) = hovered_target {
+                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                 match target {
                     ChestSlotTarget::Chest(idx) => {
                         if click_left {
@@ -443,6 +445,7 @@ impl RustCraftApp {
         if click_left || click_right {
             let furnace = self.world.get_or_create_furnace(furnace_pos);
             if let Some(target) = hovered_target {
+                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                 match target {
                     FurnaceSlotTarget::Input => {
                         if click_left {
