@@ -1,7 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
-use wgpu::util::DeviceExt;
 
 use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId, TEX_SIZE};
@@ -38,6 +37,7 @@ pub struct VulkanContext {
     queue: wgpu::Queue,
     texture: wgpu::Texture,
     pipeline: wgpu::RenderPipeline,
+    cutout_pipeline: wgpu::RenderPipeline,
     transparent_pipeline: wgpu::RenderPipeline,
     sky_pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
@@ -48,11 +48,13 @@ pub struct VulkanContext {
     linear_depth_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,
     post_pipeline: wgpu::ComputePipeline,
-    post_bind_group: wgpu::BindGroup,
-    color_ssbo: wgpu::Buffer,
-    depth_ssbo: wgpu::Buffer,
-    readback: wgpu::Buffer,
-    depth_readback: wgpu::Buffer,
+    post_bind_layout: wgpu::BindGroupLayout,
+    post_bind_group: [wgpu::BindGroup; 2],
+    color_ssbo: [wgpu::Buffer; 2],
+    depth_ssbo: [wgpu::Buffer; 2],
+    readback: [wgpu::Buffer; 2],
+    depth_readback: [wgpu::Buffer; 2],
+    frame_index: usize,
     width: u32,
     height: u32,
     gpu_name: String,
@@ -63,8 +65,13 @@ pub struct VulkanContext {
 
 struct GpuChunk {
     opaque: wgpu::Buffer,
+    opaque_capacity: usize,
     opaque_count: u32,
+    cutout: wgpu::Buffer,
+    cutout_capacity: usize,
+    cutout_count: u32,
     transparent: wgpu::Buffer,
+    transparent_capacity: usize,
     transparent_count: u32,
 }
 
@@ -97,10 +104,8 @@ struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) @interpolate(flat) texture_layer: u32,
-    @location(2) ao: f32,
-    @location(3) sky_light: f32,
-    @location(4) block_light: f32,
-    @location(5) world_position: vec3<f32>,
+    @location(2) light_color: vec3<f32>,
+    @location(3) world_position: vec3<f32>,
 };
 
 @vertex
@@ -111,10 +116,22 @@ fn world_vertex(input: VertexInput) -> VertexOutput {
     output.position = vec4<f32>(clip.x, clip.y, clip.z * 0.5 + clip.w * 0.5, clip.w);
     output.uv = input.uv;
     output.texture_layer = input.texture_layer;
-    output.ao = input.light.x;
-    output.sky_light = input.light.y;
-    output.block_light = input.light.z;
     output.world_position = pos;
+
+    let daylight = globals.camera_pitch.w;
+    let sky_ambient = mix(vec3<f32>(0.05, 0.07, 0.14), globals.sky_bot.xyz, clamp(daylight * 1.1, 0.0, 1.0));
+    let sun_color = mix(vec3<f32>(0.14, 0.18, 0.28), vec3<f32>(1.06, 0.98, 0.88), clamp(daylight, 0.0, 1.0));
+    let sky_factor = pow(input.light.y, 1.25);
+    let natural_light = (sun_color * 0.85 + sky_ambient * 0.35) * (sky_factor * daylight);
+
+    let torch_color = vec3<f32>(1.30, 0.88, 0.42);
+    let block_factor = pow(input.light.z, 1.15);
+    let torch_light = torch_color * block_factor;
+
+    let cave_ambient = vec3<f32>(0.045, 0.045, 0.055);
+
+    let total_light = (natural_light + torch_light + cave_ambient) * input.light.x;
+    output.light_color = clamp(total_light, vec3<f32>(0.04), vec3<f32>(1.35));
     return output;
 }
 
@@ -127,30 +144,37 @@ struct FragmentOutput {
 fn world_fragment(input: VertexOutput) -> FragmentOutput {
     let texel = textureSample(textures, texture_sampler, input.uv, i32(input.texture_layer));
     let distance_to_camera = distance(input.world_position, globals.camera_position.xyz);
-    var base_rgb = texel.rgb;
+    let lit = texel.rgb * input.light_color;
+    let max_fog_dist = select(globals.camera_pitch.z, 180.0, globals.camera_pitch.z <= 0.0);
+    let fog_t = clamp((distance_to_camera - max_fog_dist * 0.45) / (max_fog_dist * 0.55), 0.0, 1.0) * globals.camera_pitch.y;
+    let final_rgb = mix(lit, globals.fog_color.xyz, fog_t);
+    return FragmentOutput(vec4<f32>(final_rgb, 1.0), distance_to_camera);
+}
+
+@fragment
+fn world_fragment_cutout(input: VertexOutput) -> FragmentOutput {
+    let texel = textureSample(textures, texture_sampler, input.uv, i32(input.texture_layer));
+    let distance_to_camera = distance(input.world_position, globals.camera_position.xyz);
     if (texel.a < 0.1) {
         if (distance_to_camera < 120.0) {
             discard;
         }
     }
-    let daylight = globals.camera_pitch.w;
-    let sky_ambient = mix(vec3<f32>(0.05, 0.07, 0.14), globals.sky_bot.xyz, clamp(daylight * 1.1, 0.0, 1.0));
-    let sun_color = mix(vec3<f32>(0.14, 0.18, 0.28), vec3<f32>(1.06, 0.98, 0.88), clamp(daylight, 0.0, 1.0));
-    let sky_factor = pow(input.sky_light, 1.25);
-    let natural_light = (sun_color * 0.85 + sky_ambient * 0.35) * (sky_factor * daylight);
-
-    let torch_color = vec3<f32>(1.30, 0.88, 0.42);
-    let block_factor = pow(input.block_light, 1.15);
-    let torch_light = torch_color * block_factor;
-
-    let cave_ambient = vec3<f32>(0.045, 0.045, 0.055);
-
-    let total_light = (natural_light + torch_light + cave_ambient) * input.ao;
-    let lit = base_rgb * clamp(total_light, vec3<f32>(0.04), vec3<f32>(1.35));
+    let lit = texel.rgb * input.light_color;
     let max_fog_dist = select(globals.camera_pitch.z, 180.0, globals.camera_pitch.z <= 0.0);
     let fog_t = clamp((distance_to_camera - max_fog_dist * 0.45) / (max_fog_dist * 0.55), 0.0, 1.0) * globals.camera_pitch.y;
-    let fog_col = globals.fog_color.xyz;
-    let final_rgb = mix(lit, fog_col, fog_t);
+    let final_rgb = mix(lit, globals.fog_color.xyz, fog_t);
+    return FragmentOutput(vec4<f32>(final_rgb, 1.0), distance_to_camera);
+}
+
+@fragment
+fn world_fragment_trans(input: VertexOutput) -> FragmentOutput {
+    let texel = textureSample(textures, texture_sampler, input.uv, i32(input.texture_layer));
+    let distance_to_camera = distance(input.world_position, globals.camera_position.xyz);
+    let lit = texel.rgb * input.light_color;
+    let max_fog_dist = select(globals.camera_pitch.z, 180.0, globals.camera_pitch.z <= 0.0);
+    let fog_t = clamp((distance_to_camera - max_fog_dist * 0.45) / (max_fog_dist * 0.55), 0.0, 1.0) * globals.camera_pitch.y;
+    let final_rgb = mix(lit, globals.fog_color.xyz, fog_t);
     let alpha = select(1.0, 0.48, input.texture_layer == 8u || input.texture_layer == 19u);
     return FragmentOutput(vec4<f32>(final_rgb, alpha), distance_to_camera);
 }
@@ -462,13 +486,31 @@ impl VulkanContext {
             multiview: None,
         });
 
+        let cutout_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("RustCraft Vulkan world cutout pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState { module: &shader, entry_point: "world_vertex", buffers: &[vertex_layout.clone(), instance_layout.clone()] },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "world_fragment_cutout",
+                targets: &[
+                    Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                    Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::R32Float, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                ],
+            }),
+            primitive: wgpu::PrimitiveState { cull_mode: Some(wgpu::Face::Back), ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState { format: wgpu::TextureFormat::Depth32Float, depth_write_enabled: true, depth_compare: wgpu::CompareFunction::Less, stencil: Default::default(), bias: Default::default() }),
+            multisample: Default::default(),
+            multiview: None,
+        });
+
         let transparent_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("RustCraft transparent pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState { module: &shader, entry_point: "world_vertex", buffers: &[vertex_layout, instance_layout] },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "world_fragment",
+                entry_point: "world_fragment_trans",
                 targets: &[
                     Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL }),
                     Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::R32Float, blend: None, write_mask: wgpu::ColorWrites::ALL }),
@@ -532,19 +574,8 @@ impl VulkanContext {
             entry_point: "post_process",
         });
 
-        let (target_view, linear_depth_view, depth_view, color_ssbo, depth_ssbo, readback, depth_readback) =
-            Self::create_targets(&device, width as u32, height as u32);
-
-        let post_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("RustCraft compute bind group"),
-            layout: &post_bind_layout,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&target_view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&linear_depth_view) },
-                wgpu::BindGroupEntry { binding: 2, resource: color_ssbo.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: depth_ssbo.as_entire_binding() },
-            ],
-        });
+        let (target_view, linear_depth_view, depth_view, post_bind_group, color_ssbo, depth_ssbo, readback, depth_readback) =
+            Self::create_targets(&device, &post_bind_layout, width as u32, height as u32);
 
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("RustCraft chunk instance buffer"),
@@ -558,6 +589,7 @@ impl VulkanContext {
             queue,
             texture,
             pipeline,
+            cutout_pipeline,
             transparent_pipeline,
             sky_pipeline,
             bind_group,
@@ -568,11 +600,13 @@ impl VulkanContext {
             linear_depth_view,
             depth_view,
             post_pipeline,
+            post_bind_layout,
             post_bind_group,
             color_ssbo,
             depth_ssbo,
             readback,
             depth_readback,
+            frame_index: 0,
             width: width as u32,
             height: height as u32,
             gpu_name,
@@ -605,34 +639,15 @@ impl VulkanContext {
         }
         self.width = width as u32;
         self.height = height as u32;
+        self.frame_index = 0;
 
-        let (target_view, linear_depth_view, depth_view, color_ssbo, depth_ssbo, readback, depth_readback) =
-            Self::create_targets(&self.device, self.width, self.height);
-
-        let post_bind_layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("RustCraft compute bind layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
-                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
-                wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None },
-                wgpu::BindGroupLayoutEntry { binding: 3, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None },
-            ],
-        });
-
-        self.post_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("RustCraft compute bind group"),
-            layout: &post_bind_layout,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&target_view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&linear_depth_view) },
-                wgpu::BindGroupEntry { binding: 2, resource: color_ssbo.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: depth_ssbo.as_entire_binding() },
-            ],
-        });
+        let (target_view, linear_depth_view, depth_view, post_bind_group, color_ssbo, depth_ssbo, readback, depth_readback) =
+            Self::create_targets(&self.device, &self.post_bind_layout, self.width, self.height);
 
         self.target_view = target_view;
         self.linear_depth_view = linear_depth_view;
         self.depth_view = depth_view;
+        self.post_bind_group = post_bind_group;
         self.color_ssbo = color_ssbo;
         self.depth_ssbo = depth_ssbo;
         self.readback = readback;
@@ -661,6 +676,27 @@ impl VulkanContext {
         out_pixels: &mut [u32],
         out_depths: &mut [f32],
     ) {
+        let current_slot = self.frame_index % 2;
+        let prev_slot = (self.frame_index + 1) % 2;
+
+        if self.frame_index > 1 {
+            let slice_prev = self.readback[prev_slot].slice(..);
+            let depth_slice_prev = self.depth_readback[prev_slot].slice(..);
+
+            self.device.poll(wgpu::Maintain::Wait);
+
+            let mapped_color = slice_prev.get_mapped_range();
+            let mapped_depth = depth_slice_prev.get_mapped_range();
+
+            out_pixels.copy_from_slice(bytemuck::cast_slice(&mapped_color));
+            out_depths.copy_from_slice(bytemuck::cast_slice(&mapped_depth));
+
+            drop(mapped_color);
+            drop(mapped_depth);
+            self.readback[prev_slot].unmap();
+            self.depth_readback[prev_slot].unmap();
+        }
+
         self.chunk_buffers.retain(|key, _| mesh_cache.contains_key(key));
 
         let chunks_to_update: Vec<(i32, i32)> = loaded_keys
@@ -670,17 +706,37 @@ impl VulkanContext {
             .collect();
 
         if !chunks_to_update.is_empty() {
-            let updated_buffers: Vec<((i32, i32), Vec<GpuVertex>, Vec<GpuVertex>)> = chunks_to_update
+            let updated_buffers: Vec<((i32, i32), Vec<GpuVertex>, Vec<GpuVertex>, Vec<GpuVertex>)> = chunks_to_update
                 .par_iter()
                 .map(|key| {
                     let triangles = mesh_cache.get(key).map(Vec::as_slice).unwrap_or(&[]);
                     let mut opaque = Vec::with_capacity(triangles.len() * 3);
+                    let mut cutout = Vec::with_capacity(triangles.len() / 4 * 3);
                     let mut trans = Vec::with_capacity(triangles.len() / 4 * 3);
 
                     for triangle in triangles {
                         let layer = Self::texture_layer(triangle.texture);
                         let is_trans = matches!(triangle.texture, TextureId::Water | TextureId::Glass);
-                        let dest = if is_trans { &mut trans } else { &mut opaque };
+                        let is_cutout = matches!(
+                            triangle.texture,
+                            TextureId::Leaves
+                                | TextureId::SnowLeaves
+                                | TextureId::CherryLeaves
+                                | TextureId::AutumnLeaves
+                                | TextureId::LeavesSwamp
+                                | TextureId::LeavesSavanna
+                                | TextureId::Door
+                                | TextureId::DoorTop
+                                | TextureId::Torch
+                                | TextureId::Ladder
+                        );
+                        let dest = if is_trans {
+                            &mut trans
+                        } else if is_cutout {
+                            &mut cutout
+                        } else {
+                            &mut opaque
+                        };
 
                         let pack_vert = |v: &crate::world::mesher::Vertex| GpuVertex {
                             position: [v.pos.x, v.pos.y, v.pos.z],
@@ -702,38 +758,80 @@ impl VulkanContext {
                         dest.push(pack_vert(&triangle.v1));
                         dest.push(pack_vert(&triangle.v2));
                     }
-                    (*key, opaque, trans)
+                    (*key, opaque, cutout, trans)
                 })
                 .collect();
 
             let empty_vertex = GpuVertex::zeroed();
-            for (key, opaque_verts, trans_verts) in updated_buffers {
+            for (key, opaque_verts, cutout_verts, trans_verts) in updated_buffers {
                 let opaque_bytes: &[u8] = if opaque_verts.is_empty() {
                     bytemuck::bytes_of(&empty_vertex)
                 } else {
                     bytemuck::cast_slice(&opaque_verts)
                 };
-                let opaque = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("RustCraft opaque chunk buffer"),
-                    contents: opaque_bytes,
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-
-                let transparent_bytes: &[u8] = if trans_verts.is_empty() {
+                let cutout_bytes: &[u8] = if cutout_verts.is_empty() {
+                    bytemuck::bytes_of(&empty_vertex)
+                } else {
+                    bytemuck::cast_slice(&cutout_verts)
+                };
+                let trans_bytes: &[u8] = if trans_verts.is_empty() {
                     bytemuck::bytes_of(&empty_vertex)
                 } else {
                     bytemuck::cast_slice(&trans_verts)
                 };
-                let transparent = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("RustCraft transparent chunk buffer"),
-                    contents: transparent_bytes,
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
+
+                let update_or_create = |existing_buf: Option<(wgpu::Buffer, usize)>, bytes: &[u8], label: &'static str| -> (wgpu::Buffer, usize) {
+                    if let Some((buf, cap)) = existing_buf {
+                        if bytes.len() <= cap {
+                            self.queue.write_buffer(&buf, 0, bytes);
+                            return (buf, cap);
+                        }
+                    }
+                    let new_cap = bytes.len().max(4096);
+                    let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some(label),
+                        size: new_cap as u64,
+                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+                    self.queue.write_buffer(&buf, 0, bytes);
+                    (buf, new_cap)
+                };
+
+                let (existing_opaque, existing_cutout, existing_trans) = match self.chunk_buffers.remove(&key) {
+                    Some(c) => (
+                        Some((c.opaque, c.opaque_capacity)),
+                        Some((c.cutout, c.cutout_capacity)),
+                        Some((c.transparent, c.transparent_capacity)),
+                    ),
+                    None => (None, None, None),
+                };
+
+                let (opaque_buf, opaque_cap) = update_or_create(
+                    existing_opaque,
+                    opaque_bytes,
+                    "RustCraft opaque chunk buffer",
+                );
+                let (cutout_buf, cutout_cap) = update_or_create(
+                    existing_cutout,
+                    cutout_bytes,
+                    "RustCraft cutout chunk buffer",
+                );
+                let (trans_buf, trans_cap) = update_or_create(
+                    existing_trans,
+                    trans_bytes,
+                    "RustCraft transparent chunk buffer",
+                );
 
                 self.chunk_buffers.insert(key, GpuChunk {
-                    opaque,
+                    opaque: opaque_buf,
+                    opaque_capacity: opaque_cap,
                     opaque_count: opaque_verts.len() as u32,
-                    transparent,
+                    cutout: cutout_buf,
+                    cutout_capacity: cutout_cap,
+                    cutout_count: cutout_verts.len() as u32,
+                    transparent: trans_buf,
+                    transparent_capacity: trans_cap,
                     transparent_count: trans_verts.len() as u32,
                 });
             }
@@ -771,13 +869,9 @@ impl VulkanContext {
         };
         self.queue.write_buffer(&self.globals_buffer, 0, bytemuck::bytes_of(&globals));
 
-        let mut culled_visible_keys: Vec<(i32, i32)> = visible_keys
-            .iter()
-            .copied()
-            .filter(|&(cx, cz)| Self::is_chunk_in_frustum(cx, cz, view_proj))
-            .collect();
+        let mut culled_visible_keys: Vec<(i32, i32)> = visible_keys.to_vec();
 
-        // Sort front-to-back for opaque chunks
+        // Sort front-to-back for opaque & cutout chunks
         culled_visible_keys.sort_by(|&(a_x, a_z), &(b_x, b_z)| {
             let dist_a = Self::chunk_dist_sq(a_x, a_z, camera.x, camera.z);
             let dist_b = Self::chunk_dist_sq(b_x, b_z, camera.x, camera.z);
@@ -785,19 +879,24 @@ impl VulkanContext {
         });
 
         let mut opaque_draws = Vec::with_capacity(culled_visible_keys.len());
+        let mut cutout_draws = Vec::with_capacity(culled_visible_keys.len());
         for key in &culled_visible_keys {
             if let Some(chunk) = self.chunk_buffers.get(key) {
+                let spawn_time = chunk_spawn_times.get(key).copied().unwrap_or(total_time);
+                let elapsed = total_time - spawn_time;
+                let y_offset = if chunk_anim && elapsed >= 0.0 && elapsed < 0.35 {
+                    let t = (elapsed / 0.35).clamp(0.0, 1.0);
+                    let ease = 1.0 - (1.0 - t).powi(3);
+                    (1.0 - ease) * -14.0
+                } else {
+                    0.0
+                };
+
                 if chunk.opaque_count > 0 {
-                    let spawn_time = chunk_spawn_times.get(key).copied().unwrap_or(total_time);
-                    let elapsed = total_time - spawn_time;
-                    let y_offset = if chunk_anim && elapsed >= 0.0 && elapsed < 0.35 {
-                        let t = (elapsed / 0.35).clamp(0.0, 1.0);
-                        let ease = 1.0 - (1.0 - t).powi(3);
-                        (1.0 - ease) * -14.0
-                    } else {
-                        0.0
-                    };
                     opaque_draws.push((chunk, y_offset));
+                }
+                if chunk.cutout_count > 0 {
+                    cutout_draws.push((chunk, y_offset));
                 }
             }
         }
@@ -828,8 +927,12 @@ impl VulkanContext {
             }
         }
 
-        let mut all_offsets = Vec::with_capacity(opaque_draws.len() + trans_draws.len() + 1);
+        let mut all_offsets = Vec::with_capacity(opaque_draws.len() + cutout_draws.len() + trans_draws.len() + 1);
         for (_, off) in &opaque_draws {
+            all_offsets.push(*off);
+        }
+        let cutout_start_idx = all_offsets.len();
+        for (_, off) in &cutout_draws {
             all_offsets.push(*off);
         }
         let trans_start_idx = all_offsets.len();
@@ -870,32 +973,41 @@ impl VulkanContext {
                 occlusion_query_set: None,
             });
 
-            // 1. OPAQUE TERRAIN PASS (Front-to-Back)
-            // Depth write is ON, populating Z-buffer with closest opaque voxel depths.
+            // 1. OPAQUE TERRAIN PASS (Front-to-Back, No Discard -> Early-Z / Hi-Z 100% active!)
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             for (i, (chunk, _)) in opaque_draws.iter().enumerate() {
                 if (i * 4 + 4) <= 8192 * 4 {
                     pass.set_vertex_buffer(0, chunk.opaque.slice(..));
-                    pass.set_vertex_buffer(1, self.instance_buffer.slice((i * 4) as u64..(i * 4 + 4) as u64));
-                    pass.draw(0..chunk.opaque_count, 0..1);
+                    pass.draw(0..chunk.opaque_count, (i as u32)..(i as u32 + 1));
                 }
             }
 
-            // 2. EARLY-Z SKY PASS (Fullscreen triangle at depth = 1.0)
-            // Depth compare is EQUAL (1.0 == 1.0), only running fragment shader on unoccluded sky pixels!
+            // 2. CUTOUT TERRAIN PASS (Leaves, Doors, Torches, Ladders -> discard active)
+            pass.set_pipeline(&self.cutout_pipeline);
+            pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            for (i, (chunk, _)) in cutout_draws.iter().enumerate() {
+                let buf_idx = cutout_start_idx + i;
+                if (buf_idx * 4 + 4) <= 8192 * 4 {
+                    pass.set_vertex_buffer(0, chunk.cutout.slice(..));
+                    pass.draw(0..chunk.cutout_count, (buf_idx as u32)..(buf_idx as u32 + 1));
+                }
+            }
+
+            // 3. EARLY-Z SKY PASS (Fullscreen triangle at depth = 1.0)
             pass.set_pipeline(&self.sky_pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.draw(0..3, 0..1);
 
-            // 3. TRANSPARENT PASS (Water, Glass - Back-to-Front)
+            // 4. TRANSPARENT PASS (Water, Glass - Back-to-Front)
             pass.set_pipeline(&self.transparent_pipeline);
+            pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             for (i, (chunk, _)) in trans_draws.iter().enumerate() {
                 let buf_idx = trans_start_idx + i;
                 if (buf_idx * 4 + 4) <= 8192 * 4 {
                     pass.set_vertex_buffer(0, chunk.transparent.slice(..));
-                    pass.set_vertex_buffer(1, self.instance_buffer.slice((buf_idx * 4) as u64..(buf_idx * 4 + 4) as u64));
-                    pass.draw(0..chunk.transparent_count, 0..1);
+                    pass.draw(0..chunk.transparent_count, (buf_idx as u32)..(buf_idx as u32 + 1));
                 }
             }
         }
@@ -906,40 +1018,44 @@ impl VulkanContext {
                 timestamp_writes: None,
             });
             cpass.set_pipeline(&self.post_pipeline);
-            cpass.set_bind_group(0, &self.post_bind_group, &[]);
+            cpass.set_bind_group(0, &self.post_bind_group[current_slot], &[]);
             cpass.dispatch_workgroups((self.width + 15) / 16, (self.height + 15) / 16, 1);
         }
 
         let buffer_size = (self.width * self.height * 4) as wgpu::BufferAddress;
-        encoder.copy_buffer_to_buffer(&self.color_ssbo, 0, &self.readback, 0, buffer_size);
-        encoder.copy_buffer_to_buffer(&self.depth_ssbo, 0, &self.depth_readback, 0, buffer_size);
+        encoder.copy_buffer_to_buffer(&self.color_ssbo[current_slot], 0, &self.readback[current_slot], 0, buffer_size);
+        encoder.copy_buffer_to_buffer(&self.depth_ssbo[current_slot], 0, &self.depth_readback[current_slot], 0, buffer_size);
 
         self.queue.submit(Some(encoder.finish()));
 
-        let slice = self.readback.slice(..);
-        let depth_slice = self.depth_readback.slice(..);
+        let slice_curr = self.readback[current_slot].slice(..);
+        let depth_slice_curr = self.depth_readback[current_slot].slice(..);
+        slice_curr.map_async(wgpu::MapMode::Read, |_| {});
+        depth_slice_curr.map_async(wgpu::MapMode::Read, |_| {});
 
-        slice.map_async(wgpu::MapMode::Read, |_| {});
-        depth_slice.map_async(wgpu::MapMode::Read, |_| {});
-        self.device.poll(wgpu::Maintain::Wait);
+        if self.frame_index == 0 {
+            self.device.poll(wgpu::Maintain::Wait);
+            let mapped_color = slice_curr.get_mapped_range();
+            let mapped_depth = depth_slice_curr.get_mapped_range();
 
-        let mapped_color = slice.get_mapped_range();
-        let mapped_depth = depth_slice.get_mapped_range();
+            out_pixels.copy_from_slice(bytemuck::cast_slice(&mapped_color));
+            out_depths.copy_from_slice(bytemuck::cast_slice(&mapped_depth));
 
-        out_pixels.copy_from_slice(bytemuck::cast_slice(&mapped_color));
-        out_depths.copy_from_slice(bytemuck::cast_slice(&mapped_depth));
+            drop(mapped_color);
+            drop(mapped_depth);
+            self.readback[current_slot].unmap();
+            self.depth_readback[current_slot].unmap();
+        }
 
-        drop(mapped_color);
-        drop(mapped_depth);
-        self.readback.unmap();
-        self.depth_readback.unmap();
+        self.frame_index += 1;
     }
 
+    #[allow(dead_code)]
     fn is_chunk_in_frustum(chunk_x: i32, chunk_z: i32, view_proj: &Mat4) -> bool {
         let min_x = (chunk_x * 16) as f32;
         let max_x = min_x + 16.0;
-        let min_y = -32.0f32;
-        let max_y = 256.0f32;
+        let min_y = -16.0f32;
+        let max_y = 66.0f32;
         let min_z = (chunk_z * 16) as f32;
         let max_z = min_z + 16.0;
 
@@ -1100,9 +1216,19 @@ impl VulkanContext {
 
     fn create_targets(
         device: &wgpu::Device,
+        post_bind_layout: &wgpu::BindGroupLayout,
         width: u32,
         height: u32,
-    ) -> (wgpu::TextureView, wgpu::TextureView, wgpu::TextureView, wgpu::Buffer, wgpu::Buffer, wgpu::Buffer, wgpu::Buffer) {
+    ) -> (
+        wgpu::TextureView,
+        wgpu::TextureView,
+        wgpu::TextureView,
+        [wgpu::BindGroup; 2],
+        [wgpu::Buffer; 2],
+        [wgpu::Buffer; 2],
+        [wgpu::Buffer; 2],
+        [wgpu::Buffer; 2],
+    ) {
         let target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("RustCraft color target"),
             size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
@@ -1137,40 +1263,71 @@ impl VulkanContext {
         });
 
         let elements = (width * height) as u64;
+        let buf_size = elements * 4;
 
-        let color_ssbo = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("RustCraft color ssbo"),
-            size: elements * 4,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
+        let create_ssbo = |label: &'static str| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: buf_size,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            })
+        };
 
-        let depth_ssbo = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("RustCraft depth ssbo"),
-            size: elements * 4,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
+        let create_readback = |label: &'static str| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: buf_size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            })
+        };
 
-        let readback = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("RustCraft frame readback"),
-            size: elements * 4,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-
-        let depth_readback = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("RustCraft depth readback"),
-            size: elements * 4,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        let color_ssbo = [
+            create_ssbo("RustCraft color ssbo 0"),
+            create_ssbo("RustCraft color ssbo 1"),
+        ];
+        let depth_ssbo = [
+            create_ssbo("RustCraft depth ssbo 0"),
+            create_ssbo("RustCraft depth ssbo 1"),
+        ];
+        let readback = [
+            create_readback("RustCraft frame readback 0"),
+            create_readback("RustCraft frame readback 1"),
+        ];
+        let depth_readback = [
+            create_readback("RustCraft depth readback 0"),
+            create_readback("RustCraft depth readback 1"),
+        ];
 
         let target_view = target.create_view(&Default::default());
         let linear_depth_view = linear_depth.create_view(&Default::default());
         let depth_view = depth.create_view(&Default::default());
 
-        (target_view, linear_depth_view, depth_view, color_ssbo, depth_ssbo, readback, depth_readback)
+        let post_bind_group = [
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("RustCraft compute bind group 0"),
+                layout: post_bind_layout,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&target_view) },
+                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&linear_depth_view) },
+                    wgpu::BindGroupEntry { binding: 2, resource: color_ssbo[0].as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 3, resource: depth_ssbo[0].as_entire_binding() },
+                ],
+            }),
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("RustCraft compute bind group 1"),
+                layout: post_bind_layout,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&target_view) },
+                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&linear_depth_view) },
+                    wgpu::BindGroupEntry { binding: 2, resource: color_ssbo[1].as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 3, resource: depth_ssbo[1].as_entire_binding() },
+                ],
+            }),
+        ];
+
+        (target_view, linear_depth_view, depth_view, post_bind_group, color_ssbo, depth_ssbo, readback, depth_readback)
     }
 
     #[inline(always)]

@@ -968,10 +968,10 @@ impl Renderer {
 
     fn chunk_visible(key: (i32, i32), view_proj: &Mat4) -> bool {
         let min_x = key.0 as f32 * CHUNK_SIZE_X as f32;
-        let min_y = -32.0;
+        let min_y = -16.0;
         let min_z = key.1 as f32 * CHUNK_SIZE_Z as f32;
         let max_x = min_x + CHUNK_SIZE_X as f32;
-        let max_y = 128.0;
+        let max_y = 66.0;
         let max_z = min_z + CHUNK_SIZE_Z as f32;
 
         let corners = [
