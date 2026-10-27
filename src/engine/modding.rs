@@ -754,10 +754,10 @@ impl ModManager {
         is_item_only: bool,
         reg: &mut ModRegistry,
     ) -> Result<(), String> {
-        // ID range for custom blocks/items: 80..=254
-        let id_raw = obj.get("id").and_then(|v| v.as_u8()).ok_or("block/item requires 'id' (80-255)")?;
-        if id_raw < 80 {
-            return Err(format!("Mod block/item ID {} conflicts with vanilla IDs (0-79). Use 80..255.", id_raw));
+        // ID range for custom blocks/items: 100..=254
+        let id_raw = obj.get("id").and_then(|v| v.as_u8()).ok_or("block/item requires 'id' (100-255)")?;
+        if id_raw < 100 {
+            return Err(format!("Mod block/item ID {} conflicts with vanilla IDs (0-99). Use 100..255.", id_raw));
         }
 
         let identifier = obj.get("identifier").and_then(|v| v.as_str()).ok_or("requires 'identifier'")?.to_string();
@@ -804,7 +804,7 @@ impl ModManager {
             [avg_color[0] * 0.8, avg_color[1] * 0.8, avg_color[2] * 0.8],
         ];
 
-        let custom_tex_idx = (id_raw - 80) as u8;
+        let custom_tex_idx = (id_raw - 100) as u8;
         let texture_id = TextureId::Custom(custom_tex_idx);
 
         // Optional drop definition
@@ -1466,8 +1466,8 @@ mod tests {
             "name": "Test Mod",
             "blocks": [
                 {
-                    "id": 90,
-                    "identifier": "ruby_ore",
+                    "id": 110,
+                    "identifier": "test_ruby_ore",
                     "name": "Ruby Ore",
                     "solid": true,
                     "hardness": 4.5,
@@ -1479,14 +1479,14 @@ mod tests {
             ],
             "items": [
                 {
-                    "id": 91,
-                    "identifier": "ruby",
+                    "id": 111,
+                    "identifier": "test_ruby",
                     "name": "Ruby Gem",
                     "is_food": false
                 }
             ],
             "smelting": [
-                { "input": "ruby_ore", "output": "ruby" }
+                { "input": "test_ruby_ore", "output": "test_ruby" }
             ]
         }"#;
 
@@ -1494,12 +1494,12 @@ mod tests {
         let manifest = ModManager::parse_and_register_mod(json, Path::new("mods/test"), &mut book).unwrap();
         assert_eq!(manifest.id, "test_mod");
 
-        assert_eq!(find_custom_block_by_name("ruby_ore"), Some(BlockId::Custom(90)));
-        assert_eq!(find_custom_block_by_name("ruby"), Some(BlockId::Custom(91)));
-        assert_eq!(get_custom_name(90), "Ruby Ore");
-        assert_eq!(get_custom_name(91), "Ruby Gem");
-        assert!(is_custom_solid(90));
-        assert_eq!(get_custom_smelting(BlockId::Custom(90)), Some(BlockId::Custom(91)));
+        assert_eq!(find_custom_block_by_name("test_ruby_ore"), Some(BlockId::Custom(110)));
+        assert_eq!(find_custom_block_by_name("test_ruby"), Some(BlockId::Custom(111)));
+        assert_eq!(get_custom_name(110), "Ruby Ore");
+        assert_eq!(get_custom_name(111), "Ruby Gem");
+        assert!(is_custom_solid(110));
+        assert_eq!(get_custom_smelting(BlockId::Custom(110)), Some(BlockId::Custom(111)));
     }
 
     #[test]
@@ -1509,7 +1509,7 @@ mod tests {
             "name": "Network Sync Mod",
             "blocks": [
                 {
-                    "id": 95,
+                    "id": 115,
                     "identifier": "net_block",
                     "name": "Network Block"
                 }
@@ -1522,7 +1522,7 @@ mod tests {
 
         let active_files = ModManager::get_active_mod_files();
         assert!(active_files.iter().any(|m| m.mod_id == "net_mod" && m.content.contains("Network Block")));
-        assert_eq!(find_custom_block_by_name("net_block"), Some(BlockId::Custom(95)));
+        assert_eq!(find_custom_block_by_name("net_block"), Some(BlockId::Custom(115)));
     }
 
     #[test]
@@ -1532,7 +1532,7 @@ mod tests {
             "name": "Food Mod",
             "items": [
                 {
-                    "id": 99,
+                    "id": 119,
                     "identifier": "super_pie",
                     "name": "Super Pie",
                     "is_food": true,
@@ -1544,8 +1544,8 @@ mod tests {
         let mut book = RecipeBook::new();
         let _ = ModManager::register_mod_from_str(json, Path::new("mods/food"), &mut book).unwrap();
 
-        assert!(is_custom_food(99));
-        assert_eq!(get_custom_nutrition(99), Some((8.0, 5.0)));
+        assert!(is_custom_food(119));
+        assert_eq!(get_custom_nutrition(119), Some((8.0, 5.0)));
     }
 
     #[test]

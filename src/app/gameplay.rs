@@ -212,6 +212,39 @@ impl RustCraftApp {
                     crate::log_info!("MENU", "Opened player inventory (crafting table: false)");
                 }
 
+                if !self.chat.is_open && input.key_m && !self.prev_m_down {
+                    self.worldmap.center_x = self.camera.position.x;
+                    self.worldmap.center_z = self.camera.position.z;
+                    self.state = GameState::WorldMap;
+                    out.request_release_mouse = true;
+                    self.horiz_velocity = Vec3::zero();
+                    self.fly_velocity = Vec3::zero();
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                }
+
+                if !self.chat.is_open && input.key_n && !self.prev_n_down {
+                    self.minimap.mode = self.minimap.mode.next();
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.6, 1.2);
+                }
+
+                if !self.chat.is_open && input.key_b && !self.prev_b_down {
+                    let bpos = self.camera.position.floor_to_ivec();
+                    let count = self.minimap.waypoints.len() + 1;
+                    let name = format!("Waypoint {}", count);
+                    let color = crate::ui::minimap::WAYPOINT_COLORS[(count - 1) % crate::ui::minimap::WAYPOINT_COLORS.len()].0;
+                    self.minimap.waypoints.push(crate::ui::minimap::Waypoint {
+                        name: name.clone(),
+                        x: bpos.x,
+                        y: bpos.y,
+                        z: bpos.z,
+                        color,
+                        enabled: true,
+                    });
+                    crate::ui::minimap::save_waypoints(self.save_slot, &self.minimap.waypoints);
+                    self.chat.add_message(format!("Dodano punkt nawigacyjny: {} ({}, {}, {})", name, bpos.x, bpos.y, bpos.z), crate::ui::pack_color(0.4, 1.0, 0.4));
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.2);
+                }
+
                 let any_click = left_down || right_down;
                 if any_click && !input.is_mouse_captured && !self.chat.is_open {
                     out.request_capture_mouse = true;
@@ -858,7 +891,32 @@ impl RustCraftApp {
                                         self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, drop_id, count));
                                     } else if broken_block != BlockId::Glass {
                                         let drop_block = if matches!(broken_block, BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves) {
-                                            if seed % 25 == 0 { Some(BlockId::Apple) } else { None }
+                                            if seed % 20 == 0 {
+                                                Some(BlockId::Apple)
+                                            } else if seed % 10 == 1 {
+                                                Some(BlockId::Sapling)
+                                            } else {
+                                                None
+                                            }
+                                        } else if broken_block == BlockId::Grass {
+                                            if seed % 8 == 0 {
+                                                Some(BlockId::WheatSeeds)
+                                            } else {
+                                                Some(BlockId::Dirt)
+                                            }
+                                        } else if broken_block == BlockId::WheatCrop {
+                                            self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, BlockId::Wheat, 1));
+                                            Some(BlockId::WheatSeeds)
+                                        } else if broken_block == BlockId::CarrotCrop {
+                                            let count = 1 + (seed % 3) as u8;
+                                            self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, BlockId::Carrot, count));
+                                            None
+                                        } else if broken_block == BlockId::PotatoCrop {
+                                            let count = 1 + (seed % 3) as u8;
+                                            self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, BlockId::Potato, count));
+                                            None
+                                        } else if matches!(broken_block, BlockId::Farmland | BlockId::FarmlandWet) {
+                                            Some(BlockId::Dirt)
                                         } else if matches!(broken_block, BlockId::Door | BlockId::DoorOpen) {
                                             Some(BlockId::Door)
                                         } else if matches!(broken_block, BlockId::FurnaceLit) {
@@ -925,6 +983,11 @@ impl RustCraftApp {
                                                     let l_rz = (((l_seed / 10) % 100) as f32 / 100.0 - 0.5) * 1.5;
                                                     let l_drop_vel = Vec3::new(l_rx, 2.0, l_rz);
                                                     self.items.push(ItemEntity::new(Vec3::new(lx, ly, lz), l_drop_vel, BlockId::Apple, 1));
+                                                } else if l_seed % 10 == 1 {
+                                                    let l_rx = ((l_seed % 100) as f32 / 100.0 - 0.5) * 1.5;
+                                                    let l_rz = (((l_seed / 10) % 100) as f32 / 100.0 - 0.5) * 1.5;
+                                                    let l_drop_vel = Vec3::new(l_rx, 2.0, l_rz);
+                                                    self.items.push(ItemEntity::new(Vec3::new(lx, ly, lz), l_drop_vel, BlockId::Sapling, 1));
                                                 }
                                             }
                                         }
@@ -946,23 +1009,146 @@ impl RustCraftApp {
 
                 let interact_right = !self.chat.is_open && self.controls.is_just_pressed(Action::UsePlace);
                 if interact_right {
-                    let held_food = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
-                    let mut ate_food = false;
-                    if let Some(food_id) = held_food {
-                        if self.player.can_eat(food_id) {
-                            if self.player.eat(food_id) {
-                                ate_food = true;
-                                self.audio.play_sound(crate::audio::SoundId::PlayerEat, 0.8, 1.0);
-                                self.hand_animation = 1.0;
-                                let color = food_id.face_color(Face::Top);
-                                let mouth_pos = self.camera.position + self.camera.forward() * 0.4 - Vec3::new(0.0, 0.2, 0.0);
-                                self.particles.spawn_block_break(mouth_pos - Vec3::new(0.5, 0.5, 0.5), color);
-                                crate::log_info!("PLAYER", "Player consumed {:?} (health: {:.1}/{:.1}, hunger: {:.1}/{:.1})", food_id, self.player.health, self.player.max_health, self.player.hunger, self.player.max_hunger);
-                                if self.player.gamemode == GameMode::Survival {
-                                    if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
-                                        stack.count -= 1;
-                                        if stack.count == 0 {
-                                            self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = None;
+                    let held_item = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
+                    let mut handled = false;
+
+                    // 1. Animal interaction (feeding/breeding)
+                    if let Some(item) = held_item {
+                        if let Some((mob_idx, _)) = self.mob_manager.raycast_mob(self.camera.position, self.camera.forward(), 4.2) {
+                            let mob = &mut self.mob_manager.mobs[mob_idx];
+                            if mob.kind.is_tempting_item(item) {
+                                let center = mob.center_pos();
+                                if mob.is_baby {
+                                    mob.age += 30.0;
+                                    self.particles.spawn_growth(center);
+                                    self.audio.play_sound(crate::audio::SoundId::PlayerEat, 0.7, 1.3);
+                                    if self.player.gamemode == GameMode::Survival {
+                                        if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                                            stack.count -= 1;
+                                            if stack.count == 0 {
+                                                self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = None;
+                                            }
+                                        }
+                                    }
+                                    self.hand_animation = 1.0;
+                                    handled = true;
+                                } else if mob.breed_cooldown <= 0.0 && mob.in_love <= 0.0 {
+                                    mob.in_love = 30.0;
+                                    self.particles.spawn_hearts(center);
+                                    self.audio.play_sound(crate::audio::SoundId::PlayerEat, 0.8, 1.2);
+                                    if self.player.gamemode == GameMode::Survival {
+                                        if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                                            stack.count -= 1;
+                                            if stack.count == 0 {
+                                                self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = None;
+                                            }
+                                        }
+                                    }
+                                    self.hand_animation = 1.0;
+                                    handled = true;
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Farming tool and block interactions (Hoe, BoneMeal, Planting)
+                    if !handled {
+                        if let Some(hit) = self.world.raycast(self.camera.position, self.camera.forward(), 8.0) {
+                            let targeted_block = self.world.get_block(hit.block_pos);
+                            if let Some(item) = held_item {
+                                if item.is_hoe() && matches!(targeted_block, BlockId::Grass | BlockId::Dirt) && hit.normal.y > 0 {
+                                    self.world.set_block(hit.block_pos, BlockId::Farmland);
+                                    let sound_pos = Vec3::new(hit.block_pos.x as f32 + 0.5, hit.block_pos.y as f32 + 0.5, hit.block_pos.z as f32 + 0.5);
+                                    self.play_world_sound_varied(crate::audio::SoundId::DigDirt, sound_pos, 0.85);
+                                    self.hand_animation = 1.0;
+                                    handled = true;
+                                } else if item == BlockId::BoneMeal {
+                                    if targeted_block == BlockId::Sapling {
+                                        self.world.grow_tree_at(hit.block_pos);
+                                        let center = Vec3::new(hit.block_pos.x as f32 + 0.5, hit.block_pos.y as f32 + 0.5, hit.block_pos.z as f32 + 0.5);
+                                        self.particles.spawn_growth(center);
+                                        self.play_world_sound_varied(crate::audio::SoundId::DigGrass, center, 0.85);
+                                        if self.player.gamemode == GameMode::Survival {
+                                            if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                                                stack.count -= 1;
+                                                if stack.count == 0 {
+                                                    self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = None;
+                                                }
+                                            }
+                                        }
+                                        self.hand_animation = 1.0;
+                                        handled = true;
+                                    } else if matches!(targeted_block, BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop) {
+                                        let center = Vec3::new(hit.block_pos.x as f32 + 0.5, hit.block_pos.y as f32 + 0.5, hit.block_pos.z as f32 + 0.5);
+                                        self.particles.spawn_growth(center);
+                                        let drop_vel = Vec3::new(0.0, 2.5, 0.0);
+                                        match targeted_block {
+                                            BlockId::WheatCrop => {
+                                                self.items.push(ItemEntity::new(center, drop_vel, BlockId::Wheat, 1));
+                                                self.items.push(ItemEntity::new(center, drop_vel, BlockId::WheatSeeds, 2));
+                                            }
+                                            BlockId::CarrotCrop => {
+                                                self.items.push(ItemEntity::new(center, drop_vel, BlockId::Carrot, 2));
+                                            }
+                                            BlockId::PotatoCrop => {
+                                                self.items.push(ItemEntity::new(center, drop_vel, BlockId::Potato, 2));
+                                            }
+                                            _ => {}
+                                        }
+                                        if self.player.gamemode == GameMode::Survival {
+                                            if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                                                stack.count -= 1;
+                                                if stack.count == 0 {
+                                                    self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = None;
+                                                }
+                                            }
+                                        }
+                                        self.play_world_sound_varied(crate::audio::SoundId::DigGrass, center, 0.85);
+                                        self.hand_animation = 1.0;
+                                        handled = true;
+                                    }
+                                } else if matches!(item, BlockId::WheatSeeds | BlockId::Carrot | BlockId::Potato) {
+                                    if matches!(targeted_block, BlockId::Farmland | BlockId::FarmlandWet) && hit.normal.y > 0 {
+                                        let plant_pos = hit.block_pos + hit.normal;
+                                        if self.world.get_block(plant_pos) == BlockId::Air {
+                                            let crop = match item {
+                                                BlockId::WheatSeeds => BlockId::WheatCrop,
+                                                BlockId::Carrot => BlockId::CarrotCrop,
+                                                BlockId::Potato => BlockId::PotatoCrop,
+                                                _ => unreachable!(),
+                                            };
+                                            self.world.set_block(plant_pos, crop);
+                                            let sound_pos = Vec3::new(plant_pos.x as f32 + 0.5, plant_pos.y as f32 + 0.5, plant_pos.z as f32 + 0.5);
+                                            self.play_world_sound_varied(crate::audio::SoundId::DigGrass, sound_pos, 0.85);
+                                            if self.player.gamemode == GameMode::Survival {
+                                                if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                                                    stack.count -= 1;
+                                                    if stack.count == 0 {
+                                                        self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = None;
+                                                    }
+                                                }
+                                            }
+                                            self.hand_animation = 1.0;
+                                            handled = true;
+                                        }
+                                    }
+                                } else if item == BlockId::Sapling {
+                                    if matches!(targeted_block, BlockId::Grass | BlockId::Dirt) && hit.normal.y > 0 {
+                                        let plant_pos = hit.block_pos + hit.normal;
+                                        if self.world.get_block(plant_pos) == BlockId::Air {
+                                            self.world.set_block(plant_pos, BlockId::Sapling);
+                                            let sound_pos = Vec3::new(plant_pos.x as f32 + 0.5, plant_pos.y as f32 + 0.5, plant_pos.z as f32 + 0.5);
+                                            self.play_world_sound_varied(crate::audio::SoundId::DigGrass, sound_pos, 0.85);
+                                            if self.player.gamemode == GameMode::Survival {
+                                                if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                                                    stack.count -= 1;
+                                                    if stack.count == 0 {
+                                                        self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = None;
+                                                    }
+                                                }
+                                            }
+                                            self.hand_animation = 1.0;
+                                            handled = true;
                                         }
                                     }
                                 }
@@ -970,7 +1156,32 @@ impl RustCraftApp {
                         }
                     }
 
-                    if !ate_food {
+                    // 3. Food consumption (if player can eat held food)
+                    if !handled {
+                        if let Some(food_id) = held_item {
+                            if self.player.can_eat(food_id) {
+                                if self.player.eat(food_id) {
+                                    handled = true;
+                                    self.audio.play_sound(crate::audio::SoundId::PlayerEat, 0.8, 1.0);
+                                    self.hand_animation = 1.0;
+                                    let color = food_id.face_color(Face::Top);
+                                    let mouth_pos = self.camera.position + self.camera.forward() * 0.4 - Vec3::new(0.0, 0.2, 0.0);
+                                    self.particles.spawn_block_break(mouth_pos - Vec3::new(0.5, 0.5, 0.5), color);
+                                    crate::log_info!("PLAYER", "Player consumed {:?} (health: {:.1}/{:.1}, hunger: {:.1}/{:.1})", food_id, self.player.health, self.player.max_health, self.player.hunger, self.player.max_hunger);
+                                    if self.player.gamemode == GameMode::Survival {
+                                        if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                                            stack.count -= 1;
+                                            if stack.count == 0 {
+                                                self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = None;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !handled {
                         if let Some(hit) = self.world.raycast(self.camera.position, self.camera.forward(), 8.0) {
                         let targeted_block = self.world.get_block(hit.block_pos);
                         if matches!(targeted_block, BlockId::Door | BlockId::DoorOpen) && !is_crouching {
@@ -1129,6 +1340,7 @@ impl RustCraftApp {
                 if self.material_timer >= 0.25 {
                     self.material_timer = 0.0;
                     self.world.simulate_materials(self.camera.position);
+                    self.world.tick_farming(self.camera.position, &mut self.mob_manager.rng_state);
                 }
 
                 self.world.update_primed_tnts(dt);
@@ -1137,7 +1349,14 @@ impl RustCraftApp {
                 }
 
                 let mobs_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
-                self.mob_manager.update(dt, &self.world, self.camera.position);
+                let held_item = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
+                self.mob_manager.update(dt, &self.world, self.camera.position, held_item);
+                for pos in self.mob_manager.breeding_hearts.drain(..) {
+                    self.particles.spawn_hearts(pos);
+                }
+                for pos in self.mob_manager.love_hearts.drain(..) {
+                    self.particles.spawn_hearts(pos);
+                }
                 self.process_mob_sounds();
                 for mob in &mut self.mob_manager.mobs {
                     if !mob.is_dead {
@@ -1296,7 +1515,7 @@ impl RustCraftApp {
                     self.proj_matrix = self.camera.projection_matrix(aspect);
                 }
                 #[cfg(not(target_os = "vita"))]
-                let (shake_offset, roll) = if self.damage_tilt_timer > 0.0 {
+                let (shake_offset, roll) = if self.settings.damage_tilt && self.damage_tilt_timer > 0.0 {
                     let progress = self.damage_tilt_timer / 0.4;
                     let roll = (progress * std::f32::consts::PI).sin() * 0.14 * self.damage_tilt_dir;
                     let sx = (self.total_time * 50.0).sin() * 0.08 * progress;
@@ -1479,6 +1698,23 @@ impl RustCraftApp {
                     }
                 }
                 self.renderer.draw_hotbar(&self.player);
+                crate::ui::minimap::draw_world_waypoint_markers(
+                    &mut self.renderer.color_buffer,
+                    self.width,
+                    self.height,
+                    &effective_camera,
+                    &self.minimap.waypoints,
+                );
+                crate::ui::minimap::draw_minimap(
+                    &mut self.renderer.color_buffer,
+                    self.width,
+                    self.height,
+                    &self.world,
+                    self.camera.position,
+                    self.camera.yaw,
+                    &self.mob_manager.mobs,
+                    &self.minimap,
+                );
                 self.chat.draw(&mut self.renderer.color_buffer, self.width, self.height);
 
                 if input.key_tab {

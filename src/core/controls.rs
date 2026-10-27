@@ -867,6 +867,8 @@ mod tests {
             key_left: false,
             key_right: false,
             key_n: false,
+            key_b: false,
+            key_u: false,
             key_del: false,
             key_backspace: false,
             key_tab: false,

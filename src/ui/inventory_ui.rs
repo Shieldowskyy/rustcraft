@@ -69,6 +69,9 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::PigSpawnEgg,
                 BlockId::CowSpawnEgg,
                 BlockId::ChickenSpawnEgg,
+                BlockId::Farmland,
+                BlockId::FarmlandWet,
+                BlockId::Sapling,
             ];
             list.extend(crate::engine::modding::get_custom_creative_blocks());
             Box::leak(list.into_boxed_slice())
@@ -95,6 +98,11 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::IronSword,
                 BlockId::GoldSword,
                 BlockId::DiamondSword,
+                BlockId::WoodenHoe,
+                BlockId::StoneHoe,
+                BlockId::IronHoe,
+                BlockId::GoldHoe,
+                BlockId::DiamondHoe,
                 BlockId::Stick,
                 BlockId::Torch,
                 BlockId::IronOunce,
@@ -115,6 +123,13 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::CowSpawnEgg,
                 BlockId::ChickenSpawnEgg,
                 BlockId::Apple,
+                BlockId::WheatSeeds,
+                BlockId::Wheat,
+                BlockId::Bread,
+                BlockId::Carrot,
+                BlockId::Potato,
+                BlockId::BakedPotato,
+                BlockId::BoneMeal,
                 BlockId::CraftingTable,
                 BlockId::Chest,
                 BlockId::Furnace,
@@ -1158,25 +1173,25 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
 
     let get_mat_colors = |b: BlockId| -> (u32, u32, u32, u32) {
         match b {
-            BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword => (
+            BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword | BlockId::WoodenHoe => (
                 pack_color(0.85, 0.68, 0.42), // highlight
                 pack_color(0.68, 0.50, 0.30), // base
                 pack_color(0.48, 0.32, 0.16), // shadow
                 pack_color(0.32, 0.20, 0.10), // outline
             ),
-            BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword => (
+            BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword | BlockId::StoneHoe => (
                 pack_color(0.78, 0.78, 0.80), // highlight
                 pack_color(0.58, 0.58, 0.60), // base
                 pack_color(0.40, 0.40, 0.42), // shadow
                 pack_color(0.24, 0.24, 0.26), // outline
             ),
-            BlockId::GoldPickaxe | BlockId::GoldAxe | BlockId::GoldShovel | BlockId::GoldSword => (
+            BlockId::GoldPickaxe | BlockId::GoldAxe | BlockId::GoldShovel | BlockId::GoldSword | BlockId::GoldHoe => (
                 pack_color(1.00, 0.95, 0.40), // glint
                 pack_color(0.95, 0.80, 0.20), // highlight
                 pack_color(0.80, 0.65, 0.10), // base
                 pack_color(0.50, 0.38, 0.05), // shadow
             ),
-            BlockId::DiamondPickaxe | BlockId::DiamondAxe | BlockId::DiamondShovel | BlockId::DiamondSword => (
+            BlockId::DiamondPickaxe | BlockId::DiamondAxe | BlockId::DiamondShovel | BlockId::DiamondSword | BlockId::DiamondHoe => (
                 pack_color(0.75, 1.00, 1.00), // glint
                 pack_color(0.35, 0.90, 0.90), // highlight
                 pack_color(0.18, 0.72, 0.75), // base
@@ -1317,6 +1332,23 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
             px(buffer, 12, 4, c_shadow);
             px(buffer, 11, 5, c_shadow);
             px(buffer, 10, 6, c_shadow);
+        }
+        BlockId::WoodenHoe | BlockId::StoneHoe | BlockId::IronHoe | BlockId::GoldHoe | BlockId::DiamondHoe => {
+            let (c_glint, c_hi, c_base, c_shadow) = get_mat_colors(block);
+            // Handle
+            for i in 2..=10 {
+                px(buffer, i, 15 - i, wood_mid);
+                px(buffer, i - 1, 15 - i, wood_light);
+                px(buffer, i, 16 - i, wood_dark);
+            }
+            // Hoe Head (Right-facing blade)
+            px(buffer, 9, 2, c_glint);
+            px(buffer, 10, 2, c_glint);
+            px(buffer, 11, 2, c_hi);
+            px(buffer, 12, 2, c_base);
+            px(buffer, 12, 3, c_shadow);
+            px(buffer, 12, 4, c_shadow);
+            px(buffer, 11, 3, c_base);
         }
         BlockId::CraftingTable => {
             // Isometric Crafting Table Icon

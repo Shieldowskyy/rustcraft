@@ -131,7 +131,43 @@ pub enum BlockId {
     Bone,
     /// Gunpowder dropped by creepers
     Gunpowder,
-    /// Custom modded block or item (ID 80..=255)
+    /// Wooden Hoe
+    WoodenHoe,
+    /// Stone Hoe
+    StoneHoe,
+    /// Iron Hoe
+    IronHoe,
+    /// Diamond Hoe
+    DiamondHoe,
+    /// Gold Hoe
+    GoldHoe,
+    /// Tilled farmland block
+    Farmland,
+    /// Hydrated moist farmland block
+    FarmlandWet,
+    /// Wheat seeds item
+    WheatSeeds,
+    /// Growing/mature wheat crop
+    WheatCrop,
+    /// Harvested wheat item
+    Wheat,
+    /// Baked bread item
+    Bread,
+    /// Carrot food and plantable item
+    Carrot,
+    /// Growing/mature carrot crop
+    CarrotCrop,
+    /// Potato item
+    Potato,
+    /// Growing/mature potato crop
+    PotatoCrop,
+    /// Baked potato food item
+    BakedPotato,
+    /// Tree sapling
+    Sapling,
+    /// Bone meal fertilizing item
+    BoneMeal,
+    /// Custom modded block or item (ID 100..=255)
     Custom(u8),
 }
 
@@ -217,7 +253,25 @@ impl BlockId {
             77 => BlockId::Ladder,
             78 => BlockId::Bone,
             79 => BlockId::Gunpowder,
-            v if v >= 80 => BlockId::Custom(v),
+            80 => BlockId::WoodenHoe,
+            81 => BlockId::StoneHoe,
+            82 => BlockId::IronHoe,
+            83 => BlockId::DiamondHoe,
+            84 => BlockId::GoldHoe,
+            85 => BlockId::Farmland,
+            86 => BlockId::FarmlandWet,
+            87 => BlockId::WheatSeeds,
+            88 => BlockId::WheatCrop,
+            89 => BlockId::Wheat,
+            90 => BlockId::Bread,
+            91 => BlockId::Carrot,
+            92 => BlockId::CarrotCrop,
+            93 => BlockId::Potato,
+            94 => BlockId::PotatoCrop,
+            95 => BlockId::BakedPotato,
+            96 => BlockId::Sapling,
+            97 => BlockId::BoneMeal,
+            v if v >= 100 => BlockId::Custom(v),
             _ => BlockId::Air,
         }
     }
@@ -304,6 +358,24 @@ impl BlockId {
             BlockId::Ladder => 77,
             BlockId::Bone => 78,
             BlockId::Gunpowder => 79,
+            BlockId::WoodenHoe => 80,
+            BlockId::StoneHoe => 81,
+            BlockId::IronHoe => 82,
+            BlockId::DiamondHoe => 83,
+            BlockId::GoldHoe => 84,
+            BlockId::Farmland => 85,
+            BlockId::FarmlandWet => 86,
+            BlockId::WheatSeeds => 87,
+            BlockId::WheatCrop => 88,
+            BlockId::Wheat => 89,
+            BlockId::Bread => 90,
+            BlockId::Carrot => 91,
+            BlockId::CarrotCrop => 92,
+            BlockId::Potato => 93,
+            BlockId::PotatoCrop => 94,
+            BlockId::BakedPotato => 95,
+            BlockId::Sapling => 96,
+            BlockId::BoneMeal => 97,
             BlockId::Custom(id) => id,
         }
     }
@@ -328,6 +400,11 @@ impl BlockId {
                     | BlockId::WoodenSword
                     | BlockId::StoneSword
                     | BlockId::IronSword
+                    | BlockId::WoodenHoe
+                    | BlockId::StoneHoe
+                    | BlockId::IronHoe
+                    | BlockId::DiamondHoe
+                    | BlockId::GoldHoe
                     | BlockId::RawPorkchop
                     | BlockId::CookedPorkchop
                     | BlockId::RawBeef
@@ -354,6 +431,13 @@ impl BlockId {
                     | BlockId::GoldSword
                     | BlockId::Bone
                     | BlockId::Gunpowder
+                    | BlockId::WheatSeeds
+                    | BlockId::Wheat
+                    | BlockId::Bread
+                    | BlockId::Carrot
+                    | BlockId::Potato
+                    | BlockId::BakedPotato
+                    | BlockId::BoneMeal
             ),
         }
     }
@@ -435,9 +519,25 @@ impl BlockId {
                     | (1u128 << 70) // GoldShovel
                     | (1u128 << 71) // GoldSword
                     | (1u128 << 77) // Ladder (passable/climbable)
+                    | (1u128 << 80) // WoodenHoe
+                    | (1u128 << 81) // StoneHoe
+                    | (1u128 << 82) // IronHoe
+                    | (1u128 << 83) // DiamondHoe
+                    | (1u128 << 84) // GoldHoe
+                    | (1u128 << 87) // WheatSeeds
+                    | (1u128 << 88) // WheatCrop (passable)
+                    | (1u128 << 89) // Wheat
+                    | (1u128 << 90) // Bread
+                    | (1u128 << 91) // Carrot
+                    | (1u128 << 92) // CarrotCrop (passable)
+                    | (1u128 << 93) // Potato
+                    | (1u128 << 94) // PotatoCrop (passable)
+                    | (1u128 << 95) // BakedPotato
+                    | (1u128 << 96) // Sapling (passable)
+                    | (1u128 << 97) // BoneMeal
                 );
                 let id = self.to_u8() as u32;
-                if id < 80 {
+                if id < 100 {
                     ((SOLID_MASK >> id) & 1) != 0
                 } else {
                     true
@@ -457,7 +557,7 @@ impl BlockId {
 
     #[inline(always)]
     pub fn is_targetable(self) -> bool {
-        self.is_solid() || matches!(self, BlockId::DoorOpen | BlockId::Torch)
+        self.is_solid() || matches!(self, BlockId::DoorOpen | BlockId::Torch | BlockId::Ladder | BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop | BlockId::Sapling)
     }
 
     #[inline(always)]
@@ -485,6 +585,10 @@ impl BlockId {
                     | BlockId::Apple
                     | BlockId::RawChicken
                     | BlockId::CookedChicken
+                    | BlockId::Bread
+                    | BlockId::Carrot
+                    | BlockId::Potato
+                    | BlockId::BakedPotato
             ),
         }
     }
@@ -500,6 +604,10 @@ impl BlockId {
             BlockId::Apple => Some((4.0, 2.4)),
             BlockId::RawChicken => Some((2.0, 1.2)),
             BlockId::CookedChicken => Some((6.0, 7.2)),
+            BlockId::Bread => Some((5.0, 6.0)),
+            BlockId::Carrot => Some((3.0, 3.6)),
+            BlockId::Potato => Some((1.0, 0.6)),
+            BlockId::BakedPotato => Some((5.0, 6.0)),
             _ => None,
         }
     }
@@ -513,6 +621,24 @@ impl BlockId {
                 | BlockId::CookedBeef
                 | BlockId::RawChicken
                 | BlockId::CookedChicken
+        )
+    }
+
+    pub fn is_hoe(self) -> bool {
+        matches!(
+            self,
+            BlockId::WoodenHoe
+                | BlockId::StoneHoe
+                | BlockId::IronHoe
+                | BlockId::DiamondHoe
+                | BlockId::GoldHoe
+        )
+    }
+
+    pub fn is_crop(self) -> bool {
+        matches!(
+            self,
+            BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop
         )
     }
 
@@ -540,6 +666,11 @@ impl BlockId {
                 | BlockId::IronSword
                 | BlockId::DiamondSword
                 | BlockId::GoldSword
+                | BlockId::WoodenHoe
+                | BlockId::StoneHoe
+                | BlockId::IronHoe
+                | BlockId::DiamondHoe
+                | BlockId::GoldHoe
         )
     }
 
@@ -564,12 +695,16 @@ impl BlockId {
             BlockId::DiamondShovel => 6.0,
             BlockId::StonePickaxe => 5.0,
             BlockId::GoldPickaxe => 4.5,
+            BlockId::DiamondHoe => 4.0,
             BlockId::IronShovel => 4.0,
             BlockId::WoodenPickaxe => 4.0,
             BlockId::StoneShovel => 3.5,
+            BlockId::IronHoe => 3.0,
             BlockId::WoodenShovel => 3.0,
             BlockId::GoldShovel => 3.0,
+            BlockId::StoneHoe => 2.5,
             BlockId::Stick => 2.5,
+            BlockId::WoodenHoe | BlockId::GoldHoe => 2.0,
             _ => 1.5,
         }
     }
@@ -608,19 +743,22 @@ impl BlockId {
                 if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest | BlockId::WoodenSlab | BlockId::WoodenStairs | BlockId::Bed | BlockId::Ladder) { 2.5 } else { 1.0 }
             }
             BlockId::DiamondShovel => {
-                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud) { 10.0 } else { 1.0 }
+                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud | BlockId::Farmland | BlockId::FarmlandWet) { 10.0 } else { 1.0 }
             }
             BlockId::GoldShovel => {
-                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud) { 8.0 } else { 1.0 }
+                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud | BlockId::Farmland | BlockId::FarmlandWet) { 8.0 } else { 1.0 }
             }
             BlockId::IronShovel => {
-                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud) { 7.0 } else { 1.0 }
+                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud | BlockId::Farmland | BlockId::FarmlandWet) { 7.0 } else { 1.0 }
             }
             BlockId::StoneShovel => {
-                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud) { 4.5 } else { 1.0 }
+                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud | BlockId::Farmland | BlockId::FarmlandWet) { 4.5 } else { 1.0 }
             }
             BlockId::WoodenShovel => {
-                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud) { 2.5 } else { 1.0 }
+                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud | BlockId::Farmland | BlockId::FarmlandWet) { 2.5 } else { 1.0 }
+            }
+            BlockId::WoodenHoe | BlockId::StoneHoe | BlockId::IronHoe | BlockId::DiamondHoe | BlockId::GoldHoe => {
+                if matches!(target, BlockId::Leaves | BlockId::SnowLeaves | BlockId::CherryLeaves | BlockId::AutumnLeaves | BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop | BlockId::Sapling | BlockId::Farmland | BlockId::FarmlandWet) { 6.0 } else { 1.0 }
             }
             BlockId::WoodenSword | BlockId::StoneSword | BlockId::IronSword | BlockId::DiamondSword | BlockId::GoldSword => {
                 if matches!(target, BlockId::Leaves | BlockId::SnowLeaves | BlockId::CherryLeaves | BlockId::AutumnLeaves) { 3.0 } else { 1.0 }
@@ -670,6 +808,8 @@ impl BlockId {
             BlockId::WoodenStairs => 1.2,
             BlockId::StoneStairs => 1.2,
             BlockId::Ladder => 0.4,
+            BlockId::Farmland | BlockId::FarmlandWet => 0.6,
+            BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop | BlockId::Sapling => 0.05,
             _ => 0.0,
         }
     }
@@ -704,9 +844,13 @@ impl BlockId {
                     | (1u128 << 74) // StoneSlab
                     | (1u128 << 75) // WoodenStairs
                     | (1u128 << 76) // StoneStairs
-                    | (1u128 << 77); // Ladder
+                    | (1u128 << 77) // Ladder
+                    | (1u128 << 88) // WheatCrop
+                    | (1u128 << 92) // CarrotCrop
+                    | (1u128 << 94) // PotatoCrop
+                    | (1u128 << 96); // Sapling
                 let id = self.to_u8() as u32;
-                if id < 80 {
+                if id < 100 {
                     ((TRANSPARENT_MASK >> id) & 1) != 0
                 } else {
                     false
@@ -797,6 +941,24 @@ impl BlockId {
             BlockId::Ladder => "drabina",
             BlockId::Bone => "kosc",
             BlockId::Gunpowder => "proch",
+            BlockId::WoodenHoe => "drewniana motyka",
+            BlockId::StoneHoe => "kamienna motyka",
+            BlockId::IronHoe => "zelazna motyka",
+            BlockId::DiamondHoe => "diamentowa motyka",
+            BlockId::GoldHoe => "zlota motyka",
+            BlockId::Farmland => "ziemia uprawna",
+            BlockId::FarmlandWet => "nawodniona ziemia uprawna",
+            BlockId::WheatSeeds => "nasiona pszenicy",
+            BlockId::WheatCrop => "uprawa pszenicy",
+            BlockId::Wheat => "pszenica",
+            BlockId::Bread => "chleb",
+            BlockId::Carrot => "marchewka",
+            BlockId::CarrotCrop => "uprawa marchewki",
+            BlockId::Potato => "ziemniak",
+            BlockId::PotatoCrop => "uprawa ziemniakow",
+            BlockId::BakedPotato => "pieczony ziemniak",
+            BlockId::Sapling => "sadzonka debu",
+            BlockId::BoneMeal => "maczka kostna",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -880,11 +1042,30 @@ impl BlockId {
             BlockId::Diamond => [0.25, 0.90, 0.95],
             BlockId::IronOunce => [0.82, 0.82, 0.85],
             BlockId::GoldOunce => [0.95, 0.85, 0.25],
-            BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword => [0.60, 0.42, 0.22],
-            BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword => [0.55, 0.55, 0.55],
-            BlockId::IronPickaxe | BlockId::IronAxe | BlockId::IronShovel | BlockId::IronSword => [0.85, 0.85, 0.88],
-            BlockId::GoldPickaxe | BlockId::GoldAxe | BlockId::GoldShovel | BlockId::GoldSword => [0.95, 0.85, 0.25],
-            BlockId::DiamondPickaxe | BlockId::DiamondAxe | BlockId::DiamondShovel | BlockId::DiamondSword => [0.25, 0.90, 0.95],
+            BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword | BlockId::WoodenHoe => [0.60, 0.42, 0.22],
+            BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword | BlockId::StoneHoe => [0.55, 0.55, 0.55],
+            BlockId::IronPickaxe | BlockId::IronAxe | BlockId::IronShovel | BlockId::IronSword | BlockId::IronHoe => [0.85, 0.85, 0.88],
+            BlockId::GoldPickaxe | BlockId::GoldAxe | BlockId::GoldShovel | BlockId::GoldSword | BlockId::GoldHoe => [0.95, 0.85, 0.25],
+            BlockId::DiamondPickaxe | BlockId::DiamondAxe | BlockId::DiamondShovel | BlockId::DiamondSword | BlockId::DiamondHoe => [0.25, 0.90, 0.95],
+            BlockId::Farmland => match face {
+                Face::Top => [0.42, 0.28, 0.16],
+                _ => [0.45, 0.33, 0.20],
+            },
+            BlockId::FarmlandWet => match face {
+                Face::Top => [0.24, 0.16, 0.08],
+                _ => [0.35, 0.24, 0.14],
+            },
+            BlockId::WheatSeeds => [0.65, 0.60, 0.30],
+            BlockId::WheatCrop => [0.80, 0.75, 0.22],
+            BlockId::Wheat => [0.85, 0.75, 0.25],
+            BlockId::Bread => [0.75, 0.50, 0.20],
+            BlockId::Carrot => [0.95, 0.45, 0.05],
+            BlockId::CarrotCrop => [0.25, 0.65, 0.20],
+            BlockId::Potato => [0.75, 0.62, 0.35],
+            BlockId::PotatoCrop => [0.28, 0.60, 0.22],
+            BlockId::BakedPotato => [0.82, 0.65, 0.30],
+            BlockId::Sapling => [0.30, 0.62, 0.22],
+            BlockId::BoneMeal => [0.92, 0.92, 0.88],
             BlockId::Bone => [0.88, 0.88, 0.84],
             BlockId::Gunpowder => [0.28, 0.28, 0.28],
             BlockId::Custom(id) => crate::engine::modding::get_custom_face_color(id, face),
@@ -981,6 +1162,27 @@ impl BlockId {
             BlockId::Ladder => TextureId::Ladder,
             BlockId::Bone => TextureId::Bone,
             BlockId::Gunpowder => TextureId::Gunpowder,
+            BlockId::Farmland => match face {
+                Face::Top => TextureId::Farmland,
+                Face::Bottom => TextureId::Dirt,
+                _ => TextureId::FarmlandSide,
+            },
+            BlockId::FarmlandWet => match face {
+                Face::Top => TextureId::FarmlandWet,
+                Face::Bottom => TextureId::Dirt,
+                _ => TextureId::FarmlandSide,
+            },
+            BlockId::WheatSeeds => TextureId::WheatSeeds,
+            BlockId::WheatCrop => TextureId::WheatCrop,
+            BlockId::Wheat => TextureId::Wheat,
+            BlockId::Bread => TextureId::Bread,
+            BlockId::Carrot => TextureId::Carrot,
+            BlockId::CarrotCrop => TextureId::CarrotCrop,
+            BlockId::Potato => TextureId::Potato,
+            BlockId::PotatoCrop => TextureId::PotatoCrop,
+            BlockId::BakedPotato => TextureId::BakedPotato,
+            BlockId::Sapling => TextureId::Sapling,
+            BlockId::BoneMeal => TextureId::BoneMeal,
             BlockId::Custom(id) => crate::engine::modding::get_custom_texture_id(id),
             _ => TextureId::Planks,
         }

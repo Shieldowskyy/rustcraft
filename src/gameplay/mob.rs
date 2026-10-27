@@ -55,6 +55,15 @@ impl MobKind {
         }
     }
 
+    pub fn is_tempting_item(&self, item: BlockId) -> bool {
+        match self {
+            MobKind::Cow => item == BlockId::Wheat,
+            MobKind::Pig => matches!(item, BlockId::Carrot | BlockId::Potato | BlockId::BakedPotato),
+            MobKind::Chicken => item == BlockId::WheatSeeds,
+            _ => false,
+        }
+    }
+
     #[allow(dead_code)]
     pub fn name(&self) -> &'static str {
         match self {
@@ -125,6 +134,11 @@ pub struct Mob {
     pub pending_sound: Option<crate::audio::SoundId>,
     pub fuse: f32,
     pub is_ignited: bool,
+    pub in_love: f32,
+    pub breed_cooldown: f32,
+    pub is_baby: bool,
+    pub age: f32,
+    pub love_particle_timer: f32,
 }
 
 impl Mob {
@@ -153,12 +167,18 @@ impl Mob {
             pending_sound: None,
             fuse: 0.0,
             is_ignited: false,
+            in_love: 0.0,
+            breed_cooldown: 0.0,
+            is_baby: false,
+            age: 0.0,
+            love_particle_timer: 0.0,
         }
     }
 
     pub fn aabb(&self) -> (Vec3, Vec3) {
-        let hw = self.kind.half_width();
-        let h = self.kind.height();
+        let scale = if self.is_baby { 0.5 } else { 1.0 };
+        let hw = self.kind.half_width() * scale;
+        let h = self.kind.height() * scale;
         (
             Vec3::new(self.pos.x - hw, self.pos.y, self.pos.z - hw),
             Vec3::new(self.pos.x + hw, self.pos.y + h, self.pos.z + hw),
@@ -198,11 +218,24 @@ impl Mob {
         }
     }
 
-    pub fn update(&mut self, dt: f32, world: &World, rng: &mut u32, player_pos: Option<Vec3>) {
+    pub fn update(&mut self, dt: f32, world: &World, rng: &mut u32, player_pos: Option<Vec3>, player_held: Option<BlockId>) {
         let rand_f32 = |state: &mut u32| -> f32 {
             *state = state.wrapping_mul(1664525).wrapping_add(1013904223);
             (*state as f32) / (u32::MAX as f32)
         };
+
+        if self.in_love > 0.0 {
+            self.in_love = (self.in_love - dt).max(0.0);
+        }
+        if self.breed_cooldown > 0.0 {
+            self.breed_cooldown = (self.breed_cooldown - dt).max(0.0);
+        }
+        if self.is_baby {
+            self.age += dt;
+            if self.age >= 0.0 {
+                self.is_baby = false;
+            }
+        }
 
         if !self.is_dead {
             self.ambient_sound_timer -= dt;
@@ -332,7 +365,30 @@ impl Mob {
             }
         }
 
-        if !pursuing_player {
+        let mut following_player = false;
+        if !self.kind.is_hostile() && self.panic_timer <= 0.0 {
+            if let (Some(target), Some(held)) = (player_pos, player_held) {
+                if self.kind.is_tempting_item(held) {
+                    let dx = target.x - self.pos.x;
+                    let dz = target.z - self.pos.z;
+                    let dy = (target.y - self.pos.y).abs();
+                    let dist_sq = dx * dx + dz * dz;
+                    if dist_sq < 10.0 * 10.0 && dy < 6.0 {
+                        self.target_yaw = dx.atan2(dz);
+                        self.head_yaw_offset = 0.0;
+                        if dist_sq > 2.2 * 2.2 {
+                            self.ai_state_is_moving = true;
+                            following_player = true;
+                        } else {
+                            self.ai_state_is_moving = false;
+                            following_player = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if !pursuing_player && !following_player {
             self.ai_timer -= dt;
             if self.ai_timer <= 0.0 {
                 if self.panic_timer > 0.0 {
@@ -506,10 +562,12 @@ pub struct MobManager {
     pub mobs: Vec<Mob>,
     next_mob_id: u32,
     spawn_timer: f32,
-    rng_state: u32,
+    pub rng_state: u32,
     pub dying_poofs: Vec<Vec3>,
     pub dying_drops: Vec<MobDrop>,
     pub pending_explosions: Vec<Vec3>,
+    pub breeding_hearts: Vec<Vec3>,
+    pub love_hearts: Vec<Vec3>,
 }
 
 impl MobManager {
@@ -522,6 +580,8 @@ impl MobManager {
             dying_poofs: Vec::new(),
             dying_drops: Vec::new(),
             pending_explosions: Vec::new(),
+            breeding_hearts: Vec::new(),
+            love_hearts: Vec::new(),
         }
     }
 
@@ -532,14 +592,24 @@ impl MobManager {
         id
     }
 
-    pub fn update(&mut self, dt: f32, world: &World, player_pos: Vec3) {
+    pub fn update(&mut self, dt: f32, world: &World, player_pos: Vec3, player_held: Option<BlockId>) {
         let mut rng = self.rng_state;
+        self.breeding_hearts.clear();
+        self.love_hearts.clear();
 
         for mob in &mut self.mobs {
             let was_exploding = mob.kind == MobKind::Creeper && mob.fuse >= 1.5;
-            mob.update(dt, world, &mut rng, Some(player_pos));
+            mob.update(dt, world, &mut rng, Some(player_pos), player_held);
             if mob.kind == MobKind::Creeper && mob.fuse >= 1.5 && !was_exploding {
                 self.pending_explosions.push(mob.center_pos());
+            }
+
+            if mob.in_love > 0.0 && !mob.is_dead {
+                mob.love_particle_timer -= dt;
+                if mob.love_particle_timer <= 0.0 {
+                    mob.love_particle_timer = 0.45;
+                    self.love_hearts.push(mob.center_pos() + Vec3::new(0.0, mob.kind.height() * 0.45, 0.0));
+                }
             }
 
             let dist_sq = (mob.pos.x - player_pos.x) * (mob.pos.x - player_pos.x)
@@ -549,13 +619,56 @@ impl MobManager {
             }
         }
 
+        // Animal breeding pairs check
+        let mut babies = Vec::new();
+        let len = self.mobs.len();
+        for i in 0..len {
+            if self.mobs[i].in_love <= 0.0 || self.mobs[i].is_baby || self.mobs[i].is_dead {
+                continue;
+            }
+            for j in (i + 1)..len {
+                if self.mobs[j].in_love <= 0.0 || self.mobs[j].is_baby || self.mobs[j].is_dead {
+                    continue;
+                }
+                if self.mobs[i].kind == self.mobs[j].kind {
+                    let dx = self.mobs[i].pos.x - self.mobs[j].pos.x;
+                    let dy = self.mobs[i].pos.y - self.mobs[j].pos.y;
+                    let dz = self.mobs[i].pos.z - self.mobs[j].pos.z;
+                    let dist_sq = dx * dx + dy * dy + dz * dz;
+                    if dist_sq < 2.25 {
+                        self.mobs[i].in_love = 0.0;
+                        self.mobs[j].in_love = 0.0;
+                        self.mobs[i].breed_cooldown = 300.0;
+                        self.mobs[j].breed_cooldown = 300.0;
+                        let mid = (self.mobs[i].pos + self.mobs[j].pos) * 0.5;
+                        self.breeding_hearts.push(mid + Vec3::new(0.0, 0.8, 0.0));
+                        let mut baby = Mob::new(self.next_mob_id, self.mobs[i].kind, mid);
+                        self.next_mob_id = self.next_mob_id.wrapping_add(1);
+                        baby.is_baby = true;
+                        baby.age = -120.0;
+                        baby.health = self.mobs[i].kind.max_health() * 0.5;
+                        babies.push(baby);
+                    } else if dist_sq < 64.0 {
+                        self.mobs[i].target_yaw = (-dx).atan2(-dz);
+                        self.mobs[i].ai_state_is_moving = true;
+                        self.mobs[j].target_yaw = dx.atan2(dz);
+                        self.mobs[j].ai_state_is_moving = true;
+                    }
+                }
+            }
+        }
+        for b in babies {
+            self.mobs.push(b);
+        }
+
         self.dying_poofs.clear();
         self.dying_drops.clear();
         self.mobs.retain(|m| {
             if m.despawn_pending {
                 if m.is_dead {
                     self.dying_poofs.push(m.center_pos());
-                    match m.kind {
+                    if !m.is_baby {
+                        match m.kind {
                         MobKind::Pig => {
                             let count = 1 + (m.id % 3) as u8; // 1-3 meat drops
                             self.dying_drops.push(MobDrop {
@@ -619,6 +732,7 @@ impl MobManager {
                                 });
                             }
                         }
+                    }
                     }
 
                     // Mod-defined mob death drops
@@ -922,5 +1036,28 @@ mod tests {
             mob.take_damage(999.0, Vec3::zero());
             assert_eq!(mob.pending_sound, Some(kind.death_sound()));
         }
+    }
+
+    #[test]
+    fn test_husbandry_tempting_items_and_baby_scaling() {
+        use crate::world::block::BlockId;
+
+        assert!(MobKind::Cow.is_tempting_item(BlockId::Wheat));
+        assert!(!MobKind::Cow.is_tempting_item(BlockId::Carrot));
+
+        assert!(MobKind::Pig.is_tempting_item(BlockId::Carrot));
+        assert!(MobKind::Pig.is_tempting_item(BlockId::Potato));
+        assert!(MobKind::Pig.is_tempting_item(BlockId::BakedPotato));
+        assert!(!MobKind::Pig.is_tempting_item(BlockId::Wheat));
+
+        assert!(MobKind::Chicken.is_tempting_item(BlockId::WheatSeeds));
+        assert!(!MobKind::Chicken.is_tempting_item(BlockId::Bread));
+
+        let adult = Mob::new(1, MobKind::Cow, Vec3::new(0.0, 0.0, 0.0));
+        let mut baby = Mob::new(2, MobKind::Cow, Vec3::new(0.0, 0.0, 0.0));
+        baby.is_baby = true;
+        let adult_aabb = adult.aabb();
+        let baby_aabb = baby.aabb();
+        assert!(baby_aabb.1.x - baby_aabb.0.x < adult_aabb.1.x - adult_aabb.0.x);
     }
 }

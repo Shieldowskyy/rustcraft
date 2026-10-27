@@ -222,6 +222,74 @@ impl ParticleSystem {
         }
     }
 
+    /// Spawns floating heart particles for animal breeding/love mode.
+    pub fn spawn_hearts(&mut self, pos: Vec3) {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut rng = {
+            let mut h = DefaultHasher::new();
+            (pos.x as i32, (pos.y * 100.0) as i32, pos.z as i32).hash(&mut h);
+            h.finish()
+        };
+        let mut next = || -> f32 {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((rng >> 33) as f32) / (u32::MAX as f32)
+        };
+        for _ in 0..7 {
+            let vx = (next() - 0.5) * 0.8;
+            let vy = next() * 1.5 + 0.8;
+            let vz = (next() - 0.5) * 0.8;
+            self.particles.push(Particle {
+                pos: Vec3::new(
+                    pos.x + (next() - 0.5) * 0.4,
+                    pos.y + next() * 0.4,
+                    pos.z + (next() - 0.5) * 0.4,
+                ),
+                vel: Vec3::new(vx, vy, vz),
+                color: [0.95, 0.18 + next() * 0.1, 0.32 + next() * 0.1],
+                life: 0.8 + next() * 0.5,
+                size: 0.09 + next() * 0.05,
+            });
+        }
+    }
+
+    /// Spawns green growth sparkle particles for bonemeal or baby growth.
+    pub fn spawn_growth(&mut self, pos: Vec3) {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut rng = {
+            let mut h = DefaultHasher::new();
+            (pos.x as i32, (pos.y * 100.0) as i32, pos.z as i32).hash(&mut h);
+            h.finish()
+        };
+        let mut next = || -> f32 {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((rng >> 33) as f32) / (u32::MAX as f32)
+        };
+        for _ in 0..14 {
+            let vx = (next() - 0.5) * 1.2;
+            let vy = next() * 2.0 + 0.6;
+            let vz = (next() - 0.5) * 1.2;
+            let is_gold = next() > 0.6;
+            let color = if is_gold {
+                [0.92, 0.88, 0.25]
+            } else {
+                [0.22, 0.92, 0.32]
+            };
+            self.particles.push(Particle {
+                pos: Vec3::new(
+                    pos.x + (next() - 0.5) * 0.6,
+                    pos.y + next() * 0.5,
+                    pos.z + (next() - 0.5) * 0.6,
+                ),
+                vel: Vec3::new(vx, vy, vz),
+                color,
+                life: 0.6 + next() * 0.4,
+                size: 0.07 + next() * 0.05,
+            });
+        }
+    }
+
     /// Advances simulation of all active particles by `dt` seconds, applying gravity and drag.
     pub fn update(&mut self, dt: f32) {
         const GRAVITY: f32 = 8.0;

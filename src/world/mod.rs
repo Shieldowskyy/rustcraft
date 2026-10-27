@@ -78,6 +78,33 @@ pub enum Biome {
     Meadow,
 }
 
+impl Biome {
+    pub fn name(self) -> &'static str {
+        match self {
+            Biome::DeepOcean => "DEEP OCEAN",
+            Biome::Ocean => "OCEAN",
+            Biome::MushroomIsland => "MUSHROOM ISLAND",
+            Biome::IceSpikes => "ICE SPIKES",
+            Biome::SnowyTaiga => "SNOWY TAIGA",
+            Biome::SnowyTundra => "SNOWY TUNDRA",
+            Biome::Taiga => "TAIGA",
+            Biome::Desert => "DESERT",
+            Biome::Badlands => "BADLANDS",
+            Biome::Savanna => "SAVANNA",
+            Biome::Jungle => "JUNGLE",
+            Biome::Swamp => "SWAMP",
+            Biome::Meadow => "MEADOW",
+            Biome::Plains => "PLAINS",
+            Biome::BirchForest => "BIRCH FOREST",
+            Biome::Forest => "FOREST",
+            Biome::DarkForest => "DARK FOREST",
+            Biome::AutumnForest => "AUTUMN FOREST",
+            Biome::CherryGrove => "CHERRY GROVE",
+            Biome::Mountain => "MOUNTAINS",
+        }
+    }
+}
+
 #[inline(always)]
 pub fn get_biome_at(wx: i32, wz: i32, seed: u32) -> (Biome, f32) {
     // Biome scale: ~800-1000 blocks per cycle for vast, cohesive regions
@@ -1860,28 +1887,7 @@ impl World {
     /// logic as chunk generation.
     pub fn biome_name_at(&self, wx: i32, wz: i32) -> &'static str {
         let (biome, _) = get_biome_at(wx, wz, self.seed);
-        match biome {
-            Biome::DeepOcean => "DEEP OCEAN",
-            Biome::Ocean => "OCEAN",
-            Biome::MushroomIsland => "MUSHROOM ISLAND",
-            Biome::IceSpikes => "ICE SPIKES",
-            Biome::SnowyTaiga => "SNOWY TAIGA",
-            Biome::SnowyTundra => "SNOWY TUNDRA",
-            Biome::Taiga => "TAIGA",
-            Biome::Desert => "DESERT",
-            Biome::Badlands => "BADLANDS",
-            Biome::Savanna => "SAVANNA",
-            Biome::Jungle => "JUNGLE",
-            Biome::Swamp => "SWAMP",
-            Biome::Meadow => "MEADOW",
-            Biome::Plains => "PLAINS",
-            Biome::BirchForest => "BIRCH FOREST",
-            Biome::Forest => "FOREST",
-            Biome::DarkForest => "DARK FOREST",
-            Biome::AutumnForest => "AUTUMN FOREST",
-            Biome::CherryGrove => "CHERRY GROVE",
-            Biome::Mountain => "MOUNTAINS",
-        }
+        biome.name()
     }
 
     /// Checks whether the camera view frustum is completely blocked by an opaque solid block immediately in front.
@@ -2035,6 +2041,92 @@ impl World {
 
         for center in exploded_positions {
             self.explode(center, 3.5);
+        }
+    }
+
+    /// Grows a full tree at the specified position.
+    pub fn grow_tree_at(&mut self, pos: IVec3) -> bool {
+        let base_y = pos.y;
+        let lx = pos.x;
+        let lz = pos.z;
+        let trunk_height = 4 + (pos.x.wrapping_mul(7) ^ pos.z.wrapping_mul(13)).rem_euclid(2);
+        for i in 0..trunk_height {
+            self.set_block(IVec3::new(lx, base_y + i, lz), BlockId::Wood);
+        }
+        for dx in -2..=2 {
+            for dz in -2..=2 {
+                for dy in 0..=2 {
+                    let p = IVec3::new(lx + dx, base_y + trunk_height - 1 + dy, lz + dz);
+                    let dist = dx * dx + dz * dz + (dy - 1) * (dy - 1) * 2;
+                    if dist <= 6 {
+                        if self.get_block(p) == BlockId::Air {
+                            self.set_block(p, BlockId::Leaves);
+                        }
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// Random tick for nearby farmland hydration and sapling growth
+    pub fn tick_farming(&mut self, player_pos: Vec3, rng_seed: &mut u32) {
+        let pcx = (player_pos.x.floor() as i32) >> 4;
+        let pcz = (player_pos.z.floor() as i32) >> 4;
+
+        let mut next_rand = || -> u32 {
+            *rng_seed = rng_seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            *rng_seed
+        };
+
+        for _ in 0..4 {
+            let dcx = (next_rand() % 5) as i32 - 2;
+            let dcz = (next_rand() % 5) as i32 - 2;
+            let cx = pcx + dcx;
+            let cz = pcz + dcz;
+
+            if self.chunks.contains_key(&(cx, cz)) {
+                for _ in 0..3 {
+                    let rx = (next_rand() % 16) as i32;
+                    let rz = (next_rand() % 16) as i32;
+                    let ry = 20 + (next_rand() % 35) as i32;
+                    let wx = cx * 16 + rx;
+                    let wz = cz * 16 + rz;
+                    let pos = IVec3::new(wx, ry, wz);
+                    let blk = self.get_block(pos);
+
+                    if blk == BlockId::Farmland {
+                        let mut has_water = false;
+                        for wx2 in -4..=4 {
+                            for wz2 in -4..=4 {
+                                for wy2 in 0..=1 {
+                                    if self.get_block(pos + IVec3::new(wx2, wy2, wz2)) == BlockId::Water {
+                                        has_water = true;
+                                        break;
+                                    }
+                                }
+                                if has_water { break; }
+                            }
+                            if has_water { break; }
+                        }
+                        if has_water {
+                            self.set_block(pos, BlockId::FarmlandWet);
+                        } else {
+                            let above = pos + IVec3::new(0, 1, 0);
+                            if !matches!(self.get_block(above), BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop) {
+                                if next_rand() % 6 == 0 {
+                                    self.set_block(pos, BlockId::Dirt);
+                                }
+                            }
+                        }
+                    } else if blk == BlockId::Sapling {
+                        if next_rand() % 35 == 0 {
+                            self.set_block(pos, BlockId::Air);
+                            self.grow_tree_at(pos);
+                        }
+                    }
+                }
+            }
         }
     }
 

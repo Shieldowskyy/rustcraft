@@ -184,6 +184,8 @@ pub struct GameSettings {
     pub invert_z: bool,
     /// Gamepad force feedback vibration enabled (default: true).
     pub vibration: bool,
+    /// Camera tilt animation when taking damage enabled (default: true).
+    pub damage_tilt: bool,
     /// Remote HTTP profiler server enabled (default: false).
     pub profiler_server: bool,
     /// HTTP port for the profiler server (default: 8080).
@@ -239,6 +241,7 @@ impl Default for GameSettings {
             invert_y: false,
             invert_z: false,
             vibration: true,
+            damage_tilt: true,
             profiler_server: false,
             profiler_server_port: 8080,
             nickname: generate_default_nickname(),
@@ -372,6 +375,7 @@ impl GameSettings {
                 let mute_audio = bytes.get(audio_offset + 5).copied().unwrap_or(0) != 0;
                 let vibration = bytes.get(audio_offset + 6).copied().unwrap_or(1) != 0;
                 let brightness = bytes.get(audio_offset + 7).copied().map(|b| (b as f32 / 100.0).clamp(0.0, 1.0)).unwrap_or(0.50);
+                let damage_tilt = bytes.get(audio_offset + 8).copied().unwrap_or(1) != 0;
 
                 crate::core::i18n::set_language(language);
 
@@ -396,6 +400,7 @@ impl GameSettings {
                     invert_y,
                     invert_z,
                     vibration,
+                    damage_tilt,
                     profiler_server,
                     profiler_server_port,
                     nickname,
@@ -473,8 +478,13 @@ impl GameSettings {
         bytes.push(if self.mute_audio { 1 } else { 0 });
         bytes.push(if self.vibration { 1 } else { 0 });
         bytes.push((self.brightness.clamp(0.0, 1.0) * 100.0) as u8);
+        bytes.push(if self.damage_tilt { 1 } else { 0 });
 
         std::fs::write(&path, bytes).map_err(|e| e.to_string())
+    }
+
+    pub fn toggle_damage_tilt(&mut self) {
+        self.damage_tilt = !self.damage_tilt;
     }
 
     pub fn cycle_master_volume(&mut self, forward: bool) {

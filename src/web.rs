@@ -198,6 +198,8 @@ impl WebGame {
             key_left,
             key_right: key_right_key,
             key_n,
+            key_b: false,
+            key_u: false,
             key_del,
             key_backspace: false,
             key_tab: false,

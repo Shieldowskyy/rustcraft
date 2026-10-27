@@ -679,6 +679,8 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
         key_left: false,
         key_right: false,
         key_n: false,
+        key_b: false,
+        key_u: false,
         key_del: false,
         key_backspace,
         key_tab: false,

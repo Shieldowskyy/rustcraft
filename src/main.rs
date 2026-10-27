@@ -287,6 +287,8 @@ fn main() {
             key_left: window.is_key_down(Key::Left),
             key_right: window.is_key_down(Key::Right),
             key_n: window.is_key_down(Key::N),
+            key_b: window.is_key_down(Key::B),
+            key_u: window.is_key_down(Key::U),
             key_del: window.is_key_down(Key::Delete),
             key_backspace: window.is_key_down(Key::Backspace),
             key_tab: window.is_key_down(Key::Tab),

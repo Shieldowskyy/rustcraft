@@ -17,8 +17,9 @@ pub fn fuel_burn_time(block: BlockId) -> Option<f32> {
         | BlockId::WoodenPickaxe
         | BlockId::WoodenAxe
         | BlockId::WoodenShovel
-        | BlockId::WoodenSword => Some(10.0),
-        BlockId::Stick => Some(5.0),
+        | BlockId::WoodenSword
+        | BlockId::WoodenHoe => Some(10.0),
+        BlockId::Stick | BlockId::Sapling => Some(5.0),
         BlockId::Leaves
         | BlockId::SnowLeaves
         | BlockId::CherryLeaves
@@ -36,6 +37,7 @@ pub fn smelting_result(input: BlockId) -> Option<BlockId> {
         BlockId::RawPorkchop => Some(BlockId::CookedPorkchop),
         BlockId::RawBeef => Some(BlockId::CookedBeef),
         BlockId::RawChicken => Some(BlockId::CookedChicken),
+        BlockId::Potato => Some(BlockId::BakedPotato),
         BlockId::Sand => Some(BlockId::Glass),
         BlockId::IronOre => Some(BlockId::IronOunce),
         BlockId::GoldOre => Some(BlockId::GoldOunce),

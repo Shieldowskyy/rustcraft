@@ -110,7 +110,7 @@ pub struct RustCraftApp {
     pub settings_tab_rects: [(i32, i32, i32, i32); 4],
     pub settings_rects: [(i32, i32, i32, i32); 13],
     pub settings_audio_rects: [(i32, i32, i32, i32); 7],
-    pub settings_controls_rects: [(i32, i32, i32, i32); 7],
+    pub settings_controls_rects: [(i32, i32, i32, i32); 8],
     pub settings_debug_rects: [(i32, i32, i32, i32); 5],
     pub is_gamepad_active: bool,
     pub last_mouse_pos: Option<(f32, f32)>,
@@ -175,7 +175,12 @@ pub struct RustCraftApp {
     pub chat: crate::gameplay::chat::ChatState,
     prev_t_down: bool,
     prev_slash_down: bool,
+    prev_b_down: bool,
+    prev_u_down: bool,
+    prev_space_down: bool,
     pub controls: ControlsManager,
+    pub minimap: crate::ui::minimap::MinimapState,
+    pub worldmap: crate::ui::minimap::WorldMapState,
 }
 
 
@@ -211,9 +216,10 @@ impl RustCraftApp {
 
         crate::log_info!("APP", "[Step 3/5] Initializing world instance (seed: {})...", seed);
         let world = World::new_with_seed(seed);
+        let start_player_pos = world.player_position;
 
         crate::log_info!("APP", "[Step 4/5] Initializing camera, player & UI layout...");
-        let camera = Camera::new(world.player_position);
+        let camera = Camera::new(start_player_pos);
 
         let mut player = Player::new();
         player.gamemode = GameMode::Survival;
@@ -415,7 +421,12 @@ impl RustCraftApp {
             chat: crate::gameplay::chat::ChatState::new(),
             prev_t_down: false,
             prev_slash_down: false,
+            prev_b_down: false,
+            prev_u_down: false,
+            prev_space_down: false,
             controls: ControlsManager::new(),
+            minimap: crate::ui::minimap::MinimapState::new(1),
+            worldmap: crate::ui::minimap::WorldMapState::new(start_player_pos),
         };
         crate::log_info!("INIT", "RustCraftApp initialized ({}x{}, renderer: {}, seed: {})", width, height, renderer_choice, seed);
         app
@@ -534,6 +545,9 @@ impl RustCraftApp {
         let down_arrow_down = input.key_down;
         let t_down = input.key_t;
         let slash_down = input.key_slash;
+        let b_down = input.key_b;
+        let u_down = input.key_u;
+        let space_down = input.key_space;
 
         match self.state {
             GameState::MainMenu => self.update_and_render_main_menu(input, mouse_moved, &mut out),
@@ -556,6 +570,7 @@ impl RustCraftApp {
             GameState::Chest { pos } => self.update_and_render_chest(dt, input, pos, &mut out),
             GameState::Furnace { pos } => self.update_and_render_furnace(dt, input, pos, &mut out),
             GameState::DeathScreen => self.update_and_render_death_screen(input, mouse_moved, &mut out),
+            GameState::WorldMap => self.update_and_render_worldmap(dt, input, mouse_moved, &mut out),
         }
 
         // Context-aware soundtrack update (Creative vs Survival vs Menu)
@@ -565,7 +580,8 @@ impl RustCraftApp {
             | GameState::Inventory
             | GameState::Chest { .. }
             | GameState::Furnace { .. }
-            | GameState::DeathScreen => {
+            | GameState::DeathScreen
+            | GameState::WorldMap => {
                 match self.player.gamemode {
                     GameMode::Creative => crate::audio::SoundtrackCategory::Creative,
                     GameMode::Survival => crate::audio::SoundtrackCategory::Survival,
@@ -609,6 +625,9 @@ impl RustCraftApp {
         self.prev_key_digits = input.key_digits;
         self.prev_t_down = t_down;
         self.prev_slash_down = slash_down;
+        self.prev_b_down = b_down;
+        self.prev_u_down = u_down;
+        self.prev_space_down = space_down;
 
         out.title = format!(
             "RustCraft [{} renderer] - {} FPS - block: {}{}{}",
@@ -644,6 +663,7 @@ impl RustCraftApp {
                     GameState::Chest { .. } => "Chest",
                     GameState::Furnace { .. } => "Furnace",
                     GameState::DeathScreen => "Death Screen",
+                    GameState::WorldMap => "World Map",
                     GameState::MultiplayerMenu => "Multiplayer Menu",
                     GameState::MultiplayerConnecting { .. } => "Multiplayer Connecting",
                 };

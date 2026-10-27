@@ -10,6 +10,7 @@ pub mod nickname_ui;
 pub mod player_list_ui;
 pub mod save_select;
 pub mod settings_ui;
+pub mod minimap;
 
 pub use clipboard::{get_clipboard, set_clipboard};
 pub use multiplayer_menu::{draw_multiplayer_menu, multiplayer_menu_rects, MAX_LAN_SERVERS_DISPLAY, MULTIPLAYER_RECT_COUNT};
@@ -33,5 +34,10 @@ pub use save_select::{draw_save_select_menu, save_bottom_button_rects, save_card
 pub use settings_ui::{
     draw_settings_menu, settings_audio_rects, settings_controls_rects, settings_debug_rects,
     settings_graphics_rects, settings_option_rects, settings_tab_rects,
+};
+pub use minimap::{
+    draw_minimap, draw_waypoint_manager, draw_worldmap, draw_world_waypoint_markers, load_waypoints,
+    save_waypoints, waypoint_dialog_buttons, waypoint_manager_buttons, waypoint_row_buttons,
+    worldmap_top_bar_buttons, MinimapMode, MinimapState, Waypoint, WorldMapState, WAYPOINT_COLORS,
 };
 

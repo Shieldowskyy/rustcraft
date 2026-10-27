@@ -97,6 +97,7 @@
   "settings.underwater_fx": "EFEKTY PODWODNE: {}",
   "settings.debug_overlay": "NAKLADKA DEBUGOWANIA: {}",
   "settings.vibration": "WIBRACJE PADA: {}",
+  "settings.damage_tilt": "PRZECHYLENIE OD OBRAZEN: {}",
   "settings.on": "WLACZONE",
   "settings.off": "WYLACZONE",
   "settings.save_and_back": "ZAPISZ I WSTECZ (ESC)",

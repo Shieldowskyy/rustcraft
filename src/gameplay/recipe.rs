@@ -181,14 +181,14 @@ impl RecipeBook {
 
         // --- Tools (Tiered Material Loops) ---
         let tool_materials = [
-            (BlockId::Planks, BlockId::WoodenShovel, BlockId::WoodenSword, BlockId::WoodenPickaxe, BlockId::WoodenAxe),
-            (BlockId::Stone, BlockId::StoneShovel, BlockId::StoneSword, BlockId::StonePickaxe, BlockId::StoneAxe),
-            (BlockId::IronIngot, BlockId::IronShovel, BlockId::IronSword, BlockId::IronPickaxe, BlockId::IronAxe),
-            (BlockId::GoldIngot, BlockId::GoldShovel, BlockId::GoldSword, BlockId::GoldPickaxe, BlockId::GoldAxe),
-            (BlockId::Diamond, BlockId::DiamondShovel, BlockId::DiamondSword, BlockId::DiamondPickaxe, BlockId::DiamondAxe),
+            (BlockId::Planks, BlockId::WoodenShovel, BlockId::WoodenSword, BlockId::WoodenPickaxe, BlockId::WoodenAxe, BlockId::WoodenHoe),
+            (BlockId::Stone, BlockId::StoneShovel, BlockId::StoneSword, BlockId::StonePickaxe, BlockId::StoneAxe, BlockId::StoneHoe),
+            (BlockId::IronIngot, BlockId::IronShovel, BlockId::IronSword, BlockId::IronPickaxe, BlockId::IronAxe, BlockId::IronHoe),
+            (BlockId::GoldIngot, BlockId::GoldShovel, BlockId::GoldSword, BlockId::GoldPickaxe, BlockId::GoldAxe, BlockId::GoldHoe),
+            (BlockId::Diamond, BlockId::DiamondShovel, BlockId::DiamondSword, BlockId::DiamondPickaxe, BlockId::DiamondAxe, BlockId::DiamondHoe),
         ];
 
-        for (mat, shovel, sword, pick, axe) in tool_materials {
+        for (mat, shovel, sword, pick, axe, hoe) in tool_materials {
             // Shovels (1x3: Material over 2 Sticks)
             self.add(Recipe::new(
                 1, 3,
@@ -235,7 +235,38 @@ impl RecipeBook {
                 ],
                 axe, 1,
             ));
+
+            // Hoes (2x3: 2 Materials on top, 2 Sticks below) - Right-facing
+            self.add(Recipe::new(
+                2, 3,
+                vec![
+                    Some(mat), Some(mat),
+                    None, Some(BlockId::Stick),
+                    None, Some(BlockId::Stick),
+                ],
+                hoe, 1,
+            ));
+
+            // Hoes (2x3: 2 Materials on top, 2 Sticks below) - Left-facing
+            self.add(Recipe::new(
+                2, 3,
+                vec![
+                    Some(mat), Some(mat),
+                    Some(BlockId::Stick), None,
+                    Some(BlockId::Stick), None,
+                ],
+                hoe, 1,
+            ));
         }
+
+        // --- Farming & Food Recipes ---
+        // Bread (3x1: 3 Wheat)
+        self.add(recipe!(3, 1, [
+            Wheat, Wheat, Wheat,
+        ] => Bread * 1));
+
+        // Bone Meal (1x1: 1 Bone -> 3 BoneMeal)
+        self.add(recipe!(Bone => BoneMeal * 3));
 
         // --- Architectural & Decorative Blocks ---
         // Beds (3x2: 3 Feathers or Leaves over 3 Planks)

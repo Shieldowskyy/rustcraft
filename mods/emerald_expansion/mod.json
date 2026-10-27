@@ -8,7 +8,7 @@
   // Custom Blocks placed in the 3D voxel world
   "blocks": [
     {
-      "id": 80,
+      "id": 100,
       "identifier": "emerald_ore",
       "name": "Emerald Ore",
       "solid": true,
@@ -26,7 +26,7 @@
       }
     },
     {
-      "id": 81,
+      "id": 101,
       "identifier": "emerald_block",
       "name": "Block of Emerald",
       "solid": true,
@@ -40,7 +40,7 @@
       }
     },
     {
-      "id": 82,
+      "id": 102,
       "identifier": "ruby_ore",
       "name": "Ruby Ore",
       "solid": true,
@@ -58,7 +58,7 @@
       }
     },
     {
-      "id": 83,
+      "id": 103,
       "identifier": "ruby_block",
       "name": "Block of Ruby",
       "solid": true,
@@ -76,7 +76,7 @@
   // Custom Items (inventory, food, crafting materials)
   "items": [
     {
-      "id": 84,
+      "id": 104,
       "identifier": "emerald",
       "name": "Emerald",
       "is_food": false,
@@ -86,7 +86,7 @@
       }
     },
     {
-      "id": 85,
+      "id": 105,
       "identifier": "ruby",
       "name": "Ruby",
       "is_food": false,
@@ -96,7 +96,7 @@
       }
     },
     {
-      "id": 86,
+      "id": 106,
       "identifier": "emerald_apple",
       "name": "Emerald Apple",
       "is_food": true,

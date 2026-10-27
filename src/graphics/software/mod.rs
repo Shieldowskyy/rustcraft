@@ -444,7 +444,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_controls_rects(&self) -> [(i32, i32, i32, i32); 7] {
+    pub fn settings_controls_rects(&self) -> [(i32, i32, i32, i32); 8] {
         crate::ui::settings_controls_rects(self.width, self.height)
     }
 
@@ -2472,11 +2472,11 @@ impl Renderer {
     ) {
         use crate::world::block::BlockId;
         let mat_tex = match block {
-            BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword => TextureId::Planks,
-            BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword => TextureId::Stone,
-            BlockId::IronPickaxe | BlockId::IronAxe | BlockId::IronShovel | BlockId::IronSword => TextureId::IronOre,
-            BlockId::GoldPickaxe | BlockId::GoldAxe | BlockId::GoldShovel | BlockId::GoldSword => TextureId::GoldBlock,
-            BlockId::DiamondPickaxe | BlockId::DiamondAxe | BlockId::DiamondShovel | BlockId::DiamondSword => TextureId::DiamondBlock,
+            BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword | BlockId::WoodenHoe => TextureId::Planks,
+            BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword | BlockId::StoneHoe => TextureId::Stone,
+            BlockId::IronPickaxe | BlockId::IronAxe | BlockId::IronShovel | BlockId::IronSword | BlockId::IronHoe => TextureId::IronOre,
+            BlockId::GoldPickaxe | BlockId::GoldAxe | BlockId::GoldShovel | BlockId::GoldSword | BlockId::GoldHoe => TextureId::GoldBlock,
+            BlockId::DiamondPickaxe | BlockId::DiamondAxe | BlockId::DiamondShovel | BlockId::DiamondSword | BlockId::DiamondHoe => TextureId::DiamondBlock,
             _ => TextureId::WoodSide,
         };
         let handle_tex = TextureId::WoodSide;
@@ -2677,6 +2677,37 @@ impl Renderer {
                     tool_up,
                     tool_forward,
                     [0.038 * scale, 0.018 * scale, 0.010 * scale],
+                    mat_tex,
+                    view_proj,
+                );
+            }
+            BlockId::WoodenHoe | BlockId::StoneHoe | BlockId::IronHoe | BlockId::GoldHoe | BlockId::DiamondHoe => {
+                // Handle
+                self.draw_cube_3d(
+                    pos,
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.015 * scale, 0.28 * scale, 0.015 * scale],
+                    handle_tex,
+                    view_proj,
+                );
+                // Hoe Head (Right-facing blade)
+                self.draw_cube_3d(
+                    pos + tool_up * (0.26 * scale) + tool_right * (0.04 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.08 * scale, 0.024 * scale, 0.024 * scale],
+                    mat_tex,
+                    view_proj,
+                );
+                self.draw_cube_3d(
+                    pos + tool_up * (0.22 * scale) + tool_right * (0.07 * scale),
+                    tool_right,
+                    tool_up,
+                    tool_forward,
+                    [0.024 * scale, 0.06 * scale, 0.02 * scale],
                     mat_tex,
                     view_proj,
                 );

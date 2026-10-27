@@ -71,6 +71,8 @@ pub enum GameState {
         server_addr: String,
         start_time: std::time::Instant,
     },
+    /// Interactive fullscreen WorldMap viewer.
+    WorldMap,
 }
 
 /// Camera perspective modes matching Minecraft F5 cycling.
@@ -119,6 +121,8 @@ pub struct InputState {
     pub key_left: bool,
     pub key_right: bool,
     pub key_n: bool,
+    pub key_b: bool,
+    pub key_u: bool,
     pub key_del: bool,
     pub key_backspace: bool,
     pub key_tab: bool,

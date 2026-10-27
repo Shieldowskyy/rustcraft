@@ -6,7 +6,7 @@ use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId, TEX_SIZE};
 use crate::world::mesher::Triangle;
 
-pub const TEXTURE_LAYER_COUNT: u32 = 121 + 64;
+pub const TEXTURE_LAYER_COUNT: u32 = 135 + 64;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -1454,9 +1454,23 @@ impl VulkanContext {
             TextureId::CreeperSkin => 118,
             TextureId::CreeperFace => 119,
             TextureId::Gunpowder => 120,
+            TextureId::Farmland => 121,
+            TextureId::FarmlandWet => 122,
+            TextureId::FarmlandSide => 123,
+            TextureId::WheatSeeds => 124,
+            TextureId::WheatCrop => 125,
+            TextureId::Wheat => 126,
+            TextureId::Bread => 127,
+            TextureId::Carrot => 128,
+            TextureId::CarrotCrop => 129,
+            TextureId::Potato => 130,
+            TextureId::PotatoCrop => 131,
+            TextureId::BakedPotato => 132,
+            TextureId::Sapling => 133,
+            TextureId::BoneMeal => 134,
             TextureId::Custom(idx) => {
                 let clamped = if (idx as u32) > 63 { 63 } else { idx as u32 };
-                121 + clamped
+                135 + clamped
             }
         }
     }
@@ -1584,7 +1598,21 @@ impl VulkanContext {
             118 => TextureId::CreeperSkin,
             119 => TextureId::CreeperFace,
             120 => TextureId::Gunpowder,
-            l if l >= 121 && l < 121 + 64 => TextureId::Custom((l - 121) as u8),
+            121 => TextureId::Farmland,
+            122 => TextureId::FarmlandWet,
+            123 => TextureId::FarmlandSide,
+            124 => TextureId::WheatSeeds,
+            125 => TextureId::WheatCrop,
+            126 => TextureId::Wheat,
+            127 => TextureId::Bread,
+            128 => TextureId::Carrot,
+            129 => TextureId::CarrotCrop,
+            130 => TextureId::Potato,
+            131 => TextureId::PotatoCrop,
+            132 => TextureId::BakedPotato,
+            133 => TextureId::Sapling,
+            134 => TextureId::BoneMeal,
+            l if l >= 135 && l < 135 + 64 => TextureId::Custom((l - 135) as u8),
             _ => TextureId::CraftingTableFront,
         }
     }

@@ -679,6 +679,8 @@ impl Xbox360InputTracker {
             key_left: dpad_left,
             key_right: dpad_right,
             key_n: false,
+            key_b: false,
+            key_u: false,
             key_del: b_just,
             key_backspace: b_just,
             key_tab: false,

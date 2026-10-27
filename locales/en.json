@@ -100,6 +100,7 @@
   "settings.underwater_fx": "UNDERWATER EFFECTS: {}",
   "settings.debug_overlay": "DEBUG OVERLAY: {}",
   "settings.vibration": "GAMEPAD VIBRATION: {}",
+  "settings.damage_tilt": "DAMAGE TILT: {}",
   "settings.on": "ON",
   "settings.off": "OFF",
   "settings.save_and_back": "SAVE AND BACK (ESC)",

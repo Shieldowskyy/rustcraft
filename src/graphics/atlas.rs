@@ -1036,6 +1036,20 @@ pub enum TextureId {
     CreeperSkin,
     CreeperFace,
     Gunpowder,
+    Farmland,
+    FarmlandWet,
+    FarmlandSide,
+    WheatSeeds,
+    WheatCrop,
+    Wheat,
+    Bread,
+    Carrot,
+    CarrotCrop,
+    Potato,
+    PotatoCrop,
+    BakedPotato,
+    Sapling,
+    BoneMeal,
     /// Custom modded texture (index 0..=63)
     Custom(u8),
 }
@@ -1457,6 +1471,20 @@ pub struct TextureAtlas {
     pub creeper_skin: Texture,
     pub creeper_face: Texture,
     pub gunpowder: Texture,
+    pub farmland: Texture,
+    pub farmland_wet: Texture,
+    pub farmland_side: Texture,
+    pub wheat_seeds: Texture,
+    pub wheat_crop: Texture,
+    pub wheat: Texture,
+    pub bread: Texture,
+    pub carrot: Texture,
+    pub carrot_crop: Texture,
+    pub potato: Texture,
+    pub potato_crop: Texture,
+    pub baked_potato: Texture,
+    pub sapling: Texture,
+    pub bone_meal: Texture,
     pub custom: Vec<Texture>,
 }
 
@@ -2482,6 +2510,253 @@ fn gunpowder() -> Texture {
     speckled([0.24, 0.24, 0.26], 0.12, 701)
 }
 
+fn farmland() -> Texture {
+    let mut tex = speckled([0.34, 0.22, 0.12], 0.12, 101);
+    let furrow = [0.22, 0.14, 0.08];
+    for y in 0..TEX_SIZE {
+        if y % 3 == 0 {
+            for x in 0..TEX_SIZE {
+                tex.texels[y * TEX_SIZE + x] = furrow;
+            }
+        }
+    }
+    tex
+}
+
+fn farmland_wet() -> Texture {
+    let mut tex = speckled([0.20, 0.13, 0.07], 0.10, 102);
+    let furrow = [0.12, 0.08, 0.04];
+    let glint = [0.35, 0.28, 0.22];
+    for y in 0..TEX_SIZE {
+        if y % 3 == 0 {
+            for x in 0..TEX_SIZE {
+                tex.texels[y * TEX_SIZE + x] = furrow;
+            }
+        } else {
+            for x in 0..TEX_SIZE {
+                if (x + y * 7) % 11 == 0 {
+                    tex.texels[y * TEX_SIZE + x] = glint;
+                }
+            }
+        }
+    }
+    tex
+}
+
+fn farmland_side() -> Texture {
+    let mut tex = speckled([0.45, 0.33, 0.20], 0.15, 7);
+    let top_dirt = [0.34, 0.22, 0.12];
+    for y in 0..2 {
+        for x in 0..TEX_SIZE {
+            tex.texels[y * TEX_SIZE + x] = top_dirt;
+        }
+    }
+    tex
+}
+
+fn wheat_seeds() -> Texture {
+    let mut tex = speckled([0.22, 0.16, 0.10], 0.10, 201);
+    let seed_body = [0.75, 0.70, 0.35];
+    let seed_tip = [0.45, 0.65, 0.25];
+    let coords = [(4, 5), (8, 4), (11, 7), (6, 9), (9, 11), (5, 12)];
+    for (cx, cy) in coords {
+        tex.texels[cy * TEX_SIZE + cx] = seed_body;
+        tex.texels[(cy + 1) * TEX_SIZE + cx] = seed_body;
+        tex.texels[cy * TEX_SIZE + (cx + 1)] = seed_tip;
+    }
+    tex
+}
+
+fn wheat_crop() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let stem = [0.35, 0.68, 0.20];
+    let ear = [0.88, 0.78, 0.32];
+    let ear_dark = [0.72, 0.60, 0.20];
+    for y in 2..TEX_SIZE {
+        texels[y * TEX_SIZE + 7] = stem;
+        texels[y * TEX_SIZE + 8] = stem;
+        if y >= 6 && y % 3 == 0 {
+            texels[y * TEX_SIZE + 5] = stem;
+            texels[y * TEX_SIZE + 6] = stem;
+            texels[y * TEX_SIZE + 9] = stem;
+            texels[y * TEX_SIZE + 10] = stem;
+        }
+    }
+    for y in 2..7 {
+        for x in 6..10 {
+            texels[y * TEX_SIZE + x] = if (x + y) % 2 == 0 { ear } else { ear_dark };
+        }
+    }
+    Texture { texels }
+}
+
+fn wheat() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let gold = [0.88, 0.76, 0.28];
+    let gold_dark = [0.70, 0.55, 0.18];
+    let ribbon = [0.75, 0.20, 0.15];
+    for y in 3..14 {
+        for x in 5..11 {
+            let col = if y == 8 || y == 9 {
+                ribbon
+            } else if (x + y) % 2 == 0 {
+                gold
+            } else {
+                gold_dark
+            };
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
+fn bread() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let crust = [0.55, 0.32, 0.12];
+    let crumb = [0.82, 0.62, 0.32];
+    let score = [0.42, 0.24, 0.08];
+    for y in 5..12 {
+        for x in 3..13 {
+            let is_edge = y == 5 || y == 11 || x == 3 || x == 12;
+            let is_score = (x == 6 || x == 9) && (y >= 6 && y <= 10);
+            texels[y * TEX_SIZE + x] = if is_score {
+                score
+            } else if is_edge {
+                crust
+            } else {
+                crumb
+            };
+        }
+    }
+    Texture { texels }
+}
+
+fn carrot() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let orange = [0.96, 0.48, 0.08];
+    let orange_dark = [0.80, 0.35, 0.05];
+    let green = [0.25, 0.68, 0.15];
+    texels[2 * TEX_SIZE + 7] = green;
+    texels[2 * TEX_SIZE + 8] = green;
+    texels[3 * TEX_SIZE + 6] = green;
+    texels[3 * TEX_SIZE + 9] = green;
+    for y in 4..14 {
+        let width = ((14 - y) / 2).max(1);
+        for x in (8 - width)..=(7 + width) {
+            texels[y * TEX_SIZE + x] = if (x + y) % 2 == 0 { orange } else { orange_dark };
+        }
+    }
+    Texture { texels }
+}
+
+fn carrot_crop() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let green = [0.28, 0.70, 0.18];
+    let green_dark = [0.18, 0.48, 0.12];
+    let orange = [0.96, 0.48, 0.08];
+    for y in 4..13 {
+        for x in 4..12 {
+            if (x + y * 2) % 3 != 0 {
+                texels[y * TEX_SIZE + x] = if (x + y) % 2 == 0 { green } else { green_dark };
+            }
+        }
+    }
+    for x in 6..10 {
+        texels[14 * TEX_SIZE + x] = orange;
+    }
+    Texture { texels }
+}
+
+fn potato() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let base = [0.68, 0.52, 0.32];
+    let eye = [0.42, 0.30, 0.16];
+    let hi = [0.78, 0.62, 0.38];
+    for y in 4..12 {
+        for x in 4..12 {
+            texels[y * TEX_SIZE + x] = if (x == 6 && y == 6) || (x == 9 && y == 9) || (x == 7 && y == 10) {
+                eye
+            } else if x <= 6 && y <= 6 {
+                hi
+            } else {
+                base
+            };
+        }
+    }
+    Texture { texels }
+}
+
+fn potato_crop() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let green = [0.30, 0.62, 0.22];
+    let flower = [0.95, 0.95, 0.88];
+    for y in 5..14 {
+        for x in 4..12 {
+            if (x * 3 + y * 5) % 4 != 0 {
+                texels[y * TEX_SIZE + x] = green;
+            }
+        }
+    }
+    texels[4 * TEX_SIZE + 6] = flower;
+    texels[4 * TEX_SIZE + 9] = flower;
+    Texture { texels }
+}
+
+fn baked_potato() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let skin = [0.55, 0.38, 0.20];
+    let inside = [0.92, 0.85, 0.45];
+    let butter = [0.98, 0.92, 0.30];
+    for y in 4..12 {
+        for x in 4..12 {
+            let is_cut = (x >= 6 && x <= 9) && (y >= 6 && y <= 9);
+            let is_butter = (x == 7 || x == 8) && (y == 7 || y == 8);
+            texels[y * TEX_SIZE + x] = if is_butter {
+                butter
+            } else if is_cut {
+                inside
+            } else {
+                skin
+            };
+        }
+    }
+    Texture { texels }
+}
+
+fn sapling() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let stem = [0.45, 0.30, 0.15];
+    let leaf_hi = [0.38, 0.75, 0.25];
+    let leaf_lo = [0.24, 0.55, 0.16];
+    for y in 7..15 {
+        texels[y * TEX_SIZE + 7] = stem;
+        texels[y * TEX_SIZE + 8] = stem;
+    }
+    for y in 2..8 {
+        for x in 4..12 {
+            if (x == 4 || x == 11) && (y == 2 || y == 7) {
+                continue;
+            }
+            texels[y * TEX_SIZE + x] = if (x + y) % 2 == 0 { leaf_hi } else { leaf_lo };
+        }
+    }
+    Texture { texels }
+}
+
+fn bone_meal() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let white = [0.95, 0.95, 0.92];
+    let shadow = [0.78, 0.78, 0.75];
+    for y in 5..12 {
+        for x in 4..12 {
+            if (x + y) % 3 != 0 {
+                texels[y * TEX_SIZE + x] = if (x + y) % 2 == 0 { white } else { shadow };
+            }
+        }
+    }
+    Texture { texels }
+}
+
 impl TextureAtlas {
     pub fn generate() -> TextureAtlas {
         Self::generate_with_fancy(true)
@@ -2601,6 +2876,20 @@ impl TextureAtlas {
             creeper_skin: creeper_skin(),
             creeper_face: creeper_face(),
             gunpowder: gunpowder(),
+            farmland: farmland(),
+            farmland_wet: farmland_wet(),
+            farmland_side: farmland_side(),
+            wheat_seeds: wheat_seeds(),
+            wheat_crop: wheat_crop(),
+            wheat: wheat(),
+            bread: bread(),
+            carrot: carrot(),
+            carrot_crop: carrot_crop(),
+            potato: potato(),
+            potato_crop: potato_crop(),
+            baked_potato: baked_potato(),
+            sapling: sapling(),
+            bone_meal: bone_meal(),
             custom: crate::engine::modding::generate_mod_textures(),
         }
     }
@@ -2728,6 +3017,20 @@ impl TextureAtlas {
             TextureId::CreeperSkin => &self.creeper_skin,
             TextureId::CreeperFace => &self.creeper_face,
             TextureId::Gunpowder => &self.gunpowder,
+            TextureId::Farmland => &self.farmland,
+            TextureId::FarmlandWet => &self.farmland_wet,
+            TextureId::FarmlandSide => &self.farmland_side,
+            TextureId::WheatSeeds => &self.wheat_seeds,
+            TextureId::WheatCrop => &self.wheat_crop,
+            TextureId::Wheat => &self.wheat,
+            TextureId::Bread => &self.bread,
+            TextureId::Carrot => &self.carrot,
+            TextureId::CarrotCrop => &self.carrot_crop,
+            TextureId::Potato => &self.potato,
+            TextureId::PotatoCrop => &self.potato_crop,
+            TextureId::BakedPotato => &self.baked_potato,
+            TextureId::Sapling => &self.sapling,
+            TextureId::BoneMeal => &self.bone_meal,
             TextureId::Custom(idx) => self.custom.get(idx as usize).unwrap_or(&self.stone),
         }
     }
