@@ -95,7 +95,7 @@ Blocks are 3D voxels placed in the world, collision-checked, meshed, and lit.
 Items exist in the player's inventory, hotbar, and dropped in the world as 3D floating items, but are not placeable as solid terrain blocks.
 
 ### Item Attributes
-- `id` *(number, required)*: Numerical ID from **80 to 255**.
+- `id` *(number, required)*: Numerical ID from **140 to 255** (IDs 0–139 are reserved for vanilla blocks and items).
 - `identifier` *(string, required)*: Unique item identifier (e.g. `"emerald"`, `"ruby_apple"`).
 - `name` *(string)*: Display name in inventory and chat.
 - `is_food` *(boolean, default: `false`)*: When `true`, holding right-click eats the item.
@@ -106,7 +106,7 @@ Items exist in the player's inventory, hotbar, and dropped in the world as 3D fl
 ### Example Item & Food Definition
 ```json
 {
-  "id": 84,
+  "id": 142,
   "identifier": "emerald",
   "name": "Emerald",
   "is_food": false,
@@ -116,7 +116,7 @@ Items exist in the player's inventory, hotbar, and dropped in the world as 3D fl
   }
 },
 {
-  "id": 86,
+  "id": 143,
   "identifier": "emerald_apple",
   "name": "Emerald Apple",
   "is_food": true,
@@ -217,7 +217,7 @@ Furnace recipes turn an input item into an output item when cooked over fuel (co
 
 You can add custom loot drops when hostile or passive mobs are killed.
 
-Supported targets: `"zombie"`, `"skeleton"`, `"creeper"`, `"pig"`, `"cow"`, `"chicken"`.
+Supported targets: `"zombie"`, `"skeleton"`, `"creeper"`, `"pig"`, `"cow"`, `"chicken"`, `"sheep"`, `"dolphin"`, `"cod"`, `"salmon"`, `"pufferfish"`, `"tropical_fish"`.
 
 ```json
 "loot": [

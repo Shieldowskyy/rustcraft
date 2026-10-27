@@ -1,14 +1,14 @@
 # RustCraft — Cross-Platform Voxel Sandbox Engine
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
-[![Lines of Code](https://img.shields.io/badge/lines%20of%20code-49.6k-blue.svg)](#code-statistics--lines-of-code)
+[![Lines of Code](https://img.shields.io/badge/lines%20of%20code-66.9k-blue.svg)](#code-statistics--lines-of-code)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20FreeBSD%20%7C%20Android%20%7C%20Xbox%20360%20%7C%20ARM64%20%7C%20ARMv7%20%7C%20ARMv6%20%7C%20RISC--V%20%7C%20x86__32%20%7C%20Win__ARM64%20%7C%20PS%20Vita%20%7C%20WASM-brightgreen.svg)]()
 
 A high-performance, modular voxel sandbox game and engine written in Rust with first-class support for **multiple platforms and architectures**:
 Desktop (Linux x86_64 / x86 32-bit / ARM64 / RISC-V 64, Windows x86_64 / 32-bit / ARM64, macOS, FreeBSD), Mobile (Android ARM64 / ARMv7 / x86_64 APK with multi-touch virtual controls), Consoles (Microsoft Xbox 360 Homebrew XEX2, Sony PlayStation Vita GXM GPU), Embedded Linux (Raspberry Pi Zero W / ARMv6, Raspberry Pi 2/3 / ARMv7), and Web browsers (WebAssembly / HTML5 canvas).
 
-RustCraft features a multithreaded CPU software rasterizer (tiled rasterization, sub-pixel precision, per-vertex Ambient Occlusion, distance fog) with zero graphics library dependencies, a hardware-accelerated Vulkan/WGPU backend, and a bare-metal GXM GPU renderer for the PlayStation Vita (SGX543MP4) delivering smooth 60 FPS.
+RustCraft features a multithreaded CPU software rasterizer (tiled rasterization, sub-pixel precision, per-vertex Ambient Occlusion, distance fog, per-biome post-process color filters) with zero graphics library dependencies, a hardware-accelerated Vulkan/WGPU backend, and a bare-metal GXM GPU renderer for the PlayStation Vita (SGX543MP4) delivering smooth 60 FPS.
 
 ---
 
@@ -46,12 +46,14 @@ RustCraft separates core engine capabilities from gameplay logic, providing huma
   [`EngineModule`](src/engine/module.rs) and [`ModuleManager`](src/engine/module.rs) providing pluggable lifecycle hooks (`init`, `pre_update`, `post_update`, `render`, `shutdown`).
 * **Block & Voxel Registry (`src/engine/registry.rs`)**:
   [`BlockRegistry`](src/engine/registry.rs) and [`BlockProperties`](src/engine/registry.rs) for registering custom blocks with hardness, luminance, transparency, and flammability rules.
+* **Data-Driven Modding Subsystem (`src/engine/modding.rs`)**:
+  Zero-dependency JSON mod loader (`mods/`) supporting custom blocks, items, food nutrition, crafting/smelting recipes, loot tables, and chat commands, with automatic client synchronization over multiplayer (Source engine style).
 * **Modular Typography Subsystem (`src/engine/fonts/`)**:
   [`BitmapFont`](src/engine/fonts/mod.rs) trait with two built-in fonts: [`RustcraftRegular`](src/engine/fonts/rustcraft_regular.rs) (3×5 compact pixel font with Polish diacritics) and [`RustcraftLight`](src/engine/fonts/rustcraft_light.rs) (slender open 3×5 font optimized for profiler telemetry and diagnostics).
 * **Zero-Overhead Localization (`src/core/i18n.rs`)**:
   In-memory translation engine (`locales/*.json`) with zero runtime file I/O dependencies, dynamic in-game language switching, and Python synchronization pipeline (`scripts/sync_locales.py`).
-* **Audio Subsystem (`src/audio/`)**:
-  Zero-allocation polyphonic sound engine with a 64-voice pool, priority stealing, lock-free SPSC command ring buffer, 3D spatial audio (constant-power panning, distance attenuation, acoustic occlusion through voxels, air absorption filtering), and 100% procedural waveform synthesis (zero external audio files). Backends for Linux (PulseAudio/ALSA), Windows, Android (AAudio), PS Vita (SceAudioOut), Xbox 360, and WebAssembly.
+* **Audio & Music Subsystem (`src/audio/`)**:
+  Zero-allocation polyphonic sound engine with a 64-voice pool, priority stealing, lock-free SPSC command ring buffer, 3D spatial audio (constant-power panning, distance attenuation, acoustic occlusion through voxels, air absorption filtering), and 100% procedural waveform synthesis (zero external audio files). Plus built-in streaming soundtrack system (`src/audio/soundtrack.rs`) supporting Ogg/Opus background music, category shuffling, volume controls, and music toast notifications. Backends for Linux (PulseAudio/ALSA), Windows, Android (AAudio), PS Vita (SceAudioOut), Xbox 360, and WebAssembly.
 * **Crash Reporter & Sentry Telemetry (`src/core/crash_reporter.rs`)**:
   Integrated panic handler capturing thread registers, stack backtraces, OS/hardware telemetry, logger ring-buffer breadcrumbs, and active world state. Generates local crash reports and supports direct telemetry upload to Sentry via `--sentry-dsn <DSN>` or `SENTRY_DSN` env var.
 * **Multiplayer Networking (`src/net/`)**:
@@ -217,9 +219,10 @@ Install on your Android device or emulator via `adb install -r RustCraft.apk`. F
 | **G** | Toggle Survival / Creative Mode |
 | **Mouse Motion** | Look / Aim camera |
 | **LMB** | Mine / Break block / Attack |
-| **RMB** | Place block / Interact / Consume item |
+| **RMB** | Place block / Interact / Consume food / Use tool (Hoe, Shears, Fishing Rod) |
+| **Middle Click (MMB)** | Pick Block into hotbar (Creative Mode) |
 | **1 – 0 / Mouse Scroll** | Select Hotbar Slot (10 slots) |
-| **E** | Open Inventory & Crafting UI |
+| **E** | Open Inventory & Crafting UI (with Creative category tabs & pagination) |
 | **Q** | Drop selected item |
 | **F5** | Quick-save world |
 | **F3** | Toggle Debug Diagnostics Overlay |
@@ -235,7 +238,7 @@ Install on your Android device or emulator via `adb install -r RustCraft.apk`. F
 | **Square [ ] / X** | Mine / Break (secondary) |
 | **Triangle [^] / Y** | Open Inventory / Crafting |
 | **R Trigger (R2/RT)** | Mine / Attack |
-| **L Trigger (L2/LT)** | Place block / Consume |
+| **L Trigger (L2/LT)** | Place block / Consume / Tool interact |
 | **L1 / R1** | Cycle Hotbar Slots |
 | **L3 (Stick Click)** | Sprint |
 | **R3 (Stick Click)** | Toggle Flight Mode |
@@ -271,25 +274,49 @@ The world generator procedurally synthesizes **20 distinct biomes** using multi-
 | **Meadow** | Elevated plateau bursting with lush grass and solitary trees |
 | **Cherry Grove** | Vibrant cherry blossom trees with `CherryLeaves` |
 | **Mountains** | Towering stone peaks reaching past cloud height; stone ruins |
-| **Ocean** | Deep sea floor with dynamic underwater lighting; coral ruins |
-| **Deep Ocean** | Extra-deep ocean floor far from continental shelves |
+| **Ocean** | Deep sea floor with dynamic underwater lighting, kelp forests, seagrass, and coral ruins |
+| **Deep Ocean** | Extra-deep ocean floor far from continental shelves with ocean trenches |
 
 Each biome generates fitting procedural structures: **desert wells**, **stone ruins**, **forest log cabins** (with loot chests), and **coral ruins** in oceans.
 
 ---
 
-## 7. Block & Item System
+## 7. Block, Item & Entity System
 
-RustCraft features **78 unique block and item IDs** across building materials, ores, tools, food, and functional blocks:
+RustCraft features **139 unique vanilla block and item IDs** (plus extensible modded IDs 140..=255) across building materials, agriculture, mechanisms, 16 colored wools, aquatic wildlife, and functional blocks:
 
 * **Building blocks**: Grass, Dirt, Stone, Sand, Planks, Wood, Glass, Ice, Snow, Mud, Bedrock, WoodenSlab, StoneSlab, WoodenStairs, StoneStairs, Ladder
 * **Fluids**: Water, Lava
-* **Foliage**: Leaves, SnowLeaves, CherryLeaves, AutumnLeaves, Cactus
+* **Foliage & Flora**: Leaves, SnowLeaves, CherryLeaves, AutumnLeaves, Cactus, Kelp (underwater plant), Seagrass (ocean floor vegetation), Sapling
+* **Agriculture & Crops**: Farmland, FarmlandWet, WheatSeeds, WheatCrop, Wheat, Bread, Carrot, CarrotCrop, Potato, PotatoCrop, BakedPotato, BoneMeal
+* **16 Wool Colors**: WhiteWool, OrangeWool, MagentaWool, LightBlueWool, YellowWool, LimeWool, PinkWool, GrayWool, LightGrayWool, CyanWool, PurpleWool, BlueWool, BrownWool, GreenWool, RedWool, BlackWool
+* **RustStone (Redstone Mechanisms)**: RustStoneOre, RustStone (dust/wire), RustStoneWireLit (active wire carrying power), RustStoneBlock (constant power source), RustStoneLamp (unlit), RustStoneLampLit (light-emitting when powered), Lever / LeverOn, Button / ButtonPressed, PressurePlate / PressurePlatePressed
 * **Ores & Minerals**: CoalOre, IronOre, GoldOre, DiamondOre, Diamond, IronOunce, GoldOunce, IronIngot, GoldIngot, CoalBlock, IronBlock, GoldBlock, DiamondBlock
-* **Tools (5 tiers)**: Wooden / Stone / Iron / Gold / Diamond Pickaxe, Axe, Shovel, Sword
-* **Items & Food**: Stick, Torch, Apple, RawPorkchop, CookedPorkchop, RawBeef, CookedBeef, RawChicken, CookedChicken, Feather, Bed
-* **Spawn Eggs**: PigSpawnEgg, CowSpawnEgg, ChickenSpawnEgg
+* **Tools (5 tiers + utilities)**:
+  * Pickaxes, Axes, Shovels, Swords, and Hoes across 5 material tiers: Wooden, Stone, Iron, Gold, Diamond
+  * **Shears**: Used for shearing sheep (yielding matching colored wool) and instantly harvesting leaves and wool
+  * **Fishing Rod**: Cast bobber into water, wait for bite splashes, and reel in cod, salmon, pufferfish, or treasure
+* **Items, Food & Mob Drops**: Stick, Torch, Apple, RawPorkchop, CookedPorkchop, RawBeef, CookedBeef, RawChicken, CookedChicken, Feather, Bone, Gunpowder, RawCod, CookedCod, RawSalmon, CookedSalmon, Pufferfish (causes poison if consumed), TropicalFish, DriedKelp (quick-snack food), Bed
+* **Spawn Eggs**: PigSpawnEgg, CowSpawnEgg, ChickenSpawnEgg, SheepSpawnEgg, DolphinSpawnEgg, FishSpawnEgg
 * **Functional blocks**: CraftingTable, Chest, Furnace / FurnaceLit, Door / DoorOpen, TNT
+
+### Living Entities & Mobs (12 Mob Types)
+
+RustCraft includes a complete AI entity simulation with 12 distinct mob kinds (`MobKind`):
+* **Passive Wildlife**:
+  * **Pig**: Roams grassy biomes, drops raw porkchops.
+  * **Cow**: Roams plains and forests, drops raw beef.
+  * **Chicken**: Smaller hitbox, pecks the ground, drops raw chicken and feathers.
+  * **Sheep**: Features fleece color varieties, grazes on grass blocks (turning them into dirt and regrowing wool), and can be sheared using Shears without damage.
+* **Hostile Monsters**:
+  * **Zombie**: Tracks player via pathfinding, deals melee damage, burns in daylight.
+  * **Skeleton**: Ranged tracker, burns in daylight, drops bones (craftable into BoneMeal).
+  * **Creeper**: Silently approaches the player, hisses with an ignition countdown, and explodes creating crater voxel destruction; drops gunpowder.
+* **Aquatic Marine Life**:
+  * **Dolphin**: Swims smoothly with realistic banking and surfacing, jumps gracefully, and grants the player **Dolphin's Grace** (swimming speed boost) when nearby.
+  * **Cod & Salmon**: Ambient schooling fish inhabiting rivers and oceans, drop raw fish.
+  * **Pufferfish**: Puffs up defensively when approached by players, drops poisonous pufferfish.
+  * **Tropical Fish**: Vibrant multi-colored fish populating warm ocean biomes.
 
 ---
 
@@ -358,13 +385,19 @@ rustcraft/
 ├── src/
 │   ├── lib.rs                  # Library root & public module exports
 │   ├── main.rs                 # Native binary entry point
-│   ├── app.rs                  # Core simulation loop & game state machine
+│   ├── app/                    # Core simulation loop & game state machine
+│   │   ├── mod.rs              # App orchestration, frame rendering & input dispatch
+│   │   ├── gameplay.rs         # In-game tick, tool interaction, survival/creative loops
+│   │   ├── menus.rs            # Menu state machine, pause and settings transitions
+│   │   ├── containers.rs       # Chest and furnace container sync & inventory transfers
+│   │   └── types.rs            # AppState, GameMode, Screen, and event types
 │   ├── cli.rs                  # CLI argument parser & random seed generation
 │   ├── web.rs                  # WebAssembly entry point & canvas blitter
 │   ├── audio/                  # Audio engine, procedural synthesis, 3D spatial audio
 │   │   ├── engine.rs           # AudioEngine lifecycle & sound dispatch
 │   │   ├── mixer.rs            # Zero-allocation 64-voice polyphonic mixer
-│   │   ├── synth.rs            # Procedural waveform synthesis (blocks, steps, hits)
+│   │   ├── synth.rs            # Procedural waveform synthesis (blocks, steps, hits, water)
+│   │   ├── soundtrack.rs       # Ogg/Opus background music streaming, shuffle & toasts
 │   │   ├── spatial.rs          # 3D spatial audio, acoustic occlusion & air absorption
 │   │   ├── ring_buffer.rs      # Lock-free SPSC command ring buffer
 │   │   ├── sound.rs            # SoundInstance, SoundId & procedural sound effects
@@ -379,18 +412,20 @@ rustcraft/
 │   │   ├── platform.rs         # PlatformBackend trait & configuration
 │   │   ├── module.rs           # EngineModule & ModuleManager
 │   │   ├── registry.rs         # BlockRegistry & voxel properties
+│   │   ├── modding.rs          # Data-driven JSON mod loader & multiplayer auto-download
 │   │   └── fonts/              # BitmapFont system (RustcraftRegular + RustcraftLight)
 │   ├── core/                   # Core math, noise, settings, profiler, and i18n
 │   │   ├── math.rs             # Vec3, IVec3, Mat4 — zero-dependency 3D math
 │   │   ├── noise.rs            # Deterministic 2D/3D fractal noise
 │   │   ├── settings.rs         # GameSettings with full serialization
+│   │   ├── controls.rs         # Centralized keybinding & gamepad mapping engine
 │   │   ├── i18n.rs             # In-memory localization engine
 │   │   ├── crash_reporter.rs   # Crash dump generation & Sentry telemetry integration
 │   │   ├── logger.rs           # In-memory ring-buffer logging & breadcrumbs
 │   │   ├── profiler.rs         # MemoryBreakdown & RenderStats telemetry structs
 │   │   └── profiler_server.rs  # Embedded HTTP profiler web dashboard
 │   ├── world/                  # Chunks, terrain gen, meshing, storage, tile entities
-│   │   ├── block.rs            # BlockId enum (78 types) & block properties
+│   │   ├── block.rs            # BlockId enum (139 types) & block properties
 │   │   ├── mesher.rs           # Chunk mesh builder with AO & async meshing
 │   │   ├── storage.rs          # Binary world save/load (cross-platform paths)
 │   │   ├── tile_entity.rs      # Chest (27-slot) & Furnace smelting simulation
@@ -400,14 +435,14 @@ rustcraft/
 │   │   ├── inventory.rs        # Item stacking, hotbar (10), main inventory (27)
 │   │   ├── item.rs             # Dropped ItemEntity physics
 │   │   ├── physics.rs          # AABB collision, ice/lava friction, step-jumping
-│   │   ├── mob.rs              # MobManager: Pig, Cow, Chicken with AI & pathfinding
+│   │   ├── mob.rs              # MobManager: 12 mobs (Pig, Cow, Chicken, Sheep, Zombie, Skeleton, Creeper, Dolphin, Fish)
 │   │   ├── particles.rs        # Block-break, hit sparks, explosion, lava particles
 │   │   ├── recipe.rs           # 2×2 and 3×3 crafting recipe definitions
 │   │   ├── autotest.rs         # Headless self-test runner & autonomous bot AI
 │   │   └── chat.rs             # In-game chat log & command dispatch
 │   ├── graphics/               # Rendering backends, camera, font, texture atlas
 │   │   ├── traits.rs           # RenderBackend trait
-│   │   ├── atlas.rs            # Procedural 128×128 px ABGR8888 texture atlas (100+ textures)
+│   │   ├── atlas.rs            # Procedural 128×128 px ABGR8888 texture atlas (140+ textures)
 │   │   ├── camera.rs           # First-person camera, FOV, view matrix, chunk fade
 │   │   ├── font.rs             # Bitmap font renderer with shadow & measurement
 │   │   ├── software/           # Multi-threaded CPU rasterizer (Rayon tiled scanline)
@@ -423,7 +458,8 @@ rustcraft/
 │       ├── draw.rs             # 2D primitives (fill_rect, draw_text, pack_color)
 │       ├── menu.rs             # Main menu, logo voxel art, save slot carousel
 │       ├── hud.rs              # Crosshair, hotbar, debug panel, damage vignette
-│       ├── inventory_ui.rs     # Creative picker, 2×2/3×3 crafting, inventory grid
+│       ├── minimap.rs          # Real-time top-down radar & compass minimap
+│       ├── inventory_ui.rs     # Creative picker (tabbed, paginated), 2×2/3×3 crafting, inventory grid
 │       ├── container_ui.rs     # Chest (27-slot) & Furnace interaction UI
 │       ├── create_world.rs     # Create world form (name, seed, game mode)
 │       ├── save_select.rs      # Save slot selection screen
@@ -438,18 +474,18 @@ rustcraft/
 
 | Subsystem / Directory | Description | Lines of Code |
 |---|---|---|
-| **`src/graphics/`** | Software Rayon rasterizer, WGPU backend, Camera, Font, Texture atlas | ~7,930 |
-| **`src/platform/`** | Xbox 360, PS Vita (GXM GPU), Android NDK, Windows, X11 mouse, Gamepad | ~7,140 |
-| **`src/world/`** | Voxel storage, 20 biomes, terrain generation, chunk meshing, tile entities | ~6,080 |
-| **`src/ui/`** | HUD, inventory, craft grids, menus, touch controls, audio settings | ~5,130 |
-| **`src/core/`** | Math (Vec3/Mat4), noise, settings, profiler, crash reporter & Sentry, i18n | ~4,930 |
-| **`src/app.rs`** | Core engine loop, state machine, input handling & audio integration | ~4,740 |
-| **`src/gameplay/`** | AutoTest bot AI, physics/collision, inventory, crafting, mobs, chat | ~4,690 |
-| **`src/audio/`** | 64-voice polyphonic mixer, procedural synthesis, 3D spatial sound, backends | ~4,300 |
-| **`src/net/`** | Multiplayer networking protocol, packet serialization & LAN discovery | ~2,810 |
-| **`Root & Entry Points`** | `main.rs`, `web.rs` (WASM), `cli.rs`, `build.rs`, `lib.rs` | ~1,100 |
-| **`src/engine/`** | Modular engine traits, platform backend interfaces, bitmap fonts | ~760 |
-| **Total Rust Source** | **Complete Rust codebase (zero external engine dependencies)** | **~49,600 LOC** |
+| **`src/graphics/`** | Software Rayon rasterizer, WGPU backend, Camera, Font, Texture atlas | ~10,140 |
+| **`src/ui/`** | HUD, inventory, minimap, craft grids, menus, touch controls, audio settings | ~8,620 |
+| **`src/world/`** | Voxel storage, 20 biomes, terrain generation, chunk meshing, tile entities | ~8,260 |
+| **`src/platform/`** | Xbox 360, PS Vita (GXM GPU), Android NDK, Windows, X11 mouse, Gamepad | ~8,150 |
+| **`src/app/`** | Core engine loop, state machine, gameplay tick, containers, menus | ~7,220 |
+| **`src/audio/`** | 64-voice polyphonic mixer, procedural synthesis, 3D spatial sound, soundtrack engine | ~6,380 |
+| **`src/gameplay/`** | AutoTest bot AI, physics/collision, inventory, crafting, 12 mobs, chat | ~5,800 |
+| **`src/core/`** | Math (Vec3/Mat4), noise, settings, controls, profiler, crash reporter & Sentry, i18n | ~5,640 |
+| **`src/net/`** | Multiplayer networking protocol, packet serialization & LAN discovery | ~2,880 |
+| **`src/engine/`** | Modular engine traits, modding system, platform backend interfaces, bitmap fonts | ~2,470 |
+| **`Root & Entry Points`** | `main.rs`, `web.rs` (WASM), `cli.rs`, `build.rs`, `lib.rs` | ~1,370 |
+| **Total Rust Source** | **Complete Rust codebase (zero external engine dependencies)** | **~66,900 LOC** |
 
 ---
 

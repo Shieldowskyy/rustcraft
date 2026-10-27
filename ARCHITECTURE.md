@@ -77,7 +77,8 @@ The codebase is organized into isolated, single-responsibility modules to maximi
 ### `src/audio/` (Audio Engine, 3D Spatial Audio & Synthesis)
 * **`engine.rs`**: `AudioEngine` lifecycle, channel orchestration, volume scaling (Master, SFX, Music, Footsteps, Ambience), and background audio thread coordination.
 * **`mixer.rs`**: High-performance, zero-allocation polyphonic mixer featuring a 64-voice pool with priority stealing and graceful voice release ramps.
-* **`synth.rs`**: 100% procedural waveform synthesis requiring zero external audio assets. Generates realistic sound synthesis for block digging and breaking (custom acoustic profiles for wood, stone, dirt, sand, glass, gravel), block placement, footsteps with terrain-matched cadence, jump, landing thuds, player damage, explosions, chest open/close, and UI clicks.
+* **`synth.rs`**: 100% procedural waveform synthesis requiring zero external audio assets. Generates realistic sound synthesis for block digging and breaking (custom acoustic profiles for wood, stone, dirt, sand, glass, gravel), block placement, footsteps with terrain-matched cadence, jump, landing thuds, player damage, explosions, chest open/close, water splash/swimming, and UI clicks.
+* **`soundtrack.rs`**: Built-in background soundtrack engine. Decodes and streams custom OGG / Opus audio tracks with non-repeating shuffle, category tagging (Creative, Nether, Ocean, Ambient), volume attenuation, and in-game music toast notifications (`MusicToast`) displayed upon track changes.
 * **`spatial.rs`**: 3D spatial audio simulation — constant-power panning, distance attenuation, real-time voxel raycast acoustic occlusion (muffling through solid obstacles), and atmospheric air absorption low-pass filtering.
 * **`ring_buffer.rs`**: Lock-free single-producer single-consumer (SPSC) command ring buffer ensuring non-blocking audio dispatch from the main simulation thread.
 * **`sound.rs`**: `SoundInstance`, `SoundId`, and procedural sound trigger definitions.
@@ -91,46 +92,47 @@ The codebase is organized into isolated, single-responsibility modules to maximi
   * Null (`null.rs`): Headless audio fallback for automated testing and CI.
 
 ### `src/net/` (Multiplayer Networking)
-* **`protocol.rs`**: Compact binary packet serialization over UDP for player positions, yaw/pitch models, voxel updates, combat hits, chat, and player health.
+* **`protocol.rs`**: Compact binary packet serialization over UDP for player positions, yaw/pitch models, voxel updates, combat hits, chat, mod definition exchange (`ServerPacket::ModSync`), and player health.
 * **`server.rs`**: Dedicated authoritative multiplayer server, chunk broadcasting, world state simulation, and player synchronization.
 * **`client.rs`**: Multiplayer network client with client-side prediction, delta reconciliation, and server packet ingestion.
 * **`discovery.rs`**: Zero-configuration LAN server discovery using UDP broadcast beacons.
 
 ### `src/world/` (Voxel World, Meshing & Storage)
-* **`block.rs`**: `BlockId` enum with **78 unique block/item types** — Air, terrain blocks (Grass, Dirt, Stone, Sand, Snow, Ice, Mud, Bedrock), foliage (Leaves, SnowLeaves, CherryLeaves, AutumnLeaves, Cactus), fluids (Water, Lava), ores & minerals (CoalOre, IronOre, GoldOre, DiamondOre, Diamond, IronOunce, GoldOunce, IronIngot, GoldIngot, CoalBlock, IronBlock, GoldBlock, DiamondBlock), tools (5 tiers: Wooden/Stone/Iron/Gold/Diamond Pickaxe/Axe/Shovel/Sword), items (Stick, Torch, Apple), food (RawPorkchop/CookedPorkchop, RawBeef/CookedBeef, RawChicken/CookedChicken, Feather), construction (Bed, WoodenSlab, StoneSlab, WoodenStairs, StoneStairs, Ladder), spawn eggs (Pig, Cow, Chicken), and functional blocks (CraftingTable, Door/DoorOpen, Glass, Tnt, Chest, Furnace/FurnaceLit, Planks). Block properties include solid, transparent, fluid, luminance, break time, face texture mappings.
+* **`block.rs`**: `BlockId` enum with **139 unique vanilla block/item types** (plus modded types `BlockId::Custom(140..=255)`) — Air, terrain blocks (Grass, Dirt, Stone, Sand, Snow, Ice, Mud, Bedrock), foliage (Leaves, SnowLeaves, CherryLeaves, AutumnLeaves, Cactus, Kelp, Seagrass, Sapling), fluids (Water, Lava), agriculture (Farmland, FarmlandWet, WheatSeeds, WheatCrop, Wheat, Bread, Carrot, CarrotCrop, Potato, PotatoCrop, BakedPotato, BoneMeal), 16 wool variants (White, Orange, Magenta, Light Blue, Yellow, Lime, Pink, Gray, Light Gray, Cyan, Purple, Blue, Brown, Green, Red, Black), RustStone mechanisms (RustStoneOre, RustStone wire, RustStoneBlock, RustStoneLamp/Lit, Lever/On, Button/Pressed, PressurePlate/Pressed), ores & minerals (CoalOre, IronOre, GoldOre, DiamondOre, Diamond, IronOunce, GoldOunce, IronIngot, GoldIngot, CoalBlock, IronBlock, GoldBlock, DiamondBlock), tools (5 tiers: Wooden/Stone/Iron/Gold/Diamond Pickaxe/Axe/Shovel/Sword/Hoe; Shears; FishingRod), items & food (Stick, Torch, Apple, Raw/Cooked Porkchop, Beef, Chicken, Cod, Salmon; Pufferfish, TropicalFish, DriedKelp, Feather, Bone, Gunpowder, Bed), spawn eggs (Pig, Cow, Chicken, Sheep, Dolphin, Fish), and functional blocks (CraftingTable, Door/DoorOpen, Glass, Tnt, Chest, Furnace/FurnaceLit, Planks). Block properties include solid, transparent, fluid, luminance, break time, face texture mappings.
 * **`mesher.rs`**: Chunk mesh builder (`build_chunk_mesh`). Extracts exposed faces, computes smooth Ambient Occlusion (AO) per vertex (0..3 corners), produces packed `Triangle` and `Vertex` buffers. Supports sub-chunk meshing (`build_subchunk_mesh`, `NUM_SUBCHUNKS`, `SUBCHUNK_SIZE`) and async background meshing (`AsyncMesher`, `ChunkMeshJob`). Exports mesh data compatible with the GXM GPU vertex format.
 * **`storage.rs`**: Save and load world chunks and player position to disk with binary serialization. Supports custom paths for Android internal storage and Xbox 360 USB/HDD.
 * **`tile_entity.rs`**: Tile entity data and simulation:
   * `ChestData`: 27-slot item storage with `add_item` stacking logic. `generate_house_loot(seed, pos)` fills cabin chests with deterministic starter loot.
   * `FurnaceData`: Full smelting simulation — input, fuel, output slots, `burn_time_remaining`, `burn_time_total`, `cook_progress`. `tick(dt)` advances burning and smelting. Returns `true` when lit/unlit state changes (triggers visual block swap Furnace ↔ FurnaceLit).
-  * `smelting_result()`: Recipes: RawPorkchop→CookedPorkchop, RawBeef→CookedBeef, RawChicken→CookedChicken, Sand→Glass, IronOre→IronIngot, GoldOre→GoldIngot, Wood→CoalOre (charcoal), Stone→Stone.
+  * `smelting_result()`: Recipes: RawPorkchop→CookedPorkchop, RawBeef→CookedBeef, RawChicken→CookedChicken, RawCod→CookedCod, RawSalmon→CookedSalmon, Kelp→DriedKelp, Potato→BakedPotato, Sand→Glass, IronOre→IronIngot, GoldOre→GoldIngot, Wood→CoalOre (charcoal), Stone→Stone.
   * `fuel_burn_time()`: Burn times: Coal (80 s), Wood/Planks/CraftingTable/Chest (15 s), wooden tools (10 s), Stick (5 s), Leaves (2 s).
-* **`mod.rs`**: `World` struct (chunks, seed, tile entities, TNT/explosions, fluid simulation, day/night cycle `time_of_day`, sim tick counter). **20-biome procedural generator** using temperature × humidity × continentalness noise axes: DeepOcean, Ocean, Swamp, Mountain, Desert, Savanna, AutumnForest, Forest, CherryGrove, Plains, SnowyTaiga, SnowyTundra, Jungle, Badlands, DarkForest, Taiga, BirchForest, IceSpikes, MushroomIsland, Meadow. Procedural structures: desert wells, stone ruins, forest log cabins (with loot chests), coral ruins. Raycasting (`RaycastHit`), acoustic occlusion checks, fluid flow, falling sand simulation, chunk streaming with async background loading.
+* **`mod.rs`**: `World` struct (chunks, seed, tile entities, TNT/explosions, fluid simulation, day/night cycle `time_of_day`, sim tick counter). **20-biome procedural generator** using temperature × humidity × continentalness noise axes: DeepOcean, Ocean, Swamp, Mountain, Desert, Savanna, AutumnForest, Forest, CherryGrove, Plains, SnowyTaiga, SnowyTundra, Jungle, Badlands, DarkForest, Taiga, BirchForest, IceSpikes, MushroomIsland, Meadow. Procedural structures: desert wells, stone ruins, forest log cabins (with loot chests), coral ruins, underwater kelp forests and seagrass fields. Raycasting (`RaycastHit`), acoustic occlusion checks, fluid flow, falling sand simulation, chunk streaming with async background loading.
 
 ### `src/gameplay/` (Entities, Player & Simulation)
-* **`player.rs`**: Player entity state, `GameMode` (Survival / Creative), health, invulnerability frames, fall damage tracking, and 3rd-person camera perspective.
+* **`player.rs`**: Player entity state, `GameMode` (Survival / Creative), health, hunger and saturation simulation, invulnerability frames, fall damage tracking, and 3rd-person camera perspective.
 * **`inventory.rs`**: Item stacking, slot management, hotbar (10 slots) and main inventory (27 slots).
 * **`item.rs`**: `ItemEntity` physics for dropped items (floating, bouncing, pickup radius).
-* **`physics.rs`**: AABB collision detection (`block_intersects_player`, `move_player_with_collision`), step jumping, crouching offsets, friction (ice, ground, air), and lava drag.
-* **`mob.rs`**: `MobManager`, entity state machines (`MobKind`: Pig, Cow, Chicken), pathfinding, melee attacks, and box models.
-* **`particles.rs`**: Block breaking debris, mob hit sparks, death poofs, explosion smoke, lava flame & smoke particles.
-* **`recipe.rs`**: Crafting recipe definitions for 2×2 (inventory) and 3×3 (crafting table) grids, including tools, blocks, slabs, stairs, bed, and ladder.
+* **`physics.rs`**: AABB collision detection (`block_intersects_player`, `move_player_with_collision`), step jumping, crouching offsets, friction (ice, ground, air), underwater buoyancy, and lava drag.
+* **`mob.rs`**: `MobManager`, entity state machines for **12 mob kinds** (`MobKind`: Pig, Cow, Chicken, Sheep, Zombie, Skeleton, Creeper, Dolphin, Cod, Salmon, Pufferfish, TropicalFish), pathfinding, melee/ranged attacks, explosive creeper fuses, sheep grazing/shearing, dolphin speed buff, and box models.
+* **`particles.rs`**: Block breaking debris, mob hit sparks, death poofs, explosion smoke, lava flame & smoke particles, water splash drops.
+* **`recipe.rs`**: Crafting recipe definitions for 2×2 (inventory) and 3×3 (crafting table) grids, including tools, hoes, shears, fishing rods, colored beds, bread, ruststone mechanisms, blocks, slabs, stairs, and ladders.
 * **`autotest.rs`**: Automated headless testing suite and autonomous bot AI controller for integration testing, stress testing, and CI validation.
 * **`chat.rs`**: In-game chat system, command execution, and multiplayer message dispatch.
 
 ### `src/graphics/` (Rendering Backends & Visuals)
 * **`traits.rs`**: `RenderBackend` trait specifying standard interfaces for any renderer (pixel buffer, clear, render frame, dimensions).
-* **`atlas.rs`**: Procedural pixel-art texture generator for blocks and mobs into a unified texture array (100+ texture definitions, each 128×128 px ABGR8888).
+* **`atlas.rs`**: Procedural pixel-art texture generator for blocks and mobs into a unified texture array (**140+ texture definitions**, each 128×128 px ABGR8888).
 * **`camera.rs`**: First-person and 3rd-person camera (pitch, yaw, position, flat forward/right vectors, view matrix, dynamic FOV, chunk fade animation uniform).
 * **`font.rs`**: Bitmap font renderer for text overlays with shadowing and measurement, delegating to engine font subsystem.
-* **`software/`**: Multi-threaded CPU software rasterizer utilizing Rayon (tiled parallel scanline rasterization, sub-pixel precision, depth buffering, fog, underwater tints, bilinear texture sampling). Block-break crack overlay, 3D dropped items, lava/underwater fog. Rayon is disabled on WASM targets.
+* **`software/`**: Multi-threaded CPU software rasterizer utilizing Rayon (tiled parallel scanline rasterization, sub-pixel precision, depth buffering, fog, per-biome post-process color filters, underwater tints, bilinear texture sampling). Block-break crack overlay, 3D dropped items, lava/underwater fog. Rayon is disabled on WASM targets.
 * **`gpu/`**: WGPU hardware backend with compute shaders (SSBO readback / direct swapchain), supporting Vulkan, DirectX 12, Metal, and WebGPU.
 
 ### `src/ui/` (2D Interface & HUD)
 * **`draw.rs`**: 2D primitives (`fill_rect`, `fill_rect_alpha`, `draw_text_shadowed`, `draw_text_colored_shadowed`, `pack_color`, `unpack_color`).
 * **`menu.rs`**: Main menu layout, logo voxel art, save slot carousel, and interactive button hitboxes.
-* **`hud.rs`**: Crosshair, block break progress bar, hotbar overlay, underwater/lava wave effect, damage vignette, death screen, debug statistics panel (including current biome name), pause menu, chat overlay.
-* **`inventory_ui.rs`**: Full creative mode block picker (scrollable grid of all blocks), quick-access hotbar, 2D inventory grid, and crafting table interface (2×2 / 3×3).
+* **`hud.rs`**: Crosshair, block break progress bar, hotbar overlay, underwater/lava wave effect, damage vignette, death screen, debug statistics panel (including current biome name), pause menu, chat overlay, and music track toasts.
+* **`minimap.rs`**: Real-time 2D top-down radar and compass minimap displaying terrain surface voxels, player position, and orientation pointer.
+* **`inventory_ui.rs`**: Tabbed creative picker with category pagination (Blocks, Tools, Items, All), quick-access hotbar, 2D inventory grid, and crafting table interface (2×2 / 3×3).
 * **`container_ui.rs`**: Interactive UI for tile entities — Chest inventory (27-slot drag & drop) and Furnace interface (input / fuel / output slots with animated progress bars). Handles slot hit testing, mouse drag, item transfer between container and player inventory.
 * **`create_world.rs`**: Create World form — name text field, seed text field with random-seed button, game mode toggle (Survival/Creative), create and cancel buttons. Provides `create_world_rects()` for accurate click-zone layout.
 * **`save_select.rs`**: Save slot selection screen.
@@ -167,7 +169,7 @@ RustCraft runs natively on the PlayStation Vita using the **SCE GXM** low-level 
 | Render target | CDRAM triple-buffered (3× color + depth, async display swap callback) |
 | Vertex/index buffers | 2 MB each, uncached GPU memory (UC) |
 | Ring buffers | VDM + vertex + fragment, 3 MB total |
-| Texture atlas | 50 blocks → 128×128 px ABGR8888, single GPU texture upload |
+| Texture atlas | 140+ textures → 128×128 px ABGR8888, single GPU texture upload |
 | Shaders | Cg vertex + fragment (`.cg` → `.gxp` via `psp2cgc` in `build.rs`) |
 | Culling | Backface culling (CW winding), depth test `LESS_EQUAL` |
 | Display | `SceDisplay` pitch-mode framebuffer swap (960×544) |
@@ -269,6 +271,7 @@ RustCraft provides an explicit, documented engine trait layer to decouple game s
 ### Core Engine Subsystems
 - **`PlatformBackend`** (`src/engine/platform.rs`): Abstraction for window creation, raw event polling, mouse capture, timer queries, and framebuffer presentation. Adding support for a new console (e.g. Nintendo Switch `libnx`, Android `NDK`, SDL2) only requires implementing this trait.
 - **`BlockRegistry` & `BlockProperties`** (`src/engine/registry.rs`): Extensible voxel metadata (hardness, opacity, luminance, flammability, face texture mapping) allowing new custom blocks to be registered without altering mesher or rendering loops.
+- **`Modding Engine`** (`src/engine/modding.rs`): Data-driven JSON mod loader (`mods/`) supporting custom blocks, items, nutrition food, recipes, smelting, mob loot tables, and chat commands, with automatic client synchronization over multiplayer (Source engine style).
 - **`EngineModule` & `ModuleManager`** (`src/engine/module.rs`): Pluggable lifecycle hooks (`on_init`, `on_pre_update`, `on_post_update`, `on_shutdown`) enabling custom gameplay systems, mod loaders, and analytics passes.
 - **`EngineApp`** (`src/engine/mod.rs`): Top-level engine runtime contract implemented by `RustCraftApp` (`update`, `render`, `resize`, `pixel_buffer`).
 - **`BitmapFont` & `FontId`** (`src/engine/fonts/mod.rs`): Trait-based font system with `get_font(FontId)` registry. Built-in fonts: `RustcraftRegular` (3×5 compact, with Polish diacritics and symbols) and `RustcraftLight` (3×5 slender, optimized for profiler telemetry and diagnostic overlays). Adding a new font requires only implementing the `BitmapFont` trait and registering a `FontId` variant.

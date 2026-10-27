@@ -8,15 +8,16 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
 
 | To modify / add: | Primary file/module: | Notes: |
 |---|---|---|
-| **New Block Type** | `src/world/block.rs`, `src/graphics/atlas.rs` | Add variant to `BlockId`, assign `TextureId`, add texture generator in `atlas.rs`. |
-| **New Mob Type** | `src/gameplay/mob.rs` | Add variant to `MobKind`, define bounding boxes & AI tick, add draw call in software renderer. |
-| **New UI Screen / Element** | `src/ui/` (`hud.rs`, `menu.rs`, `inventory_ui.rs`) | Use functions in `src/ui/draw.rs` (`fill_rect_alpha`, `draw_text_shadowed`). |
-| **Player / Physics / Movement** | `src/gameplay/physics.rs`, `player.rs` | Physics uses AABB sweeps. Maintain step-up and crouching checks. |
-| **World Generation / Biomes** | `src/world/mod.rs` (in `Chunk::generate`) | 20 biomes via noise axes in `get_biome_at()`. Uses `src/core/noise.rs`. |
+| **New Block Type** | `src/world/block.rs`, `src/graphics/atlas.rs` | Add variant to `BlockId` (standard IDs 0..=139, custom modded IDs 140..=255), assign `TextureId`, add texture generator in `atlas.rs`. |
+| **New Mob Type** | `src/gameplay/mob.rs` | Add variant to `MobKind` (12 types: Pig, Cow, Chicken, Sheep, Zombie, Skeleton, Creeper, Dolphin, Cod, Salmon, Pufferfish, TropicalFish), define bounding boxes & AI tick, add draw calls in `software/mod.rs` and `platform/vita_gxm.rs`. |
+| **New UI Screen / Element** | `src/ui/` (`hud.rs`, `menu.rs`, `inventory_ui.rs`, `minimap.rs`) | Use functions in `src/ui/draw.rs` (`fill_rect_alpha`, `draw_text_shadowed`). |
+| **Player / Physics / Movement** | `src/gameplay/physics.rs`, `player.rs` | Physics uses AABB sweeps. Maintain step-up, crouching checks, and fluid buoyancy. |
+| **World Generation / Biomes** | `src/world/mod.rs` (in `Chunk::generate`) | 20 biomes via noise axes in `get_biome_at()`. Uses `src/core/noise.rs`. Underwater vegetation (kelp/seagrass) in oceans. |
 | **Procedural Sound / Audio** | `src/audio/synth.rs`, `src/audio/sound.rs` | Synthesize waveform in `synth.rs`, trigger via `AudioEngine::play_sound` or `play_spatial_sound`. |
+| **Soundtrack / Music** | `src/audio/soundtrack.rs` | Streaming background music player (OGG/Opus) with category shuffle and UI toast notifications. |
 | **Audio Platform Backend** | `src/audio/backend/` | Implement `AudioBackend` trait with ring buffer / hardware output stream. |
 | **Crash Reporter & Sentry** | `src/core/crash_reporter.rs`, `src/cli.rs` | Global panic hook, dumps system state/breadcrumbs, optional Sentry upload. |
-| **Multiplayer / Networking** | `src/net/` (`protocol.rs`, `server.rs`, `client.rs`) | UDP packet serialization, entity sync, LAN broadcast discovery. |
+| **Multiplayer / Networking** | `src/net/` (`protocol.rs`, `server.rs`, `client.rs`) | UDP packet serialization, entity sync, mod exchange, LAN broadcast discovery. |
 | **New Graphics Backend** | `src/graphics/traits.rs`, `src/graphics/gpu/` | Implement `RenderBackend` trait. |
 | **Platform / OS Input Hook** | `src/platform/` (`android.rs`, `xbox360.rs`, `mouse_capture.rs`) | Keep OS-specific code guarded by `#[cfg(target_os = ...)]`. |
 
@@ -25,7 +26,7 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
 ## 2. Common Workflows
 
 ### How to Add a New Block
-1. **Define Block**: Open `src/world/block.rs` and add a new variant to `pub enum BlockId`.
+1. **Define Block**: Open `src/world/block.rs` and add a new variant to `pub enum BlockId`. Note that IDs `0..=139` are reserved for standard vanilla items and blocks; `140..=255` are mapped to `BlockId::Custom(u8)`.
 2. **Configure Properties**: In `src/world/block.rs`, update:
    - `from_u8(v: u8)` and `to_u8(self)`
    - `name(&self)`
@@ -36,6 +37,7 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
    - Add variant to `pub enum TextureId`
    - In `TextureAtlas::generate()`, add procedural texture drawing into the texture array slot.
 4. **Crafting & Smelting**: Add recipes in `src/gameplay/recipe.rs` and smelting in `src/world/tile_entity.rs`.
+5. **Creative Inventory**: If applicable, ensure the block is listed in `src/ui/inventory_ui.rs` in the appropriate category tab.
 
 ### How to Add a New Procedural Sound Effect
 1. Open `src/audio/sound.rs` and add a variant to `pub enum SoundId`.
@@ -50,9 +52,9 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
 
 ### How to Add a New Mob
 1. Open `src/gameplay/mob.rs`:
-   - Add variant to `MobKind` (e.g. `MobKind::Skeleton`).
+   - Add variant to `MobKind` (e.g. `MobKind::Dolphin`).
    - Define its hitbox dimensions and AI behavior in `Mob::update()`.
-2. Open `src/graphics/software/mod.rs`:
+2. Open `src/graphics/software/mod.rs` and `src/platform/vita_gxm.rs`:
    - In `Renderer::draw_mob()`, match on the new `MobKind` and define the 3D box hierarchy (head, body, limbs) with corresponding rotations and texture IDs.
 
 ### How to Work with Crash Reporter & Sentry

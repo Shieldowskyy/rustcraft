@@ -67,7 +67,7 @@ This guide provides architectural instructions for porting RustCraft to other op
   * Full GXM init: ring buffers (VDM/vertex/fragment, 3 MB total), USSE shader memory.
   * CDRAM triple-buffering: 3× color buffers + depth buffer, async display swap callback.
   * Vertex/index GPU buffers: 2 MB each, uncached (UC) GPU memory.
-  * Texture atlas: 50 textures → 128×128 px ABGR8888 single GPU texture.
+  * Texture atlas: 140+ textures → 128×128 px ABGR8888 single GPU texture.
   * Cg shaders (`vita/shaders/voxel.vert.cg` / `voxel.frag.cg`) compiled to GXP by `psp2cgc`.
   * Backface culling (CW winding), depth test `LESS_EQUAL`.
   * Hardware-rendered: world chunks, dropped items, mobs, 3D hand/tool, water transparency, screen overlays.
