@@ -54,7 +54,7 @@ Every mod requires a `mod.json` file in its folder. The root structure looks lik
 Blocks are 3D voxels placed in the world, collision-checked, meshed, and lit.
 
 ### Block Attributes
-- `id` *(number, required)*: Numerical ID from **80 to 255** (IDs 0–79 are reserved for vanilla blocks).
+- `id` *(number, required)*: Numerical ID from **140 to 255** (IDs 0–139 are reserved for vanilla blocks).
 - `identifier` *(string, required)*: Unique string identifier (e.g. `"ruby_ore"`). Used in recipes, commands, and save files.
 - `name` *(string)*: Display name shown in tooltips, inventory, and chat.
 - `solid` *(boolean, default: `true`)*: Enables physical bounding box collision.
@@ -69,7 +69,7 @@ Blocks are 3D voxels placed in the world, collision-checked, meshed, and lit.
 ### Example Block Definition
 ```json
 {
-  "id": 80,
+  "id": 140,
   "identifier": "emerald_ore",
   "name": "Emerald Ore",
   "solid": true,

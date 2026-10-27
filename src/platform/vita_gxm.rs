@@ -766,6 +766,11 @@ pub const ALL_TEXTURES: &[TextureId] = &[
     TextureId::ZombieSkin, TextureId::ZombieFace, TextureId::ZombieShirt, TextureId::ZombiePants,
     TextureId::SkeletonBone, TextureId::SkeletonFace, TextureId::SkeletonBody,
     TextureId::CreeperSkin, TextureId::CreeperFace, TextureId::Gunpowder,
+    TextureId::WhiteWool, TextureId::OrangeWool, TextureId::MagentaWool, TextureId::LightBlueWool,
+    TextureId::YellowWool, TextureId::LimeWool, TextureId::PinkWool, TextureId::GrayWool,
+    TextureId::LightGrayWool, TextureId::CyanWool, TextureId::PurpleWool, TextureId::BlueWool,
+    TextureId::BrownWool, TextureId::GreenWool, TextureId::RedWool, TextureId::BlackWool,
+    TextureId::SheepSkin, TextureId::SheepFace, TextureId::Shears, TextureId::SheepSpawnEgg,
 ];
 
 unsafe fn populate_atlas(pixels: *mut u32, atlas: &TextureAtlas) {
@@ -970,6 +975,26 @@ pub fn atlas_uv(tex_id: TextureId) -> (f32, f32, f32, f32) {
         TextureId::CreeperSkin => 111,
         TextureId::CreeperFace => 112,
         TextureId::Gunpowder => 113,
+        TextureId::WhiteWool => 114,
+        TextureId::OrangeWool => 115,
+        TextureId::MagentaWool => 116,
+        TextureId::LightBlueWool => 117,
+        TextureId::YellowWool => 118,
+        TextureId::LimeWool => 119,
+        TextureId::PinkWool => 120,
+        TextureId::GrayWool => 121,
+        TextureId::LightGrayWool => 122,
+        TextureId::CyanWool => 123,
+        TextureId::PurpleWool => 124,
+        TextureId::BlueWool => 125,
+        TextureId::BrownWool => 126,
+        TextureId::GreenWool => 127,
+        TextureId::RedWool => 128,
+        TextureId::BlackWool => 129,
+        TextureId::SheepSkin => 130,
+        TextureId::SheepFace => 131,
+        TextureId::Shears => 132,
+        TextureId::SheepSpawnEgg => 133,
         _ => 0,
     };
     const TILE_NORM: f32 = 1.0 / ATLAS_TILES_PER_ROW as f32;
@@ -2834,6 +2859,120 @@ fn append_mob(
                     tex_front: TextureId::ChickenLeg,
                 };
                 append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+            }
+        }
+        MobKind::Sheep => {
+            let scale = if mob.is_baby { 0.5f32 } else { 1.0f32 };
+            let wool_block = crate::world::block::BlockId::wool_block_from_color(mob.wool_color);
+            let wool_tex = wool_block.texture_id(crate::world::block::Face::Top);
+
+            if !mob.is_sheared {
+                let wool_body = GxmMobBox {
+                    center: Vec3::new(0.0, 0.72 * scale, 0.0),
+                    size: Vec3::new(0.72 * scale, 0.62 * scale, 1.02 * scale),
+                    yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: base_pos,
+                    tex_top: wool_tex,
+                    tex_bottom: wool_tex,
+                    tex_side: wool_tex,
+                    tex_front: wool_tex,
+                };
+                append_mob_box(&wool_body, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+            } else {
+                let skin_body = GxmMobBox {
+                    center: Vec3::new(0.0, 0.72 * scale, 0.0),
+                    size: Vec3::new(0.56 * scale, 0.52 * scale, 0.92 * scale),
+                    yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: base_pos,
+                    tex_top: TextureId::SheepSkin,
+                    tex_bottom: TextureId::SheepSkin,
+                    tex_side: TextureId::SheepSkin,
+                    tex_front: TextureId::SheepSkin,
+                };
+                append_mob_box(&skin_body, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+            }
+
+            let head_pitch = if mob.eat_grass_timer > 0.0 { 0.75 } else { 0.0 };
+            let head_y = if mob.eat_grass_timer > 0.0 { 0.44 * scale } else { 0.86 * scale };
+            let head_fwd = if mob.eat_grass_timer > 0.0 { 0.64 * scale } else { 0.54 * scale };
+            let head_pos = base_pos + Vec3::new(yaw.sin() * head_fwd, head_y, yaw.cos() * head_fwd);
+            let head_yaw = yaw + mob.head_yaw_offset;
+
+            let head_box = GxmMobBox {
+                center: Vec3::zero(),
+                size: Vec3::new(0.42 * scale, 0.42 * scale, 0.44 * scale),
+                yaw: head_yaw,
+                pitch: head_pitch,
+                roll: roll_angle,
+                origin: head_pos,
+                tex_top: TextureId::SheepSkin,
+                tex_bottom: TextureId::SheepSkin,
+                tex_side: TextureId::SheepSkin,
+                tex_front: TextureId::SheepFace,
+            };
+            append_mob_box(&head_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            if !mob.is_sheared {
+                let cap_box = GxmMobBox {
+                    center: Vec3::new(0.0, 0.12 * scale, -0.04 * scale),
+                    size: Vec3::new(0.44 * scale, 0.22 * scale, 0.36 * scale),
+                    yaw: head_yaw,
+                    pitch: head_pitch,
+                    roll: roll_angle,
+                    origin: head_pos,
+                    tex_top: wool_tex,
+                    tex_bottom: wool_tex,
+                    tex_side: wool_tex,
+                    tex_front: wool_tex,
+                };
+                append_mob_box(&cap_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+            }
+
+            let leg_offsets = [
+                (-0.20, -0.32, leg_swing),
+                (0.20, -0.32, -leg_swing),
+                (-0.20, 0.32, -leg_swing),
+                (0.20, 0.32, leg_swing),
+            ];
+
+            for &(lx, lz, swing) in &leg_offsets {
+                let rotated_x = (lx * scale) * yaw.cos() + (lz * scale) * yaw.sin();
+                let rotated_z = -(lx * scale) * yaw.sin() + (lz * scale) * yaw.cos();
+                let leg_origin = base_pos + Vec3::new(rotated_x, 0.48 * scale, rotated_z);
+
+                let leg_box = GxmMobBox {
+                    center: Vec3::new(0.0, -0.24 * scale, 0.0),
+                    size: Vec3::new(0.18 * scale, 0.48 * scale, 0.18 * scale),
+                    yaw,
+                    pitch: swing,
+                    roll: roll_angle,
+                    origin: leg_origin,
+                    tex_top: TextureId::SheepSkin,
+                    tex_bottom: TextureId::SheepSkin,
+                    tex_side: TextureId::SheepSkin,
+                    tex_front: TextureId::SheepSkin,
+                };
+                append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+                if !mob.is_sheared {
+                    let cuff_box = GxmMobBox {
+                        center: Vec3::new(0.0, -0.12 * scale, 0.0),
+                        size: Vec3::new(0.24 * scale, 0.24 * scale, 0.24 * scale),
+                        yaw,
+                        pitch: swing,
+                        roll: roll_angle,
+                        origin: leg_origin,
+                        tex_top: wool_tex,
+                        tex_bottom: wool_tex,
+                        tex_side: wool_tex,
+                        tex_front: wool_tex,
+                    };
+                    append_mob_box(&cuff_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+                }
             }
         }
         MobKind::Zombie => {

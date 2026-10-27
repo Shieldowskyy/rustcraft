@@ -240,6 +240,10 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::CreeperHiss => 816,
         SoundId::CreeperHurt => 817,
         SoundId::CreeperDeath => 818,
+        SoundId::SheepIdle => 819,
+        SoundId::SheepHurt => 820,
+        SoundId::SheepDeath => 821,
+        SoundId::SheepShear => 822,
         SoundId::AmbientWind => 701,
         SoundId::AmbientCave => 702,
         SoundId::AmbientWater => 703,
@@ -319,6 +323,10 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::CreeperHiss => synth_creeper_hiss(&mut rng, sr, 1.45, 0.90),
         SoundId::CreeperHurt => synth_creeper_hurt(&mut rng, sr, 0.22, 0.90),
         SoundId::CreeperDeath => synth_creeper_death(&mut rng, sr, 0.45, 0.95),
+        SoundId::SheepIdle => synth_sheep_idle(&mut rng, sr, 0.75, 0.85),
+        SoundId::SheepHurt => synth_sheep_hurt(&mut rng, sr, 0.28, 0.95),
+        SoundId::SheepDeath => synth_sheep_death(&mut rng, sr, 0.70, 0.95),
+        SoundId::SheepShear => synth_shears(&mut rng, sr, 0.15, 0.90),
 
         // Ambient (loops or long tones)
         SoundId::AmbientWind => synth_wind_ambient(&mut rng, sr, 4.5, 0.45),
@@ -1746,3 +1754,149 @@ fn synth_creeper_death(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -
     }
     out
 }
+
+/// Sheep idle: warm, resonant "baa-a-a" bleat with vocal vibrato and mouth formants.
+fn synth_sheep_idle(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.65)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp1 = BiquadFilter::bandpass(540.0, 2.2, sr);
+    let mut bp2 = BiquadFilter::bandpass(1180.0, 2.0, sr);
+    let mut lp_throat = BiquadFilter::lowpass(420.0, 1.4, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let cur_time = i as f32 / sr;
+
+        // Sheep pitch: starts around 210 Hz, slight rise to 235 Hz then falls to 185 Hz
+        let base_freq = if t < 0.25 {
+            205.0 + (t / 0.25) * 30.0
+        } else {
+            235.0 - ((t - 0.25) / 0.75) * 50.0
+        };
+
+        // Characteristic rapid ovine vocal flutter / vibrato (6.4 Hz)
+        let vib = (cur_time * 6.4 * 2.0 * PI).sin() * 7.5;
+        phase += 2.0 * PI * (base_freq + vib) / sr;
+
+        // Rich buzzing vocal harmonics
+        let vocal_cords = phase.sin() * 0.55
+            + (phase * 2.0).sin() * 0.25
+            + (phase * 3.0).sin() * 0.12
+            + (phase * 4.0).sin() * 0.06;
+
+        let open_blend = ((cur_time - 0.08) / 0.15).clamp(0.0, 1.0);
+        let closed_sound = lp_throat.process(vocal_cords);
+        let open_sound = bp1.process(vocal_cords) * 0.65 + bp2.process(vocal_cords) * 0.35;
+        let vocal = closed_sound * (1.0 - open_blend) + open_sound * open_blend * 1.4;
+
+        let breath = (rng.next_f32() * 0.04) * open_blend;
+
+        let env = if cur_time < 0.08 {
+            (cur_time / 0.08).powf(0.8)
+        } else if t > 0.65 {
+            ((1.0 - t) / 0.35).powf(1.6)
+        } else {
+            1.0
+        };
+
+        out.push((vocal * 1.5 + breath) * env * volume);
+    }
+    out
+}
+
+/// Sheep hurt: high-pitched, startled distress bleat.
+fn synth_sheep_hurt(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.25)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp = BiquadFilter::bandpass(680.0, 2.0, sr);
+    let mut lp = IirFilter::lowpass(800.0, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let cur_time = i as f32 / sr;
+
+        // Sudden downward pitch sweep: 290 Hz -> 210 Hz
+        let freq = 290.0 - t * 80.0;
+        let vib = (cur_time * 8.5 * 2.0 * PI).sin() * 10.0;
+        phase += 2.0 * PI * (freq + vib) / sr;
+
+        let tone = (phase.sin() * 1.5).clamp(-1.0, 1.0) * 0.6 + (phase * 2.0).sin() * 0.4;
+        let filtered = bp.process(tone);
+        let noise = lp.process(rng.next_f32()) * 0.2;
+
+        let env = if cur_time < 0.015 {
+            cur_time / 0.015
+        } else {
+            (-t * 8.0).exp()
+        };
+
+        out.push((filtered * 1.6 + noise) * env * volume);
+    }
+    out
+}
+
+/// Sheep death: mournful, descending expiring bleat.
+fn synth_sheep_death(_rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.65)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut bp = BiquadFilter::bandpass(520.0, 1.8, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let cur_time = i as f32 / sr;
+
+        let freq = (220.0 - t.powf(0.7) * 110.0).max(80.0);
+        let vib = (cur_time * 5.0 * 2.0 * PI).sin() * 6.0;
+        phase += 2.0 * PI * (freq + vib) / sr;
+
+        let tone = phase.sin() * 0.6 + (phase * 2.0).sin() * 0.3;
+        let vocal = bp.process(tone);
+
+        let env = if cur_time < 0.04 {
+            cur_time / 0.04
+        } else {
+            ((1.0 - t).max(0.0)).powf(1.4)
+        };
+
+        out.push(vocal * env * volume * 1.5);
+    }
+    out
+}
+
+/// Shears: crisp metallic scissor snip / shearing slice.
+fn synth_shears(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.12)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut hp = IirFilter::highpass(2200.0, sr);
+    let mut bp_ring1 = BiquadFilter::bandpass(3400.0, 6.0, sr);
+    let mut bp_ring2 = BiquadFilter::bandpass(4900.0, 5.0, sr);
+
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let cur_time = i as f32 / sr;
+
+        // Snip friction noise
+        let noise = rng.next_f32() * 2.0 - 1.0;
+        let friction = hp.process(noise);
+
+        // Dual metallic blade resonant rings
+        let ring1 = bp_ring1.process(noise);
+        let ring2 = bp_ring2.process(noise);
+
+        // Quick attack, crisp scissor decay
+        let env_friction = if cur_time < 0.02 {
+            cur_time / 0.02
+        } else {
+            (-t * 18.0).exp()
+        };
+        let env_ring = (-t * 12.0).exp();
+
+        let sample = friction * 0.5 * env_friction + (ring1 + ring2) * 0.8 * env_ring;
+        out.push(sample * volume * 1.7);
+    }
+    out
+}
+

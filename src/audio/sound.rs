@@ -105,6 +105,10 @@ pub enum SoundId {
     CreeperHiss,
     CreeperHurt,
     CreeperDeath,
+    SheepIdle,
+    SheepHurt,
+    SheepDeath,
+    SheepShear,
 
     // Atmospheric & Ambient
     AmbientWind,
@@ -174,6 +178,10 @@ impl SoundId {
             | SoundId::CreeperHiss
             | SoundId::CreeperHurt
             | SoundId::CreeperDeath
+            | SoundId::SheepIdle
+            | SoundId::SheepHurt
+            | SoundId::SheepDeath
+            | SoundId::SheepShear
             | SoundId::StepWoodCreak => SoundCategory::Sfx,
 
             SoundId::UiClick | SoundId::UiHover => SoundCategory::Ui,
@@ -190,6 +198,9 @@ impl SoundId {
     /// Determines the appropriate footstep sound for walking on a given block.
     #[inline]
     pub fn from_block_step(block: BlockId) -> Self {
+        if block.is_wool() {
+            return SoundId::StepGrass;
+        }
         match block {
             BlockId::Grass | BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves | BlockId::SnowLeaves => {
                 SoundId::StepGrass
@@ -222,6 +233,9 @@ impl SoundId {
     /// Determines the block digging/hitting sound.
     #[inline]
     pub fn from_block_dig(block: BlockId) -> Self {
+        if block.is_wool() {
+            return SoundId::DigGrass;
+        }
         match block {
             BlockId::Grass | BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves | BlockId::SnowLeaves => {
                 SoundId::DigGrass
@@ -244,6 +258,9 @@ impl SoundId {
     /// Determines the block breaking sound.
     #[inline]
     pub fn from_block_break(block: BlockId) -> Self {
+        if block.is_wool() {
+            return SoundId::BreakGrass;
+        }
         match block {
             BlockId::Grass | BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves | BlockId::SnowLeaves => {
                 SoundId::BreakGrass
@@ -266,6 +283,9 @@ impl SoundId {
     /// Determines the block placing sound.
     #[inline]
     pub fn from_block_place(block: BlockId) -> Self {
+        if block.is_wool() {
+            return SoundId::PlaceGrass;
+        }
         match block {
             BlockId::Grass | BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves | BlockId::SnowLeaves => {
                 SoundId::PlaceGrass

@@ -91,6 +91,23 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::PigSpawnEgg,
                 BlockId::CowSpawnEgg,
                 BlockId::ChickenSpawnEgg,
+                BlockId::SheepSpawnEgg,
+                BlockId::WhiteWool,
+                BlockId::OrangeWool,
+                BlockId::MagentaWool,
+                BlockId::LightBlueWool,
+                BlockId::YellowWool,
+                BlockId::LimeWool,
+                BlockId::PinkWool,
+                BlockId::GrayWool,
+                BlockId::LightGrayWool,
+                BlockId::CyanWool,
+                BlockId::PurpleWool,
+                BlockId::BlueWool,
+                BlockId::BrownWool,
+                BlockId::GreenWool,
+                BlockId::RedWool,
+                BlockId::BlackWool,
             ];
             list.extend(crate::engine::modding::get_custom_creative_blocks());
             Box::leak(list.into_boxed_slice())
@@ -122,6 +139,7 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::IronHoe,
                 BlockId::GoldHoe,
                 BlockId::DiamondHoe,
+                BlockId::Shears,
                 BlockId::Stick,
                 BlockId::Bone,
                 BlockId::BoneMeal,
@@ -155,6 +173,7 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::PigSpawnEgg,
                 BlockId::CowSpawnEgg,
                 BlockId::ChickenSpawnEgg,
+                BlockId::SheepSpawnEgg,
                 BlockId::Sapling,
                 BlockId::Water,
                 BlockId::Lava,
@@ -220,6 +239,7 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::PigSpawnEgg,
                 BlockId::CowSpawnEgg,
                 BlockId::ChickenSpawnEgg,
+                BlockId::SheepSpawnEgg,
                 BlockId::RawPorkchop,
                 BlockId::CookedPorkchop,
                 BlockId::RawBeef,
@@ -322,6 +342,7 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::IronHoe,
                 BlockId::GoldHoe,
                 BlockId::DiamondHoe,
+                BlockId::Shears,
                 // Farming, Crops & Food
                 BlockId::WheatSeeds,
                 BlockId::Wheat,
@@ -348,12 +369,30 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::PigSpawnEgg,
                 BlockId::CowSpawnEgg,
                 BlockId::ChickenSpawnEgg,
+                BlockId::SheepSpawnEgg,
                 BlockId::RawPorkchop,
                 BlockId::CookedPorkchop,
                 BlockId::RawBeef,
                 BlockId::CookedBeef,
                 BlockId::RawChicken,
                 BlockId::CookedChicken,
+                // Wool Blocks
+                BlockId::WhiteWool,
+                BlockId::OrangeWool,
+                BlockId::MagentaWool,
+                BlockId::LightBlueWool,
+                BlockId::YellowWool,
+                BlockId::LimeWool,
+                BlockId::PinkWool,
+                BlockId::GrayWool,
+                BlockId::LightGrayWool,
+                BlockId::CyanWool,
+                BlockId::PurpleWool,
+                BlockId::BlueWool,
+                BlockId::BrownWool,
+                BlockId::GreenWool,
+                BlockId::RedWool,
+                BlockId::BlackWool,
             ];
             list.extend(crate::engine::modding::get_custom_creative_blocks());
             list.extend(crate::engine::modding::get_custom_creative_items());
@@ -1935,7 +1974,56 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
             px(buffer, 2, 15, outline);
             px(buffer, 3, 14, outline);
         }
-        BlockId::PigSpawnEgg | BlockId::CowSpawnEgg | BlockId::ChickenSpawnEgg => {
+        BlockId::Shears => {
+            let iron_hi = pack_color(0.95, 0.95, 0.98);
+            let iron_mid = pack_color(0.75, 0.75, 0.78);
+            let iron_dark = pack_color(0.45, 0.45, 0.48);
+            let bolt = pack_color(0.30, 0.30, 0.32);
+
+            // Pivot bolt
+            px(buffer, 7, 8, bolt);
+            px(buffer, 8, 8, iron_hi);
+            px(buffer, 7, 9, iron_dark);
+            px(buffer, 8, 9, bolt);
+
+            // Left blade (top-left)
+            px(buffer, 3, 3, iron_hi);
+            px(buffer, 4, 3, iron_mid);
+            px(buffer, 3, 4, iron_hi);
+            px(buffer, 4, 4, iron_mid);
+            px(buffer, 5, 4, iron_dark);
+            px(buffer, 4, 5, iron_hi);
+            px(buffer, 5, 5, iron_mid);
+            px(buffer, 6, 6, iron_hi);
+            px(buffer, 6, 7, iron_mid);
+
+            // Right blade (top-right)
+            px(buffer, 11, 3, iron_hi);
+            px(buffer, 12, 3, iron_hi);
+            px(buffer, 11, 4, iron_mid);
+            px(buffer, 12, 4, iron_dark);
+            px(buffer, 10, 4, iron_hi);
+            px(buffer, 10, 5, iron_mid);
+            px(buffer, 9, 5, iron_dark);
+            px(buffer, 9, 6, iron_hi);
+            px(buffer, 9, 7, iron_mid);
+
+            // Handles (bottom)
+            px(buffer, 6, 10, iron_dark);
+            px(buffer, 5, 11, iron_mid);
+            px(buffer, 4, 12, iron_mid);
+            px(buffer, 5, 13, iron_dark);
+            px(buffer, 6, 13, iron_dark);
+            px(buffer, 6, 12, iron_hi);
+
+            px(buffer, 9, 10, iron_dark);
+            px(buffer, 10, 11, iron_mid);
+            px(buffer, 11, 12, iron_mid);
+            px(buffer, 10, 13, iron_dark);
+            px(buffer, 9, 13, iron_dark);
+            px(buffer, 9, 12, iron_hi);
+        }
+        BlockId::PigSpawnEgg | BlockId::CowSpawnEgg | BlockId::ChickenSpawnEgg | BlockId::SheepSpawnEgg => {
             let (base, spot, outline) = match block {
                 BlockId::PigSpawnEgg => (
                     pack_color(0.95, 0.62, 0.68),
@@ -1951,6 +2039,11 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                     pack_color(0.95, 0.95, 0.92),
                     pack_color(0.85, 0.15, 0.15),
                     pack_color(0.35, 0.35, 0.30),
+                ),
+                BlockId::SheepSpawnEgg => (
+                    pack_color(0.92, 0.90, 0.88),
+                    pack_color(0.85, 0.68, 0.60),
+                    pack_color(0.40, 0.38, 0.36),
                 ),
                 _ => unreachable!(),
             };
@@ -1975,6 +2068,7 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                                 BlockId::PigSpawnEgg => (lx == 6 && ly == 5) || (lx == 9 && ly == 8) || (lx == 5 && ly == 10) || (lx == 8 && ly == 12),
                                 BlockId::CowSpawnEgg => (lx == 6 && ly == 6) || (lx == 7 && ly == 6) || (lx == 9 && ly == 9) || (lx == 5 && ly == 11) || (lx == 6 && ly == 11),
                                 BlockId::ChickenSpawnEgg => (lx == 7 && ly == 5) || (lx == 6 && ly == 8) || (lx == 9 && ly == 10) || (lx == 7 && ly == 12),
+                                BlockId::SheepSpawnEgg => (lx == 7 && ly == 6) || (lx == 8 && ly == 6) || (lx == 6 && ly == 9) || (lx == 9 && ly == 10) || (lx == 7 && ly == 11),
                                 _ => false,
                             };
                             if is_spot {
@@ -2222,14 +2316,18 @@ mod tests {
         assert!(tab0.contains(&BlockId::PigSpawnEgg));
         assert!(tab0.contains(&BlockId::CowSpawnEgg));
         assert!(tab0.contains(&BlockId::ChickenSpawnEgg));
+        assert!(tab0.contains(&BlockId::SheepSpawnEgg));
+        assert!(tab0.contains(&BlockId::WhiteWool));
 
         let tab1 = creative_tab_blocks(1);
         assert!(tab1.contains(&BlockId::WoodenPickaxe));
         assert!(tab1.contains(&BlockId::IronSword));
+        assert!(tab1.contains(&BlockId::Shears));
         assert!(tab1.contains(&BlockId::Tnt));
         assert!(tab1.contains(&BlockId::PigSpawnEgg));
         assert!(tab1.contains(&BlockId::CowSpawnEgg));
         assert!(tab1.contains(&BlockId::ChickenSpawnEgg));
+        assert!(tab1.contains(&BlockId::SheepSpawnEgg));
 
         let tab2 = creative_tab_blocks(2); // Redstone
         assert!(tab2.contains(&BlockId::RustStone));
@@ -2247,6 +2345,7 @@ mod tests {
         assert!(tab3.contains(&BlockId::Potato));
         assert!(tab3.contains(&BlockId::BoneMeal));
         assert!(tab3.contains(&BlockId::Farmland));
+        assert!(tab3.contains(&BlockId::SheepSpawnEgg));
 
         let tab4 = creative_tab_blocks(4); // All
         assert!(tab4.len() >= 76);
@@ -2268,6 +2367,10 @@ mod tests {
         assert!(tab4.contains(&BlockId::PigSpawnEgg));
         assert!(tab4.contains(&BlockId::CowSpawnEgg));
         assert!(tab4.contains(&BlockId::ChickenSpawnEgg));
+        assert!(tab4.contains(&BlockId::SheepSpawnEgg));
+        assert!(tab4.contains(&BlockId::Shears));
+        assert!(tab4.contains(&BlockId::WhiteWool));
+        assert!(tab4.contains(&BlockId::RedWool));
         assert!(tab4.contains(&BlockId::Chest));
         assert!(tab4.contains(&BlockId::Furnace));
         assert!(tab4.contains(&BlockId::IronOunce));

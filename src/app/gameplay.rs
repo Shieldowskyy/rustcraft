@@ -1145,6 +1145,7 @@ impl RustCraftApp {
                             crate::gameplay::mob::MobKind::Pig => Some(BlockId::PigSpawnEgg),
                             crate::gameplay::mob::MobKind::Cow => Some(BlockId::CowSpawnEgg),
                             crate::gameplay::mob::MobKind::Chicken => Some(BlockId::ChickenSpawnEgg),
+                            crate::gameplay::mob::MobKind::Sheep => Some(BlockId::SheepSpawnEgg),
                             _ => None,
                         }
                     }).or_else(|| {
@@ -1196,11 +1197,47 @@ impl RustCraftApp {
                     let held_item = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
                     let mut handled = false;
 
-                    // 1. Animal interaction (feeding/breeding)
+                    // 1. Animal interaction (shearing, dyeing, feeding/breeding)
                     if let Some(item) = held_item {
                         if let Some((mob_idx, _)) = self.mob_manager.raycast_mob(self.camera.position, self.camera.forward(), 4.2) {
                             let mob = &mut self.mob_manager.mobs[mob_idx];
-                            if mob.kind.is_tempting_item(item) {
+                            if item == BlockId::Shears && mob.kind == crate::gameplay::mob::MobKind::Sheep && !mob.is_sheared && !mob.is_baby {
+                                mob.is_sheared = true;
+                                let wool_block = BlockId::wool_block_from_color(mob.wool_color);
+                                let wool_count = 1 + (mob.id % 3) as u8; // 1-3 wool drops
+                                let center = mob.center_pos();
+                                let rx = ((mob.id as f32 * 11.0).sin()) * 1.2;
+                                let rz = ((mob.id as f32 * 19.0).cos()) * 1.2;
+                                self.items.push(ItemEntity::new(
+                                    center,
+                                    Vec3::new(rx, 3.2, rz),
+                                    wool_block,
+                                    wool_count,
+                                ));
+                                self.audio.play_sound(crate::audio::SoundId::SheepShear, 0.9, 1.0);
+                                self.particles.spawn_growth(center);
+                                self.hand_animation = 1.0;
+                                handled = true;
+                            } else if item.is_wool() && mob.kind == crate::gameplay::mob::MobKind::Sheep && !mob.is_baby {
+                                let dye_color = item.wool_color_index().unwrap();
+                                if mob.wool_color != dye_color || mob.is_sheared {
+                                    mob.wool_color = dye_color;
+                                    mob.is_sheared = false;
+                                    let sound_pos = mob.center_pos();
+                                    self.audio.play_sound(crate::audio::SoundId::DigGrass, 0.75, 1.2);
+                                    self.particles.spawn_growth(sound_pos);
+                                    if self.player.gamemode == GameMode::Survival {
+                                        if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                                            stack.count -= 1;
+                                            if stack.count == 0 {
+                                                self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = None;
+                                            }
+                                        }
+                                    }
+                                    self.hand_animation = 1.0;
+                                    handled = true;
+                                }
+                            } else if mob.kind.is_tempting_item(item) {
                                 let center = mob.center_pos();
                                 if mob.is_baby {
                                     mob.age += 30.0;
@@ -1562,6 +1599,9 @@ impl RustCraftApp {
                 let held_item = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
                 let is_creative = self.player.gamemode == GameMode::Creative;
                 self.mob_manager.update(dt, &self.world, self.camera.position, held_item, is_creative);
+                for (b_pos, b_id) in self.mob_manager.pending_block_changes.drain(..) {
+                    self.world.set_block(b_pos, b_id);
+                }
                 for pos in self.mob_manager.breeding_hearts.drain(..) {
                     self.particles.spawn_hearts(pos);
                 }
@@ -2381,5 +2421,44 @@ mod tests {
         input.mouse_middle = true;
         let _ = app.update_and_render(0.016, &input);
         assert_eq!(app.player.selected_hotbar_slot, 0, "Middle click should select existing hotbar slot if already in hotbar");
+
+        // Middle click looking at RustStone wire should pick RustStone
+        app.world.set_block(target_pos, BlockId::RustStoneWireLit);
+        input.mouse_middle = false;
+        let _ = app.update_and_render(0.016, &input);
+        app.player.inventory.hotbar[2] = None;
+        app.player.selected_hotbar_slot = 2;
+        input.mouse_middle = true;
+        let _ = app.update_and_render(0.016, &input);
+        assert_eq!(
+            app.player.inventory.hotbar[2],
+            Some(ItemStack { block: BlockId::RustStone, count: 64 }),
+            "Middle click on RustStoneWireLit should pick RustStone item"
+        );
+    }
+
+    #[test]
+    fn test_break_ruststone_wire() {
+        use crate::world::BlockId;
+
+        let mut app = RustCraftApp::new(160, 120, "software", 12345);
+        app.state = GameState::Playing;
+        app.player.gamemode = GameMode::Survival;
+        app.fly_mode = true;
+        app.camera.position = Vec3::new(0.5, 60.0, 0.5);
+        app.camera.yaw = 0.0;
+        app.camera.pitch = 0.0;
+
+        let target_pos = IVec3::new(3, 60, 0);
+        app.world.set_block(target_pos, BlockId::RustStoneWireLit);
+
+        let mut input = InputState::default();
+        input.is_mouse_captured = true;
+        input.mouse_left = true;
+
+        // Break wire (break_time is 0.05s)
+        let _ = app.update_and_render(0.1, &input);
+        assert_eq!(app.world.get_block(target_pos), BlockId::Air, "Breaking wire should clear the block");
+        assert!(app.items.iter().any(|item| item.block == BlockId::RustStone), "Breaking wire should drop RustStone item");
     }
 }

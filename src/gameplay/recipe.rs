@@ -269,7 +269,27 @@ impl RecipeBook {
         self.add(recipe!(Bone => BoneMeal * 3));
 
         // --- Architectural & Decorative Blocks ---
-        // Beds (3x2: 3 Feathers or Leaves over 3 Planks)
+        // Shears (2x2: diagonal Iron Ingots)
+        self.add(recipe!(2, 2, [
+            _,         IronIngot,
+            IronIngot, _,
+        ] => Shears * 1));
+        self.add(recipe!(2, 2, [
+            IronIngot, _,
+            _,         IronIngot,
+        ] => Shears * 1));
+
+        // Beds (3x2: 3 Wool, Feathers or Leaves over 3 Planks)
+        for &wool in &crate::world::block::BlockId::WOOL_BLOCKS {
+            self.add(Recipe::new(
+                3, 2,
+                vec![
+                    Some(wool), Some(wool), Some(wool),
+                    Some(BlockId::Planks), Some(BlockId::Planks), Some(BlockId::Planks),
+                ],
+                BlockId::Bed, 1,
+            ));
+        }
         self.add(recipe!(3, 2, [
             Feather, Feather, Feather,
             Planks,  Planks,  Planks,
@@ -278,6 +298,40 @@ impl RecipeBook {
             Leaves, Leaves, Leaves,
             Planks, Planks, Planks,
         ] => Bed * 1));
+
+        // Feathers to White Wool (2x2: 4 Feathers -> 1 White Wool)
+        self.add(recipe!(2, 2, [
+            Feather, Feather,
+            Feather, Feather,
+        ] => WhiteWool * 1));
+
+        // Wool Dyeing Recipes (1x2 / 2x1)
+        self.add(recipe!(1, 2, [Apple, WhiteWool] => RedWool * 1));
+        self.add(recipe!(2, 1, [Apple, WhiteWool] => RedWool * 1));
+        self.add(recipe!(1, 2, [Leaves, WhiteWool] => GreenWool * 1));
+        self.add(recipe!(2, 1, [Leaves, WhiteWool] => GreenWool * 1));
+        self.add(recipe!(1, 2, [Sapling, WhiteWool] => LimeWool * 1));
+        self.add(recipe!(2, 1, [Sapling, WhiteWool] => LimeWool * 1));
+        self.add(recipe!(1, 2, [CoalOre, WhiteWool] => BlackWool * 1));
+        self.add(recipe!(2, 1, [CoalOre, WhiteWool] => BlackWool * 1));
+        self.add(recipe!(1, 2, [Gunpowder, WhiteWool] => GrayWool * 1));
+        self.add(recipe!(2, 1, [Gunpowder, WhiteWool] => GrayWool * 1));
+        self.add(recipe!(1, 2, [BoneMeal, GrayWool] => LightGrayWool * 1));
+        self.add(recipe!(2, 1, [BoneMeal, GrayWool] => LightGrayWool * 1));
+        self.add(recipe!(1, 2, [Carrot, WhiteWool] => OrangeWool * 1));
+        self.add(recipe!(2, 1, [Carrot, WhiteWool] => OrangeWool * 1));
+        self.add(recipe!(1, 2, [Wheat, WhiteWool] => YellowWool * 1));
+        self.add(recipe!(2, 1, [Wheat, WhiteWool] => YellowWool * 1));
+        self.add(recipe!(1, 2, [BoneMeal, RedWool] => PinkWool * 1));
+        self.add(recipe!(2, 1, [BoneMeal, RedWool] => PinkWool * 1));
+        self.add(recipe!(1, 2, [Diamond, WhiteWool] => LightBlueWool * 1));
+        self.add(recipe!(2, 1, [Diamond, WhiteWool] => LightBlueWool * 1));
+        self.add(recipe!(1, 2, [Water, BlueWool] => CyanWool * 1));
+        self.add(recipe!(2, 1, [Water, BlueWool] => CyanWool * 1));
+        self.add(recipe!(1, 2, [RedWool, BlueWool] => PurpleWool * 1));
+        self.add(recipe!(2, 1, [RedWool, BlueWool] => PurpleWool * 1));
+        self.add(recipe!(1, 2, [Dirt, WhiteWool] => BrownWool * 1));
+        self.add(recipe!(2, 1, [Dirt, WhiteWool] => BrownWool * 1));
 
         // Slabs (3x1: 3 Planks/Stone horizontal -> 6 Slabs)
         self.add(recipe!(3, 1, [Planks, Planks, Planks] => WoodenSlab * 6));
@@ -835,6 +889,57 @@ mod tests {
         assert_eq!(
             book.match_grid(&plate_grid, 2, 1),
             Some(ItemStack { block: BlockId::PressurePlate, count: 1 })
+        );
+    }
+
+    #[test]
+    fn test_shears_and_wool_recipes() {
+        let book = RecipeBook::new();
+
+        // 1. Shears: 2 Iron Ingots diagonally
+        let shears_grid = [
+            None, Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
+            Some(ItemStack { block: BlockId::IronIngot, count: 1 }), None,
+        ];
+        assert_eq!(
+            book.match_grid(&shears_grid, 2, 2),
+            Some(ItemStack { block: BlockId::Shears, count: 1 })
+        );
+
+        // 2. Bed: 3 Wool over 3 Planks
+        let bed_grid = [
+            Some(ItemStack { block: BlockId::RedWool, count: 1 }),
+            Some(ItemStack { block: BlockId::RedWool, count: 1 }),
+            Some(ItemStack { block: BlockId::RedWool, count: 1 }),
+            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&bed_grid, 3, 2),
+            Some(ItemStack { block: BlockId::Bed, count: 1 })
+        );
+
+        // 3. 4 Feathers -> 1 White Wool
+        let wool_grid = [
+            Some(ItemStack { block: BlockId::Feather, count: 1 }),
+            Some(ItemStack { block: BlockId::Feather, count: 1 }),
+            Some(ItemStack { block: BlockId::Feather, count: 1 }),
+            Some(ItemStack { block: BlockId::Feather, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&wool_grid, 2, 2),
+            Some(ItemStack { block: BlockId::WhiteWool, count: 1 })
+        );
+
+        // 4. Dyeing: Apple + WhiteWool -> RedWool
+        let dye_grid = [
+            Some(ItemStack { block: BlockId::Apple, count: 1 }),
+            Some(ItemStack { block: BlockId::WhiteWool, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&dye_grid, 2, 1),
+            Some(ItemStack { block: BlockId::RedWool, count: 1 })
         );
     }
 }

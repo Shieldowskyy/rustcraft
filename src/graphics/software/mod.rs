@@ -1789,6 +1789,123 @@ impl Renderer {
                     self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
                 }
             }
+            MobKind::Sheep => {
+                let scale = if mob.is_baby { 0.5f32 } else { 1.0f32 };
+                let wool_block = crate::world::block::BlockId::wool_block_from_color(mob.wool_color);
+                let wool_tex = wool_block.texture_id(crate::world::block::Face::Top);
+
+                // Torso / Fleece
+                if !mob.is_sheared {
+                    let wool_body = MobBox {
+                        center: Vec3::new(0.0, 0.72 * scale, 0.0),
+                        size: Vec3::new(0.72 * scale, 0.62 * scale, 1.02 * scale),
+                        yaw,
+                        pitch: 0.0,
+                        roll: roll_angle,
+                        origin: base_pos,
+                        tex_top: wool_tex,
+                        tex_bottom: wool_tex,
+                        tex_side: wool_tex,
+                        tex_front: wool_tex,
+                    };
+                    self.draw_mob_box(&wool_body, hurt_tint, camera_pos, view_proj);
+                } else {
+                    let skin_body = MobBox {
+                        center: Vec3::new(0.0, 0.72 * scale, 0.0),
+                        size: Vec3::new(0.56 * scale, 0.52 * scale, 0.92 * scale),
+                        yaw,
+                        pitch: 0.0,
+                        roll: roll_angle,
+                        origin: base_pos,
+                        tex_top: TextureId::SheepSkin,
+                        tex_bottom: TextureId::SheepSkin,
+                        tex_side: TextureId::SheepSkin,
+                        tex_front: TextureId::SheepSkin,
+                    };
+                    self.draw_mob_box(&skin_body, hurt_tint, camera_pos, view_proj);
+                }
+
+                // Head (tilted down when grazing)
+                let head_pitch = if mob.eat_grass_timer > 0.0 { 0.75 } else { 0.0 };
+                let head_y = if mob.eat_grass_timer > 0.0 { 0.44 * scale } else { 0.86 * scale };
+                let head_fwd = if mob.eat_grass_timer > 0.0 { 0.64 * scale } else { 0.54 * scale };
+                let head_pos = base_pos + Vec3::new(yaw.sin() * head_fwd, head_y, yaw.cos() * head_fwd);
+                let head_yaw = yaw + mob.head_yaw_offset;
+
+                let head_box = MobBox {
+                    center: Vec3::zero(),
+                    size: Vec3::new(0.42 * scale, 0.42 * scale, 0.44 * scale),
+                    yaw: head_yaw,
+                    pitch: head_pitch,
+                    roll: roll_angle,
+                    origin: head_pos,
+                    tex_top: TextureId::SheepSkin,
+                    tex_bottom: TextureId::SheepSkin,
+                    tex_side: TextureId::SheepSkin,
+                    tex_front: TextureId::SheepFace,
+                };
+                self.draw_mob_box(&head_box, hurt_tint, camera_pos, view_proj);
+
+                if !mob.is_sheared {
+                    let cap_box = MobBox {
+                        center: Vec3::new(0.0, 0.12 * scale, -0.04 * scale),
+                        size: Vec3::new(0.44 * scale, 0.22 * scale, 0.36 * scale),
+                        yaw: head_yaw,
+                        pitch: head_pitch,
+                        roll: roll_angle,
+                        origin: head_pos,
+                        tex_top: wool_tex,
+                        tex_bottom: wool_tex,
+                        tex_side: wool_tex,
+                        tex_front: wool_tex,
+                    };
+                    self.draw_mob_box(&cap_box, hurt_tint, camera_pos, view_proj);
+                }
+
+                // 4 Legs
+                let leg_offsets = [
+                    (-0.20, -0.32, leg_swing),
+                    (0.20, -0.32, -leg_swing),
+                    (-0.20, 0.32, -leg_swing),
+                    (0.20, 0.32, leg_swing),
+                ];
+
+                for &(lx, lz, swing) in &leg_offsets {
+                    let rotated_x = (lx * scale) * yaw.cos() + (lz * scale) * yaw.sin();
+                    let rotated_z = -(lx * scale) * yaw.sin() + (lz * scale) * yaw.cos();
+                    let leg_origin = base_pos + Vec3::new(rotated_x, 0.48 * scale, rotated_z);
+
+                    let leg_box = MobBox {
+                        center: Vec3::new(0.0, -0.24 * scale, 0.0),
+                        size: Vec3::new(0.18 * scale, 0.48 * scale, 0.18 * scale),
+                        yaw,
+                        pitch: swing,
+                        roll: roll_angle,
+                        origin: leg_origin,
+                        tex_top: TextureId::SheepSkin,
+                        tex_bottom: TextureId::SheepSkin,
+                        tex_side: TextureId::SheepSkin,
+                        tex_front: TextureId::SheepSkin,
+                    };
+                    self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
+
+                    if !mob.is_sheared {
+                        let cuff_box = MobBox {
+                            center: Vec3::new(0.0, -0.12 * scale, 0.0),
+                            size: Vec3::new(0.24 * scale, 0.24 * scale, 0.24 * scale),
+                            yaw,
+                            pitch: swing,
+                            roll: roll_angle,
+                            origin: leg_origin,
+                            tex_top: wool_tex,
+                            tex_bottom: wool_tex,
+                            tex_side: wool_tex,
+                            tex_front: wool_tex,
+                        };
+                        self.draw_mob_box(&cuff_box, hurt_tint, camera_pos, view_proj);
+                    }
+                }
+            }
             MobKind::Zombie => {
                 let body_box = MobBox {
                     center: Vec3::new(0.0, 1.07, 0.0),

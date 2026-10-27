@@ -8,6 +8,7 @@ pub enum MobKind {
     Pig,
     Cow,
     Chicken,
+    Sheep,
     Zombie,
     Skeleton,
     Creeper,
@@ -19,6 +20,7 @@ impl MobKind {
             MobKind::Pig => 10.0,
             MobKind::Cow => 10.0,
             MobKind::Chicken => 4.0,
+            MobKind::Sheep => 8.0,
             MobKind::Zombie => 20.0,
             MobKind::Skeleton => 20.0,
             MobKind::Creeper => 20.0,
@@ -30,6 +32,7 @@ impl MobKind {
             MobKind::Pig => 0.4,
             MobKind::Cow => 0.45,
             MobKind::Chicken => 0.25,
+            MobKind::Sheep => 0.45,
             MobKind::Zombie => 0.35,
             MobKind::Skeleton => 0.30,
             MobKind::Creeper => 0.30,
@@ -41,6 +44,7 @@ impl MobKind {
             MobKind::Pig => 0.85,
             MobKind::Cow => 1.35,
             MobKind::Chicken => 0.70,
+            MobKind::Sheep => 1.30,
             MobKind::Zombie => 1.85,
             MobKind::Skeleton => 1.85,
             MobKind::Creeper => 1.70,
@@ -50,14 +54,14 @@ impl MobKind {
     #[allow(dead_code)]
     pub fn is_hostile(&self) -> bool {
         match self {
-            MobKind::Pig | MobKind::Cow | MobKind::Chicken => false,
+            MobKind::Pig | MobKind::Cow | MobKind::Chicken | MobKind::Sheep => false,
             MobKind::Zombie | MobKind::Skeleton | MobKind::Creeper => true,
         }
     }
 
     pub fn is_tempting_item(&self, item: BlockId) -> bool {
         match self {
-            MobKind::Cow => item == BlockId::Wheat,
+            MobKind::Cow | MobKind::Sheep => item == BlockId::Wheat,
             MobKind::Pig => matches!(item, BlockId::Carrot | BlockId::Potato | BlockId::BakedPotato),
             MobKind::Chicken => item == BlockId::WheatSeeds,
             _ => false,
@@ -70,6 +74,7 @@ impl MobKind {
             MobKind::Pig => "Pig",
             MobKind::Cow => "Cow",
             MobKind::Chicken => "Chicken",
+            MobKind::Sheep => "Sheep",
             MobKind::Zombie => "Zombie",
             MobKind::Skeleton => "Skeleton",
             MobKind::Creeper => "Creeper",
@@ -81,6 +86,7 @@ impl MobKind {
             MobKind::Pig => Some(crate::audio::SoundId::PigIdle),
             MobKind::Cow => Some(crate::audio::SoundId::CowIdle),
             MobKind::Chicken => Some(crate::audio::SoundId::ChickenIdle),
+            MobKind::Sheep => Some(crate::audio::SoundId::SheepIdle),
             MobKind::Zombie => Some(crate::audio::SoundId::ZombieIdle),
             MobKind::Skeleton => Some(crate::audio::SoundId::SkeletonIdle),
             MobKind::Creeper => None,
@@ -92,6 +98,7 @@ impl MobKind {
             MobKind::Pig => crate::audio::SoundId::PigHurt,
             MobKind::Cow => crate::audio::SoundId::CowHurt,
             MobKind::Chicken => crate::audio::SoundId::ChickenHurt,
+            MobKind::Sheep => crate::audio::SoundId::SheepHurt,
             MobKind::Zombie => crate::audio::SoundId::ZombieHurt,
             MobKind::Skeleton => crate::audio::SoundId::SkeletonHurt,
             MobKind::Creeper => crate::audio::SoundId::CreeperHurt,
@@ -103,6 +110,7 @@ impl MobKind {
             MobKind::Pig => crate::audio::SoundId::PigDeath,
             MobKind::Cow => crate::audio::SoundId::CowDeath,
             MobKind::Chicken => crate::audio::SoundId::ChickenDeath,
+            MobKind::Sheep => crate::audio::SoundId::SheepDeath,
             MobKind::Zombie => crate::audio::SoundId::ZombieDeath,
             MobKind::Skeleton => crate::audio::SoundId::SkeletonDeath,
             MobKind::Creeper => crate::audio::SoundId::CreeperDeath,
@@ -139,12 +147,33 @@ pub struct Mob {
     pub is_baby: bool,
     pub age: f32,
     pub love_particle_timer: f32,
+    pub wool_color: u8,
+    pub is_sheared: bool,
+    pub eat_grass_timer: f32,
 }
 
 impl Mob {
     pub fn new(id: u32, kind: MobKind, pos: Vec3) -> Self {
         let max_hp = kind.max_health();
         let initial_ambient = 3.0 + ((id.wrapping_mul(2654435761) % 1000) as f32 / 1000.0) * 8.0;
+        let wool_color = if kind == MobKind::Sheep {
+            let roll = (id.wrapping_mul(1664525) % 100) as u8;
+            if roll < 80 {
+                0 // White (80%)
+            } else if roll < 85 {
+                8 // Light Gray (5%)
+            } else if roll < 90 {
+                7 // Gray (5%)
+            } else if roll < 95 {
+                15 // Black (5%)
+            } else if roll < 98 {
+                12 // Brown (3%)
+            } else {
+                6 // Pink (2% - rare!)
+            }
+        } else {
+            0
+        };
         Mob {
             id,
             kind,
@@ -172,6 +201,9 @@ impl Mob {
             is_baby: false,
             age: 0.0,
             love_particle_timer: 0.0,
+            wool_color,
+            is_sheared: false,
+            eat_grass_timer: 0.0,
         }
     }
 
@@ -234,6 +266,12 @@ impl Mob {
             self.age += dt;
             if self.age >= 0.0 {
                 self.is_baby = false;
+            }
+        }
+        if self.eat_grass_timer > 0.0 {
+            self.eat_grass_timer = (self.eat_grass_timer - dt).max(0.0);
+            if self.eat_grass_timer == 0.0 {
+                self.is_sheared = false;
             }
         }
 
@@ -417,7 +455,9 @@ impl Mob {
         let turn_speed = if self.panic_timer > 0.0 || pursuing_player { 10.0 } else { 4.0 };
         self.yaw += diff * (turn_speed * dt).min(1.0);
 
-        let move_speed = if self.panic_timer > 0.0 {
+        let move_speed = if self.eat_grass_timer > 0.0 {
+            0.0
+        } else if self.panic_timer > 0.0 {
             3.8
         } else if pursuing_player {
             2.6
@@ -568,6 +608,7 @@ pub struct MobManager {
     pub pending_explosions: Vec<Vec3>,
     pub breeding_hearts: Vec<Vec3>,
     pub love_hearts: Vec<Vec3>,
+    pub pending_block_changes: Vec<(IVec3, BlockId)>,
 }
 
 impl MobManager {
@@ -582,6 +623,7 @@ impl MobManager {
             pending_explosions: Vec::new(),
             breeding_hearts: Vec::new(),
             love_hearts: Vec::new(),
+            pending_block_changes: Vec::new(),
         }
     }
 
@@ -614,6 +656,23 @@ impl MobManager {
             if is_creative && mob.kind == MobKind::Creeper && mob.is_ignited {
                 mob.is_ignited = false;
                 mob.fuse = 0.0;
+            }
+
+            // Sheep grazing / eating grass to regrow wool
+            if mob.kind == MobKind::Sheep && !mob.is_dead && mob.on_ground && mob.eat_grass_timer <= 0.0 {
+                let graze_roll = (rng.wrapping_mul(1664525) % 1000) as f32 / 1000.0;
+                let threshold = if mob.is_sheared { 0.008 } else { 0.002 };
+                if graze_roll < threshold {
+                    let foot_x = mob.pos.x.floor() as i32;
+                    let foot_y = (mob.pos.y - 0.2).floor() as i32;
+                    let foot_z = mob.pos.z.floor() as i32;
+                    let under_pos = IVec3::new(foot_x, foot_y, foot_z);
+                    if world.get_block(under_pos) == BlockId::Grass {
+                        mob.eat_grass_timer = 2.0;
+                        mob.ai_state_is_moving = false;
+                        self.pending_block_changes.push((under_pos, BlockId::Dirt));
+                    }
+                }
             }
 
             mob.update(dt, world, &mut rng, target_pos, player_held);
@@ -664,6 +723,14 @@ impl MobManager {
                         baby.is_baby = true;
                         baby.age = -120.0;
                         baby.health = self.mobs[i].kind.max_health() * 0.5;
+                        if self.mobs[i].kind == MobKind::Sheep {
+                            let pick_parent = (rng.wrapping_mul(22695477) % 2) == 0;
+                            baby.wool_color = if pick_parent {
+                                self.mobs[i].wool_color
+                            } else {
+                                self.mobs[j].wool_color
+                            };
+                        }
                         babies.push(baby);
                     } else if dist_sq < 64.0 {
                         self.mobs[i].target_yaw = (-dx).atan2(-dz);
@@ -701,6 +768,22 @@ impl MobManager {
                                 block: BlockId::RawBeef,
                                 count,
                             });
+                        }
+                        MobKind::Sheep => {
+                            let count = 1 + (m.id % 2) as u8; // 1-2 meat drops
+                            self.dying_drops.push(MobDrop {
+                                pos: m.center_pos(),
+                                block: BlockId::RawBeef,
+                                count,
+                            });
+                            if !m.is_sheared {
+                                let wool_block = BlockId::wool_block_from_color(m.wool_color);
+                                self.dying_drops.push(MobDrop {
+                                    pos: m.center_pos() + Vec3::new(0.05, 0.1, 0.05),
+                                    block: wool_block,
+                                    count: 1,
+                                });
+                            }
                         }
                         MobKind::Chicken => {
                             let meat_count = 1 + (m.id % 2) as u8; // 1-2 raw chicken
@@ -925,9 +1008,11 @@ impl MobManager {
                 if let Some((sy, block_below)) = surface_y {
                     if block_below == BlockId::Grass {
                         let roll = rand_f32(rng);
-                        let kind = if roll < 0.35 {
+                        let kind = if roll < 0.25 {
+                            MobKind::Sheep
+                        } else if roll < 0.50 {
                             MobKind::Pig
-                        } else if roll < 0.70 {
+                        } else if roll < 0.75 {
                             MobKind::Cow
                         } else {
                             MobKind::Chicken
@@ -1035,6 +1120,7 @@ mod tests {
             MobKind::Pig,
             MobKind::Cow,
             MobKind::Chicken,
+            MobKind::Sheep,
             MobKind::Zombie,
             MobKind::Skeleton,
             MobKind::Creeper,
@@ -1060,6 +1146,7 @@ mod tests {
         use crate::world::block::BlockId;
 
         assert!(MobKind::Cow.is_tempting_item(BlockId::Wheat));
+        assert!(MobKind::Sheep.is_tempting_item(BlockId::Wheat));
         assert!(!MobKind::Cow.is_tempting_item(BlockId::Carrot));
 
         assert!(MobKind::Pig.is_tempting_item(BlockId::Carrot));
@@ -1076,6 +1163,30 @@ mod tests {
         let adult_aabb = adult.aabb();
         let baby_aabb = baby.aabb();
         assert!(baby_aabb.1.x - baby_aabb.0.x < adult_aabb.1.x - adult_aabb.0.x);
+    }
+
+    #[test]
+    fn test_sheep_shearing_and_grazing_regrowth() {
+        let mut sheep = Mob::new(100, MobKind::Sheep, Vec3::zero());
+        assert!(!sheep.is_sheared);
+        assert!(sheep.wool_color <= 15);
+
+        // Shearing
+        sheep.is_sheared = true;
+        assert!(sheep.is_sheared);
+
+        // Grazing
+        sheep.eat_grass_timer = 1.0;
+        let world = crate::world::World::new_with_seed(42);
+        let mut rng = 12345;
+        sheep.update(0.5, &world, &mut rng, None, None);
+        assert!(sheep.is_sheared);
+        assert!(sheep.eat_grass_timer > 0.0);
+
+        // Regrow wool
+        sheep.update(0.6, &world, &mut rng, None, None);
+        assert_eq!(sheep.eat_grass_timer, 0.0);
+        assert!(!sheep.is_sheared, "Wool should regrow after grazing");
     }
 
     #[test]

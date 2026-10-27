@@ -6,7 +6,7 @@ use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId, TEX_SIZE};
 use crate::world::mesher::Triangle;
 
-pub const TEXTURE_LAYER_COUNT: u32 = 145 + 64;
+pub const TEXTURE_LAYER_COUNT: u32 = 165 + 64;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -1483,9 +1483,29 @@ impl VulkanContext {
             TextureId::Lever => 142,
             TextureId::Button => 143,
             TextureId::PressurePlate => 144,
+            TextureId::WhiteWool => 145,
+            TextureId::OrangeWool => 146,
+            TextureId::MagentaWool => 147,
+            TextureId::LightBlueWool => 148,
+            TextureId::YellowWool => 149,
+            TextureId::LimeWool => 150,
+            TextureId::PinkWool => 151,
+            TextureId::GrayWool => 152,
+            TextureId::LightGrayWool => 153,
+            TextureId::CyanWool => 154,
+            TextureId::PurpleWool => 155,
+            TextureId::BlueWool => 156,
+            TextureId::BrownWool => 157,
+            TextureId::GreenWool => 158,
+            TextureId::RedWool => 159,
+            TextureId::BlackWool => 160,
+            TextureId::SheepSkin => 161,
+            TextureId::SheepFace => 162,
+            TextureId::Shears => 163,
+            TextureId::SheepSpawnEgg => 164,
             TextureId::Custom(idx) => {
                 let clamped = if (idx as u32) > 63 { 63 } else { idx as u32 };
-                145 + clamped
+                165 + clamped
             }
         }
     }
@@ -1637,7 +1657,27 @@ impl VulkanContext {
             142 => TextureId::Lever,
             143 => TextureId::Button,
             144 => TextureId::PressurePlate,
-            l if l >= 145 && l < 145 + 64 => TextureId::Custom((l - 145) as u8),
+            145 => TextureId::WhiteWool,
+            146 => TextureId::OrangeWool,
+            147 => TextureId::MagentaWool,
+            148 => TextureId::LightBlueWool,
+            149 => TextureId::YellowWool,
+            150 => TextureId::LimeWool,
+            151 => TextureId::PinkWool,
+            152 => TextureId::GrayWool,
+            153 => TextureId::LightGrayWool,
+            154 => TextureId::CyanWool,
+            155 => TextureId::PurpleWool,
+            156 => TextureId::BlueWool,
+            157 => TextureId::BrownWool,
+            158 => TextureId::GreenWool,
+            159 => TextureId::RedWool,
+            160 => TextureId::BlackWool,
+            161 => TextureId::SheepSkin,
+            162 => TextureId::SheepFace,
+            163 => TextureId::Shears,
+            164 => TextureId::SheepSpawnEgg,
+            l if l >= 165 && l < 165 + 64 => TextureId::Custom((l - 165) as u8),
             _ => TextureId::CraftingTableFront,
         }
     }

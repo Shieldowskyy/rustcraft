@@ -584,6 +584,7 @@ impl ChatState {
                     "pig" | "swinia" => Some(MobKind::Pig),
                     "cow" | "krowa" => Some(MobKind::Cow),
                     "chicken" | "kurczak" => Some(MobKind::Chicken),
+                    "sheep" | "owca" => Some(MobKind::Sheep),
                     "zombie" | "zombi" => Some(MobKind::Zombie),
                     "skeleton" | "szkielet" => Some(MobKind::Skeleton),
                     "creeper" => Some(MobKind::Creeper),
@@ -705,6 +706,7 @@ impl ChatState {
         let mut pigs = 0;
         let mut cows = 0;
         let mut chickens = 0;
+        let mut sheep = 0;
         let mut zombies = 0;
         let mut skeletons = 0;
         let mut creepers = 0;
@@ -714,6 +716,7 @@ impl ChatState {
                 MobKind::Pig => pigs += 1,
                 MobKind::Cow => cows += 1,
                 MobKind::Chicken => chickens += 1,
+                MobKind::Sheep => sheep += 1,
                 MobKind::Zombie => zombies += 1,
                 MobKind::Skeleton => skeletons += 1,
                 MobKind::Creeper => creepers += 1,
@@ -742,8 +745,8 @@ impl ChatState {
         }
 
         self.add_info(format!(
-            "Summary: Pigs: {}, Cows: {}, Chickens: {}, Zombies: {}, Skeletons: {}, Creepers: {}",
-            pigs, cows, chickens, zombies, skeletons, creepers
+            "Summary: Pigs: {}, Cows: {}, Chickens: {}, Sheep: {}, Zombies: {}, Skeletons: {}, Creepers: {}",
+            pigs, cows, chickens, sheep, zombies, skeletons, creepers
         ));
     }
 }
@@ -811,6 +814,24 @@ pub fn parse_vanilla_block_id(s: &str) -> Option<BlockId> {
         "lever" | "dzwignia" => Some(BlockId::Lever),
         "button" | "przycisk" => Some(BlockId::Button),
         "pressure_plate" | "plytka" | "plytka_naciskowa" => Some(BlockId::PressurePlate),
+        "shears" | "nozyce" => Some(BlockId::Shears),
+        "sheep_spawn_egg" | "sheep_egg" | "owca_jajko" => Some(BlockId::SheepSpawnEgg),
+        "wool" | "welna" | "white_wool" | "biala_welna" => Some(BlockId::WhiteWool),
+        "orange_wool" | "pomaranczowa_welna" => Some(BlockId::OrangeWool),
+        "magenta_wool" | "jasnofioletowa_welna" => Some(BlockId::MagentaWool),
+        "light_blue_wool" | "jasnoniebieska_welna" => Some(BlockId::LightBlueWool),
+        "yellow_wool" | "zolta_welna" => Some(BlockId::YellowWool),
+        "lime_wool" | "jasnozielona_welna" => Some(BlockId::LimeWool),
+        "pink_wool" | "rozowa_welna" => Some(BlockId::PinkWool),
+        "gray_wool" | "szara_welna" => Some(BlockId::GrayWool),
+        "light_gray_wool" | "jasnoszara_welna" => Some(BlockId::LightGrayWool),
+        "cyan_wool" | "turkusowa_welna" => Some(BlockId::CyanWool),
+        "purple_wool" | "fioletowa_welna" => Some(BlockId::PurpleWool),
+        "blue_wool" | "niebieska_welna" => Some(BlockId::BlueWool),
+        "brown_wool" | "brazowa_welna" => Some(BlockId::BrownWool),
+        "green_wool" | "zielona_welna" => Some(BlockId::GreenWool),
+        "red_wool" | "czerwona_welna" => Some(BlockId::RedWool),
+        "black_wool" | "czarna_welna" => Some(BlockId::BlackWool),
         _ => {
             if let Ok(id) = s.parse::<u8>() {
                 if id > 0 {

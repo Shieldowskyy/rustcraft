@@ -191,7 +191,43 @@ pub enum BlockId {
     PressurePlate,
     /// Pressed pressure plate (active power source when entity stands on it)
     PressurePlatePressed,
-    /// Custom modded block or item (ID 120..=255)
+    /// White wool block
+    WhiteWool,
+    /// Orange wool block
+    OrangeWool,
+    /// Magenta wool block
+    MagentaWool,
+    /// Light blue wool block
+    LightBlueWool,
+    /// Yellow wool block
+    YellowWool,
+    /// Lime wool block
+    LimeWool,
+    /// Pink wool block
+    PinkWool,
+    /// Gray wool block
+    GrayWool,
+    /// Light gray wool block
+    LightGrayWool,
+    /// Cyan wool block
+    CyanWool,
+    /// Purple wool block
+    PurpleWool,
+    /// Blue wool block
+    BlueWool,
+    /// Brown wool block
+    BrownWool,
+    /// Green wool block
+    GreenWool,
+    /// Red wool block
+    RedWool,
+    /// Black wool block
+    BlackWool,
+    /// Sheep spawn egg item
+    SheepSpawnEgg,
+    /// Shears tool for shearing sheep and fast leaf/wool harvesting
+    Shears,
+    /// Custom modded block or item (ID 140..=255)
     Custom(u8),
 }
 
@@ -307,7 +343,25 @@ impl BlockId {
             107 => BlockId::ButtonPressed,
             108 => BlockId::PressurePlate,
             109 => BlockId::PressurePlatePressed,
-            v if v >= 120 => BlockId::Custom(v),
+            110 => BlockId::WhiteWool,
+            111 => BlockId::OrangeWool,
+            112 => BlockId::MagentaWool,
+            113 => BlockId::LightBlueWool,
+            114 => BlockId::YellowWool,
+            115 => BlockId::LimeWool,
+            116 => BlockId::PinkWool,
+            117 => BlockId::GrayWool,
+            118 => BlockId::LightGrayWool,
+            119 => BlockId::CyanWool,
+            120 => BlockId::PurpleWool,
+            121 => BlockId::BlueWool,
+            122 => BlockId::BrownWool,
+            123 => BlockId::GreenWool,
+            124 => BlockId::RedWool,
+            125 => BlockId::BlackWool,
+            126 => BlockId::SheepSpawnEgg,
+            127 => BlockId::Shears,
+            v if v >= 140 => BlockId::Custom(v),
             _ => BlockId::Air,
         }
     }
@@ -424,8 +478,95 @@ impl BlockId {
             BlockId::ButtonPressed => 107,
             BlockId::PressurePlate => 108,
             BlockId::PressurePlatePressed => 109,
+            BlockId::WhiteWool => 110,
+            BlockId::OrangeWool => 111,
+            BlockId::MagentaWool => 112,
+            BlockId::LightBlueWool => 113,
+            BlockId::YellowWool => 114,
+            BlockId::LimeWool => 115,
+            BlockId::PinkWool => 116,
+            BlockId::GrayWool => 117,
+            BlockId::LightGrayWool => 118,
+            BlockId::CyanWool => 119,
+            BlockId::PurpleWool => 120,
+            BlockId::BlueWool => 121,
+            BlockId::BrownWool => 122,
+            BlockId::GreenWool => 123,
+            BlockId::RedWool => 124,
+            BlockId::BlackWool => 125,
+            BlockId::SheepSpawnEgg => 126,
+            BlockId::Shears => 127,
             BlockId::Custom(id) => id,
         }
+    }
+
+    pub const WOOL_BLOCKS: [BlockId; 16] = [
+        BlockId::WhiteWool,
+        BlockId::OrangeWool,
+        BlockId::MagentaWool,
+        BlockId::LightBlueWool,
+        BlockId::YellowWool,
+        BlockId::LimeWool,
+        BlockId::PinkWool,
+        BlockId::GrayWool,
+        BlockId::LightGrayWool,
+        BlockId::CyanWool,
+        BlockId::PurpleWool,
+        BlockId::BlueWool,
+        BlockId::BrownWool,
+        BlockId::GreenWool,
+        BlockId::RedWool,
+        BlockId::BlackWool,
+    ];
+
+    #[inline(always)]
+    pub fn wool_block_from_color(color_idx: u8) -> BlockId {
+        match color_idx % 16 {
+            0 => BlockId::WhiteWool,
+            1 => BlockId::OrangeWool,
+            2 => BlockId::MagentaWool,
+            3 => BlockId::LightBlueWool,
+            4 => BlockId::YellowWool,
+            5 => BlockId::LimeWool,
+            6 => BlockId::PinkWool,
+            7 => BlockId::GrayWool,
+            8 => BlockId::LightGrayWool,
+            9 => BlockId::CyanWool,
+            10 => BlockId::PurpleWool,
+            11 => BlockId::BlueWool,
+            12 => BlockId::BrownWool,
+            13 => BlockId::GreenWool,
+            14 => BlockId::RedWool,
+            _ => BlockId::BlackWool,
+        }
+    }
+
+    #[inline(always)]
+    pub fn wool_color_index(self) -> Option<u8> {
+        match self {
+            BlockId::WhiteWool => Some(0),
+            BlockId::OrangeWool => Some(1),
+            BlockId::MagentaWool => Some(2),
+            BlockId::LightBlueWool => Some(3),
+            BlockId::YellowWool => Some(4),
+            BlockId::LimeWool => Some(5),
+            BlockId::PinkWool => Some(6),
+            BlockId::GrayWool => Some(7),
+            BlockId::LightGrayWool => Some(8),
+            BlockId::CyanWool => Some(9),
+            BlockId::PurpleWool => Some(10),
+            BlockId::BlueWool => Some(11),
+            BlockId::BrownWool => Some(12),
+            BlockId::GreenWool => Some(13),
+            BlockId::RedWool => Some(14),
+            BlockId::BlackWool => Some(15),
+            _ => None,
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_wool(self) -> bool {
+        self.wool_color_index().is_some()
     }
 
     /// Returns the item given when picking this block in the world (e.g. in Creative mode pick-block).
@@ -618,10 +759,14 @@ impl BlockId {
                     | (1u128 << 107) // ButtonPressed (passable)
                     | (1u128 << 108) // PressurePlate (passable)
                     | (1u128 << 109) // PressurePlatePressed (passable)
+                    | (1u128 << 126) // SheepSpawnEgg (item entity)
+                    | (1u128 << 127) // Shears (item entity)
                 );
                 let id = self.to_u8() as u32;
-                if id < 120 {
+                if id < 128 {
                     ((SOLID_MASK >> id) & 1) != 0
+                } else if id < 140 {
+                    true
                 } else {
                     true
                 }
@@ -634,13 +779,32 @@ impl BlockId {
             BlockId::PigSpawnEgg => Some(crate::gameplay::mob::MobKind::Pig),
             BlockId::CowSpawnEgg => Some(crate::gameplay::mob::MobKind::Cow),
             BlockId::ChickenSpawnEgg => Some(crate::gameplay::mob::MobKind::Chicken),
+            BlockId::SheepSpawnEgg => Some(crate::gameplay::mob::MobKind::Sheep),
             _ => None,
         }
     }
 
     #[inline(always)]
     pub fn is_targetable(self) -> bool {
-        self.is_solid() || matches!(self, BlockId::DoorOpen | BlockId::Torch | BlockId::Ladder | BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop | BlockId::Sapling)
+        self.is_solid()
+            || matches!(
+                self,
+                BlockId::DoorOpen
+                    | BlockId::Torch
+                    | BlockId::Ladder
+                    | BlockId::WheatCrop
+                    | BlockId::CarrotCrop
+                    | BlockId::PotatoCrop
+                    | BlockId::Sapling
+                    | BlockId::RustStone
+                    | BlockId::RustStoneWireLit
+                    | BlockId::Lever
+                    | BlockId::LeverOn
+                    | BlockId::Button
+                    | BlockId::ButtonPressed
+                    | BlockId::PressurePlate
+                    | BlockId::PressurePlatePressed
+            )
     }
 
     #[inline(always)]
@@ -754,6 +918,7 @@ impl BlockId {
                 | BlockId::IronHoe
                 | BlockId::DiamondHoe
                 | BlockId::GoldHoe
+                | BlockId::Shears
         )
     }
 
@@ -785,6 +950,7 @@ impl BlockId {
             BlockId::IronHoe => 3.0,
             BlockId::WoodenShovel => 3.0,
             BlockId::GoldShovel => 3.0,
+            BlockId::Shears => 3.0,
             BlockId::StoneHoe => 2.5,
             BlockId::Stick => 2.5,
             BlockId::WoodenHoe | BlockId::GoldHoe => 2.0,
@@ -844,7 +1010,10 @@ impl BlockId {
                 if matches!(target, BlockId::Leaves | BlockId::SnowLeaves | BlockId::CherryLeaves | BlockId::AutumnLeaves | BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop | BlockId::Sapling | BlockId::Farmland | BlockId::FarmlandWet) { 6.0 } else { 1.0 }
             }
             BlockId::WoodenSword | BlockId::StoneSword | BlockId::IronSword | BlockId::DiamondSword | BlockId::GoldSword => {
-                if matches!(target, BlockId::Leaves | BlockId::SnowLeaves | BlockId::CherryLeaves | BlockId::AutumnLeaves) { 3.0 } else { 1.0 }
+                if matches!(target, BlockId::Leaves | BlockId::SnowLeaves | BlockId::CherryLeaves | BlockId::AutumnLeaves) { 3.0 } else if target.is_wool() { 2.0 } else { 1.0 }
+            }
+            BlockId::Shears => {
+                if target.is_wool() || target.is_leaf() { 10.0 } else { 1.0 }
             }
             _ => 1.0,
         }
@@ -852,6 +1021,9 @@ impl BlockId {
 
     /// Break time in seconds (like Minecraft hardness). Creative breaks instantly.
     pub fn break_time(self) -> f32 {
+        if self.is_wool() {
+            return 0.8;
+        }
         match self {
             BlockId::Air => 0.0,
             BlockId::Grass => 0.6,
@@ -948,7 +1120,7 @@ impl BlockId {
                     | (1u128 << 108) // PressurePlate
                     | (1u128 << 109); // PressurePlatePressed
                 let id = self.to_u8() as u32;
-                if id < 120 {
+                if id < 128 {
                     ((TRANSPARENT_MASK >> id) & 1) != 0
                 } else {
                     false
@@ -1069,6 +1241,24 @@ impl BlockId {
             BlockId::ButtonPressed => "wcisniety przycisk",
             BlockId::PressurePlate => "plytka naciskowa",
             BlockId::PressurePlatePressed => "wcisnieta plytka naciskowa",
+            BlockId::WhiteWool => "biala welna",
+            BlockId::OrangeWool => "pomaranczowa welna",
+            BlockId::MagentaWool => "karmazynowa welna",
+            BlockId::LightBlueWool => "jasnoniebieska welna",
+            BlockId::YellowWool => "zolta welna",
+            BlockId::LimeWool => "jasnozielona welna",
+            BlockId::PinkWool => "rozowa welna",
+            BlockId::GrayWool => "szara welna",
+            BlockId::LightGrayWool => "jasnoszara welna",
+            BlockId::CyanWool => "cyjanowa welna",
+            BlockId::PurpleWool => "fioletowa welna",
+            BlockId::BlueWool => "niebieska welna",
+            BlockId::BrownWool => "brazowa welna",
+            BlockId::GreenWool => "zielona welna",
+            BlockId::RedWool => "czerwona welna",
+            BlockId::BlackWool => "czarna welna",
+            BlockId::SheepSpawnEgg => "jajko owcy",
+            BlockId::Shears => "nozyce",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -1186,6 +1376,24 @@ impl BlockId {
             BlockId::ButtonPressed => "Pressed Button",
             BlockId::PressurePlate => "Pressure Plate",
             BlockId::PressurePlatePressed => "Pressed Pressure Plate",
+            BlockId::WhiteWool => "White Wool",
+            BlockId::OrangeWool => "Orange Wool",
+            BlockId::MagentaWool => "Magenta Wool",
+            BlockId::LightBlueWool => "Light Blue Wool",
+            BlockId::YellowWool => "Yellow Wool",
+            BlockId::LimeWool => "Lime Wool",
+            BlockId::PinkWool => "Pink Wool",
+            BlockId::GrayWool => "Gray Wool",
+            BlockId::LightGrayWool => "Light Gray Wool",
+            BlockId::CyanWool => "Cyan Wool",
+            BlockId::PurpleWool => "Purple Wool",
+            BlockId::BlueWool => "Blue Wool",
+            BlockId::BrownWool => "Brown Wool",
+            BlockId::GreenWool => "Green Wool",
+            BlockId::RedWool => "Red Wool",
+            BlockId::BlackWool => "Black Wool",
+            BlockId::SheepSpawnEgg => "Spawn Sheep",
+            BlockId::Shears => "Shears",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -1312,6 +1520,24 @@ impl BlockId {
             BlockId::Lever | BlockId::LeverOn => [0.55, 0.50, 0.45],
             BlockId::Button | BlockId::ButtonPressed => [0.58, 0.58, 0.58],
             BlockId::PressurePlate | BlockId::PressurePlatePressed => [0.60, 0.60, 0.60],
+            BlockId::WhiteWool => [0.91, 0.92, 0.92],
+            BlockId::OrangeWool => [0.94, 0.46, 0.07],
+            BlockId::MagentaWool => [0.74, 0.27, 0.70],
+            BlockId::LightBlueWool => [0.23, 0.69, 0.85],
+            BlockId::YellowWool => [0.97, 0.78, 0.15],
+            BlockId::LimeWool => [0.44, 0.73, 0.10],
+            BlockId::PinkWool => [0.93, 0.55, 0.67],
+            BlockId::GrayWool => [0.24, 0.27, 0.28],
+            BlockId::LightGrayWool => [0.56, 0.56, 0.53],
+            BlockId::CyanWool => [0.08, 0.54, 0.57],
+            BlockId::PurpleWool => [0.47, 0.16, 0.67],
+            BlockId::BlueWool => [0.21, 0.22, 0.62],
+            BlockId::BrownWool => [0.45, 0.28, 0.16],
+            BlockId::GreenWool => [0.33, 0.43, 0.11],
+            BlockId::RedWool => [0.63, 0.15, 0.13],
+            BlockId::BlackWool => [0.08, 0.08, 0.10],
+            BlockId::SheepSpawnEgg => [0.88, 0.88, 0.86],
+            BlockId::Shears => [0.75, 0.75, 0.78],
             BlockId::Custom(id) => crate::engine::modding::get_custom_face_color(id, face),
             BlockId::Air => [0.0, 0.0, 0.0],
         }
@@ -1436,6 +1662,24 @@ impl BlockId {
             BlockId::Lever | BlockId::LeverOn => TextureId::Lever,
             BlockId::Button | BlockId::ButtonPressed => TextureId::Button,
             BlockId::PressurePlate | BlockId::PressurePlatePressed => TextureId::PressurePlate,
+            BlockId::WhiteWool => TextureId::WhiteWool,
+            BlockId::OrangeWool => TextureId::OrangeWool,
+            BlockId::MagentaWool => TextureId::MagentaWool,
+            BlockId::LightBlueWool => TextureId::LightBlueWool,
+            BlockId::YellowWool => TextureId::YellowWool,
+            BlockId::LimeWool => TextureId::LimeWool,
+            BlockId::PinkWool => TextureId::PinkWool,
+            BlockId::GrayWool => TextureId::GrayWool,
+            BlockId::LightGrayWool => TextureId::LightGrayWool,
+            BlockId::CyanWool => TextureId::CyanWool,
+            BlockId::PurpleWool => TextureId::PurpleWool,
+            BlockId::BlueWool => TextureId::BlueWool,
+            BlockId::BrownWool => TextureId::BrownWool,
+            BlockId::GreenWool => TextureId::GreenWool,
+            BlockId::RedWool => TextureId::RedWool,
+            BlockId::BlackWool => TextureId::BlackWool,
+            BlockId::SheepSpawnEgg => TextureId::SheepSpawnEgg,
+            BlockId::Shears => TextureId::Shears,
             BlockId::Custom(id) => crate::engine::modding::get_custom_texture_id(id),
             _ => TextureId::Planks,
         }
@@ -1527,16 +1771,32 @@ mod tests {
     #[test]
     fn test_new_blocks_and_tools() {
         // Roundtrip u8
-        for id in 0..=109u8 {
+        for id in 0..=127u8 {
             let block = BlockId::from_u8(id);
             assert_eq!(block.to_u8(), id);
             // Verify is_solid and is_transparent don't panic on u128 masks
             let _ = block.is_solid();
             let _ = block.is_transparent();
         }
-        let custom = BlockId::from_u8(120);
-        assert_eq!(custom, BlockId::Custom(120));
-        assert_eq!(custom.to_u8(), 120);
+        let custom = BlockId::from_u8(140);
+        assert_eq!(custom, BlockId::Custom(140));
+        assert_eq!(custom.to_u8(), 140);
+
+        // Wool properties
+        assert!(BlockId::WhiteWool.is_wool());
+        assert!(BlockId::BlackWool.is_wool());
+        assert!(BlockId::WhiteWool.is_solid());
+        assert_eq!(BlockId::WhiteWool.break_time(), 0.8);
+        assert_eq!(BlockId::mining_speed_multiplier(Some(BlockId::Shears), BlockId::WhiteWool), 10.0);
+        assert_eq!(BlockId::wool_color_index(BlockId::WhiteWool), Some(0));
+        assert_eq!(BlockId::wool_color_index(BlockId::BlackWool), Some(15));
+        assert_eq!(BlockId::wool_block_from_color(0), BlockId::WhiteWool);
+        assert_eq!(BlockId::wool_block_from_color(15), BlockId::BlackWool);
+
+        // Shears tool
+        assert!(BlockId::Shears.is_tool());
+        assert_eq!(BlockId::Shears.attack_damage(), 3.0);
+        assert!(!BlockId::Shears.is_solid());
 
         // Diamond & Gold tools
         assert!(BlockId::DiamondPickaxe.is_tool());
@@ -1571,6 +1831,13 @@ mod tests {
         assert!(!BlockId::ButtonPressed.is_solid(), "ButtonPressed must be passable");
         assert!(!BlockId::PressurePlate.is_solid(), "PressurePlate must be passable");
         assert!(!BlockId::PressurePlatePressed.is_solid(), "PressurePlatePressed must be passable");
+
+        // Targetable (can be raycast, mined, and picked)
+        assert!(BlockId::RustStone.is_targetable(), "RustStone wire must be targetable");
+        assert!(BlockId::RustStoneWireLit.is_targetable(), "Lit wire must be targetable");
+        assert!(BlockId::Lever.is_targetable(), "Lever must be targetable");
+        assert!(BlockId::Button.is_targetable(), "Button must be targetable");
+        assert!(BlockId::PressurePlate.is_targetable(), "PressurePlate must be targetable");
 
         // Transparent
         assert!(BlockId::RustStone.is_transparent());

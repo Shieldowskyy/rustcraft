@@ -773,10 +773,10 @@ impl ModManager {
         is_item_only: bool,
         reg: &mut ModRegistry,
     ) -> Result<(), String> {
-        // ID range for custom blocks/items: 120..=254
-        let id_raw = obj.get("id").and_then(|v| v.as_u8()).ok_or("block/item requires 'id' (120-255)")?;
-        if id_raw < 120 {
-            return Err(format!("Mod block/item ID {} conflicts with vanilla IDs (0-119). Use 120..255.", id_raw));
+        // ID range for custom blocks/items: 140..=254
+        let id_raw = obj.get("id").and_then(|v| v.as_u8()).ok_or("block/item requires 'id' (140-255)")?;
+        if id_raw < 140 {
+            return Err(format!("Mod block/item ID {} conflicts with vanilla IDs (0-139). Use 140..255.", id_raw));
         }
 
         let identifier = obj.get("identifier").and_then(|v| v.as_str()).ok_or("requires 'identifier'")?.to_string();
@@ -823,7 +823,7 @@ impl ModManager {
             [avg_color[0] * 0.8, avg_color[1] * 0.8, avg_color[2] * 0.8],
         ];
 
-        let custom_tex_idx = (id_raw - 120) as u8;
+        let custom_tex_idx = (id_raw - 140) as u8;
         let texture_id = TextureId::Custom(custom_tex_idx);
 
         // Optional drop definition
@@ -1551,7 +1551,7 @@ mod tests {
             "name": "Food Mod",
             "items": [
                 {
-                    "id": 129,
+                    "id": 149,
                     "identifier": "super_pie",
                     "name": "Super Pie",
                     "is_food": true,
@@ -1563,8 +1563,8 @@ mod tests {
         let mut book = RecipeBook::new();
         let _ = ModManager::register_mod_from_str(json, Path::new("mods/food"), &mut book).unwrap();
 
-        assert!(is_custom_food(129));
-        assert_eq!(get_custom_nutrition(129), Some((8.0, 5.0)));
+        assert!(is_custom_food(149));
+        assert_eq!(get_custom_nutrition(149), Some((8.0, 5.0)));
     }
 
     #[test]

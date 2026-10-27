@@ -1060,6 +1060,26 @@ pub enum TextureId {
     Lever,
     Button,
     PressurePlate,
+    WhiteWool,
+    OrangeWool,
+    MagentaWool,
+    LightBlueWool,
+    YellowWool,
+    LimeWool,
+    PinkWool,
+    GrayWool,
+    LightGrayWool,
+    CyanWool,
+    PurpleWool,
+    BlueWool,
+    BrownWool,
+    GreenWool,
+    RedWool,
+    BlackWool,
+    SheepSkin,
+    SheepFace,
+    Shears,
+    SheepSpawnEgg,
     /// Custom modded texture (index 0..=63)
     Custom(u8),
 }
@@ -1505,6 +1525,26 @@ pub struct TextureAtlas {
     pub lever: Texture,
     pub button: Texture,
     pub pressure_plate: Texture,
+    pub white_wool: Texture,
+    pub orange_wool: Texture,
+    pub magenta_wool: Texture,
+    pub light_blue_wool: Texture,
+    pub yellow_wool: Texture,
+    pub lime_wool: Texture,
+    pub pink_wool: Texture,
+    pub gray_wool: Texture,
+    pub light_gray_wool: Texture,
+    pub cyan_wool: Texture,
+    pub purple_wool: Texture,
+    pub blue_wool: Texture,
+    pub brown_wool: Texture,
+    pub green_wool: Texture,
+    pub red_wool: Texture,
+    pub black_wool: Texture,
+    pub sheep_skin: Texture,
+    pub sheep_face: Texture,
+    pub shears: Texture,
+    pub sheep_spawn_egg: Texture,
     pub custom: Vec<Texture>,
 }
 
@@ -2977,6 +3017,118 @@ fn pressure_plate_texture() -> Texture {
     Texture { texels }
 }
 
+fn wool_texture(base: [f32; 3], seed: u32) -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let knit = if (x + y) % 2 == 0 { 0.04 } else { -0.04 };
+            let sub_pattern = if (x % 4 == 0) || (y % 4 == 0) { -0.03 } else { 0.02 };
+            let noise = (rand_at(x, y, seed) - 0.5) * 0.12;
+            let shade = (1.0 + knit + sub_pattern + noise).clamp(0.0, 1.8);
+            texels[y * TEX_SIZE + x] = [
+                (base[0] * shade).clamp(0.0, 1.0),
+                (base[1] * shade).clamp(0.0, 1.0),
+                (base[2] * shade).clamp(0.0, 1.0),
+            ];
+        }
+    }
+    Texture { texels }
+}
+
+fn sheep_skin() -> Texture {
+    let base = [0.88, 0.76, 0.70];
+    speckled(base, 0.08, 431)
+}
+
+fn sheep_face() -> Texture {
+    let mut tex = sheep_skin();
+    let eye_white = [0.95, 0.95, 0.95];
+    let pupil = [0.12, 0.10, 0.08];
+    let snout_pink = [0.86, 0.58, 0.62];
+    let nostril = [0.65, 0.40, 0.44];
+
+    for y in 5..=7 {
+        for x in 2..=4 {
+            tex.texels[y * TEX_SIZE + x] = eye_white;
+        }
+        for x in 11..=13 {
+            tex.texels[y * TEX_SIZE + x] = eye_white;
+        }
+    }
+    tex.texels[6 * TEX_SIZE + 3] = pupil;
+    tex.texels[6 * TEX_SIZE + 4] = pupil;
+    tex.texels[6 * TEX_SIZE + 11] = pupil;
+    tex.texels[6 * TEX_SIZE + 12] = pupil;
+
+    for y in 10..=13 {
+        for x in 5..=10 {
+            tex.texels[y * TEX_SIZE + x] = snout_pink;
+        }
+    }
+    tex.texels[12 * TEX_SIZE + 6] = nostril;
+    tex.texels[12 * TEX_SIZE + 9] = nostril;
+
+    tex
+}
+
+fn shears_texture() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let iron_hi = [0.90, 0.90, 0.95];
+    let iron_mid = [0.72, 0.72, 0.76];
+    let iron_sh = [0.45, 0.45, 0.50];
+    let screw = [0.30, 0.30, 0.32];
+
+    for i in 2..=13 {
+        texels[i * TEX_SIZE + i] = iron_mid;
+        if i + 1 < TEX_SIZE { texels[i * TEX_SIZE + (i + 1)] = iron_hi; }
+        if i > 0 { texels[i * TEX_SIZE + (i - 1)] = iron_sh; }
+
+        let other_x = 15 - i;
+        texels[i * TEX_SIZE + other_x] = iron_mid;
+        if other_x + 1 < TEX_SIZE { texels[i * TEX_SIZE + (other_x + 1)] = iron_hi; }
+        if other_x > 0 { texels[i * TEX_SIZE + (other_x - 1)] = iron_sh; }
+    }
+    texels[7 * TEX_SIZE + 7] = screw;
+    texels[7 * TEX_SIZE + 8] = screw;
+    texels[8 * TEX_SIZE + 7] = screw;
+    texels[8 * TEX_SIZE + 8] = screw;
+
+    Texture { texels }
+}
+
+fn sheep_spawn_egg() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let base = [0.88, 0.88, 0.86];
+    let spot = [0.85, 0.65, 0.68];
+    let outline = [0.35, 0.35, 0.35];
+
+    for y in 2..=14 {
+        for x in 3..=12 {
+            let dx = (x as f32 - 7.5).abs();
+            let dy = y as f32;
+            let width_at_y = if dy < 6.0 {
+                (dy - 1.0) * 0.7 + 0.5
+            } else if dy <= 11.0 {
+                4.2
+            } else {
+                (14.5 - dy) * 1.1 + 0.5
+            };
+            if dx <= width_at_y {
+                let is_border = dx > width_at_y - 0.9 || y == 2 || y == 14;
+                let is_spot = (x == 6 && y == 5) || (x == 9 && y == 8) || (x == 5 && y == 10) || (x == 8 && y == 12);
+                texels[y * TEX_SIZE + x] = if is_border {
+                    outline
+                } else if is_spot {
+                    spot
+                } else {
+                    base
+                };
+            }
+        }
+    }
+    Texture { texels }
+}
+
 impl TextureAtlas {
     pub fn generate() -> TextureAtlas {
         Self::generate_with_fancy(true)
@@ -3120,6 +3272,26 @@ impl TextureAtlas {
             lever: lever_texture(),
             button: button_texture(),
             pressure_plate: pressure_plate_texture(),
+            white_wool: wool_texture([0.91, 0.92, 0.92], 101),
+            orange_wool: wool_texture([0.94, 0.46, 0.07], 102),
+            magenta_wool: wool_texture([0.74, 0.27, 0.70], 103),
+            light_blue_wool: wool_texture([0.23, 0.69, 0.85], 104),
+            yellow_wool: wool_texture([0.97, 0.78, 0.15], 105),
+            lime_wool: wool_texture([0.44, 0.73, 0.10], 106),
+            pink_wool: wool_texture([0.93, 0.55, 0.67], 107),
+            gray_wool: wool_texture([0.24, 0.27, 0.28], 108),
+            light_gray_wool: wool_texture([0.56, 0.56, 0.53], 109),
+            cyan_wool: wool_texture([0.08, 0.54, 0.57], 110),
+            purple_wool: wool_texture([0.47, 0.16, 0.67], 111),
+            blue_wool: wool_texture([0.21, 0.22, 0.62], 112),
+            brown_wool: wool_texture([0.45, 0.28, 0.16], 113),
+            green_wool: wool_texture([0.33, 0.43, 0.11], 114),
+            red_wool: wool_texture([0.63, 0.15, 0.13], 115),
+            black_wool: wool_texture([0.08, 0.08, 0.10], 116),
+            sheep_skin: sheep_skin(),
+            sheep_face: sheep_face(),
+            shears: shears_texture(),
+            sheep_spawn_egg: sheep_spawn_egg(),
             custom: crate::engine::modding::generate_mod_textures(),
         }
     }
@@ -3271,6 +3443,26 @@ impl TextureAtlas {
             TextureId::Lever => &self.lever,
             TextureId::Button => &self.button,
             TextureId::PressurePlate => &self.pressure_plate,
+            TextureId::WhiteWool => &self.white_wool,
+            TextureId::OrangeWool => &self.orange_wool,
+            TextureId::MagentaWool => &self.magenta_wool,
+            TextureId::LightBlueWool => &self.light_blue_wool,
+            TextureId::YellowWool => &self.yellow_wool,
+            TextureId::LimeWool => &self.lime_wool,
+            TextureId::PinkWool => &self.pink_wool,
+            TextureId::GrayWool => &self.gray_wool,
+            TextureId::LightGrayWool => &self.light_gray_wool,
+            TextureId::CyanWool => &self.cyan_wool,
+            TextureId::PurpleWool => &self.purple_wool,
+            TextureId::BlueWool => &self.blue_wool,
+            TextureId::BrownWool => &self.brown_wool,
+            TextureId::GreenWool => &self.green_wool,
+            TextureId::RedWool => &self.red_wool,
+            TextureId::BlackWool => &self.black_wool,
+            TextureId::SheepSkin => &self.sheep_skin,
+            TextureId::SheepFace => &self.sheep_face,
+            TextureId::Shears => &self.shears,
+            TextureId::SheepSpawnEgg => &self.sheep_spawn_egg,
             TextureId::Custom(idx) => self.custom.get(idx as usize).unwrap_or(&self.stone),
         }
     }
