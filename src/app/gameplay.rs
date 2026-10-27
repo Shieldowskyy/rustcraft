@@ -255,13 +255,13 @@ impl RustCraftApp {
 
                 if input.is_mouse_captured && !self.chat.is_open {
                     self.camera.rotate(
-                        input.mouse_dx * 0.0025 * look_x_dir,
-                        -input.mouse_dy * 0.0025 * look_y_dir,
+                        input.mouse_dx * 0.0025 * look_x_dir * self.settings.mouse_sensitivity,
+                        -input.mouse_dy * 0.0025 * look_y_dir * self.settings.mouse_sensitivity,
                     );
                 }
 
-                let gp_look_speed_x = 3.2;
-                let gp_look_speed_y = 2.8;
+                let gp_look_speed_x = 3.2 * self.settings.gamepad_sensitivity;
+                let gp_look_speed_y = 2.8 * self.settings.gamepad_sensitivity;
                 if (input.gp_right_stick_x.abs() > 0.0 || input.gp_right_stick_y.abs() > 0.0) && !self.chat.is_open {
                     self.camera.rotate(
                         input.gp_right_stick_x * gp_look_speed_x * dt * look_x_dir,
@@ -763,6 +763,8 @@ impl RustCraftApp {
                         }
                     }
                 }
+
+                self.player.update_held_item_tracker(dt);
 
                 let mut selected_block_id = 0u8;
                 if let Some(stack) = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {

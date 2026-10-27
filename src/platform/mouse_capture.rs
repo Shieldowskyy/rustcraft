@@ -166,6 +166,68 @@ mod x11_capture {
                 (dx, dy)
             }
         }
+
+        pub fn poll_pointer_mask(&self) -> u32 {
+            unsafe {
+                let mut root_ret: c_ulong = 0;
+                let mut child_ret: c_ulong = 0;
+                let mut root_x: c_int = 0;
+                let mut root_y: c_int = 0;
+                let mut win_x: c_int = 0;
+                let mut win_y: c_int = 0;
+                let mut mask: u32 = 0;
+
+                let ok = (self.lib.XQueryPointer)(
+                    self.display,
+                    self.window,
+                    &mut root_ret,
+                    &mut child_ret,
+                    &mut root_x,
+                    &mut root_y,
+                    &mut win_x,
+                    &mut win_y,
+                    &mut mask,
+                );
+                if ok != 0 {
+                    mask
+                } else {
+                    0
+                }
+            }
+        }
+
+        pub fn poll_keymap(&self, keys_down: &mut std::collections::HashSet<crate::core::controls::KeyCode>) {
+            unsafe {
+                let mut keys_return = [0u8; 32];
+                (self.lib.XQueryKeymap)(self.display, keys_return.as_mut_ptr() as *mut _);
+
+                // F13..F24 keysyms: 0xFFCA .. 0xFFD5
+                for (offset, f_code) in (0xFFCA..=0xFFD5).zip([
+                    crate::core::controls::KeyCode::F13,
+                    crate::core::controls::KeyCode::F14,
+                    crate::core::controls::KeyCode::F15,
+                    crate::core::controls::KeyCode::F16,
+                    crate::core::controls::KeyCode::F17,
+                    crate::core::controls::KeyCode::F18,
+                    crate::core::controls::KeyCode::F19,
+                    crate::core::controls::KeyCode::F20,
+                    crate::core::controls::KeyCode::F21,
+                    crate::core::controls::KeyCode::F22,
+                    crate::core::controls::KeyCode::F23,
+                    crate::core::controls::KeyCode::F24,
+                ]) {
+                    let keycode = (self.lib.XKeysymToKeycode)(self.display, offset);
+                    if keycode > 0 {
+                        let kc = keycode as usize;
+                        let byte_idx = kc / 8;
+                        let bit_idx = kc % 8;
+                        if byte_idx < 32 && (keys_return[byte_idx] & (1 << bit_idx)) != 0 {
+                            keys_down.insert(f_code);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     impl Drop for X11Capture {
@@ -499,6 +561,40 @@ impl MouseCapture {
         #[cfg(not(any(target_os = "linux", target_os = "freebsd", windows)))]
         {
             (0.0, 0.0)
+        }
+    }
+
+    pub fn poll_extra_buttons(&self) -> (bool, bool, [bool; 4]) {
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        {
+            if let Some(inner) = &self.inner {
+                let mask = inner.poll_pointer_mask();
+                // Button 1..5 are bits 8..12
+                // Button 8 (Mouse4) is (1 << 15), Button 9 (Mouse5) is (1 << 16)
+                let mouse_4 = (mask & (1 << 15)) != 0;
+                let mouse_5 = (mask & (1 << 16)) != 0;
+                let mouse_extra = [
+                    (mask & (1 << 17)) != 0,
+                    (mask & (1 << 18)) != 0,
+                    (mask & (1 << 19)) != 0,
+                    (mask & (1 << 20)) != 0,
+                ];
+                return (mouse_4, mouse_5, mouse_extra);
+            }
+        }
+        (false, false, [false; 4])
+    }
+
+    pub fn poll_extra_keys(&self, keys_down: &mut std::collections::HashSet<crate::core::controls::KeyCode>) {
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        {
+            if let Some(inner) = &self.inner {
+                inner.poll_keymap(keys_down);
+            }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+        {
+            let _ = keys_down;
         }
     }
 }

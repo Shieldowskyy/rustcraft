@@ -59,21 +59,21 @@ pub fn settings_graphics_rects(width: usize, height: usize) -> [(i32, i32, i32, 
     rects
 }
 
-/// Computes bounding boxes `(x, y, width, height)` for the 8 options in the Controls settings tab.
-pub fn settings_controls_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 8] {
+/// Computes bounding boxes `(x, y, width, height)` for the 11 options in the Controls settings tab.
+pub fn settings_controls_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 11] {
     let opt_w = 480;
-    let opt_h = 24;
-    let spacing = 7;
+    let opt_h = 20;
+    let spacing = 5;
     let cx = width as i32 / 2;
     let cy = height as i32 / 2;
-    let start_y = cy - 135;
+    let start_y = cy - 146;
 
-    let mut rects = [(0, 0, 0, 0); 8];
-    for i in 0..7 {
+    let mut rects = [(0, 0, 0, 0); 11];
+    for i in 0..10 {
         rects[i] = (cx - opt_w / 2, start_y + (opt_h + spacing) * i as i32, opt_w, opt_h);
     }
-    // Save & Back button at index 7 with extra margin
-    rects[7] = (cx - opt_w / 2, start_y + (opt_h + spacing) * 7 + 6, opt_w, opt_h);
+    // Save & Back button at index 10 with extra margin
+    rects[10] = (cx - opt_w / 2, start_y + (opt_h + spacing) * 10 + 6, opt_w, opt_h);
     rects
 }
 
@@ -383,6 +383,15 @@ pub fn draw_settings_menu(
         let sprint_str = t(settings.sprint_mode.translation_key());
         let sneak_str = t(settings.sneak_mode.translation_key());
         let jump_str = t(settings.jump_mode.translation_key());
+        let mouse_sens_pct = (settings.mouse_sensitivity * 100.0).round() as i32;
+        let gp_sens_pct = (settings.gamepad_sensitivity * 100.0).round() as i32;
+
+        let is_pc = !cfg!(any(target_os = "vita", target_os = "xbox360", target_os = "xenon", target_os = "android"));
+        let rebind_label = if is_pc {
+            t("settings.rebind_controls").to_string()
+        } else {
+            t("settings.rebind_controls_pc_only").to_string()
+        };
 
         let options = [
             t_fmt("settings.sprint_mode", &[sprint_str]),
@@ -390,15 +399,19 @@ pub fn draw_settings_menu(
             t_fmt("settings.jump_mode", &[jump_str]),
             format!("{}: {}", t("settings.invert_y"), if settings.invert_y { on_str } else { off_str }),
             format!("{}: {}", t("settings.invert_z"), if settings.invert_z { on_str } else { off_str }),
+            t_fmt("settings.mouse_sensitivity", &[&mouse_sens_pct.to_string()]),
+            t_fmt("settings.gamepad_sensitivity", &[&gp_sens_pct.to_string()]),
             format!("{}: {}", t("settings.vibration"), if settings.vibration { on_str } else { off_str }),
             format!("{}: {}", t("settings.damage_tilt"), if settings.damage_tilt { on_str } else { off_str }),
+            rebind_label,
             t("settings.save_and_back").to_string(),
         ];
 
         let rects = settings_controls_rects(width, height);
         for (i, (label, &(bx, by, bw, bh))) in options.iter().zip(rects.iter()).enumerate() {
             let is_hover = hovered_idx == Some(i);
-            draw_option_button(buffer, width, height, label, bx, by, bw, bh, is_hover, i == 7, mouse_pos);
+            let is_action_btn = i == 9 || i == 10;
+            draw_option_button(buffer, width, height, label, bx, by, bw, bh, is_hover, is_action_btn, mouse_pos);
         }
     } else {
         // Tab 3: DEBUG

@@ -110,8 +110,12 @@ pub struct RustCraftApp {
     pub settings_tab_rects: [(i32, i32, i32, i32); 4],
     pub settings_rects: [(i32, i32, i32, i32); 13],
     pub settings_audio_rects: [(i32, i32, i32, i32); 7],
-    pub settings_controls_rects: [(i32, i32, i32, i32); 8],
+    pub settings_controls_rects: [(i32, i32, i32, i32); 11],
     pub settings_debug_rects: [(i32, i32, i32, i32); 5],
+    pub rebind_search: String,
+    pub rebind_scroll: usize,
+    pub rebinding_target: Option<(crate::core::controls::Action, crate::ui::controls_ui::RebindSlot)>,
+    pub rebind_cursor_timer: f32,
     pub is_gamepad_active: bool,
     pub last_mouse_pos: Option<(f32, f32)>,
     pub pending_rumble: Option<RumbleRequest>,
@@ -361,6 +365,10 @@ impl RustCraftApp {
             settings_audio_rects,
             settings_controls_rects,
             settings_debug_rects,
+            rebind_search: String::new(),
+            rebind_scroll: 0,
+            rebinding_target: None,
+            rebind_cursor_timer: 0.0,
             is_gamepad_active: false,
             last_mouse_pos: None,
             pending_rumble: None,
@@ -557,6 +565,7 @@ impl RustCraftApp {
             GameState::SaveSelect => self.update_and_render_save_select(dt, input, mouse_moved, &mut out),
             GameState::CreateWorld => self.update_and_render_create_world(input, mouse_moved, &mut out),
             GameState::Settings(prev) => self.update_and_render_settings(input, prev, mouse_moved, &mut out),
+            GameState::ControlsRebind(prev) => self.update_and_render_controls_rebind(prev, dt, input, mouse_moved, &mut out),
             #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
             GameState::Loading(ref rx) => {
                 let res = rx.try_recv().ok();
@@ -652,6 +661,7 @@ impl RustCraftApp {
                     GameState::SaveSelect => "Save Select",
                     GameState::CreateWorld => "Create World",
                     GameState::Settings(_) => "Settings",
+                    GameState::ControlsRebind(_) => "Controls Rebind",
                     GameState::EditNickname(_) => "Change Nickname",
                     #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
                     GameState::Loading(_) => "Loading",

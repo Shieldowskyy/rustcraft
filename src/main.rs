@@ -253,6 +253,132 @@ fn main() {
             }
         }
 
+        let mut keys_down = std::collections::HashSet::new();
+        for key in window.get_keys() {
+            match key {
+                Key::A => { keys_down.insert(rustcraft::core::controls::KeyCode::A); }
+                Key::B => { keys_down.insert(rustcraft::core::controls::KeyCode::B); }
+                Key::C => { keys_down.insert(rustcraft::core::controls::KeyCode::C); }
+                Key::D => { keys_down.insert(rustcraft::core::controls::KeyCode::D); }
+                Key::E => { keys_down.insert(rustcraft::core::controls::KeyCode::E); }
+                Key::F => { keys_down.insert(rustcraft::core::controls::KeyCode::F); }
+                Key::G => { keys_down.insert(rustcraft::core::controls::KeyCode::G); }
+                Key::H => { keys_down.insert(rustcraft::core::controls::KeyCode::H); }
+                Key::I => { keys_down.insert(rustcraft::core::controls::KeyCode::I); }
+                Key::J => { keys_down.insert(rustcraft::core::controls::KeyCode::J); }
+                Key::K => { keys_down.insert(rustcraft::core::controls::KeyCode::K); }
+                Key::L => { keys_down.insert(rustcraft::core::controls::KeyCode::L); }
+                Key::M => { keys_down.insert(rustcraft::core::controls::KeyCode::M); }
+                Key::N => { keys_down.insert(rustcraft::core::controls::KeyCode::N); }
+                Key::O => { keys_down.insert(rustcraft::core::controls::KeyCode::O); }
+                Key::P => { keys_down.insert(rustcraft::core::controls::KeyCode::P); }
+                Key::Q => { keys_down.insert(rustcraft::core::controls::KeyCode::Q); }
+                Key::R => { keys_down.insert(rustcraft::core::controls::KeyCode::R); }
+                Key::S => { keys_down.insert(rustcraft::core::controls::KeyCode::S); }
+                Key::T => { keys_down.insert(rustcraft::core::controls::KeyCode::T); }
+                Key::U => { keys_down.insert(rustcraft::core::controls::KeyCode::U); }
+                Key::V => { keys_down.insert(rustcraft::core::controls::KeyCode::V); }
+                Key::W => { keys_down.insert(rustcraft::core::controls::KeyCode::W); }
+                Key::X => { keys_down.insert(rustcraft::core::controls::KeyCode::X); }
+                Key::Y => { keys_down.insert(rustcraft::core::controls::KeyCode::Y); }
+                Key::Z => { keys_down.insert(rustcraft::core::controls::KeyCode::Z); }
+                Key::Key0 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key0); }
+                Key::Key1 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key1); }
+                Key::Key2 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key2); }
+                Key::Key3 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key3); }
+                Key::Key4 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key4); }
+                Key::Key5 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key5); }
+                Key::Key6 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key6); }
+                Key::Key7 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key7); }
+                Key::Key8 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key8); }
+                Key::Key9 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key9); }
+                Key::F1 => { keys_down.insert(rustcraft::core::controls::KeyCode::F1); }
+                Key::F2 => { keys_down.insert(rustcraft::core::controls::KeyCode::F2); }
+                Key::F3 => { keys_down.insert(rustcraft::core::controls::KeyCode::F3); }
+                Key::F4 => { keys_down.insert(rustcraft::core::controls::KeyCode::F4); }
+                Key::F5 => { keys_down.insert(rustcraft::core::controls::KeyCode::F5); }
+                Key::F6 => { keys_down.insert(rustcraft::core::controls::KeyCode::F6); }
+                Key::F7 => { keys_down.insert(rustcraft::core::controls::KeyCode::F7); }
+                Key::F8 => { keys_down.insert(rustcraft::core::controls::KeyCode::F8); }
+                Key::F9 => { keys_down.insert(rustcraft::core::controls::KeyCode::F9); }
+                Key::F10 => { keys_down.insert(rustcraft::core::controls::KeyCode::F10); }
+                Key::F11 => { keys_down.insert(rustcraft::core::controls::KeyCode::F11); }
+                Key::F12 => { keys_down.insert(rustcraft::core::controls::KeyCode::F12); }
+                Key::F13 => { keys_down.insert(rustcraft::core::controls::KeyCode::F13); }
+                Key::F14 => { keys_down.insert(rustcraft::core::controls::KeyCode::F14); }
+                Key::F15 => { keys_down.insert(rustcraft::core::controls::KeyCode::F15); }
+                Key::Space => { keys_down.insert(rustcraft::core::controls::KeyCode::Space); }
+                Key::LeftShift => {
+                    keys_down.insert(rustcraft::core::controls::KeyCode::Shift);
+                    keys_down.insert(rustcraft::core::controls::KeyCode::LeftShift);
+                }
+                Key::RightShift => {
+                    keys_down.insert(rustcraft::core::controls::KeyCode::Shift);
+                    keys_down.insert(rustcraft::core::controls::KeyCode::RightShift);
+                }
+                Key::LeftCtrl => {
+                    keys_down.insert(rustcraft::core::controls::KeyCode::Ctrl);
+                    keys_down.insert(rustcraft::core::controls::KeyCode::LeftCtrl);
+                }
+                Key::RightCtrl => {
+                    keys_down.insert(rustcraft::core::controls::KeyCode::Ctrl);
+                    keys_down.insert(rustcraft::core::controls::KeyCode::RightCtrl);
+                }
+                Key::LeftAlt => {
+                    keys_down.insert(rustcraft::core::controls::KeyCode::Alt);
+                    keys_down.insert(rustcraft::core::controls::KeyCode::LeftAlt);
+                }
+                Key::RightAlt => {
+                    keys_down.insert(rustcraft::core::controls::KeyCode::Alt);
+                    keys_down.insert(rustcraft::core::controls::KeyCode::RightAlt);
+                }
+                Key::Tab => { keys_down.insert(rustcraft::core::controls::KeyCode::Tab); }
+                Key::Enter => { keys_down.insert(rustcraft::core::controls::KeyCode::Enter); }
+                Key::Escape => { keys_down.insert(rustcraft::core::controls::KeyCode::Escape); }
+                Key::Backspace => { keys_down.insert(rustcraft::core::controls::KeyCode::Backspace); }
+                Key::Delete => { keys_down.insert(rustcraft::core::controls::KeyCode::Delete); }
+                Key::Insert => { keys_down.insert(rustcraft::core::controls::KeyCode::Insert); }
+                Key::Home => { keys_down.insert(rustcraft::core::controls::KeyCode::Home); }
+                Key::End => { keys_down.insert(rustcraft::core::controls::KeyCode::End); }
+                Key::PageUp => { keys_down.insert(rustcraft::core::controls::KeyCode::PageUp); }
+                Key::PageDown => { keys_down.insert(rustcraft::core::controls::KeyCode::PageDown); }
+                Key::Up => { keys_down.insert(rustcraft::core::controls::KeyCode::Up); }
+                Key::Down => { keys_down.insert(rustcraft::core::controls::KeyCode::Down); }
+                Key::Left => { keys_down.insert(rustcraft::core::controls::KeyCode::Left); }
+                Key::Right => { keys_down.insert(rustcraft::core::controls::KeyCode::Right); }
+                Key::Minus => { keys_down.insert(rustcraft::core::controls::KeyCode::Minus); }
+                Key::Equal => { keys_down.insert(rustcraft::core::controls::KeyCode::Equal); }
+                Key::LeftBracket => { keys_down.insert(rustcraft::core::controls::KeyCode::LeftBracket); }
+                Key::RightBracket => { keys_down.insert(rustcraft::core::controls::KeyCode::RightBracket); }
+                Key::Semicolon => { keys_down.insert(rustcraft::core::controls::KeyCode::Semicolon); }
+                Key::Apostrophe => { keys_down.insert(rustcraft::core::controls::KeyCode::Apostrophe); }
+                Key::Backquote => { keys_down.insert(rustcraft::core::controls::KeyCode::Grave); }
+                Key::Backslash => { keys_down.insert(rustcraft::core::controls::KeyCode::Backslash); }
+                Key::Slash => { keys_down.insert(rustcraft::core::controls::KeyCode::Slash); }
+                Key::Comma => { keys_down.insert(rustcraft::core::controls::KeyCode::Comma); }
+                Key::Period => { keys_down.insert(rustcraft::core::controls::KeyCode::Period); }
+                Key::NumPad0 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad0); }
+                Key::NumPad1 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad1); }
+                Key::NumPad2 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad2); }
+                Key::NumPad3 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad3); }
+                Key::NumPad4 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad4); }
+                Key::NumPad5 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad5); }
+                Key::NumPad6 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad6); }
+                Key::NumPad7 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad7); }
+                Key::NumPad8 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad8); }
+                Key::NumPad9 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad9); }
+                Key::NumPadDot => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPadDot); }
+                Key::NumPadSlash => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPadSlash); }
+                Key::NumPadAsterisk => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPadAsterisk); }
+                Key::NumPadMinus => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPadMinus); }
+                Key::NumPadPlus => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPadPlus); }
+                Key::NumPadEnter => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPadEnter); }
+                _ => {}
+            }
+        }
+        mouse_capture.poll_extra_keys(&mut keys_down);
+        let (extra_mouse4, extra_mouse5, extra_mouse_arr) = mouse_capture.poll_extra_buttons();
+
         let input = InputState {
             gp_connected: gp.is_connected,
             mouse_dx,
@@ -260,7 +386,12 @@ fn main() {
             mouse_pos,
             mouse_left: window.get_mouse_down(MouseButton::Left),
             mouse_right: window.get_mouse_down(MouseButton::Right),
+            mouse_middle: window.get_mouse_down(MouseButton::Middle),
+            mouse_4: extra_mouse4,
+            mouse_5: extra_mouse5,
+            mouse_extra: extra_mouse_arr,
             scroll_delta,
+            keys_down,
 
             key_w: window.is_key_down(Key::W),
             key_s: window.is_key_down(Key::S),

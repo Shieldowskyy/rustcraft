@@ -29,6 +29,9 @@ pub struct Player {
     pub spawn_point: Option<crate::core::math::IVec3>,
     pub fire_timer: f32,
     pub fire_damage_timer: f32,
+    pub held_item_name_timer: f32,
+    pub last_held_block: Option<crate::world::block::BlockId>,
+    pub last_selected_slot: u8,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -73,6 +76,26 @@ impl Player {
             spawn_point: None,
             fire_timer: 0.0,
             fire_damage_timer: 0.0,
+            held_item_name_timer: 0.0,
+            last_held_block: None,
+            last_selected_slot: 0,
+        }
+    }
+
+    /// Ticks the held item change detection and display timer.
+    pub fn update_held_item_tracker(&mut self, dt: f32) {
+        let current_held = self.inventory.hotbar[self.selected_hotbar_slot as usize].map(|s| s.block);
+        if self.selected_hotbar_slot != self.last_selected_slot || current_held != self.last_held_block {
+            self.last_selected_slot = self.selected_hotbar_slot;
+            self.last_held_block = current_held;
+            if current_held.is_some() {
+                self.held_item_name_timer = 2.5;
+            } else {
+                self.held_item_name_timer = 0.0;
+            }
+        }
+        if self.held_item_name_timer > 0.0 {
+            self.held_item_name_timer = (self.held_item_name_timer - dt).max(0.0);
         }
     }
 

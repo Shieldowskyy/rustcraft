@@ -486,6 +486,38 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
             }
         }
     }
+
+    // Display held item name floating above hotbar when recently switched
+    if player.held_item_name_timer > 0.0 {
+        if let Some(stack) = &player.inventory.hotbar[player.selected_hotbar_slot as usize] {
+            let item_name = stack.block.name();
+            let scale = 1;
+            let tw = font::measure_text(item_name, scale, 1);
+            let tx = (width as i32 - tw) / 2;
+            let ty = if player.gamemode == GameMode::Survival {
+                if player.head_underwater || player.air < player.max_air {
+                    y - 40
+                } else {
+                    y - 28
+                }
+            } else {
+                y - 18
+            };
+
+            let alpha = if player.held_item_name_timer > 0.6 {
+                1.0
+            } else {
+                (player.held_item_name_timer / 0.6).clamp(0.0, 1.0)
+            };
+
+            // Subtle dark background pill with soft alpha
+            fill_rect_alpha(buffer, width, height, tx - 6, ty - 3, tw + 12, font::GLYPH_H as i32 + 6, pack_color(0.0, 0.0, 0.0), 0.60 * alpha);
+
+            // Item name text with shadow
+            let col = pack_color(1.0, 1.0, 1.0);
+            draw_text_colored_shadowed(buffer, width, height, item_name, tx, ty, scale, 1, col);
+        }
+    }
 }
 
 /// Draws a rasterized circular debug pie chart with colored slices.

@@ -44,6 +44,8 @@ pub enum GameState {
     CreateWorld,
     /// Video / graphics settings menu.
     Settings(PreviousMenu),
+    /// Key & controller remapping menu (PC only).
+    ControlsRebind(PreviousMenu),
     /// Change nickname modal dialogue.
     EditNickname(PreviousMenu),
     /// Asynchronous world generation / loading screen.
@@ -94,7 +96,12 @@ pub struct InputState {
     pub mouse_pos: Option<(f32, f32)>,
     pub mouse_left: bool,
     pub mouse_right: bool,
+    pub mouse_middle: bool,
+    pub mouse_4: bool,
+    pub mouse_5: bool,
+    pub mouse_extra: [bool; 4],
     pub scroll_delta: f32,
+    pub keys_down: std::collections::HashSet<crate::core::controls::KeyCode>,
 
     pub key_w: bool,
     pub key_s: bool,
@@ -176,6 +183,13 @@ pub struct InputState {
 
     pub is_mouse_captured: bool,
     pub gp_connected: bool,
+}
+
+impl InputState {
+    #[inline]
+    pub fn is_key_down(&self, key: crate::core::controls::KeyCode) -> bool {
+        self.keys_down.contains(&key)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -444,7 +444,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_controls_rects(&self) -> [(i32, i32, i32, i32); 8] {
+    pub fn settings_controls_rects(&self) -> [(i32, i32, i32, i32); 11] {
         crate::ui::settings_controls_rects(self.width, self.height)
     }
 

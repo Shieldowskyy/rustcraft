@@ -182,6 +182,10 @@ pub struct GameSettings {
     pub invert_y: bool,
     /// Invert Z / horizontal (yaw) camera axis.
     pub invert_z: bool,
+    /// Mouse look sensitivity multiplier [0.2, 3.0] (default: 1.0).
+    pub mouse_sensitivity: f32,
+    /// Gamepad stick look sensitivity multiplier [0.2, 3.0] (default: 1.0).
+    pub gamepad_sensitivity: f32,
     /// Gamepad force feedback vibration enabled (default: true).
     pub vibration: bool,
     /// Camera tilt animation when taking damage enabled (default: true).
@@ -240,6 +244,8 @@ impl Default for GameSettings {
             jump_mode: JumpMode::Normal,
             invert_y: false,
             invert_z: false,
+            mouse_sensitivity: 1.0,
+            gamepad_sensitivity: 1.0,
             vibration: true,
             damage_tilt: true,
             profiler_server: false,
@@ -376,6 +382,8 @@ impl GameSettings {
                 let vibration = bytes.get(audio_offset + 6).copied().unwrap_or(1) != 0;
                 let brightness = bytes.get(audio_offset + 7).copied().map(|b| (b as f32 / 100.0).clamp(0.0, 1.0)).unwrap_or(0.50);
                 let damage_tilt = bytes.get(audio_offset + 8).copied().unwrap_or(1) != 0;
+                let mouse_sensitivity = bytes.get(audio_offset + 9).map(|&b| if b == 0 { 1.0 } else { (b as f32 / 50.0).clamp(0.2, 3.0) }).unwrap_or(1.0);
+                let gamepad_sensitivity = bytes.get(audio_offset + 10).map(|&b| if b == 0 { 1.0 } else { (b as f32 / 50.0).clamp(0.2, 3.0) }).unwrap_or(1.0);
 
                 crate::core::i18n::set_language(language);
 
@@ -399,6 +407,8 @@ impl GameSettings {
                     jump_mode,
                     invert_y,
                     invert_z,
+                    mouse_sensitivity,
+                    gamepad_sensitivity,
                     vibration,
                     damage_tilt,
                     profiler_server,
@@ -479,8 +489,42 @@ impl GameSettings {
         bytes.push(if self.vibration { 1 } else { 0 });
         bytes.push((self.brightness.clamp(0.0, 1.0) * 100.0) as u8);
         bytes.push(if self.damage_tilt { 1 } else { 0 });
+        bytes.push((self.mouse_sensitivity.clamp(0.2, 3.0) * 50.0).round() as u8);
+        bytes.push((self.gamepad_sensitivity.clamp(0.2, 3.0) * 50.0).round() as u8);
 
         std::fs::write(&path, bytes).map_err(|e| e.to_string())
+    }
+
+    pub fn cycle_mouse_sensitivity(&mut self, forward: bool) {
+        let step = 0.1;
+        if forward {
+            self.mouse_sensitivity += step;
+            if self.mouse_sensitivity > 3.05 {
+                self.mouse_sensitivity = 0.2;
+            }
+        } else {
+            self.mouse_sensitivity -= step;
+            if self.mouse_sensitivity < 0.15 {
+                self.mouse_sensitivity = 3.0;
+            }
+        }
+        self.mouse_sensitivity = (self.mouse_sensitivity * 10.0).round() / 10.0;
+    }
+
+    pub fn cycle_gamepad_sensitivity(&mut self, forward: bool) {
+        let step = 0.1;
+        if forward {
+            self.gamepad_sensitivity += step;
+            if self.gamepad_sensitivity > 3.05 {
+                self.gamepad_sensitivity = 0.2;
+            }
+        } else {
+            self.gamepad_sensitivity -= step;
+            if self.gamepad_sensitivity < 0.15 {
+                self.gamepad_sensitivity = 3.0;
+            }
+        }
+        self.gamepad_sensitivity = (self.gamepad_sensitivity * 10.0).round() / 10.0;
     }
 
     pub fn toggle_damage_tilt(&mut self) {
