@@ -135,27 +135,33 @@ pub fn get_biome_at(wx: i32, wz: i32, seed: u32) -> (Biome, f32) {
         }
     } else if continentalness > 0.34 {
         // Mountain region: high peaks and alpine ranges
-        if temp < -0.08 {
-            if rarity > 0.06 {
-                Biome::FrozenPeaks
-            } else if continentalness > 0.44 {
+        if continentalness < 0.46 {
+            // Lower mountain foothills / slopes buffer zone
+            if continentalness < 0.44 && temp > -0.05 && temp < 0.22 && humidity > -0.05 {
+                Biome::Meadow
+            } else if temp < 0.02 {
+                Biome::SnowySlopes
+            } else {
+                Biome::Mountain
+            }
+        } else {
+            // High mountain summits & peaks (continentalness >= 0.46)
+            if temp < 0.0 {
+                if rarity > -0.05 {
+                    Biome::FrozenPeaks
+                } else {
+                    Biome::JaggedPeaks
+                }
+            } else if temp < 0.12 {
                 Biome::JaggedPeaks
             } else {
-                Biome::SnowySlopes
+                Biome::Mountain
             }
-        } else if continentalness < 0.44 && temp > -0.05 && temp < 0.22 && humidity > -0.05 {
-            Biome::Meadow
-        } else if continentalness > 0.48 && temp < 0.10 {
-            Biome::JaggedPeaks
-        } else if continentalness > 0.38 && temp < 0.02 {
-            Biome::SnowySlopes
-        } else {
-            Biome::Mountain
         }
     } else if temp < -0.30 {
         // Cold / Snowy zones (rare arctic regions)
-        if continentalness > 0.08 {
-            if rarity > 0.08 {
+        if continentalness > 0.24 {
+            if rarity > 0.05 {
                 Biome::FrozenPeaks
             } else {
                 Biome::SnowySlopes
@@ -224,28 +230,33 @@ pub fn get_height_at(wx: i32, wz: i32, seed: u32, biome: Biome, continentalness:
         Biome::Ocean => 13.0 + n * 4.0,
         Biome::MushroomIsland => 23.0 + n * 3.0,
         Biome::Swamp => 20.0 + n * 2.5,
-        Biome::Mountain => {
-            let m_extra = ((continentalness - 0.34) / 0.66).clamp(0.0, 1.0);
-            let ridge = 1.0 - (n * 2.0).abs().clamp(0.0, 1.0);
-            38.0 + n * 8.0 + ridge * 12.0 + m_extra * 8.0
-        }
-        Biome::JaggedPeaks => {
-            let m_extra = ((continentalness - 0.34) / 0.66).clamp(0.0, 1.0);
-            let ridge = 1.0 - (n * 2.4).abs().clamp(0.0, 1.0);
-            44.0 + ridge * 15.0 + m_extra * 4.0 + n * 3.0
-        }
-        Biome::FrozenPeaks => {
-            let m_extra = ((continentalness - 0.34) / 0.66).clamp(0.0, 1.0);
-            let ridge = 1.0 - (n * 2.0).abs().clamp(0.0, 1.0);
-            42.0 + ridge * 15.0 + m_extra * 5.0 + n * 3.0
+        Biome::Meadow => {
+            let m_t = ((continentalness - 0.34) / 0.26).clamp(0.0, 1.0);
+            let lift = m_t * m_t * (3.0 - 2.0 * m_t);
+            31.0 + n * 6.0 + lift * 18.0
         }
         Biome::SnowySlopes => {
-            let m_extra = ((continentalness - 0.18) / 0.50).clamp(0.0, 1.0);
-            35.0 + n * 8.0 + m_extra * 12.0
+            let m_t = ((continentalness - 0.34) / 0.26).clamp(0.0, 1.0);
+            let lift = m_t * m_t * (3.0 - 2.0 * m_t);
+            31.0 + n * 6.0 + lift * 18.0
         }
-        Biome::Meadow => {
-            let m_extra = ((continentalness - 0.34) / 0.10).clamp(0.0, 1.0);
-            31.0 + n * 6.0 + m_extra * 6.0
+        Biome::Mountain => {
+            let m_t = ((continentalness - 0.34) / 0.26).clamp(0.0, 1.0);
+            let lift = m_t * m_t * (3.0 - 2.0 * m_t);
+            let ridge = 1.0 - (n * 2.0).abs().clamp(0.0, 1.0);
+            31.0 + n * 6.0 + lift * 20.0 + (ridge * 8.0) * lift
+        }
+        Biome::JaggedPeaks => {
+            let m_t = ((continentalness - 0.34) / 0.26).clamp(0.0, 1.0);
+            let lift = m_t * m_t * (3.0 - 2.0 * m_t);
+            let ridge = 1.0 - (n * 2.2).abs().clamp(0.0, 1.0);
+            31.0 + n * 6.0 + lift * 20.0 + (ridge * 9.0) * lift
+        }
+        Biome::FrozenPeaks => {
+            let m_t = ((continentalness - 0.34) / 0.26).clamp(0.0, 1.0);
+            let lift = m_t * m_t * (3.0 - 2.0 * m_t);
+            let ridge = 1.0 - (n * 1.8).abs().clamp(0.0, 1.0);
+            31.0 + n * 6.0 + lift * 20.0 + (ridge * 9.0) * lift
         }
         Biome::Badlands => {
             let base = 32.0 + n * 8.0;
@@ -3339,6 +3350,27 @@ mod tests {
         let world = World::new_with_seed(123);
         let name = world.biome_name_at(0, 0);
         assert!(!name.is_empty());
+    }
+
+    #[test]
+    fn test_smooth_mountain_transitions_no_sheer_biome_cliffs() {
+        let seed = 424242;
+        // Sample points across mountain and foothill biomes (Meadow, SnowySlopes, Mountain, JaggedPeaks, FrozenPeaks)
+        for x in (-1500..=1500).step_by(10) {
+            for z in (-1500..=1500).step_by(10) {
+                let (b1, c1) = get_biome_at(x, z, seed);
+                let (b2, c2) = get_biome_at(x + 1, z, seed);
+                let is_m1 = matches!(b1, Biome::Meadow | Biome::SnowySlopes | Biome::Mountain | Biome::JaggedPeaks | Biome::FrozenPeaks);
+                let is_m2 = matches!(b2, Biome::Meadow | Biome::SnowySlopes | Biome::Mountain | Biome::JaggedPeaks | Biome::FrozenPeaks);
+                if is_m1 && is_m2 {
+                    let h1 = get_height_at(x, z, seed, b1, c1);
+                    let h2 = get_height_at(x + 1, z, seed, b2, c2);
+                    let diff = (h1 - h2).abs();
+                    assert!(diff <= 3, "Adjacent mountain blocks at ({}, {}) -> ({}, {}) should have smooth transition, found height diff {} ({} in {:?} vs {} in {:?})",
+                        x, z, x + 1, z, diff, h1, b1, h2, b2);
+                }
+            }
+        }
     }
 }
 
