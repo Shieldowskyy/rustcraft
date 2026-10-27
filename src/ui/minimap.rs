@@ -76,6 +76,13 @@ impl MinimapState {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct WorldMapContextMenu {
+    pub screen_pos: (i32, i32),
+    pub world_pos: (i32, i32, i32),
+    pub chunk: (i32, i32),
+}
+
 pub struct WorldMapState {
     pub center_x: f32,
     pub center_z: f32,
@@ -92,6 +99,7 @@ pub struct WorldMapState {
     pub hovered_chunk: Option<(i32, i32)>,
     pub showing_waypoint_manager: bool,
     pub waypoint_manager_scroll: usize,
+    pub context_menu: Option<WorldMapContextMenu>,
     pub map_cache: Vec<u32>,
     pub cache_center: (f32, f32),
     pub cache_zoom: f32,
@@ -117,6 +125,7 @@ impl WorldMapState {
             hovered_chunk: None,
             showing_waypoint_manager: false,
             waypoint_manager_scroll: 0,
+            context_menu: None,
             map_cache: Vec::new(),
             cache_center: (f32::NAN, f32::NAN),
             cache_zoom: 0.0,
@@ -772,6 +781,7 @@ pub fn draw_worldmap(
     state: &mut WorldMapState,
     waypoints: &[Waypoint],
     mouse_pos: Option<(f32, f32)>,
+    lang: crate::core::Language,
 ) {
     let top_bar_h = 28i32;
     let bottom_bar_h = 26i32;
@@ -972,7 +982,7 @@ pub fn draw_worldmap(
         if !state.selected_chunks.is_empty() { 0xFFFFFFFF } else { 0xFF777788 },
     );
 
-    let controls_hint = "[WASD/Drag] Pan  [Scroll] Zoom  [R-Click] Chunk  [Space] Center  [Esc/M] Close";
+    let controls_hint = "[WASD/Drag] Pan  [Scroll] Zoom  [L-Click] Chunk  [R-Click] Menu  [Space] Center  [Esc/M] Close";
     draw_text_light_colored_shadowed(buffer, buf_w, buf_h, controls_hint, 535, 8, 1, 1, 0xFFB0B0C0);
     let zoom_hint = format!("Zoom: {:.1}x", zoom);
     draw_text_light_colored_shadowed(buffer, buf_w, buf_h, &zoom_hint, buf_w as i32 - 95, 8, 1, 1, 0xFF88CCFF);
@@ -1015,6 +1025,41 @@ pub fn draw_worldmap(
             player_pos.x, player_pos.y, player_pos.z, state.selected_chunks.len(), waypoints.len()
         );
         draw_text_light_colored_shadowed(buffer, buf_w, buf_h, &p_status, 12, buf_h as i32 - bottom_bar_h + 7, 1, 1, 0xFFAAAAAA);
+    }
+
+    // Context Menu (Right-Click)
+    if let Some(ctx_menu) = &state.context_menu {
+        let (card, item0, item1) = worldmap_context_menu_rects(ctx_menu.screen_pos.0, ctx_menu.screen_pos.1, buf_w, buf_h);
+
+        // Shadow & Background card
+        fill_rect_alpha(buffer, buf_w, buf_h, card.0 + 3, card.1 + 3, card.2, card.3, 0xFF000000, 0.55);
+        fill_rect(buffer, buf_w, buf_h, card.0, card.1, card.2, card.3, 0xFF161822);
+        fill_rect(buffer, buf_w, buf_h, card.0, card.1, card.2, 1, 0xFF4A4E65);
+        fill_rect(buffer, buf_w, buf_h, card.0, card.1 + card.3 - 1, card.2, 1, 0xFF2A2C38);
+        fill_rect(buffer, buf_w, buf_h, card.0, card.1, 1, card.3, 0xFF4A4E65);
+        fill_rect(buffer, buf_w, buf_h, card.0 + card.2 - 1, card.1, 1, card.3, 0xFF2A2C38);
+
+        let (mouse_x, mouse_y) = mouse_pos.map(|(x, y)| (x as i32, y as i32)).unwrap_or((-1, -1));
+
+        // Option 0: Create waypoint here
+        let hover0 = mouse_x >= item0.0 && mouse_x < item0.0 + item0.2 && mouse_y >= item0.1 && mouse_y < item0.1 + item0.3;
+        let bg0 = if hover0 { 0xFF2B4D78 } else { 0xFF1F2332 };
+        fill_rect(buffer, buf_w, buf_h, item0.0, item0.1, item0.2, item0.3, bg0);
+        let txt0 = match lang {
+            crate::core::Language::Polish => "Zrób tutaj waypointa",
+            crate::core::Language::English => "Create waypoint here",
+        };
+        draw_text_light_colored_shadowed(buffer, buf_w, buf_h, txt0, item0.0 + 8, item0.1 + 6, 1, 1, if hover0 { 0xFFFFFF55 } else { 0xFFE0E0EE });
+
+        // Option 1: Share coordinates in chat
+        let hover1 = mouse_x >= item1.0 && mouse_x < item1.0 + item1.2 && mouse_y >= item1.1 && mouse_y < item1.1 + item1.3;
+        let bg1 = if hover1 { 0xFF2B4D78 } else { 0xFF1F2332 };
+        fill_rect(buffer, buf_w, buf_h, item1.0, item1.1, item1.2, item1.3, bg1);
+        let txt1 = match lang {
+            crate::core::Language::Polish => "Udostępnij koordynaty na czacie",
+            crate::core::Language::English => "Share coordinates in chat",
+        };
+        draw_text_light_colored_shadowed(buffer, buf_w, buf_h, txt1, item1.0 + 8, item1.1 + 6, 1, 1, if hover1 { 0xFF55FFFF } else { 0xFFE0E0EE });
     }
 
     // Modal Waypoint Manager Dialog
@@ -1080,6 +1125,26 @@ fn draw_waypoint_dialog(buffer: &mut [u32], buf_w: usize, buf_h: usize, state: &
 
     fill_rect(buffer, buf_w, buf_h, cancel_btn.0, cancel_btn.1, cancel_btn.2, cancel_btn.3, 0xFF6A2D2D);
     draw_text_light_colored_shadowed(buffer, buf_w, buf_h, "[ESC] Cancel", cancel_btn.0 + 10, cancel_btn.1 + 6, 1, 1, 0xFFFFFFFF);
+}
+
+pub fn worldmap_context_menu_rects(
+    screen_x: i32,
+    screen_y: i32,
+    buf_w: usize,
+    buf_h: usize,
+) -> ((i32, i32, i32, i32), (i32, i32, i32, i32), (i32, i32, i32, i32)) {
+    let w = 240i32;
+    let h = 58i32;
+    let top_bar_h = 28i32;
+    let bottom_bar_h = 26i32;
+
+    let mx = screen_x.clamp(8, buf_w as i32 - w - 8);
+    let my = screen_y.clamp(top_bar_h + 2, buf_h as i32 - bottom_bar_h - h - 2);
+
+    let card = (mx, my, w, h);
+    let item0 = (mx + 4, my + 4, w - 8, 23);
+    let item1 = (mx + 4, my + 30, w - 8, 23);
+    (card, item0, item1)
 }
 
 pub fn waypoint_dialog_buttons(dx: i32, dy: i32, dia_w: i32, dia_h: i32) -> ((i32, i32, i32, i32), (i32, i32, i32, i32)) {
@@ -1247,5 +1312,24 @@ mod tests {
         state.cache_valid = true;
         state.invalidate_cache();
         assert!(!state.cache_valid);
+    }
+
+    #[test]
+    fn test_worldmap_context_menu_rects() {
+        let (card, item0, item1) = worldmap_context_menu_rects(50, 50, 800, 600);
+        assert_eq!(card.0, 50);
+        assert_eq!(card.1, 50);
+        assert!(card.2 >= 180);
+        assert!(card.3 >= 50);
+
+        // Options must be inside card
+        assert!(item0.0 >= card.0 && item0.0 + item0.2 <= card.0 + card.2);
+        assert!(item1.0 >= card.0 && item1.0 + item1.2 <= card.0 + card.2);
+        assert!(item1.1 > item0.1);
+
+        // Clamping at edge
+        let (card_edge, _, _) = worldmap_context_menu_rects(795, 595, 800, 600);
+        assert!(card_edge.0 + card_edge.2 <= 796);
+        assert!(card_edge.1 + card_edge.3 <= 596);
     }
 }

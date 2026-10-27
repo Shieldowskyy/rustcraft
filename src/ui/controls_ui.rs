@@ -89,7 +89,7 @@ pub fn normalize_search(s: &str) -> String {
 }
 
 /// Filters actions matching the query string.
-pub fn filter_actions(query: &str, config: &ControlsConfig, lang: Language) -> Vec<Action> {
+pub fn filter_actions(query: &str, config: &ControlsConfig, _lang: Language) -> Vec<Action> {
     let q = normalize_search(query.trim());
     if q.is_empty() {
         return Action::ALL.to_vec();
@@ -101,32 +101,71 @@ pub fn filter_actions(query: &str, config: &ControlsConfig, lang: Language) -> V
         .filter(|&action| {
             let name_pl = normalize_search(action.display_name(Language::Polish));
             let name_en = normalize_search(action.display_name(Language::English));
-            let cat = normalize_search(action.category(lang));
+            let cat_pl = normalize_search(action.category(Language::Polish));
+            let cat_en = normalize_search(action.category(Language::English));
             let key_str = action.as_str();
 
-            if name_pl.contains(&q) || name_en.contains(&q) || cat.contains(&q) || key_str.contains(&q) {
+            if name_pl.contains(&q) || name_en.contains(&q) || cat_pl.contains(&q) || cat_en.contains(&q) || key_str.contains(&q) {
+                return true;
+            }
+
+            let binding = &config.bindings[action.index()];
+
+            // Check aliases
+            if (q.contains("mysz") || q.contains("mouse")) && !binding.mouse.is_empty() {
+                return true;
+            }
+            if (q.contains("pad") || q.contains("gamepad") || q.contains("kontroler")) && !binding.gamepad.is_empty() {
+                return true;
+            }
+            if (q.contains("klawisz") || q.contains("klawiatura") || q.contains("keyboard")) && !binding.keys.is_empty() {
                 return true;
             }
 
             // Search through bound keys / mouse buttons
-            let binding = &config.bindings[action.index()];
             for k in &binding.keys {
-                if normalize_search(k.display_name()).contains(&q) || normalize_search(k.as_str()).contains(&q) {
+                let dn = normalize_search(k.display_name());
+                let sn = normalize_search(k.as_str());
+                if dn.contains(&q) || sn.contains(&q) {
                     return true;
                 }
             }
             for m in &binding.mouse {
-                if normalize_search(m.display_name()).contains(&q) || normalize_search(m.as_str()).contains(&q) {
+                let dn = normalize_search(m.display_name());
+                let sn = normalize_search(m.as_str());
+                if dn.contains(&q) || sn.contains(&q) {
                     return true;
                 }
             }
             for gp in &binding.gamepad {
-                if normalize_search(gp.display_name()).contains(&q) || normalize_search(gp.as_str()).contains(&q) {
+                let dn = normalize_search(gp.display_name());
+                let sn = normalize_search(gp.as_str());
+                if dn.contains(&q) || sn.contains(&q) {
                     return true;
                 }
             }
 
-            false
+            // Common synonyms & keywords
+            match action {
+                Action::MoveForward => q.contains("przod") || q.contains("forward") || q.contains("chodz") || q == "w",
+                Action::MoveBackward => q.contains("tyl") || q.contains("back") || q.contains("cofaj") || q == "s",
+                Action::StrafeLeft => q.contains("lewo") || q.contains("left") || q.contains("krok") || q == "a",
+                Action::StrafeRight => q.contains("prawo") || q.contains("right") || q.contains("krok") || q == "d",
+                Action::Jump => q.contains("skok") || q.contains("jump") || q.contains("spacja") || q.contains("space"),
+                Action::Sneak => q.contains("kuc") || q.contains("skrad") || q.contains("sneak") || q.contains("crouch") || q.contains("shift"),
+                Action::Sprint => q.contains("bieg") || q.contains("sprint") || q.contains("run") || q.contains("ctrl"),
+                Action::Inventory => q.contains("ekwipunek") || q.contains("plecak") || q.contains("inv") || q.contains("inventory") || q.contains("item") || q == "e",
+                Action::DropItem => q.contains("wyrzuc") || q.contains("drop") || q == "q",
+                Action::ToggleFly => q.contains("lot") || q.contains("lata") || q.contains("fly"),
+                Action::ToggleGamemode => q.contains("tryb") || q.contains("creative") || q.contains("survival") || q.contains("gamemode"),
+                Action::Pause => q.contains("pauza") || q.contains("menu") || q.contains("pause") || q.contains("esc"),
+                Action::Save => q.contains("zapis") || q.contains("save") || q.contains("f5"),
+                Action::AttackBreak => q.contains("atak") || q.contains("niszcz") || q.contains("kop") || q.contains("attack") || q.contains("break") || q.contains("hit") || q == "lpm",
+                Action::UsePlace => q.contains("uzyj") || q.contains("staw") || q.contains("buduj") || q.contains("place") || q.contains("use") || q == "ppm",
+                Action::HotbarPrev | Action::HotbarNext => q.contains("pasek") || q.contains("hotbar") || q.contains("slot") || q.contains("kolko") || q.contains("scroll"),
+                Action::OpenChat => q.contains("czat") || q.contains("chat") || q.contains("pisz") || q == "t",
+                Action::OpenCommand => q.contains("komend") || q.contains("command") || q.contains("slash") || q == "/",
+            }
         })
         .collect()
 }
@@ -146,6 +185,7 @@ pub fn draw_controls_rebind_menu(
     lang: Language,
     cursor_timer: f32,
     is_gamepad_active: bool,
+    search_focused: bool,
 ) {
     let layout = ControlsRebindLayout::new(width, height);
     let cx = width as i32 / 2;
@@ -171,10 +211,11 @@ pub fn draw_controls_rebind_menu(
     // Search bar box
     let (sx, sy, sw, sh) = layout.search_box;
     fill_rect(buffer, width, height, sx, sy, sw, sh, pack_color(0.12, 0.14, 0.18));
-    fill_rect(buffer, width, height, sx, sy, sw, 1, pack_color(0.35, 0.40, 0.50));
-    fill_rect(buffer, width, height, sx, sy + sh - 1, sw, 1, pack_color(0.20, 0.22, 0.28));
-    fill_rect(buffer, width, height, sx, sy, 1, sh, pack_color(0.35, 0.40, 0.50));
-    fill_rect(buffer, width, height, sx + sw - 1, sy, 1, sh, pack_color(0.20, 0.22, 0.28));
+    let border_color = if search_focused { pack_color(1.0, 0.85, 0.3) } else { pack_color(0.35, 0.40, 0.50) };
+    fill_rect(buffer, width, height, sx, sy, sw, 1, border_color);
+    fill_rect(buffer, width, height, sx, sy + sh - 1, sw, 1, if search_focused { border_color } else { pack_color(0.20, 0.22, 0.28) });
+    fill_rect(buffer, width, height, sx, sy, 1, sh, border_color);
+    fill_rect(buffer, width, height, sx + sw - 1, sy, 1, sh, if search_focused { border_color } else { pack_color(0.20, 0.22, 0.28) });
 
     // Search text / prompt
     let search_scale = 1;
@@ -184,9 +225,14 @@ pub fn draw_controls_rebind_menu(
             Language::Polish => "Szukaj akcji... (np. ruch, skok, atak, F5, mysz)",
             Language::English => "Search actions... (e.g. forward, jump, attack, F5, mouse)",
         };
-        draw_text_colored_shadowed(buffer, width, height, placeholder, sx + 10, text_y, search_scale, 1, pack_color(0.45, 0.50, 0.58));
+        if search_focused && (cursor_timer * 2.0) as i32 % 2 == 0 {
+            draw_text_colored_shadowed(buffer, width, height, "|", sx + 10, text_y, search_scale, 1, pack_color(1.0, 1.0, 0.3));
+            draw_text_colored_shadowed(buffer, width, height, placeholder, sx + 18, text_y, search_scale, 1, pack_color(0.45, 0.50, 0.58));
+        } else {
+            draw_text_colored_shadowed(buffer, width, height, placeholder, sx + 10, text_y, search_scale, 1, pack_color(0.45, 0.50, 0.58));
+        }
     } else {
-        let cursor_char = if (cursor_timer * 2.0) as i32 % 2 == 0 { "|" } else { "" };
+        let cursor_char = if search_focused && (cursor_timer * 2.0) as i32 % 2 == 0 { "|" } else { "" };
         let full_text = format!("{}{}", query, cursor_char);
         draw_text_colored_shadowed(buffer, width, height, &full_text, sx + 10, text_y, search_scale, 1, pack_color(1.0, 1.0, 0.3));
 
@@ -433,4 +479,37 @@ pub fn draw_controls_rebind_menu(
     };
     let hw = font::measure_text(hint, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, hint, cx - hw / 2, height as i32 - 18, 1, 1, pack_color(0.60, 0.65, 0.75));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::controls::{Action, ControlsConfig};
+
+    #[test]
+    fn test_filter_actions_search() {
+        let config = ControlsConfig::default();
+        // Empty query returns all actions
+        let all = filter_actions("", &config, Language::Polish);
+        assert_eq!(all.len(), Action::ALL.len());
+
+        // Search for jump in English
+        let jump_en = filter_actions("jump", &config, Language::English);
+        assert!(jump_en.contains(&Action::Jump));
+
+        // Search for skok in Polish
+        let jump_pl = filter_actions("skok", &config, Language::Polish);
+        assert!(jump_pl.contains(&Action::Jump));
+
+        // Polish diacritics normalized: "przód" vs "przod"
+        let fwd1 = filter_actions("przód", &config, Language::Polish);
+        let fwd2 = filter_actions("przod", &config, Language::Polish);
+        assert!(fwd1.contains(&Action::MoveForward));
+        assert!(fwd2.contains(&Action::MoveForward));
+
+        // Mouse alias
+        let mouse_actions = filter_actions("mysz", &config, Language::Polish);
+        assert!(!mouse_actions.is_empty());
+        assert!(mouse_actions.contains(&Action::AttackBreak) || mouse_actions.contains(&Action::UsePlace));
+    }
 }

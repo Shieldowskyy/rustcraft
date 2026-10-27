@@ -2047,6 +2047,7 @@ impl RustCraftApp {
             || (matches!(self.state, GameState::MultiplayerMenu) && (self.multiplayer_focus == 0 || self.multiplayer_focus == 1))
             || (matches!(self.state, GameState::CreateWorld) && (self.create_world_focus == 0 || self.create_world_focus == 1))
             || (matches!(self.state, GameState::WorldMap) && self.worldmap.creating_waypoint)
+            || matches!(self.state, GameState::ControlsRebind(_))
             || self.is_ime_active
     }
 
@@ -2247,7 +2248,13 @@ impl RustCraftApp {
                 }
             }
         } else {
-            if escape_down || m_down {
+            if self.worldmap.context_menu.is_some() {
+                if escape_down {
+                    self.worldmap.context_menu = None;
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.6, 1.0);
+                    return;
+                }
+            } else if escape_down || m_down {
                 self.state = GameState::Playing;
                 out.request_capture_mouse = true;
                 self.audio.play_sound(crate::audio::SoundId::UiClick, 0.6, 1.0);
@@ -2297,6 +2304,7 @@ impl RustCraftApp {
             // Top bar button clicks
             let (wp_btn, new_wp_btn, clear_btn) = crate::ui::minimap::worldmap_top_bar_buttons();
             let mut top_bar_clicked = false;
+            let left_released = !left_down && self.prev_left_down;
 
             if left_click {
                 if let Some((mx, my)) = mouse_pos {
@@ -2328,11 +2336,86 @@ impl RustCraftApp {
                 }
             }
 
-            // Chunk selection toggling: Right-Click or Shift + Left-Click
-            let toggle_chunk = right_click || (input.key_shift && left_click);
-            if toggle_chunk && !top_bar_clicked {
-                if let Some((_mx, my)) = mouse_pos {
+            // Context menu interaction
+            let mut context_menu_handled = false;
+            if let Some(ctx) = self.worldmap.context_menu.clone() {
+                if left_click {
+                    let (_card, item0, item1) = crate::ui::minimap::worldmap_context_menu_rects(
+                        ctx.screen_pos.0,
+                        ctx.screen_pos.1,
+                        self.width,
+                        self.height,
+                    );
+                    if let Some((mx, my)) = mouse_pos {
+                        let px = mx as i32;
+                        let py = my as i32;
+                        if px >= item0.0 && px < item0.0 + item0.2 && py >= item0.1 && py < item0.1 + item0.3 {
+                            // Option 0: Create waypoint here
+                            self.worldmap.context_menu = None;
+                            self.worldmap.creating_waypoint = true;
+                            self.worldmap.waypoint_name_input = format!("Waypoint {}", self.minimap.waypoints.len() + 1);
+                            self.worldmap.waypoint_coords_input = ctx.world_pos;
+                            self.worldmap.waypoint_color_idx = (self.minimap.waypoints.len()) % crate::ui::minimap::WAYPOINT_COLORS.len();
+                            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.2);
+                            context_menu_handled = true;
+                        } else if px >= item1.0 && px < item1.0 + item1.2 && py >= item1.1 && py < item1.1 + item1.3 {
+                            // Option 1: Share coordinates in chat
+                            self.worldmap.context_menu = None;
+                            let (hx, hy, hz) = ctx.world_pos;
+                            let chat_msg = format!("Moje koordynaty: X: {}, Y: {}, Z: {}", hx, hy, hz);
+                            if let Some(client) = &mut self.net_client {
+                                client.send_chat(&chat_msg);
+                            } else {
+                                self.chat.add_player_chat(&self.settings.nickname, &chat_msg);
+                            }
+                            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.2);
+                            context_menu_handled = true;
+                        } else {
+                            // Clicked outside context menu -> close it
+                            self.worldmap.context_menu = None;
+                            context_menu_handled = true;
+                        }
+                    }
+                }
+            }
+
+            // Right-click: Open context menu with options (Zrób tutaj waypointa, Udostępnij koordynaty na czacie)
+            if right_click && !top_bar_clicked {
+                if let Some((mx, my)) = mouse_pos {
                     if my >= 28.0 && my < (self.height as f32 - 26.0) {
+                        let coords = if let Some((hx, hy, hz)) = self.worldmap.hovered_world_pos {
+                            (hx, hy, hz)
+                        } else {
+                            (self.camera.position.x.round() as i32, self.camera.position.y.round() as i32, self.camera.position.z.round() as i32)
+                        };
+                        let chunk = self.worldmap.hovered_chunk.unwrap_or((coords.0.div_euclid(16), coords.2.div_euclid(16)));
+                        self.worldmap.context_menu = Some(crate::ui::minimap::WorldMapContextMenu {
+                            screen_pos: (mx as i32, my as i32),
+                            world_pos: coords,
+                            chunk,
+                        });
+                        self.audio.play_sound(crate::audio::SoundId::UiClick, 0.6, 1.1);
+                    }
+                }
+            }
+
+            // Left-click chunk selection toggling & mouse dragging
+            if let Some((mx, my)) = mouse_pos {
+                if left_click && !top_bar_clicked && !context_menu_handled && my >= 28.0 && my < (self.height as f32 - 26.0) {
+                    self.worldmap.drag_start_mouse = (mx, my);
+                    self.worldmap.drag_start_center = (self.worldmap.center_x, self.worldmap.center_z);
+                    self.worldmap.is_dragging = false;
+                } else if left_down && !top_bar_clicked && !context_menu_handled && my >= 28.0 && my < (self.height as f32 - 26.0) {
+                    let dx = mx - self.worldmap.drag_start_mouse.0;
+                    let dy = my - self.worldmap.drag_start_mouse.1;
+                    if dx.abs() + dy.abs() > 4.0 {
+                        self.worldmap.is_dragging = true;
+                        self.worldmap.center_x = self.worldmap.drag_start_center.0 - dx / self.worldmap.zoom;
+                        self.worldmap.center_z = self.worldmap.drag_start_center.1 - dy / self.worldmap.zoom;
+                    }
+                } else if left_released {
+                    if !self.worldmap.is_dragging && !top_bar_clicked && !context_menu_handled && my >= 28.0 && my < (self.height as f32 - 26.0) {
+                        // Left-click selects chunk!
                         if let Some(ch) = self.worldmap.hovered_chunk {
                             if self.worldmap.selected_chunks.contains(&ch) {
                                 self.worldmap.selected_chunks.remove(&ch);
@@ -2342,23 +2425,6 @@ impl RustCraftApp {
                             self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.2);
                         }
                     }
-                }
-            }
-
-            // Map panning via mouse drag (only if not shift-clicking or clicking top bar)
-            if let Some((mx, my)) = mouse_pos {
-                if left_down && !input.key_shift && !top_bar_clicked && my >= 28.0 && my < (self.height as f32 - 26.0) {
-                    if !self.worldmap.is_dragging {
-                        self.worldmap.is_dragging = true;
-                        self.worldmap.drag_start_mouse = (mx, my);
-                        self.worldmap.drag_start_center = (self.worldmap.center_x, self.worldmap.center_z);
-                    } else {
-                        let dx = mx - self.worldmap.drag_start_mouse.0;
-                        let dy = my - self.worldmap.drag_start_mouse.1;
-                        self.worldmap.center_x = self.worldmap.drag_start_center.0 - dx / self.worldmap.zoom;
-                        self.worldmap.center_z = self.worldmap.drag_start_center.1 - dy / self.worldmap.zoom;
-                    }
-                } else if !left_down {
                     self.worldmap.is_dragging = false;
                 }
             }
@@ -2378,6 +2444,7 @@ impl RustCraftApp {
             &mut self.worldmap,
             waypoints,
             mouse_pos,
+            self.settings.language,
         );
     }
 
@@ -2392,55 +2459,10 @@ impl RustCraftApp {
         self.rebind_cursor_timer += dt;
         let layout = crate::ui::controls_ui::ControlsRebindLayout::new(self.width, self.height);
         let lang = self.settings.language;
-        let filtered_actions = crate::ui::controls_ui::filter_actions(&self.rebind_search, &self.controls.config, lang);
-
         let mouse_pos = input.mouse_pos;
         let left_just = input.mouse_left && !self.prev_left_down;
         let escape_just = input.key_escape && !self.prev_escape_down;
         let cx = self.width as i32 / 2;
-
-        // Hover calculation
-        let mut hovered_row = None;
-        let mut hovered_col = None;
-        let mut hovered_btn = None;
-
-        if let Some((mx, my)) = mouse_pos {
-            let px = mx as i32;
-            let py = my as i32;
-
-            let (rx, ry, rw, rh) = layout.reset_all_btn;
-            let (bx, by, bw, bh) = layout.back_btn;
-            let (scx, scy, scw, sch) = layout.search_clear_btn;
-
-            if px >= rx && px < rx + rw && py >= ry && py < ry + rh {
-                hovered_btn = Some(0);
-            } else if px >= bx && px < bx + bw && py >= by && py < by + bh {
-                hovered_btn = Some(1);
-            } else if px >= scx && px < scx + scw && py >= scy && py < scy + sch {
-                hovered_btn = Some(2);
-            }
-
-            for row_idx in 0..crate::ui::controls_ui::VISIBLE_REBIND_ROWS {
-                let action_idx = self.rebind_scroll + row_idx;
-                if action_idx >= filtered_actions.len() {
-                    break;
-                }
-                let (k_btn, gp_btn, reset_btn) = layout.row_buttons(cx, row_idx);
-                if px >= k_btn.0 && px < k_btn.0 + k_btn.2 && py >= k_btn.1 && py < k_btn.1 + k_btn.3 {
-                    hovered_row = Some(row_idx);
-                    hovered_col = Some(0);
-                    break;
-                } else if px >= gp_btn.0 && px < gp_btn.0 + gp_btn.2 && py >= gp_btn.1 && py < gp_btn.1 + gp_btn.3 {
-                    hovered_row = Some(row_idx);
-                    hovered_col = Some(1);
-                    break;
-                } else if px >= reset_btn.0 && px < reset_btn.0 + reset_btn.2 && py >= reset_btn.1 && py < reset_btn.1 + reset_btn.3 {
-                    hovered_row = Some(row_idx);
-                    hovered_col = Some(2);
-                    break;
-                }
-            }
-        }
 
         // If currently waiting for user to press a key/mouse/pad input to rebind
         if let Some((target_action, target_slot)) = self.rebinding_target {
@@ -2525,18 +2547,47 @@ impl RustCraftApp {
                             let _ = self.controls.config.save();
                             self.audio.play_sound(crate::audio::SoundId::UiClick, 0.8, 1.2);
                             self.rebinding_target = None;
+                        } else if left_just {
+                            // Clicking with mouse cancels gamepad rebind
+                            self.rebinding_target = None;
                         }
                     }
                 }
             }
         } else {
-            // Normal navigation & interactions
+            // Normal navigation & typing
             if escape_just {
                 self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                 self.state = GameState::Settings(prev);
                 return;
             }
 
+            // Search typing: characters, backspace, delete
+            let mut search_changed = false;
+            for ch in &input.typed_chars {
+                if !ch.is_control() && self.rebind_search.len() < 32 {
+                    self.rebind_search.push(*ch);
+                    search_changed = true;
+                }
+            }
+            if input.key_backspace && !self.prev_backspace_down {
+                self.rebind_search.pop();
+                search_changed = true;
+            }
+            if input.key_del && !self.prev_del_down {
+                self.rebind_search.clear();
+                search_changed = true;
+            }
+            if search_changed {
+                self.rebind_scroll = 0;
+                self.rebind_search_focused = true;
+            }
+        }
+
+        // Compute filtered actions with latest search query
+        let filtered_actions = crate::ui::controls_ui::filter_actions(&self.rebind_search, &self.controls.config, lang);
+
+        if self.rebinding_target.is_none() {
             // Mouse wheel scrolling
             if input.scroll_delta > 0.1 {
                 self.rebind_scroll = self.rebind_scroll.saturating_sub(1);
@@ -2547,33 +2598,27 @@ impl RustCraftApp {
                 }
             }
 
-            // Search typing
-            for ch in &input.typed_chars {
-                if !ch.is_control() && self.rebind_search.len() < 32 {
-                    self.rebind_search.push(*ch);
-                    self.rebind_scroll = 0;
-                }
-            }
-            if input.key_backspace && !self.prev_backspace_down {
-                self.rebind_search.pop();
-                self.rebind_scroll = 0;
-            }
-            if input.key_del && !self.prev_del_down {
-                self.rebind_search.clear();
-                self.rebind_scroll = 0;
-            }
-
             // Click handling
             if left_just {
                 if let Some((mx, my)) = mouse_pos {
                     let px = mx as i32;
                     let py = my as i32;
 
+                    // Search box focus
+                    let (sx, sy, sw, sh) = layout.search_box;
+                    if px >= sx && px < sx + sw && py >= sy && py < sy + sh {
+                        self.rebind_search_focused = true;
+                        self.audio.play_sound(crate::audio::SoundId::UiClick, 0.6, 1.2);
+                    } else {
+                        self.rebind_search_focused = false;
+                    }
+
                     // Search clear button
                     let (scx, scy, scw, sch) = layout.search_clear_btn;
                     if px >= scx && px < scx + scw && py >= scy && py < scy + sch {
                         self.rebind_search.clear();
                         self.rebind_scroll = 0;
+                        self.rebind_search_focused = true;
                         self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                     }
 
@@ -2612,7 +2657,6 @@ impl RustCraftApp {
                             self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.2);
                             break;
                         } else if px >= reset_btn.0 && px < reset_btn.0 + reset_btn.2 && py >= reset_btn.1 && py < reset_btn.1 + reset_btn.3 {
-                            // Reset single action
                             let def = crate::core::controls::ControlsConfig::default();
                             self.controls.config.bindings[action.index()] = def.bindings[action.index()].clone();
                             let _ = self.controls.config.save();
@@ -2620,6 +2664,49 @@ impl RustCraftApp {
                             break;
                         }
                     }
+                }
+            }
+        }
+
+        // Hover calculation
+        let mut hovered_row = None;
+        let mut hovered_col = None;
+        let mut hovered_btn = None;
+
+        if let Some((mx, my)) = mouse_pos {
+            let px = mx as i32;
+            let py = my as i32;
+
+            let (rx, ry, rw, rh) = layout.reset_all_btn;
+            let (bx, by, bw, bh) = layout.back_btn;
+            let (scx, scy, scw, sch) = layout.search_clear_btn;
+
+            if px >= rx && px < rx + rw && py >= ry && py < ry + rh {
+                hovered_btn = Some(0);
+            } else if px >= bx && px < bx + bw && py >= by && py < by + bh {
+                hovered_btn = Some(1);
+            } else if px >= scx && px < scx + scw && py >= scy && py < scy + sch {
+                hovered_btn = Some(2);
+            }
+
+            for row_idx in 0..crate::ui::controls_ui::VISIBLE_REBIND_ROWS {
+                let action_idx = self.rebind_scroll + row_idx;
+                if action_idx >= filtered_actions.len() {
+                    break;
+                }
+                let (k_btn, gp_btn, reset_btn) = layout.row_buttons(cx, row_idx);
+                if px >= k_btn.0 && px < k_btn.0 + k_btn.2 && py >= k_btn.1 && py < k_btn.1 + k_btn.3 {
+                    hovered_row = Some(row_idx);
+                    hovered_col = Some(0);
+                    break;
+                } else if px >= gp_btn.0 && px < gp_btn.0 + gp_btn.2 && py >= gp_btn.1 && py < gp_btn.1 + gp_btn.3 {
+                    hovered_row = Some(row_idx);
+                    hovered_col = Some(1);
+                    break;
+                } else if px >= reset_btn.0 && px < reset_btn.0 + reset_btn.2 && py >= reset_btn.1 && py < reset_btn.1 + reset_btn.3 {
+                    hovered_row = Some(row_idx);
+                    hovered_col = Some(2);
+                    break;
                 }
             }
         }
@@ -2639,6 +2726,7 @@ impl RustCraftApp {
             lang,
             self.rebind_cursor_timer,
             self.is_gamepad_active,
+            self.rebind_search_focused,
         );
     }
 }

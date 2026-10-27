@@ -904,16 +904,23 @@ pub fn draw_inventory_screen(
             fill_rect_alpha(buffer, width, height, char_box_x + 10, char_box_y + 88, 55, 12, pack_color(0.14, 0.14, 0.18), 0.7);
             draw_player_inventory_preview(buffer, width, height, char_box_x + 38, char_box_y + 54, mouse_pos);
 
-            draw_text_colored_shadowed(buffer, width, height, "PLAYER", char_box_x + 72, char_box_y + 12, 1, 1, pack_color(1.0, 0.88, 0.25));
+            draw_text_colored_shadowed(buffer, width, height, "PLAYER", char_box_x + 72, char_box_y + 10, 1, 1, pack_color(1.0, 0.88, 0.25));
             let hp_text = format!("HP: {}/20", player.health as i32);
-            draw_text_colored_shadowed(buffer, width, height, &hp_text, char_box_x + 72, char_box_y + 30, 1, 1, pack_color(1.0, 0.35, 0.35));
+            draw_text_colored_shadowed(buffer, width, height, &hp_text, char_box_x + 72, char_box_y + 24, 1, 1, pack_color(1.0, 0.35, 0.35));
             let hp_ratio = (player.health / 20.0).clamp(0.0, 1.0);
-            fill_rect(buffer, width, height, char_box_x + 72, char_box_y + 44, 70, 5, pack_color(0.25, 0.05, 0.05));
-            fill_rect(buffer, width, height, char_box_x + 72, char_box_y + 44, (70.0 * hp_ratio) as i32, 5, pack_color(0.9, 0.2, 0.2));
+            fill_rect(buffer, width, height, char_box_x + 72, char_box_y + 36, 70, 4, pack_color(0.25, 0.05, 0.05));
+            fill_rect(buffer, width, height, char_box_x + 72, char_box_y + 36, (70.0 * hp_ratio) as i32, 4, pack_color(0.9, 0.2, 0.2));
+
+            let hunger_text = format!("HUNGER: {}/20", player.hunger as i32);
+            draw_text_colored_shadowed(buffer, width, height, &hunger_text, char_box_x + 72, char_box_y + 46, 1, 1, pack_color(1.0, 0.65, 0.2));
+            let hunger_ratio = (player.hunger / player.max_hunger.max(1.0)).clamp(0.0, 1.0);
+            fill_rect(buffer, width, height, char_box_x + 72, char_box_y + 58, 70, 4, pack_color(0.25, 0.15, 0.05));
+            fill_rect(buffer, width, height, char_box_x + 72, char_box_y + 58, (70.0 * hunger_ratio) as i32, 4, pack_color(0.9, 0.55, 0.15));
+
             if player.fire_timer > 0.0 {
-                draw_text_colored_shadowed(buffer, width, height, "BURNING!", char_box_x + 72, char_box_y + 58, 1, 1, pack_color(1.0, 0.5, 0.1));
+                draw_text_colored_shadowed(buffer, width, height, "BURNING!", char_box_x + 72, char_box_y + 70, 1, 1, pack_color(1.0, 0.5, 0.1));
             } else {
-                draw_text_colored_shadowed(buffer, width, height, "STATUS: OK", char_box_x + 72, char_box_y + 58, 1, 1, pack_color(0.4, 0.85, 0.4));
+                draw_text_colored_shadowed(buffer, width, height, "STATUS: OK", char_box_x + 72, char_box_y + 70, 1, 1, pack_color(0.4, 0.85, 0.4));
             }
         } else {
             // Player character info area
@@ -931,16 +938,23 @@ pub fn draw_inventory_screen(
             fill_rect_alpha(buffer, width, height, char_box_x + 12, char_box_y + 88, 66, 12, pack_color(0.14, 0.14, 0.18), 0.7);
             draw_player_inventory_preview(buffer, width, height, char_box_x + 45, char_box_y + 54, mouse_pos);
 
-            draw_text_colored_shadowed(buffer, width, height, "PLAYER", char_box_x + 85, char_box_y + 12, 1, 1, pack_color(1.0, 0.88, 0.25));
+            draw_text_colored_shadowed(buffer, width, height, "PLAYER", char_box_x + 85, char_box_y + 10, 1, 1, pack_color(1.0, 0.88, 0.25));
             let hp_text = format!("HP: {}/20", player.health as i32);
-            draw_text_colored_shadowed(buffer, width, height, &hp_text, char_box_x + 85, char_box_y + 30, 1, 1, pack_color(1.0, 0.35, 0.35));
+            draw_text_colored_shadowed(buffer, width, height, &hp_text, char_box_x + 85, char_box_y + 24, 1, 1, pack_color(1.0, 0.35, 0.35));
             let hp_ratio = (player.health / 20.0).clamp(0.0, 1.0);
-            fill_rect(buffer, width, height, char_box_x + 85, char_box_y + 44, 85, 6, pack_color(0.25, 0.05, 0.05));
-            fill_rect(buffer, width, height, char_box_x + 85, char_box_y + 44, (85.0 * hp_ratio) as i32, 6, pack_color(0.9, 0.2, 0.2));
+            fill_rect(buffer, width, height, char_box_x + 85, char_box_y + 36, 85, 4, pack_color(0.25, 0.05, 0.05));
+            fill_rect(buffer, width, height, char_box_x + 85, char_box_y + 36, (85.0 * hp_ratio) as i32, 4, pack_color(0.9, 0.2, 0.2));
+
+            let hunger_text = format!("HUNGER: {}/20", player.hunger as i32);
+            draw_text_colored_shadowed(buffer, width, height, &hunger_text, char_box_x + 85, char_box_y + 46, 1, 1, pack_color(1.0, 0.65, 0.2));
+            let hunger_ratio = (player.hunger / player.max_hunger.max(1.0)).clamp(0.0, 1.0);
+            fill_rect(buffer, width, height, char_box_x + 85, char_box_y + 58, 85, 4, pack_color(0.25, 0.15, 0.05));
+            fill_rect(buffer, width, height, char_box_x + 85, char_box_y + 58, (85.0 * hunger_ratio) as i32, 4, pack_color(0.9, 0.55, 0.15));
+
             if player.fire_timer > 0.0 {
-                draw_text_colored_shadowed(buffer, width, height, "BURNING!", char_box_x + 85, char_box_y + 58, 1, 1, pack_color(1.0, 0.5, 0.1));
+                draw_text_colored_shadowed(buffer, width, height, "BURNING!", char_box_x + 85, char_box_y + 70, 1, 1, pack_color(1.0, 0.5, 0.1));
             } else {
-                draw_text_colored_shadowed(buffer, width, height, "STATUS: OK", char_box_x + 85, char_box_y + 58, 1, 1, pack_color(0.4, 0.85, 0.4));
+                draw_text_colored_shadowed(buffer, width, height, "STATUS: OK", char_box_x + 85, char_box_y + 70, 1, 1, pack_color(0.4, 0.85, 0.4));
             }
 
             // 2x2 Crafting inset panel

@@ -42,6 +42,7 @@ pub use controls_ui::{
 pub use minimap::{
     draw_minimap, draw_waypoint_manager, draw_worldmap, draw_world_waypoint_markers, load_waypoints,
     save_waypoints, waypoint_dialog_buttons, waypoint_manager_buttons, waypoint_row_buttons,
-    worldmap_top_bar_buttons, MinimapMode, MinimapState, Waypoint, WorldMapState, WAYPOINT_COLORS,
+    worldmap_context_menu_rects, worldmap_top_bar_buttons, MinimapMode, MinimapState, Waypoint,
+    WorldMapContextMenu, WorldMapState, WAYPOINT_COLORS,
 };
 
