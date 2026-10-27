@@ -109,6 +109,38 @@ impl Biome {
             Biome::SnowySlopes => "SNOWY SLOPES",
         }
     }
+
+    /// Color grading / postprocessing tint multipliers [R, G, B] for this biome.
+    /// Slightly adjusts the mood and atmosphere of the scene (e.g. warm golden desert,
+    /// icy blue tundra, lush jungle emerald, murky swamp, romantic pink cherry blossom).
+    #[inline]
+    pub fn color_filter(self) -> [f32; 3] {
+        match self {
+            Biome::DeepOcean => [0.88, 0.97, 1.12],
+            Biome::Ocean => [0.92, 1.02, 1.08],
+            Biome::SnowyTaiga => [0.92, 0.98, 1.08],
+            Biome::SnowyTundra => [0.93, 1.00, 1.11],
+            Biome::AutumnForest => [1.11, 1.01, 0.89],
+            Biome::Forest => [0.97, 1.04, 0.97],
+            Biome::CherryGrove => [1.08, 0.97, 1.04],
+            Biome::Plains => [1.01, 1.03, 0.98],
+            Biome::Swamp => [0.94, 1.03, 0.86],
+            Biome::Savanna => [1.07, 1.04, 0.91],
+            Biome::Desert => [1.10, 1.03, 0.89],
+            Biome::Mountain => [0.97, 1.00, 1.04],
+            Biome::Jungle => [0.95, 1.08, 0.94],
+            Biome::Badlands => [1.12, 0.98, 0.90],
+            Biome::DarkForest => [0.91, 0.96, 0.93],
+            Biome::Taiga => [0.96, 1.02, 1.02],
+            Biome::BirchForest => [1.02, 1.06, 0.99],
+            Biome::IceSpikes => [0.90, 1.03, 1.14],
+            Biome::MushroomIsland => [1.05, 0.96, 1.08],
+            Biome::Meadow => [1.04, 1.05, 0.98],
+            Biome::JaggedPeaks => [0.95, 0.97, 1.05],
+            Biome::FrozenPeaks => [0.89, 1.01, 1.13],
+            Biome::SnowySlopes => [0.95, 1.01, 1.08],
+        }
+    }
 }
 
 #[inline(always)]
@@ -3674,6 +3706,51 @@ mod tests {
         let world = World::new_with_seed(123);
         let name = world.biome_name_at(0, 0);
         assert!(!name.is_empty());
+    }
+
+    #[test]
+    fn test_all_biomes_have_distinct_color_filters() {
+        let all_biomes = [
+            Biome::DeepOcean,
+            Biome::Ocean,
+            Biome::SnowyTaiga,
+            Biome::SnowyTundra,
+            Biome::AutumnForest,
+            Biome::Forest,
+            Biome::CherryGrove,
+            Biome::Plains,
+            Biome::Swamp,
+            Biome::Savanna,
+            Biome::Desert,
+            Biome::Mountain,
+            Biome::Jungle,
+            Biome::Badlands,
+            Biome::DarkForest,
+            Biome::Taiga,
+            Biome::BirchForest,
+            Biome::IceSpikes,
+            Biome::MushroomIsland,
+            Biome::Meadow,
+            Biome::JaggedPeaks,
+            Biome::FrozenPeaks,
+            Biome::SnowySlopes,
+        ];
+
+        let mut seen = std::collections::HashSet::new();
+        for &biome in &all_biomes {
+            let filter = biome.color_filter();
+            for &c in &filter {
+                assert!(c > 0.5 && c < 1.5, "Biome {:?} filter channel out of reasonable bounds: {}", biome, c);
+            }
+            // Quantize to avoid floating point representations
+            let key = (
+                (filter[0] * 1000.0).round() as i32,
+                (filter[1] * 1000.0).round() as i32,
+                (filter[2] * 1000.0).round() as i32,
+            );
+            assert!(seen.insert(key), "Biome {:?} does not have a unique color filter! Duplicate: {:?}", biome, filter);
+        }
+        assert_eq!(seen.len(), 23, "All 23 biomes must have unique color filters");
     }
 
     #[test]

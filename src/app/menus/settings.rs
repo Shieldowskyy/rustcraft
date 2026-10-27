@@ -445,7 +445,10 @@ impl RustCraftApp {
         self.renderer.fog_enabled = self.settings.fog;
         if prev == PreviousMenu::Paused {
             #[cfg(not(target_os = "vita"))]
-            self.renderer.render_frame(&mut self.world, &self.camera);
+            {
+                self.renderer.render_frame(&mut self.world, &self.camera);
+                self.renderer.apply_biome_color_filter(self.biome_filter_tint);
+            }
             #[cfg(target_os = "vita")]
             {
                 self.renderer.color_buffer.fill(0x0C0C10);

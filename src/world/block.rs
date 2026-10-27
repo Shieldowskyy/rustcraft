@@ -1073,6 +1073,131 @@ impl BlockId {
         }
     }
 
+    /// English display name for each block/item.
+    pub fn name_en(self) -> &'static str {
+        match self {
+            BlockId::Air => "Air",
+            BlockId::Grass => "Grass Block",
+            BlockId::Dirt => "Dirt",
+            BlockId::Stone => "Stone",
+            BlockId::Sand => "Sand",
+            BlockId::Wood => "Oak Wood",
+            BlockId::Leaves => "Oak Leaves",
+            BlockId::Water => "Water",
+            BlockId::Snow => "Snow",
+            BlockId::Cactus => "Cactus",
+            BlockId::CoalOre => "Coal Ore",
+            BlockId::IronOre => "Iron Ore",
+            BlockId::Bedrock => "Bedrock",
+            BlockId::Lava => "Lava",
+            BlockId::SnowLeaves => "Snow Leaves",
+            BlockId::Planks => "Oak Planks",
+            BlockId::Door => "Wooden Door",
+            BlockId::DoorOpen => "Wooden Door (Open)",
+            BlockId::Glass => "Glass",
+            BlockId::Ice => "Ice",
+            BlockId::Tnt => "TNT",
+            BlockId::CraftingTable => "Crafting Table",
+            BlockId::Stick => "Stick",
+            BlockId::WoodenPickaxe => "Wooden Pickaxe",
+            BlockId::StonePickaxe => "Stone Pickaxe",
+            BlockId::IronPickaxe => "Iron Pickaxe",
+            BlockId::WoodenAxe => "Wooden Axe",
+            BlockId::StoneAxe => "Stone Axe",
+            BlockId::IronAxe => "Iron Axe",
+            BlockId::WoodenShovel => "Wooden Shovel",
+            BlockId::StoneShovel => "Stone Shovel",
+            BlockId::IronShovel => "Iron Shovel",
+            BlockId::WoodenSword => "Wooden Sword",
+            BlockId::StoneSword => "Stone Sword",
+            BlockId::IronSword => "Iron Sword",
+            BlockId::CherryLeaves => "Cherry Leaves",
+            BlockId::Mud => "Mud",
+            BlockId::AutumnLeaves => "Autumn Leaves",
+            BlockId::Torch => "Torch",
+            BlockId::RawPorkchop => "Raw Porkchop",
+            BlockId::CookedPorkchop => "Cooked Porkchop",
+            BlockId::RawBeef => "Raw Beef",
+            BlockId::CookedBeef => "Steak",
+            BlockId::Apple => "Apple",
+            BlockId::Chest => "Chest",
+            BlockId::Furnace => "Furnace",
+            BlockId::FurnaceLit => "Lit Furnace",
+            BlockId::IronIngot => "Iron Ingot",
+            BlockId::GoldIngot => "Gold Ingot",
+            BlockId::IronOunce => "Iron Nugget",
+            BlockId::IronBlock => "Block of Iron",
+            BlockId::GoldOunce => "Gold Nugget",
+            BlockId::GoldBlock => "Block of Gold",
+            BlockId::GoldOre => "Gold Ore",
+            BlockId::CoalBlock => "Block of Coal",
+            BlockId::RawChicken => "Raw Chicken",
+            BlockId::CookedChicken => "Cooked Chicken",
+            BlockId::Feather => "Feather",
+            BlockId::PigSpawnEgg => "Spawn Pig",
+            BlockId::CowSpawnEgg => "Spawn Cow",
+            BlockId::ChickenSpawnEgg => "Spawn Chicken",
+            BlockId::DiamondOre => "Diamond Ore",
+            BlockId::Diamond => "Diamond",
+            BlockId::DiamondBlock => "Block of Diamond",
+            BlockId::DiamondPickaxe => "Diamond Pickaxe",
+            BlockId::DiamondAxe => "Diamond Axe",
+            BlockId::DiamondShovel => "Diamond Shovel",
+            BlockId::DiamondSword => "Diamond Sword",
+            BlockId::GoldPickaxe => "Golden Pickaxe",
+            BlockId::GoldAxe => "Golden Axe",
+            BlockId::GoldShovel => "Golden Shovel",
+            BlockId::GoldSword => "Golden Sword",
+            BlockId::Bed => "Bed",
+            BlockId::WoodenSlab => "Oak Slab",
+            BlockId::StoneSlab => "Stone Slab",
+            BlockId::WoodenStairs => "Oak Stairs",
+            BlockId::StoneStairs => "Stone Stairs",
+            BlockId::Ladder => "Ladder",
+            BlockId::Bone => "Bone",
+            BlockId::Gunpowder => "Gunpowder",
+            BlockId::WoodenHoe => "Wooden Hoe",
+            BlockId::StoneHoe => "Stone Hoe",
+            BlockId::IronHoe => "Iron Hoe",
+            BlockId::DiamondHoe => "Diamond Hoe",
+            BlockId::GoldHoe => "Golden Hoe",
+            BlockId::Farmland => "Farmland",
+            BlockId::FarmlandWet => "Moist Farmland",
+            BlockId::WheatSeeds => "Wheat Seeds",
+            BlockId::WheatCrop => "Wheat Crop",
+            BlockId::Wheat => "Wheat",
+            BlockId::Bread => "Bread",
+            BlockId::Carrot => "Carrot",
+            BlockId::CarrotCrop => "Carrot Crop",
+            BlockId::Potato => "Potato",
+            BlockId::PotatoCrop => "Potato Crop",
+            BlockId::BakedPotato => "Baked Potato",
+            BlockId::Sapling => "Oak Sapling",
+            BlockId::BoneMeal => "Bone Meal",
+            BlockId::RustStoneOre => "Ruststone Ore",
+            BlockId::RustStone => "Ruststone",
+            BlockId::RustStoneWireLit => "Active Ruststone",
+            BlockId::RustStoneBlock => "Block of Ruststone",
+            BlockId::RustStoneLamp => "Ruststone Lamp",
+            BlockId::RustStoneLampLit => "Lit Ruststone Lamp",
+            BlockId::Lever => "Lever",
+            BlockId::LeverOn => "Active Lever",
+            BlockId::Button => "Button",
+            BlockId::ButtonPressed => "Pressed Button",
+            BlockId::PressurePlate => "Pressure Plate",
+            BlockId::PressurePlatePressed => "Pressed Pressure Plate",
+            BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
+        }
+    }
+
+    /// Localized display name based on current language setting.
+    pub fn display_name(self) -> &'static str {
+        match crate::core::i18n::current_language() {
+            crate::core::i18n::Language::English => self.name_en(),
+            crate::core::i18n::Language::Polish => self.name(),
+        }
+    }
+
     /// Base RGB color for each face; grass has a green top and dirt sides.
     pub fn face_color(self, face: Face) -> [f32; 3] {
         match self {
@@ -1467,5 +1592,27 @@ mod tests {
         assert_eq!(BlockId::Lever.name(), "dzwignia");
         assert_eq!(BlockId::Button.name(), "przycisk");
         assert_eq!(BlockId::PressurePlate.name(), "plytka naciskowa");
+
+        // English names check
+        assert_eq!(BlockId::RustStoneOre.name_en(), "Ruststone Ore");
+        assert_eq!(BlockId::RustStone.name_en(), "Ruststone");
+        assert_eq!(BlockId::RustStoneBlock.name_en(), "Block of Ruststone");
+        assert_eq!(BlockId::RustStoneLamp.name_en(), "Ruststone Lamp");
+        assert_eq!(BlockId::Grass.name_en(), "Grass Block");
+        assert_eq!(BlockId::Dirt.name_en(), "Dirt");
+        assert_eq!(BlockId::Stone.name_en(), "Stone");
+        assert_eq!(BlockId::DiamondSword.name_en(), "Diamond Sword");
+
+        // Localization switching check
+        crate::core::i18n::set_language(crate::core::i18n::Language::English);
+        assert_eq!(BlockId::Grass.display_name(), "Grass Block");
+        assert_eq!(BlockId::RustStone.display_name(), "Ruststone");
+
+        crate::core::i18n::set_language(crate::core::i18n::Language::Polish);
+        assert_eq!(BlockId::Grass.display_name(), "trawa");
+        assert_eq!(BlockId::RustStone.display_name(), "rdzawnik");
+
+        // Restore default English
+        crate::core::i18n::set_language(crate::core::i18n::Language::English);
     }
 }

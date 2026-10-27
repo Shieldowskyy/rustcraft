@@ -24,11 +24,22 @@ impl RustCraftApp {
 
         self.world.update_furnaces(dt);
 
-        if input.scroll_delta < 0.0 || self.controls.is_just_pressed(Action::HotbarPrev) {
-            self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
-        }
-        if input.scroll_delta > 0.0 || self.controls.is_just_pressed(Action::HotbarNext) {
-            self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
+        if self.player.gamemode == GameMode::Creative && self.player.creative_tab < crate::ui::CREATIVE_TABS.len() - 1 {
+            let blocks = crate::ui::inventory_ui::creative_tab_blocks(self.player.creative_tab);
+            let total_rows = (blocks.len() + 8) / 9;
+            let max_scroll = total_rows.saturating_sub(4);
+            if input.scroll_delta < 0.0 {
+                self.player.creative_scroll = (self.player.creative_scroll + 1).min(max_scroll);
+            } else if input.scroll_delta > 0.0 {
+                self.player.creative_scroll = self.player.creative_scroll.saturating_sub(1);
+            }
+        } else {
+            if input.scroll_delta < 0.0 || self.controls.is_just_pressed(Action::HotbarPrev) {
+                self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
+            }
+            if input.scroll_delta > 0.0 || self.controls.is_just_pressed(Action::HotbarNext) {
+                self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
+            }
         }
 
         if self.controls.is_just_pressed(Action::Inventory)
@@ -132,12 +143,22 @@ impl RustCraftApp {
             }
         }
 
-        if click_left || (click_right && inv_hovered_target.map_or(false, |t| matches!(t, InventorySlotTarget::CreativeTab(_) | InventorySlotTarget::Creative(_) | InventorySlotTarget::Trash | InventorySlotTarget::CraftingOutput))) {
+        if click_left || (click_right && inv_hovered_target.map_or(false, |t| matches!(t, InventorySlotTarget::CreativeTab(_) | InventorySlotTarget::CreativeScrollUp | InventorySlotTarget::CreativeScrollDown | InventorySlotTarget::Creative(_) | InventorySlotTarget::Trash | InventorySlotTarget::CraftingOutput))) {
             if let Some(target) = inv_hovered_target {
                 self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                 match target {
                     InventorySlotTarget::CreativeTab(tab_idx) => {
                         self.player.creative_tab = tab_idx;
+                        self.player.creative_scroll = 0;
+                    }
+                    InventorySlotTarget::CreativeScrollUp => {
+                        self.player.creative_scroll = self.player.creative_scroll.saturating_sub(1);
+                    }
+                    InventorySlotTarget::CreativeScrollDown => {
+                        let blocks = crate::ui::inventory_ui::creative_tab_blocks(self.player.creative_tab);
+                        let total_rows = (blocks.len() + 8) / 9;
+                        let max_scroll = total_rows.saturating_sub(4);
+                        self.player.creative_scroll = (self.player.creative_scroll + 1).min(max_scroll);
                     }
                     InventorySlotTarget::Creative(id) => {
                         let block = BlockId::from_u8(id);
@@ -221,7 +242,10 @@ impl RustCraftApp {
         }
 
         #[cfg(not(target_os = "vita"))]
-        self.renderer.render_frame(&mut self.world, &self.camera);
+        {
+            self.renderer.render_frame(&mut self.world, &self.camera);
+            self.renderer.apply_biome_color_filter(self.biome_filter_tint);
+        }
         #[cfg(target_os = "vita")]
         {
             self.renderer.color_buffer.fill(0x0C0C10);
@@ -355,7 +379,10 @@ impl RustCraftApp {
         }
 
         #[cfg(not(target_os = "vita"))]
-        self.renderer.render_frame(&mut self.world, &self.camera);
+        {
+            self.renderer.render_frame(&mut self.world, &self.camera);
+            self.renderer.apply_biome_color_filter(self.biome_filter_tint);
+        }
         #[cfg(target_os = "vita")]
         {
             self.renderer.color_buffer.fill(0x0C0C10);
@@ -583,7 +610,10 @@ impl RustCraftApp {
         }
 
         #[cfg(not(target_os = "vita"))]
-        self.renderer.render_frame(&mut self.world, &self.camera);
+        {
+            self.renderer.render_frame(&mut self.world, &self.camera);
+            self.renderer.apply_biome_color_filter(self.biome_filter_tint);
+        }
         #[cfg(target_os = "vita")]
         {
             self.renderer.color_buffer.fill(0x0C0C10);

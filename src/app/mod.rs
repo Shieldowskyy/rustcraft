@@ -74,6 +74,7 @@ pub struct RustCraftApp {
     pub damage_tilt_dir: f32,
     pub lava_damage_timer: f32,
     pub drown_damage_timer: f32,
+    pub biome_filter_tint: [f32; 3],
     pub debug_lines: Vec<String>,
     pub debug_right_lines: Vec<String>,
     pub profiler: FrameProfiler,
@@ -228,6 +229,8 @@ impl RustCraftApp {
         crate::log_info!("APP", "[Step 3/5] Initializing world instance (seed: {})...", seed);
         let world = World::new_with_seed(seed);
         let start_player_pos = world.player_position;
+        let (initial_biome, _) = crate::world::get_biome_at(start_player_pos.x.floor() as i32, start_player_pos.z.floor() as i32, world.seed);
+        let initial_biome_tint = initial_biome.color_filter();
 
         crate::log_info!("APP", "[Step 4/5] Initializing camera, player & UI layout...");
         let camera = Camera::new(start_player_pos);
@@ -335,6 +338,7 @@ impl RustCraftApp {
             damage_tilt_dir: 1.0,
             lava_damage_timer: 0.45,
             drown_damage_timer: 0.0,
+            biome_filter_tint: initial_biome_tint,
             debug_lines: (0..10).map(|_| String::with_capacity(96)).collect(),
             debug_right_lines: (0..14).map(|_| String::with_capacity(96)).collect(),
             profiler: FrameProfiler::default(),
@@ -657,7 +661,7 @@ impl RustCraftApp {
             "RustCraft [{} renderer] - {} FPS - block: {}{}{}",
             self.renderer.backend_name(),
             self.fps_display,
-            BlockId::from_u8(self.renderer.selected_block()).name(),
+            BlockId::from_u8(self.renderer.selected_block()).display_name(),
             if self.fly_mode { " - [FLYING]" } else { "" },
             if matches!(self.state, GameState::Paused) { " - [PAUSED]" } else { "" }
         );

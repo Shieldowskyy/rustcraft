@@ -13,12 +13,16 @@ pub enum InventorySlotTarget {
     CraftingOutput,
     Creative(u8),
     CreativeTab(usize),
+    CreativeScrollUp,
+    CreativeScrollDown,
     Trash,
 }
 
-pub const CREATIVE_TABS: [&str; 4] = [
+pub const CREATIVE_TABS: [&str; 6] = [
     "BLOCKS",
     "TOOLS",
+    "REDSTONE",
+    "FARMING",
     "ALL",
     "INVENTORY",
 ];
@@ -28,6 +32,8 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
     static TAB_0: OnceLock<&'static [BlockId]> = OnceLock::new();
     static TAB_1: OnceLock<&'static [BlockId]> = OnceLock::new();
     static TAB_2: OnceLock<&'static [BlockId]> = OnceLock::new();
+    static TAB_3: OnceLock<&'static [BlockId]> = OnceLock::new();
+    static TAB_4: OnceLock<&'static [BlockId]> = OnceLock::new();
 
     match tab {
         0 => *TAB_0.get_or_init(|| {
@@ -78,6 +84,7 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::Torch,
                 BlockId::RustStone,
                 BlockId::RustStoneLamp,
+                BlockId::RustStoneLampLit,
                 BlockId::Lever,
                 BlockId::Button,
                 BlockId::PressurePlate,
@@ -163,6 +170,67 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
             Box::leak(list.into_boxed_slice())
         }),
         2 => *TAB_2.get_or_init(|| {
+            let list = vec![
+                BlockId::RustStone,
+                BlockId::RustStoneOre,
+                BlockId::RustStoneBlock,
+                BlockId::RustStoneLamp,
+                BlockId::RustStoneLampLit,
+                BlockId::RustStoneWireLit,
+                BlockId::Lever,
+                BlockId::LeverOn,
+                BlockId::Button,
+                BlockId::ButtonPressed,
+                BlockId::PressurePlate,
+                BlockId::PressurePlatePressed,
+                BlockId::Tnt,
+                BlockId::Torch,
+                BlockId::Door,
+                BlockId::Chest,
+                BlockId::Furnace,
+                BlockId::FurnaceLit,
+                BlockId::CraftingTable,
+            ];
+            Box::leak(list.into_boxed_slice())
+        }),
+        3 => *TAB_3.get_or_init(|| {
+            let list = vec![
+                BlockId::WoodenHoe,
+                BlockId::StoneHoe,
+                BlockId::IronHoe,
+                BlockId::GoldHoe,
+                BlockId::DiamondHoe,
+                BlockId::WheatSeeds,
+                BlockId::Wheat,
+                BlockId::WheatCrop,
+                BlockId::Bread,
+                BlockId::Carrot,
+                BlockId::CarrotCrop,
+                BlockId::Potato,
+                BlockId::PotatoCrop,
+                BlockId::BakedPotato,
+                BlockId::Apple,
+                BlockId::Bone,
+                BlockId::BoneMeal,
+                BlockId::Sapling,
+                BlockId::Cactus,
+                BlockId::Water,
+                BlockId::Farmland,
+                BlockId::FarmlandWet,
+                BlockId::PigSpawnEgg,
+                BlockId::CowSpawnEgg,
+                BlockId::ChickenSpawnEgg,
+                BlockId::RawPorkchop,
+                BlockId::CookedPorkchop,
+                BlockId::RawBeef,
+                BlockId::CookedBeef,
+                BlockId::RawChicken,
+                BlockId::CookedChicken,
+                BlockId::Feather,
+            ];
+            Box::leak(list.into_boxed_slice())
+        }),
+        4 => *TAB_4.get_or_init(|| {
             let mut list = vec![
                 // Natural & Terrain
                 BlockId::Grass,
@@ -215,10 +283,15 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::Torch,
                 // RustStone / Redstone Mechanisms
                 BlockId::RustStone,
+                BlockId::RustStoneWireLit,
                 BlockId::RustStoneLamp,
+                BlockId::RustStoneLampLit,
                 BlockId::Lever,
+                BlockId::LeverOn,
                 BlockId::Button,
+                BlockId::ButtonPressed,
                 BlockId::PressurePlate,
+                BlockId::PressurePlatePressed,
                 // Pickaxes
                 BlockId::WoodenPickaxe,
                 BlockId::StonePickaxe,
@@ -249,6 +322,17 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::IronHoe,
                 BlockId::GoldHoe,
                 BlockId::DiamondHoe,
+                // Farming, Crops & Food
+                BlockId::WheatSeeds,
+                BlockId::Wheat,
+                BlockId::WheatCrop,
+                BlockId::Bread,
+                BlockId::Carrot,
+                BlockId::CarrotCrop,
+                BlockId::Potato,
+                BlockId::PotatoCrop,
+                BlockId::BakedPotato,
+                BlockId::Apple,
                 // Materials & Minerals
                 BlockId::Stick,
                 BlockId::Bone,
@@ -260,24 +344,16 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::GoldOunce,
                 BlockId::GoldIngot,
                 BlockId::Diamond,
-                // Food & Crops
-                BlockId::Apple,
-                BlockId::WheatSeeds,
-                BlockId::Wheat,
-                BlockId::Bread,
-                BlockId::Carrot,
-                BlockId::Potato,
-                BlockId::BakedPotato,
+                // Animals & Meats
+                BlockId::PigSpawnEgg,
+                BlockId::CowSpawnEgg,
+                BlockId::ChickenSpawnEgg,
                 BlockId::RawPorkchop,
                 BlockId::CookedPorkchop,
                 BlockId::RawBeef,
                 BlockId::CookedBeef,
                 BlockId::RawChicken,
                 BlockId::CookedChicken,
-                // Spawn Eggs
-                BlockId::PigSpawnEgg,
-                BlockId::CowSpawnEgg,
-                BlockId::ChickenSpawnEgg,
             ];
             list.extend(crate::engine::modding::get_custom_creative_blocks());
             list.extend(crate::engine::modding::get_custom_creative_items());
@@ -306,23 +382,28 @@ impl InventoryLayout {
 
     pub fn find_slot_at(&self, px: i32, py: i32, player: &Player) -> Option<InventorySlotTarget> {
         if player.gamemode == GameMode::Creative {
-            // Check top tabs (4 tabs)
-            for i in 0..4 {
-                let tab_x = self.start_x + 8 + i as i32 * 112;
+            // Check top tabs (6 tabs)
+            for i in 0..CREATIVE_TABS.len() {
+                let tab_x = self.start_x - 3 + i as i32 * 79;
                 let tab_y = self.start_y - 24;
-                if px >= tab_x && px < tab_x + 108 && py >= tab_y && py < tab_y + 26 {
+                if px >= tab_x && px < tab_x + 75 && py >= tab_y && py < tab_y + 26 {
                     return Some(InventorySlotTarget::CreativeTab(i));
                 }
             }
 
-            if player.creative_tab < 3 {
-                // Creative item grid (9 cols x 4 rows)
+            if player.creative_tab < CREATIVE_TABS.len() - 1 {
+                // Creative item grid (9 cols x 4 rows) with scroll offset
                 let blocks = creative_tab_blocks(player.creative_tab);
+                let total_rows = (blocks.len() + 8) / 9;
+                let max_scroll = total_rows.saturating_sub(4);
+                let scroll_row = player.creative_scroll.min(max_scroll);
+                let scroll_offset = scroll_row * 9;
+
                 let grid_x = self.start_x + 22;
                 let grid_y = self.start_y + 36;
                 for row in 0..4 {
                     for col in 0..9 {
-                        let idx = row * 9 + col;
+                        let idx = scroll_offset + row * 9 + col;
                         if idx < blocks.len() {
                             let x = grid_x + col as i32 * 42;
                             let y = grid_y + row as i32 * 42;
@@ -330,6 +411,17 @@ impl InventoryLayout {
                                 return Some(InventorySlotTarget::Creative(blocks[idx].to_u8()));
                             }
                         }
+                    }
+                }
+
+                // Scrollbar Up and Down buttons
+                let sb_x = self.start_x + 404;
+                if px >= sb_x && px < sb_x + 18 {
+                    if py >= self.start_y + 36 && py < self.start_y + 54 {
+                        return Some(InventorySlotTarget::CreativeScrollUp);
+                    }
+                    if py >= self.start_y + 186 && py < self.start_y + 204 {
+                        return Some(InventorySlotTarget::CreativeScrollDown);
                     }
                 }
 
@@ -633,9 +725,9 @@ pub fn draw_inventory_screen(
     let start_y = layout.start_y;
 
     if player.gamemode == GameMode::Creative {
-        // Draw 4 Top Tabs
-        for i in 0..4 {
-            let tab_x = start_x + 8 + i as i32 * 112;
+        // Draw 6 Top Tabs
+        for i in 0..CREATIVE_TABS.len() {
+            let tab_x = start_x - 3 + i as i32 * 79;
             let tab_y = start_y - 24;
             let is_active = player.creative_tab == i;
             let is_hovered = hovered_slot == Some(InventorySlotTarget::CreativeTab(i));
@@ -656,10 +748,10 @@ pub fn draw_inventory_screen(
                 pack_color(0.30, 0.30, 0.34)
             };
 
-            fill_rect(buffer, width, height, tab_x, tab_y, 108, 26, bg_color);
-            fill_rect(buffer, width, height, tab_x, tab_y, 108, 2, border_top);
+            fill_rect(buffer, width, height, tab_x, tab_y, 75, 26, bg_color);
+            fill_rect(buffer, width, height, tab_x, tab_y, 75, 2, border_top);
             fill_rect(buffer, width, height, tab_x, tab_y, 2, 26, border_top);
-            fill_rect(buffer, width, height, tab_x + 106, tab_y, 2, 26, pack_color(0.06, 0.06, 0.08));
+            fill_rect(buffer, width, height, tab_x + 73, tab_y, 2, 26, pack_color(0.06, 0.06, 0.08));
 
             let text_color = if is_active {
                 pack_color(1.0, 0.95, 0.3)
@@ -671,7 +763,7 @@ pub fn draw_inventory_screen(
 
             let label = CREATIVE_TABS[i];
             let tw = crate::graphics::font::measure_text(label, 1, 1);
-            let tx = tab_x + (108 - tw) / 2;
+            let tx = tab_x + (75 - tw) / 2;
             let ty = tab_y + 8;
             draw_text_colored_shadowed(buffer, width, height, label, tx, ty, 1, 1, text_color);
         }
@@ -683,23 +775,30 @@ pub fn draw_inventory_screen(
         fill_rect(buffer, width, height, start_x - 8, start_y, 3, 360, pack_color(0.38, 0.38, 0.42));
         fill_rect(buffer, width, height, start_x + 469, start_y, 3, 360, pack_color(0.05, 0.05, 0.06));
 
-        if player.creative_tab < 3 {
+        if player.creative_tab < CREATIVE_TABS.len() - 1 {
             // Category title
             let title = match player.creative_tab {
                 0 => "BUILDING BLOCKS",
-                1 => "TOOLS & ITEMS",
-                2 => "ALL ITEMS",
+                1 => "TOOLS & COMBAT",
+                2 => "RUSTSTONE & MECHANISMS",
+                3 => "FARMING & CROPS",
+                4 => "ALL ITEMS & BLOCKS",
                 _ => "",
             };
             draw_text_shadowed(buffer, width, height, title, start_x + 18, start_y + 14, 2, 1);
 
-            // Creative block grid (9 cols x 4 rows)
+            // Creative block grid (9 cols x 4 rows) with scroll offset
             let blocks = creative_tab_blocks(player.creative_tab);
+            let total_rows = (blocks.len() + 8) / 9;
+            let max_scroll = total_rows.saturating_sub(4);
+            let scroll_row = player.creative_scroll.min(max_scroll);
+            let scroll_offset = scroll_row * 9;
+
             let grid_x = start_x + 22;
             let grid_y = start_y + 36;
             for row in 0..4 {
                 for col in 0..9 {
-                    let idx = row * 9 + col;
+                    let idx = scroll_offset + row * 9 + col;
                     let x = grid_x + col as i32 * 42;
                     let y = grid_y + row as i32 * 42;
 
@@ -712,6 +811,54 @@ pub fn draw_inventory_screen(
                         draw_slot_custom(buffer, width, height, x, y, 38, 38, None, false, Some(pack_color(0.18, 0.18, 0.20)));
                     }
                 }
+            }
+
+            // Scrollbar for creative item grid
+            let sb_x = start_x + 404;
+            let is_up_hover = hovered_slot == Some(InventorySlotTarget::CreativeScrollUp);
+            let is_down_hover = hovered_slot == Some(InventorySlotTarget::CreativeScrollDown);
+
+            // Up button
+            let up_bg = if is_up_hover { pack_color(0.28, 0.28, 0.32) } else { pack_color(0.18, 0.18, 0.22) };
+            fill_rect(buffer, width, height, sb_x, start_y + 36, 18, 16, up_bg);
+            fill_rect(buffer, width, height, sb_x, start_y + 36, 18, 1, pack_color(0.4, 0.4, 0.45));
+            draw_text_colored_shadowed(buffer, width, height, "^", sb_x + 6, start_y + 40, 1, 1, pack_color(0.9, 0.9, 0.95));
+
+            // Track
+            let track_y = start_y + 54;
+            let track_h = 130;
+            fill_rect(buffer, width, height, sb_x, track_y, 18, track_h, pack_color(0.10, 0.10, 0.12));
+            fill_rect(buffer, width, height, sb_x, track_y, 1, track_h, pack_color(0.06, 0.06, 0.08));
+            fill_rect(buffer, width, height, sb_x + 17, track_y, 1, track_h, pack_color(0.22, 0.22, 0.26));
+
+            // Thumb
+            let thumb_h = if total_rows > 4 {
+                ((track_h as f32 * 4.0 / total_rows as f32) as i32).clamp(24, track_h)
+            } else {
+                track_h
+            };
+            let thumb_y = if max_scroll > 0 {
+                track_y + (scroll_row as f32 / max_scroll as f32 * (track_h - thumb_h) as f32) as i32
+            } else {
+                track_y
+            };
+            fill_rect(buffer, width, height, sb_x + 2, thumb_y, 14, thumb_h, pack_color(0.38, 0.38, 0.44));
+            fill_rect(buffer, width, height, sb_x + 2, thumb_y, 14, 1, pack_color(0.55, 0.55, 0.62));
+            fill_rect(buffer, width, height, sb_x + 2, thumb_y, 1, thumb_h, pack_color(0.55, 0.55, 0.62));
+            fill_rect(buffer, width, height, sb_x + 15, thumb_y, 1, thumb_h, pack_color(0.20, 0.20, 0.24));
+            fill_rect(buffer, width, height, sb_x + 2, thumb_y + thumb_h - 1, 14, 1, pack_color(0.20, 0.20, 0.24));
+
+            // Down button
+            let down_bg = if is_down_hover { pack_color(0.28, 0.28, 0.32) } else { pack_color(0.18, 0.18, 0.22) };
+            fill_rect(buffer, width, height, sb_x, start_y + 186, 18, 16, down_bg);
+            fill_rect(buffer, width, height, sb_x, start_y + 186, 18, 1, pack_color(0.4, 0.4, 0.45));
+            draw_text_colored_shadowed(buffer, width, height, "v", sb_x + 6, start_y + 190, 1, 1, pack_color(0.9, 0.9, 0.95));
+
+            // Row counter
+            if total_rows > 4 {
+                let row_info = format!("{}/{}", scroll_row + 1, max_scroll + 1);
+                let rw = crate::graphics::font::measure_text(&row_info, 1, 1);
+                draw_text_colored_shadowed(buffer, width, height, &row_info, sb_x + 18 - rw, start_y + 206, 1, 1, pack_color(0.60, 0.60, 0.65));
             }
 
             // Divider & Hotbar Header
@@ -1099,26 +1246,32 @@ pub fn draw_inventory_screen(
     let mut hovered_item_name = None;
     if let Some(target) = hovered_slot {
         match target {
-            InventorySlotTarget::Hotbar(i) => hovered_item_name = player.inventory.hotbar[i].map(|s| (s.block.name().to_string(), s.count)),
-            InventorySlotTarget::Main(i) => hovered_item_name = player.inventory.main[i].map(|s| (s.block.name().to_string(), s.count)),
-            InventorySlotTarget::Crafting2x2(i) => hovered_item_name = player.inventory.crafting_2x2[i].map(|s| (s.block.name().to_string(), s.count)),
-            InventorySlotTarget::Crafting3x3(i) => hovered_item_name = player.inventory.crafting_3x3[i].map(|s| (s.block.name().to_string(), s.count)),
+            InventorySlotTarget::Hotbar(i) => hovered_item_name = player.inventory.hotbar[i].map(|s| (s.block.display_name().to_string(), s.count)),
+            InventorySlotTarget::Main(i) => hovered_item_name = player.inventory.main[i].map(|s| (s.block.display_name().to_string(), s.count)),
+            InventorySlotTarget::Crafting2x2(i) => hovered_item_name = player.inventory.crafting_2x2[i].map(|s| (s.block.display_name().to_string(), s.count)),
+            InventorySlotTarget::Crafting3x3(i) => hovered_item_name = player.inventory.crafting_3x3[i].map(|s| (s.block.display_name().to_string(), s.count)),
             InventorySlotTarget::CraftingOutput => {
                 let res = if crafting_table_open {
                     recipes.match_grid(&player.inventory.crafting_3x3, 3, 3)
                 } else {
                     recipes.match_grid(&player.inventory.crafting_2x2, 2, 2)
                 };
-                hovered_item_name = res.map(|s| (s.block.name().to_string(), s.count));
+                hovered_item_name = res.map(|s| (s.block.display_name().to_string(), s.count));
             }
             InventorySlotTarget::Creative(id) => {
                 let block = BlockId::from_u8(id);
-                hovered_item_name = Some((block.name().to_string(), 64));
+                hovered_item_name = Some((block.display_name().to_string(), 64));
             }
             InventorySlotTarget::CreativeTab(idx) => {
                 if idx < CREATIVE_TABS.len() {
                     hovered_item_name = Some((format!("Category: {}", CREATIVE_TABS[idx]), 1));
                 }
+            }
+            InventorySlotTarget::CreativeScrollUp => {
+                hovered_item_name = Some(("Scroll Up (Mouse Wheel Up)".to_string(), 1));
+            }
+            InventorySlotTarget::CreativeScrollDown => {
+                hovered_item_name = Some(("Scroll Down (Mouse Wheel Down)".to_string(), 1));
             }
             InventorySlotTarget::Trash => {
                 let trash_tip = if is_gamepad_active {
@@ -2061,7 +2214,7 @@ mod tests {
 
     #[test]
     fn test_creative_tabs_and_block_lists() {
-        assert_eq!(CREATIVE_TABS.len(), 4);
+        assert_eq!(CREATIVE_TABS.len(), 6);
         let tab0 = creative_tab_blocks(0);
         assert!(tab0.contains(&BlockId::Grass));
         assert!(tab0.contains(&BlockId::Stone));
@@ -2078,47 +2231,64 @@ mod tests {
         assert!(tab1.contains(&BlockId::CowSpawnEgg));
         assert!(tab1.contains(&BlockId::ChickenSpawnEgg));
 
-        let tab2 = creative_tab_blocks(2);
-        assert!(tab2.len() >= 76);
-        assert!(tab2.contains(&BlockId::Grass));
-        assert!(tab2.contains(&BlockId::Torch));
-        assert!(tab2.contains(&BlockId::IronSword));
-        assert!(tab2.contains(&BlockId::DiamondSword));
-        assert!(tab2.contains(&BlockId::DiamondPickaxe));
-        assert!(tab2.contains(&BlockId::Diamond));
-        assert!(tab2.contains(&BlockId::Bed));
-        assert!(tab2.contains(&BlockId::Ladder));
-        assert!(tab2.contains(&BlockId::WoodenSlab));
-        assert!(tab2.contains(&BlockId::WoodenStairs));
-        assert!(tab2.contains(&BlockId::RawPorkchop));
-        assert!(tab2.contains(&BlockId::CookedBeef));
-        assert!(tab2.contains(&BlockId::RawChicken));
-        assert!(tab2.contains(&BlockId::CookedChicken));
-        assert!(tab2.contains(&BlockId::Feather));
-        assert!(tab2.contains(&BlockId::PigSpawnEgg));
-        assert!(tab2.contains(&BlockId::CowSpawnEgg));
-        assert!(tab2.contains(&BlockId::ChickenSpawnEgg));
-        assert!(tab2.contains(&BlockId::Chest));
-        assert!(tab2.contains(&BlockId::Furnace));
-        assert!(tab2.contains(&BlockId::IronOunce));
-        assert!(tab2.contains(&BlockId::IronBlock));
-        assert!(tab2.contains(&BlockId::GoldOre));
-        assert!(tab2.contains(&BlockId::GoldBlock));
-        assert!(tab2.contains(&BlockId::CoalBlock));
-        assert!(tab2.contains(&BlockId::Farmland));
+        let tab2 = creative_tab_blocks(2); // Redstone
         assert!(tab2.contains(&BlockId::RustStone));
         assert!(tab2.contains(&BlockId::RustStoneBlock));
         assert!(tab2.contains(&BlockId::RustStoneLamp));
         assert!(tab2.contains(&BlockId::Lever));
         assert!(tab2.contains(&BlockId::Button));
         assert!(tab2.contains(&BlockId::PressurePlate));
-        assert!(tab2.contains(&BlockId::Bone));
-        assert!(tab2.contains(&BlockId::Gunpowder));
-        assert!(tab2.contains(&BlockId::WheatSeeds));
-        assert!(tab2.contains(&BlockId::DiamondHoe));
-        assert!(tab2.contains(&BlockId::Water));
-        assert!(tab2.contains(&BlockId::Lava));
-        assert!(tab2.contains(&BlockId::Tnt));
+
+        let tab3 = creative_tab_blocks(3); // Farming
+        assert!(tab3.contains(&BlockId::WoodenHoe));
+        assert!(tab3.contains(&BlockId::DiamondHoe));
+        assert!(tab3.contains(&BlockId::WheatSeeds));
+        assert!(tab3.contains(&BlockId::Carrot));
+        assert!(tab3.contains(&BlockId::Potato));
+        assert!(tab3.contains(&BlockId::BoneMeal));
+        assert!(tab3.contains(&BlockId::Farmland));
+
+        let tab4 = creative_tab_blocks(4); // All
+        assert!(tab4.len() >= 76);
+        assert!(tab4.contains(&BlockId::Grass));
+        assert!(tab4.contains(&BlockId::Torch));
+        assert!(tab4.contains(&BlockId::IronSword));
+        assert!(tab4.contains(&BlockId::DiamondSword));
+        assert!(tab4.contains(&BlockId::DiamondPickaxe));
+        assert!(tab4.contains(&BlockId::Diamond));
+        assert!(tab4.contains(&BlockId::Bed));
+        assert!(tab4.contains(&BlockId::Ladder));
+        assert!(tab4.contains(&BlockId::WoodenSlab));
+        assert!(tab4.contains(&BlockId::WoodenStairs));
+        assert!(tab4.contains(&BlockId::RawPorkchop));
+        assert!(tab4.contains(&BlockId::CookedBeef));
+        assert!(tab4.contains(&BlockId::RawChicken));
+        assert!(tab4.contains(&BlockId::CookedChicken));
+        assert!(tab4.contains(&BlockId::Feather));
+        assert!(tab4.contains(&BlockId::PigSpawnEgg));
+        assert!(tab4.contains(&BlockId::CowSpawnEgg));
+        assert!(tab4.contains(&BlockId::ChickenSpawnEgg));
+        assert!(tab4.contains(&BlockId::Chest));
+        assert!(tab4.contains(&BlockId::Furnace));
+        assert!(tab4.contains(&BlockId::IronOunce));
+        assert!(tab4.contains(&BlockId::IronBlock));
+        assert!(tab4.contains(&BlockId::GoldOre));
+        assert!(tab4.contains(&BlockId::GoldBlock));
+        assert!(tab4.contains(&BlockId::CoalBlock));
+        assert!(tab4.contains(&BlockId::Farmland));
+        assert!(tab4.contains(&BlockId::RustStone));
+        assert!(tab4.contains(&BlockId::RustStoneBlock));
+        assert!(tab4.contains(&BlockId::RustStoneLamp));
+        assert!(tab4.contains(&BlockId::Lever));
+        assert!(tab4.contains(&BlockId::Button));
+        assert!(tab4.contains(&BlockId::PressurePlate));
+        assert!(tab4.contains(&BlockId::Bone));
+        assert!(tab4.contains(&BlockId::Gunpowder));
+        assert!(tab4.contains(&BlockId::WheatSeeds));
+        assert!(tab4.contains(&BlockId::DiamondHoe));
+        assert!(tab4.contains(&BlockId::Water));
+        assert!(tab4.contains(&BlockId::Lava));
+        assert!(tab4.contains(&BlockId::Tnt));
     }
 
     #[test]
@@ -2134,13 +2304,20 @@ mod tests {
         assert_eq!(layout.find_slot_at(tab0_x, tab0_y, &player), Some(InventorySlotTarget::CreativeTab(0)));
 
         // Top tab click (Tab 1: TOOLS)
-        let tab1_x = layout.start_x + 130;
+        let tab1_x = layout.start_x + 90;
         assert_eq!(layout.find_slot_at(tab1_x, tab0_y, &player), Some(InventorySlotTarget::CreativeTab(1)));
 
         // First creative block in tab 0 (Grass)
         let block0_x = layout.start_x + 30;
         let block0_y = layout.start_y + 45;
         assert_eq!(layout.find_slot_at(block0_x, block0_y, &player), Some(InventorySlotTarget::Creative(BlockId::Grass.to_u8())));
+
+        // Scroll Up and Down button detection
+        let sb_up_x = layout.start_x + 410;
+        let sb_up_y = layout.start_y + 40;
+        assert_eq!(layout.find_slot_at(sb_up_x, sb_up_y, &player), Some(InventorySlotTarget::CreativeScrollUp));
+        let sb_down_y = layout.start_y + 195;
+        assert_eq!(layout.find_slot_at(sb_up_x, sb_down_y, &player), Some(InventorySlotTarget::CreativeScrollDown));
 
         // Hotbar slot 0 in creative mode
         let hotbar0_x = layout.start_x + 25;

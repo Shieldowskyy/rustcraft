@@ -628,6 +628,10 @@ impl Renderer {
         crate::ui::death_screen_button_rects(self.width, self.height)
     }
 
+    pub fn apply_biome_color_filter(&mut self, tint: [f32; 3]) {
+        crate::ui::apply_biome_color_filter(&mut self.color_buffer, tint);
+    }
+
     pub fn draw_damage_flash(&mut self, intensity: f32) {
         crate::ui::draw_damage_flash(&mut self.color_buffer, self.width, self.height, intensity);
     }

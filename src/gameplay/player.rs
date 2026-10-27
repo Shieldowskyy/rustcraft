@@ -23,7 +23,8 @@ pub struct Player {
     pub fall_distance: f32,
     pub inventory: Inventory,
     pub selected_hotbar_slot: u8, // 0 to 9
-    pub creative_tab: usize, // 0: Budulec, 1: Narzedzia, 2: Wszystkie, 3: Ekwipunek
+    pub creative_tab: usize, // 0: Budulec, 1: Narzedzia, 2: Mechanizmy, 3: Rolnictwo, 4: Wszystkie, 5: Ekwipunek
+    pub creative_scroll: usize,
     pub invulnerability_timer: f32,
     pub has_landed: bool,
     pub spawn_point: Option<crate::core::math::IVec3>,
@@ -71,6 +72,7 @@ impl Player {
             inventory: Inventory::new(),
             selected_hotbar_slot: 0,
             creative_tab: 0,
+            creative_scroll: 0,
             invulnerability_timer: 3.0,
             has_landed: false,
             spawn_point: None,

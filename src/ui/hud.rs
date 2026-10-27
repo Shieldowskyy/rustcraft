@@ -490,7 +490,7 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
     // Display held item name floating above hotbar when recently switched
     if player.held_item_name_timer > 0.0 {
         if let Some(stack) = &player.inventory.hotbar[player.selected_hotbar_slot as usize] {
-            let item_name = stack.block.name();
+            let item_name = stack.block.display_name();
             let scale = 1;
             let tw = font::measure_text(item_name, scale, 1);
             let tx = (width as i32 - tw) / 2;
@@ -973,6 +973,44 @@ pub fn draw_damage_flash(buffer: &mut [u32], width: usize, height: usize, intens
     fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.95, 0.05, 0.05), alpha);
 }
 
+/// Applies an atmospheric biome color filter postprocessing pass to the screen color buffer.
+/// Multiplies the color channels by the interpolated biome tint factors with fast fixed-point arithmetic.
+pub fn apply_biome_color_filter(buffer: &mut [u32], tint: [f32; 3]) {
+    // If filter is virtually neutral [1.0, 1.0, 1.0], no postprocessing needed
+    if (tint[0] - 1.0).abs() < 0.003 && (tint[1] - 1.0).abs() < 0.003 && (tint[2] - 1.0).abs() < 0.003 {
+        return;
+    }
+
+    let mr = (tint[0] * 256.0).round().max(0.0) as u32;
+    let mg = (tint[1] * 256.0).round().max(0.0) as u32;
+    let mb = (tint[2] * 256.0).round().max(0.0) as u32;
+
+    #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
+    {
+        use rayon::prelude::*;
+        buffer.par_chunks_mut(4096).for_each(|chunk| {
+            for pixel in chunk.iter_mut() {
+                let p = *pixel;
+                let r = (((p >> 16) & 0xFF) * mr >> 8).min(255);
+                let g = (((p >> 8) & 0xFF) * mg >> 8).min(255);
+                let b = ((p & 0xFF) * mb >> 8).min(255);
+                *pixel = (p & 0xFF000000) | (r << 16) | (g << 8) | b;
+            }
+        });
+    }
+
+    #[cfg(any(target_arch = "wasm32", target_os = "vita"))]
+    {
+        for pixel in buffer.iter_mut() {
+            let p = *pixel;
+            let r = (((p >> 16) & 0xFF) * mr >> 8).min(255);
+            let g = (((p >> 8) & 0xFF) * mg >> 8).min(255);
+            let b = ((p & 0xFF) * mb >> 8).min(255);
+            *pixel = (p & 0xFF000000) | (r << 16) | (g << 8) | b;
+        }
+    }
+}
+
 pub fn draw_low_health_vignette(buffer: &mut [u32], width: usize, height: usize, time: f32) {
     let pulse = (time * 6.5).sin() * 0.5 + 0.5; // Fast heartbeat pulsation
     let base_alpha = 0.22 + 0.32 * pulse;
@@ -1152,6 +1190,48 @@ mod tests {
         let mut buffer_flash = vec![0u32; width * height];
         draw_heart_icon(&mut buffer_flash, width, height, 4, 4, HeartIconState::Full, true);
         assert!(buffer_flash.iter().filter(|&&p| p != 0).count() > 0);
+    }
+
+    #[test]
+    fn test_apply_biome_color_filter_neutral_noop() {
+        let mut buffer = vec![0xFF808080u32; 16];
+        let original = buffer.clone();
+        apply_biome_color_filter(&mut buffer, [1.0, 1.0, 1.0]);
+        assert_eq!(buffer, original, "Neutral filter [1.0, 1.0, 1.0] must not modify pixel buffer");
+    }
+
+    #[test]
+    fn test_apply_biome_color_filter_desert_warmth() {
+        let mut buffer = vec![0xFF808080u32; 16]; // Neutral gray (128, 128, 128)
+        let filter = crate::world::Biome::Desert.color_filter(); // [1.10, 1.03, 0.89]
+        apply_biome_color_filter(&mut buffer, filter);
+
+        let p = buffer[0];
+        let r = (p >> 16) & 0xFF;
+        let g = (p >> 8) & 0xFF;
+        let b = p & 0xFF;
+        let a = (p >> 24) & 0xFF;
+
+        assert_eq!(a, 0xFF, "Alpha channel should remain 0xFF");
+        assert!(r > 128, "Desert filter should boost red: r = {}", r);
+        assert!(b < 128, "Desert filter should reduce blue: b = {}", b);
+        assert!(r > g && g > b, "Desert warmth hierarchy should be r > g > b: r={}, g={}, b={}", r, g, b);
+    }
+
+    #[test]
+    fn test_apply_biome_color_filter_snow_cool() {
+        let mut buffer = vec![0xFF808080u32; 16]; // Neutral gray (128, 128, 128)
+        let filter = crate::world::Biome::SnowyTundra.color_filter(); // [0.93, 1.00, 1.11]
+        apply_biome_color_filter(&mut buffer, filter);
+
+        let p = buffer[0];
+        let r = (p >> 16) & 0xFF;
+        let b = p & 0xFF;
+        let a = (p >> 24) & 0xFF;
+
+        assert_eq!(a, 0xFF, "Alpha channel should remain 0xFF");
+        assert!(b > 128, "Snowy tundra filter should boost blue: b = {}", b);
+        assert!(r < 128, "Snowy tundra filter should reduce red: r = {}", r);
     }
 }
 

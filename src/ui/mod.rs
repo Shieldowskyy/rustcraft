@@ -25,12 +25,12 @@ pub use draw::{
     draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color, set_px, unpack_color,
 };
 pub use hud::{
-    death_screen_button_rects, draw_advanced_debug_overlay, draw_break_progress, draw_bubble,
+    apply_biome_color_filter, death_screen_button_rects, draw_advanced_debug_overlay, draw_break_progress, draw_bubble,
     draw_capture_prompt, draw_crosshair, draw_damage_flash, draw_death_screen, draw_debug_panel,
     draw_heart_icon, draw_hotbar, draw_hunger_icon, draw_lava_overlay, draw_burning_fire_overlay, draw_low_health_vignette, draw_pause_menu,
     draw_pie_chart, draw_underwater_overlay, pause_menu_button_rects, BubbleState, HeartIconState, HungerIconState,
 };
-pub use inventory_ui::{draw_inventory_screen, draw_item_icon, InventoryLayout, InventorySlotTarget};
+pub use inventory_ui::{draw_inventory_screen, draw_item_icon, CREATIVE_TABS, InventoryLayout, InventorySlotTarget};
 pub use menu::{draw_main_menu, draw_rustcraft_logo, main_menu_button_rects};
 pub use save_select::{draw_save_select_menu, save_bottom_button_rects, save_card_rects, MAX_SAVE_SLOTS, VISIBLE_SAVE_ROWS};
 pub use settings_ui::{

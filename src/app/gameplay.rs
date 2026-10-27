@@ -554,6 +554,16 @@ impl RustCraftApp {
                     );
                     let block_below = self.world.get_block(block_below_pos);
 
+                    // Smoothly interpolate postprocess screen color filter towards current biome tint
+                    let p_block = self.camera.position.floor_to_ivec();
+                    let (current_biome, _) = crate::world::get_biome_at(p_block.x, p_block.z, self.world.seed);
+                    let target_tint = current_biome.color_filter();
+                    let lerp_speed = 1.8;
+                    let factor = (1.0 - (-lerp_speed * dt).exp()).clamp(0.0, 1.0);
+                    for i in 0..3 {
+                        self.biome_filter_tint[i] += (target_tint[i] - self.biome_filter_tint[i]) * factor;
+                    }
+
                     // Low-frequency sparse environmental probe for ambient soundscapes (~3 Hz)
                     self.ambient_probe_timer -= dt;
                     if self.ambient_probe_timer <= 0.0 {
@@ -1860,6 +1870,9 @@ impl RustCraftApp {
                         }
                     }
 
+                    // Apply biome color filter postprocess pass
+                    self.renderer.apply_biome_color_filter(self.biome_filter_tint);
+
                     if self.damage_tilt_timer > 0.0 {
                         self.renderer.draw_damage_flash(self.damage_tilt_timer / 0.4);
                     }
@@ -2090,9 +2103,9 @@ impl RustCraftApp {
                         self.debug_lines[7].clear();
                         if let Some(target) = self.break_target {
                             let target_block = self.world.get_block(target);
-                            let _ = write!(&mut self.debug_lines[7], "Target: {} [{}, {}, {}]", target_block.name().to_uppercase(), target.x, target.y, target.z);
+                            let _ = write!(&mut self.debug_lines[7], "Target: {} [{}, {}, {}]", target_block.display_name().to_uppercase(), target.x, target.y, target.z);
                         } else {
-                            let sel_name = BlockId::from_u8(self.renderer.selected_block()).name().to_uppercase();
+                            let sel_name = BlockId::from_u8(self.renderer.selected_block()).display_name().to_uppercase();
                             let _ = write!(&mut self.debug_lines[7], "Holding: {}", sel_name);
                         }
 

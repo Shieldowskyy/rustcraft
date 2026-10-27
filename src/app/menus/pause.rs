@@ -183,7 +183,10 @@ impl RustCraftApp {
 
         self.renderer.fog_enabled = self.settings.fog;
         #[cfg(not(target_os = "vita"))]
-        self.renderer.render_frame(&mut self.world, &self.camera);
+        {
+            self.renderer.render_frame(&mut self.world, &self.camera);
+            self.renderer.apply_biome_color_filter(self.biome_filter_tint);
+        }
         #[cfg(target_os = "vita")]
         {
             self.renderer.color_buffer.fill(0x0C0C10);
@@ -277,6 +280,8 @@ impl RustCraftApp {
                     self.player.invulnerability_timer = 3.0;
                     self.player.has_landed = false;
                     self.damage_tilt_timer = 0.0;
+                    let (spawn_biome, _) = crate::world::get_biome_at(spawn_pos.x.floor() as i32, spawn_pos.z.floor() as i32, self.world.seed);
+                    self.biome_filter_tint = spawn_biome.color_filter();
                     crate::log_info!("PLAYER", "Player respawned at ({:.1}, {:.1}, {:.1})", self.camera.position.x, self.camera.position.y, self.camera.position.z);
                     self.state = GameState::Playing;
                     out.request_capture_mouse = true;
@@ -309,7 +314,10 @@ impl RustCraftApp {
 
         self.renderer.fog_enabled = self.settings.fog;
         #[cfg(not(target_os = "vita"))]
-        self.renderer.render_frame(&mut self.world, &self.camera);
+        {
+            self.renderer.render_frame(&mut self.world, &self.camera);
+            self.renderer.apply_biome_color_filter(self.biome_filter_tint);
+        }
         #[cfg(target_os = "vita")]
         {
             self.renderer.color_buffer.fill(0x0C0C10);

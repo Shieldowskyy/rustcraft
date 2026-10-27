@@ -268,7 +268,7 @@ pub fn draw_chest_ui(
                 ChestSlotTarget::Hotbar(i) => player.inventory.hotbar[i],
             };
             if let Some(item) = item_opt {
-                let text = item.block.name();
+                let text = item.block.display_name();
                 let tw = text.len() as i32 * 8 + 12;
                 let tx = (mx as i32 + 12).min(fb_w as i32 - tw - 4);
                 let ty = (my as i32 - 24).max(4);
@@ -440,7 +440,7 @@ pub fn draw_furnace_ui(
                 FurnaceSlotTarget::Hotbar(i) => player.inventory.hotbar[i],
             };
             if let Some(item) = item_opt {
-                let text = item.block.name();
+                let text = item.block.display_name();
                 let tw = text.len() as i32 * 8 + 12;
                 let tx = (mx as i32 + 12).min(fb_w as i32 - tw - 4);
                 let ty = (my as i32 - 24).max(4);
