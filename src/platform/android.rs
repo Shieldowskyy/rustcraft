@@ -900,7 +900,7 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
     ctx.touch_tracker.btn_cam_just = false;
 
     // Run game engine update & render
-    let _output = ctx.app.update_and_render(delta_time, &input);
+    let output = ctx.app.update_and_render(delta_time, &input);
 
     // Blit frame buffer to ANativeWindow
     if !ctx.native_window.is_null() {
@@ -944,6 +944,7 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
     // Bit 0 (1): Text input active (chat, nickname, world creation - show soft keyboard)
     // Bit 1 (2): In menu state
     // Bit 2 (4): Software rasterizer fallback active (OpenGL / Vulkan failed)
+    // Bit 3 (8): Quit game requested by user from menu (Activity should finish)
     let mut flags: i32 = 0;
     if ctx.app.is_text_input_active() {
         flags |= 1;
@@ -954,6 +955,17 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
     let backend = ctx.app.renderer.backend_name();
     if backend == "android_software" || (!backend.contains("gl") && !backend.contains("vulkan")) {
         flags |= 4;
+    }
+    if output.quit_requested {
+        flags |= 8;
+        let _ = crate::world::storage::save_current_world(
+            &mut ctx.app.world,
+            &ctx.app.camera,
+            &ctx.app.player,
+            ctx.app.save_slot,
+            None,
+        );
+        android_log(ANDROID_LOG_INFO, "RustCraftNative", "Quit requested from menu. World saved.");
     }
 
     flags

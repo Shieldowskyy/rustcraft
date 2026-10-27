@@ -283,7 +283,7 @@ impl RustCraftApp {
             audio.toggle_mute();
         }
 
-        let soundtrack = crate::audio::SoundtrackManager::new("soundtracks");
+        let soundtrack = crate::audio::SoundtrackManager::new(crate::world::storage::soundtracks_dir());
 
         let app = Self {
             width,

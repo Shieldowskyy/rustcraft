@@ -190,13 +190,30 @@ javac -source 1.8 -target 1.8 \
 # 7c. Dex Bytecode
 "$D8" --lib "$ANDROID_JAR" --output "$WORK_DIR/dex" "$WORK_DIR/classes/com/rustcraft/game/"*.class
 
-# 7d. Package classes.dex and librustcraft.so into APK
+# 7d. Package classes.dex, librustcraft.so, soundtracks, and mods into APK
 python3 - << EOF
-import zipfile, shutil
+import zipfile, shutil, os
+
 shutil.copy("$WORK_DIR/unaligned.apk", "$WORK_DIR/combined.apk")
 with zipfile.ZipFile("$WORK_DIR/combined.apk", "a", compression=zipfile.ZIP_DEFLATED) as z:
     z.write("$WORK_DIR/dex/classes.dex", "classes.dex")
     z.write("$JNILIBS_DIR/librustcraft.so", "lib/arm64-v8a/librustcraft.so")
+
+    # Bundle soundtracks
+    if os.path.exists("soundtracks"):
+        for root, _, files in os.walk("soundtracks"):
+            for file in files:
+                file_path = os.path.join(root, file)
+                arcname = "assets/" + os.path.normpath(file_path)
+                z.write(file_path, arcname)
+
+    # Bundle mods
+    if os.path.exists("mods"):
+        for root, _, files in os.walk("mods"):
+            for file in files:
+                file_path = os.path.join(root, file)
+                arcname = "assets/" + os.path.normpath(file_path)
+                z.write(file_path, arcname)
 EOF
 
 # 7e. Zipalign

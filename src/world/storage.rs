@@ -11,6 +11,31 @@ pub fn set_custom_save_dir(dir: std::path::PathBuf) {
     let _ = CUSTOM_SAVES_DIR.set(dir);
 }
 
+/// Returns the root data / files directory for application data (parent of saves).
+pub fn app_files_dir() -> std::path::PathBuf {
+    saves_dir().parent().map(|p| p.to_path_buf()).unwrap_or_else(saves_dir)
+}
+
+/// Returns the active `soundtracks/` directory path on disk.
+pub fn soundtracks_dir() -> std::path::PathBuf {
+    #[cfg(target_os = "android")]
+    {
+        let dir = app_files_dir().join("soundtracks");
+        if dir.exists() {
+            return dir;
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let dir = parent.join("soundtracks");
+            if dir.is_dir() {
+                return dir;
+            }
+        }
+    }
+    std::path::PathBuf::from("soundtracks")
+}
+
 /// Returns the directory path where world save files are stored.
 fn saves_dir() -> std::path::PathBuf {
     if let Some(dir) = CUSTOM_SAVES_DIR.get() {

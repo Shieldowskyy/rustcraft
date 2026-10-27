@@ -481,6 +481,14 @@ pub struct ModManager;
 impl ModManager {
     /// Returns the active `mods/` directory path on disk.
     pub fn mods_dir() -> PathBuf {
+        #[cfg(target_os = "android")]
+        {
+            let base = crate::world::storage::app_files_dir();
+            let dir = base.join("mods");
+            if dir.is_dir() {
+                return dir;
+            }
+        }
         if let Ok(exe) = std::env::current_exe() {
             if let Some(parent) = exe.parent() {
                 let dir = parent.join("mods");

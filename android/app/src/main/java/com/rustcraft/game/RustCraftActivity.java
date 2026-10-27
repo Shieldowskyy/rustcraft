@@ -73,8 +73,11 @@ public class RustCraftActivity extends Activity implements SurfaceHolder.Callbac
         // Align to 4-pixel multiple for optimal memory alignment
         renderW = (renderW + 3) & ~3;
 
-        // Initialize Native Engine
+        // Extract bundled assets (soundtracks & mods) from APK to internal storage
         File internalFilesDir = getFilesDir();
+        extractAssetsDir("soundtracks", new File(internalFilesDir, "soundtracks"));
+        extractAssetsDir("mods", new File(internalFilesDir, "mods"));
+
         Log.i(TAG, "Initializing RustCraft (" + renderW + "x" + renderH + ") with saves at: " + internalFilesDir.getAbsolutePath());
         boolean initOk = RustCraftNative.nativeInit(renderW, renderH, 1337, internalFilesDir.getAbsolutePath());
         if (!initOk) {
@@ -113,6 +116,56 @@ public class RustCraftActivity extends Activity implements SurfaceHolder.Callbac
                 ).show();
             }
         });
+    }
+
+    private void extractAssetsDir(String assetDir, File targetDir) {
+        try {
+            String[] list = getAssets().list(assetDir);
+            if (list == null || list.length == 0) {
+                return;
+            }
+            if (!targetDir.exists()) {
+                targetDir.mkdirs();
+            }
+            for (String file : list) {
+                String subAsset = assetDir.isEmpty() ? file : (assetDir + "/" + file);
+                File targetFile = new File(targetDir, file);
+                String[] subList = null;
+                try {
+                    subList = getAssets().list(subAsset);
+                } catch (java.io.IOException ignored) {}
+
+                if (subList != null && subList.length > 0) {
+                    extractAssetsDir(subAsset, targetFile);
+                } else {
+                    // Try to open as file
+                    try (java.io.InputStream in = getAssets().open(subAsset)) {
+                        if (targetFile.getParentFile() != null && !targetFile.getParentFile().exists()) {
+                            targetFile.getParentFile().mkdirs();
+                        }
+                        if (!targetFile.exists() || targetFile.length() == 0 || file.endsWith(".json")) {
+                            try (java.io.OutputStream out = new java.io.FileOutputStream(targetFile)) {
+                                byte[] buf = new byte[16384];
+                                int len;
+                                while ((len = in.read(buf)) > 0) {
+                                    out.write(buf, 0, len);
+                                }
+                            }
+                            Log.i(TAG, "Extracted asset: " + subAsset + " -> " + targetFile.getAbsolutePath());
+                        }
+                    } catch (java.io.FileNotFoundException e) {
+                        // Empty directory
+                        if (!targetFile.exists()) {
+                            targetFile.mkdirs();
+                        }
+                    } catch (java.io.IOException e) {
+                        Log.w(TAG, "Failed reading asset: " + subAsset, e);
+                    }
+                }
+            }
+        } catch (java.io.IOException e) {
+            Log.w(TAG, "Could not extract asset directory: " + assetDir, e);
+        }
     }
 
     private void hideSystemUI() {
@@ -389,6 +442,17 @@ public class RustCraftActivity extends Activity implements SurfaceHolder.Callbac
                     lastTime = now;
 
                     int flags = RustCraftNative.nativeStep(dt);
+
+                    // Check if quit requested (Bit 3)
+                    if ((flags & 8) != 0) {
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                RustCraftActivity.this.finish();
+                            }
+                        });
+                        break;
+                    }
 
                     // Check if chat prompt is open (Bit 0)
                     boolean chatActive = (flags & 1) != 0;

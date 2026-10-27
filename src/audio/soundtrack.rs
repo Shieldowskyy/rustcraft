@@ -314,9 +314,19 @@ pub struct SoundtrackManager {
 }
 
 impl SoundtrackManager {
-    /// Creates a soundtrack manager and scans the target folder for manifest and .ogg tracks.
-    pub fn new(folder: &str) -> Self {
-        let base_dir = PathBuf::from(folder);
+    /// Creates a soundtrack manager and scans the target folder for manifest and audio tracks.
+    pub fn new<P: AsRef<Path>>(folder: P) -> Self {
+        #[allow(unused_mut)]
+        let mut base_dir = folder.as_ref().to_path_buf();
+        #[cfg(target_os = "android")]
+        {
+            if !base_dir.is_absolute() {
+                let android_dir = crate::world::storage::app_files_dir().join(&base_dir);
+                if android_dir.exists() {
+                    base_dir = android_dir;
+                }
+            }
+        }
         let mut manager = Self {
             base_dir,
             tracks: Vec::new(),
