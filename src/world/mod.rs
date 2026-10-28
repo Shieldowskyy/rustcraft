@@ -2,6 +2,7 @@ pub mod block;
 pub mod mesher;
 pub mod storage;
 pub mod tile_entity;
+pub mod weather;
 
 use std::collections::{HashMap, HashSet};
 
@@ -12,6 +13,7 @@ pub use mesher::{
 };
 pub use storage::{save_current_world, save_path};
 pub use tile_entity::{fuel_burn_time, smelting_result, ChestData, FurnaceData, SMELT_DURATION};
+pub use weather::{LightningStrike, PrecipitationKind, WeatherState, WeatherType};
 
 use crate::core::math::{IVec3, Vec3};
 use crate::core::noise::{fractal_noise2, fractal_noise3};
@@ -149,6 +151,27 @@ impl Biome {
             Biome::FrozenPeaks => [0.89, 1.01, 1.13],
             Biome::SnowySlopes => [0.95, 1.01, 1.08],
         }
+    }
+
+    /// Whether this biome experiences snowfall instead of rain.
+    #[inline]
+    pub fn has_snow(self) -> bool {
+        matches!(
+            self,
+            Biome::SnowyTaiga
+                | Biome::SnowyTundra
+                | Biome::IceSpikes
+                | Biome::FrozenPeaks
+                | Biome::SnowySlopes
+                | Biome::JaggedPeaks
+        )
+    }
+
+    /// Whether this biome experiences precipitation (rain or snow).
+    /// Arid biomes like deserts, badlands, and savannas experience overcast skies without falling precipitation.
+    #[inline]
+    pub fn has_precipitation(self) -> bool {
+        !matches!(self, Biome::Desert | Biome::Badlands | Biome::Savanna)
     }
 }
 
@@ -2075,6 +2098,7 @@ pub struct World {
     pub ruststone_sound_events: Vec<(IVec3, bool)>,
     pub pending_explosions: Vec<Vec3>,
     pub primed_tnts: Vec<PrimedTnt>,
+    pub weather: WeatherState,
     #[cfg(not(target_arch = "wasm32"))]
     #[allow(dead_code)]
     chunk_req_tx: Option<std::sync::mpsc::Sender<(i32, i32, u32)>>,
@@ -2310,6 +2334,7 @@ impl World {
             ruststone_sound_events: Vec::new(),
             pending_explosions: Vec::new(),
             primed_tnts: Vec::new(),
+            weather: WeatherState::new(seed),
             #[cfg(not(target_arch = "wasm32"))]
             chunk_req_tx,
             #[cfg(not(target_arch = "wasm32"))]
@@ -2355,10 +2380,11 @@ impl World {
         // Smooth transition around horizon (-0.2 to 0.2)
         let t = ((elev + 0.2) / 0.4).clamp(0.0, 1.0);
         let ease = t * t * (3.0 - 2.0 * t); // smoothstep
-        0.08 + 0.92 * ease
+        let base_sun = 0.08 + 0.92 * ease;
+        self.weather.modulate_daylight(base_sun)
     }
 
-    /// Returns (sky_top, sky_bottom, fog_color) based on current time of day
+    /// Returns (sky_top, sky_bottom, fog_color) based on current time of day and weather conditions
     pub fn sky_colors(&self) -> ([f32; 3], [f32; 3], [f32; 3]) {
         let elev = self.sun_angle().sin();
 
@@ -2393,11 +2419,85 @@ impl World {
         let base_bot = lerp3(night_bot, day_bot, day_smooth);
         let base_fog = lerp3(night_fog, day_fog, day_smooth);
 
-        let final_top = lerp3(base_top, sunset_top, sunset_smooth * 0.7);
-        let final_bot = lerp3(base_bot, sunset_bot, sunset_smooth);
-        let final_fog = lerp3(base_fog, sunset_fog, sunset_smooth);
+        let mut final_top = lerp3(base_top, sunset_top, sunset_smooth * 0.7);
+        let mut final_bot = lerp3(base_bot, sunset_bot, sunset_smooth);
+        let mut final_fog = lerp3(base_fog, sunset_fog, sunset_smooth);
+
+        // Weather overcast palette
+        if self.weather.rain_strength > 0.001 {
+            let rain_top = [0.28, 0.32, 0.38];
+            let rain_bot = [0.42, 0.46, 0.52];
+            let rain_fog = [0.40, 0.44, 0.50];
+
+            let storm_top = [0.14, 0.16, 0.20];
+            let storm_bot = [0.22, 0.25, 0.30];
+            let storm_fog = [0.20, 0.22, 0.27];
+
+            let r_strength = self.weather.rain_strength;
+            let t_strength = self.weather.thunder_strength;
+
+            let overcast_top = lerp3(rain_top, storm_top, t_strength);
+            let overcast_bot = lerp3(rain_bot, storm_bot, t_strength);
+            let overcast_fog = lerp3(rain_fog, storm_fog, t_strength);
+
+            final_top = lerp3(final_top, overcast_top, r_strength * 0.75);
+            final_bot = lerp3(final_bot, overcast_bot, r_strength * 0.85);
+            final_fog = lerp3(final_fog, overcast_fog, r_strength * 0.90);
+        }
+
+        // Lightning flash effect spikes sky to brilliant electric white
+        if self.weather.lightning_flash > 0.005 {
+            let flash_col = [0.95, 0.97, 1.0];
+            let f = self.weather.lightning_flash;
+            final_top = lerp3(final_top, flash_col, f * 0.85);
+            final_bot = lerp3(final_bot, flash_col, f * 0.95);
+            final_fog = lerp3(final_fog, flash_col, f * 0.95);
+        }
 
         (final_top, final_bot, final_fog)
+    }
+
+    /// Finds the highest non-air block Y coordinate at `(wx, wz)`.
+    pub fn get_highest_block_y(&self, wx: i32, wz: i32) -> i32 {
+        let (cx, cz, lx, lz) = World::world_to_chunk(wx, wz);
+        if let Some(chunk) = self.chunks.get(&(cx, cz)) {
+            for y in (0..CHUNK_SIZE_Y).rev() {
+                if chunk.get_local(lx, y, lz) != BlockId::Air {
+                    return y;
+                }
+            }
+        }
+        0
+    }
+
+    /// Checks if a world position has direct, unoccluded exposure to the sky.
+    pub fn is_exposed_to_sky(&self, pos: IVec3) -> bool {
+        self.get_highest_block_y(pos.x, pos.z) <= pos.y
+    }
+
+    /// Returns the biome at the given world horizontal coordinates.
+    #[inline]
+    pub fn get_biome_at(&self, wx: i32, wz: i32) -> Biome {
+        get_biome_at(wx, wz, self.seed).0
+    }
+
+    /// Updates the dynamic weather state machine and returns a lightning strike event if one triggered.
+    pub fn update_weather(&mut self, dt: f32, player_pos: Vec3) -> Option<LightningStrike> {
+        let default_y = player_pos.y.max(60.0);
+        let chunk_map = &self.chunks;
+
+        self.weather.update(dt, player_pos, |x, z| {
+            let (wx, wz) = (x.floor() as i32, z.floor() as i32);
+            let (cx, cz, lx, lz) = World::world_to_chunk(wx, wz);
+            if let Some(chunk) = chunk_map.get(&(cx, cz)) {
+                for y in (0..CHUNK_SIZE_Y).rev() {
+                    if chunk.get_local(lx, y, lz) != BlockId::Air {
+                        return y as f32 + 1.0;
+                    }
+                }
+            }
+            default_y
+        })
     }
 
     pub fn save(&self, path: &str) -> Result<(), String> {

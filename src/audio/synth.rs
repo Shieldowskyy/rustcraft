@@ -268,6 +268,9 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::AmbientCaveRocks => 705,
         SoundId::StepWoodCreak => 706,
         SoundId::AmbientDesertSand => 707,
+        SoundId::Rain => 708,
+        SoundId::ThunderClose => 709,
+        SoundId::ThunderDistant => 710,
     });
 
     let samples = match id {
@@ -369,6 +372,9 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::AmbientLeaves => synth_leaves_rustle(&mut rng, sr, 3.2, 0.45),
         SoundId::AmbientCaveRocks => synth_cave_rocks(&mut rng, sr, 2.2, 0.65),
         SoundId::AmbientDesertSand => synth_desert_sand(&mut rng, sr, 3.5, 0.45),
+        SoundId::Rain => synth_rain_ambient(&mut rng, sr, 3.8, 0.50),
+        SoundId::ThunderClose => synth_thunder(&mut rng, sr, true, 0.90),
+        SoundId::ThunderDistant => synth_thunder(&mut rng, sr, false, 0.80),
     };
 
     SoundSample::new(samples, sample_rate, 1) // Mono procedural source for 3D spatial panning
@@ -2226,6 +2232,116 @@ fn synth_iron_golem_attack(rng: &mut FastRng, sr: f32, duration: f32, volume: f3
         let thud = (2.0 * PI * 110.0 * (i as f32 / sr)).sin() * 0.5 * (-t * 8.0).exp();
         out.push((whoosh + thud) * env * volume * 1.6);
     }
+    out
+}
+
+#[inline]
+fn normalize_and_scale(samples: &mut [f32], target_vol: f32) {
+    let mut peak: f32 = 0.0;
+    for &s in samples.iter() {
+        peak = peak.max(s.abs());
+    }
+    if peak > 1e-4 {
+        let mult = target_vol / peak;
+        for s in samples.iter_mut() {
+            *s = (*s * mult).clamp(-1.0, 1.0);
+        }
+    }
+}
+
+/// Soothing procedural rainfall ambience with continuous organic white/pink noise patter.
+fn synth_rain_ambient(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(3.0)) as usize;
+    let mut out = vec![0.0f32; count];
+
+    let mut bp_rain = BiquadFilter::bandpass(1400.0, 1.2, sr);
+    let mut lp_rain = IirFilter::lowpass(2800.0, sr);
+    let mut hp_rain = IirFilter::highpass(300.0, sr);
+
+    for i in 0..count {
+        let t = i as f32 / sr;
+        let norm_t = i as f32 / count as f32;
+        let raw = rng.next_f32();
+        let filtered = lp_rain.process(hp_rain.process(bp_rain.process(raw)));
+        let gust = 0.80 + 0.20 * (t * 1.5 * 2.0 * PI).sin() * (t * 0.4 * 2.0 * PI).cos();
+        let env = (norm_t * PI).sin().powf(0.3);
+        out[i] = filtered * gust * env * 0.55;
+    }
+
+    // Discrete raindrop impact micro-clicks
+    let drop_count = 35;
+    for _ in 0..drop_count {
+        let start = (rng.next_f32() * 0.9 * duration * sr) as usize;
+        let len = (sr * 0.015) as usize;
+        let freq = 1800.0 + rng.next_f32() * 1400.0;
+        let mut d_bp = BiquadFilter::bandpass(freq, 2.5, sr);
+        for i in 0..len {
+            let idx = start + i;
+            if idx >= count { break; }
+            let tau = i as f32 / len as f32;
+            let env = (1.0 - tau) * (1.0 - tau);
+            out[idx] += d_bp.process(rng.next_f32()) * env * 0.22;
+        }
+    }
+
+    normalize_and_scale(&mut out, volume);
+    out
+}
+
+/// Massive explosive thunderclap or deep rumbling horizon thunder.
+fn synth_thunder(rng: &mut FastRng, sr: f32, is_close: bool, volume: f32) -> Vec<f32> {
+    let duration = if is_close { 4.2 } else { 3.8 };
+    let count = (sr * duration) as usize;
+    let mut out = vec![0.0f32; count];
+
+    if is_close {
+        // 1. Initial sharp supersonic electric crack (0.0 .. 0.15s)
+        let crack_len = (sr * 0.15) as usize;
+        let mut crack_hp = IirFilter::highpass(3500.0, sr);
+        let mut crack_bp = BiquadFilter::bandpass(2400.0, 1.8, sr);
+        for i in 0..crack_len {
+            let tau = i as f32 / crack_len as f32;
+            let env = (1.0 - tau).powf(1.5);
+            let noise = rng.next_f32();
+            out[i] += (crack_hp.process(noise) * 0.6 + crack_bp.process(noise) * 0.4) * env * 0.85;
+        }
+
+        // 2. Heavy acoustic explosion thump (0.02 .. 0.45s)
+        let thump_len = (sr * 0.45) as usize;
+        let thump_start = (sr * 0.02) as usize;
+        let mut phase = 0.0f32;
+        for i in 0..thump_len {
+            let idx = thump_start + i;
+            if idx >= count { break; }
+            let t = i as f32 / sr;
+            let freq = 130.0 * (-t * 12.0).exp() + 45.0;
+            phase += 2.0 * PI * freq / sr;
+            let env = (1.0 - i as f32 / thump_len as f32).powf(1.8);
+            out[idx] += phase.sin() * env * 0.75;
+        }
+    }
+
+    // Deep rolling subterranean & atmospheric reverberation rumble (40Hz - 90Hz)
+    let rumble_start = if is_close { (sr * 0.1) as usize } else { 0 };
+    let mut lp_rumble1 = IirFilter::lowpass(85.0, sr);
+    let mut lp_rumble2 = IirFilter::lowpass(120.0, sr);
+    let mut bp_sub = BiquadFilter::bandpass(55.0, 1.5, sr);
+
+    for i in rumble_start..count {
+        let t = (i - rumble_start) as f32 / sr;
+        let norm_t = (i - rumble_start) as f32 / (count - rumble_start) as f32;
+        let noise = rng.next_f32();
+        let sub = bp_sub.process(noise) * 0.5 + lp_rumble1.process(lp_rumble2.process(noise)) * 0.5;
+
+        // Undulating rolling sound wave characteristic of atmospheric echo
+        let roll_mod = 0.65
+            + 0.25 * (t * 3.2 * 2.0 * PI).sin()
+            + 0.15 * (t * 1.4 * 2.0 * PI + 1.2).sin();
+        let decay = (1.0 - norm_t).powf(1.4);
+        out[i] += sub * roll_mod * decay * 0.80;
+    }
+
+    normalize_and_scale(&mut out, volume);
     out
 }
 

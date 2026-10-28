@@ -90,6 +90,9 @@ mod tests {
             SoundId::AmbientCaveRocks,
             SoundId::StepWoodCreak,
             SoundId::AmbientDesertSand,
+            SoundId::Rain,
+            SoundId::ThunderClose,
+            SoundId::ThunderDistant,
         ];
 
         for &id in &test_sounds {

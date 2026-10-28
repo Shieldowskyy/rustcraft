@@ -47,6 +47,8 @@ pub struct AmbientContext {
     pub is_desert: bool,
     /// Approximate position of nearby sand dunes.
     pub sand_pos: Option<Vec3>,
+    /// Weather rain intensity in [0.0, 1.0].
+    pub rain_intensity: f32,
 }
 
 impl Default for AmbientContext {
@@ -60,6 +62,7 @@ impl Default for AmbientContext {
             leaves_pos: None,
             is_desert: false,
             sand_pos: None,
+            rain_intensity: 0.0,
         }
     }
 }
@@ -90,6 +93,7 @@ pub struct AudioEngine {
     ambient_leaves_timer: f32,
     ambient_rocks_timer: f32,
     ambient_sand_timer: f32,
+    ambient_rain_timer: f32,
     rng_seed: u32,
 
     // Volumes
@@ -186,6 +190,9 @@ impl AudioEngine {
             SoundId::AmbientCaveRocks,
             SoundId::StepWoodCreak,
             SoundId::AmbientDesertSand,
+            SoundId::Rain,
+            SoundId::ThunderClose,
+            SoundId::ThunderDistant,
         ];
 
         for &id in &all_sounds {
@@ -376,6 +383,7 @@ impl AudioEngine {
             ambient_leaves_timer: 5.0,
             ambient_rocks_timer: 9.0,
             ambient_sand_timer: 6.5,
+            ambient_rain_timer: 0.5,
             rng_seed: 0x9E3779B9,
             master_vol: 0.8,
             sfx_vol: 1.0,
@@ -659,6 +667,19 @@ impl AudioEngine {
             }
         } else {
             self.ambient_sand_timer = (self.ambient_sand_timer - dt * 0.5).max(2.5);
+        }
+
+        // 6. Rain / Storm Precipitation Ambience
+        if ambient_ctx.rain_intensity > 0.02 && !ambient_ctx.is_underground {
+            self.ambient_rain_timer -= dt;
+            if self.ambient_rain_timer <= 0.0 {
+                self.ambient_rain_timer = 1.95;
+                let vol = (ambient_ctx.rain_intensity * 0.75).clamp(0.15, 0.85);
+                let pitch = self.rand_f32(0.97, 1.03);
+                self.play_sound(SoundId::Rain, vol, pitch);
+            }
+        } else {
+            self.ambient_rain_timer = 0.5;
         }
     }
 

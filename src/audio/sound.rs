@@ -137,6 +137,11 @@ pub enum SoundId {
     AmbientCaveRocks,
     StepWoodCreak,
     AmbientDesertSand,
+
+    // Weather & Atmosphere
+    Rain,
+    ThunderClose,
+    ThunderDistant,
 }
 
 impl SoundId {
@@ -227,7 +232,10 @@ impl SoundId {
             | SoundId::AmbientWater
             | SoundId::AmbientLeaves
             | SoundId::AmbientCaveRocks
-            | SoundId::AmbientDesertSand => SoundCategory::Ambient,
+            | SoundId::AmbientDesertSand
+            | SoundId::Rain
+            | SoundId::ThunderClose
+            | SoundId::ThunderDistant => SoundCategory::Ambient,
         }
     }
 

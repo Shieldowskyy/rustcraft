@@ -430,6 +430,7 @@ impl ChatState {
                 self.add_info("/seed - Display world generation seed");
                 self.add_info("/reloadchunks - Reload chunks and rebuild mesh cache");
                 self.add_info("/fly - Toggle flight mode");
+                self.add_info("/weather <clear|rain|thunder|query> [duration] - Control weather");
                 self.add_info("/difficulty <peaceful|easy|normal|hard>");
 
                 let mod_cmds = crate::engine::modding::get_all_mod_commands();
@@ -504,6 +505,44 @@ impl ChatState {
                     }
                     _ => {
                         self.add_error("Usage: /time <set|query> <value>");
+                    }
+                }
+            }
+
+            "weather" => {
+                let sub = parts.next().unwrap_or("").to_ascii_lowercase();
+                let duration_arg = parts.next().and_then(|s| s.parse::<f32>().ok());
+                match sub.as_str() {
+                    "clear" => {
+                        let duration = duration_arg.unwrap_or(600.0);
+                        ctx.world.weather.set_weather(crate::world::weather::WeatherType::Clear, Some(duration));
+                        self.add_success(format!("Set the weather to clear (duration: {:.0}s)", duration));
+                    }
+                    "rain" => {
+                        let duration = duration_arg.unwrap_or(360.0);
+                        ctx.world.weather.set_weather(crate::world::weather::WeatherType::Rain, Some(duration));
+                        self.add_success(format!("Set the weather to rain (duration: {:.0}s)", duration));
+                    }
+                    "thunder" | "thunderstorm" => {
+                        let duration = duration_arg.unwrap_or(240.0);
+                        ctx.world.weather.set_weather(crate::world::weather::WeatherType::Thunder, Some(duration));
+                        self.add_success(format!("Set the weather to thunder and rain (duration: {:.0}s)", duration));
+                    }
+                    "query" => {
+                        let state_str = match ctx.world.weather.current_type {
+                            crate::world::weather::WeatherType::Clear => "clear",
+                            crate::world::weather::WeatherType::Rain => "rain",
+                            crate::world::weather::WeatherType::Thunder => "thunder",
+                        };
+                        self.add_info(format!(
+                            "The weather is currently {} (remaining: {:.0}s, rain intensity: {:.0}%)",
+                            state_str,
+                            ctx.world.weather.timer,
+                            ctx.world.weather.rain_strength * 100.0
+                        ));
+                    }
+                    _ => {
+                        self.add_error("Usage: /weather <clear|rain|thunder|query> [duration]");
                     }
                 }
             }
@@ -676,11 +715,6 @@ impl ChatState {
                 *ctx.reload_chunks_requested = true;
                 self.add_success("Reloading all chunks and rebuilding mesh cache...");
                 crate::log_info!("WORLD", "Chunk reload triggered via chat command");
-            }
-
-            "weather" => {
-                let w = parts.next().unwrap_or("clear");
-                self.add_info(format!("Set weather to {}", w));
             }
 
             "difficulty" => {
@@ -957,5 +991,47 @@ mod tests {
         assert!(chat.messages.iter().any(|m| m.text.contains("Spawned Mobs")));
         assert!(chat.messages.iter().any(|m| m.text.contains("Zombie")));
         assert!(chat.messages.iter().any(|m| m.text.contains("Skeleton")));
+    }
+
+    #[test]
+    fn test_chat_weather_commands() {
+        let mut chat = ChatState::new();
+        let mut mob_manager = MobManager::new();
+        let mut player = Player::new();
+        let mut camera = Camera::new(Vec3::new(0.0, 64.0, 0.0));
+        let mut world = World::new();
+        let mut items = Vec::new();
+        let mut particles = ParticleSystem::new();
+        let mut is_flying = false;
+        let mut fly_vel = Vec3::zero();
+        let mut horiz_vel = Vec3::zero();
+        let mut reload_chunks = false;
+
+        let mut ctx = CommandContext {
+            player: &mut player,
+            camera: &mut camera,
+            world: &mut world,
+            mob_manager: &mut mob_manager,
+            items: &mut items,
+            particles: &mut particles,
+            is_flying: &mut is_flying,
+            fly_velocity: &mut fly_vel,
+            horiz_velocity: &mut horiz_vel,
+            reload_chunks_requested: &mut reload_chunks,
+        };
+
+        chat.execute_command("/weather rain 120", &mut ctx);
+        assert_eq!(ctx.world.weather.current_type, crate::world::weather::WeatherType::Rain);
+        assert_eq!(ctx.world.weather.timer, 120.0);
+
+        chat.execute_command("/weather thunder 60", &mut ctx);
+        assert_eq!(ctx.world.weather.current_type, crate::world::weather::WeatherType::Thunder);
+        assert_eq!(ctx.world.weather.timer, 60.0);
+
+        chat.execute_command("/weather query", &mut ctx);
+        assert!(chat.messages.iter().any(|m| m.text.contains("weather is currently thunder")));
+
+        chat.execute_command("/weather clear", &mut ctx);
+        assert_eq!(ctx.world.weather.current_type, crate::world::weather::WeatherType::Clear);
     }
 }

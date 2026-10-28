@@ -628,6 +628,7 @@ impl RustCraftApp {
                             leaves_pos,
                             is_desert,
                             sand_pos,
+                            rain_intensity: self.world.weather.rain_strength,
                         };
                     }
 
@@ -1560,15 +1561,21 @@ impl RustCraftApp {
                         } else if targeted_block == BlockId::Bed && !is_crouching {
                             self.player.spawn_point = Some(hit.block_pos);
                             let is_night = self.world.time_of_day > 260.0 || self.world.time_of_day < 90.0;
-                            if is_night {
+                            let is_storm_or_rain = self.world.weather.is_raining();
+                            if is_night || is_storm_or_rain {
                                 self.world.time_of_day = 120.0;
+                                self.world.weather.clear();
                                 self.player.health = (self.player.health + 4.0).min(self.player.max_health);
                                 self.audio.play_sound(crate::audio::SoundId::UiClick, 0.8, 1.0);
-                                self.chat.add_message("Przespano noc. Punkt odrodzenia ustawiony!".to_string(), crate::ui::pack_color(0.9, 0.9, 0.3));
-                                crate::log_info!("PLAYER", "Player slept in bed at ({}, {}, {}). Time set to morning.", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
+                                if is_storm_or_rain && !is_night {
+                                    self.chat.add_message("Przespano burze. Pogoda sie rozpogodzila!".to_string(), crate::ui::pack_color(0.9, 0.9, 0.3));
+                                } else {
+                                    self.chat.add_message("Przespano noc. Punkt odrodzenia ustawiony!".to_string(), crate::ui::pack_color(0.9, 0.9, 0.3));
+                                }
+                                crate::log_info!("PLAYER", "Player slept in bed at ({}, {}, {}). Time set to morning, weather cleared.", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
                             } else {
                                 self.audio.play_sound(crate::audio::SoundId::UiClick, 0.6, 1.2);
-                                self.chat.add_message("Punkt odrodzenia ustawiony! Mozesz spac tylko w nocy.".to_string(), crate::ui::pack_color(0.9, 0.9, 0.3));
+                                self.chat.add_message("Punkt odrodzenia ustawiony! Mozesz spac tylko w nocy lub podczas burzy.".to_string(), crate::ui::pack_color(0.9, 0.9, 0.3));
                                 crate::log_info!("PLAYER", "Spawn point set to bed at ({}, {}, {}). Day time, cannot sleep.", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
                             }
                         } else if let Some(mob_kind) = BlockId::from_u8(selected_block_id).spawn_mob_kind() {
@@ -1893,6 +1900,40 @@ impl RustCraftApp {
 
                 self.world.update_furnaces(dt);
                 self.particles.update(dt);
+
+                // Update weather simulation (rain, thunder, lightning)
+                if let Some(strike) = self.world.update_weather(dt, self.camera.position) {
+                    let strike_pos = strike.pos;
+                    let dist = (strike_pos - self.camera.position).length();
+                    // Audio: Thunder crack / rumble
+                    if dist < 45.0 {
+                        self.audio.play_sound(crate::audio::SoundId::ThunderClose, 1.0, 1.0);
+                        self.request_rumble(0.9, 1.0, 600);
+                    } else {
+                        self.audio.play_sound(crate::audio::SoundId::ThunderDistant, 0.85, 0.95);
+                    }
+                    // Lightning blast damage to nearby mobs
+                    for mob in &mut self.mob_manager.mobs {
+                        let d = (mob.pos - strike_pos).length();
+                        if d < 4.0 {
+                            let kb = (mob.pos - strike_pos).normalized();
+                            mob.take_damage(15.0, kb);
+                            self.particles.spawn_mob_hit(mob.pos);
+                        }
+                    }
+                    // Blast damage to player if caught in strike
+                    if dist < 4.0 {
+                        let dmg = (1.0 - dist / 4.0) * 15.0;
+                        if self.player.take_damage(dmg) {
+                            self.damage_tilt_timer = 0.4;
+                            self.damage_tilt_dir = 1.0;
+                            self.audio.play_sound(crate::audio::SoundId::PlayerHurt, 1.0, 1.0);
+                            self.request_rumble(1.0, 1.0, 500);
+                        }
+                    }
+                    self.particles.spawn_explosion(strike_pos);
+                    crate::log_info!("WEATHER", "Lightning struck at ({:.1}, {:.1}, {:.1}), distance: {:.1}m", strike_pos.x, strike_pos.y, strike_pos.z, dist);
+                }
                 if let Some(i_start) = items_start {
                     cur_profiler.tick_entities_ms = i_start.elapsed().as_secs_f32() * 1000.0;
                 }
@@ -2001,7 +2042,13 @@ impl RustCraftApp {
 
                         if self.settings.clouds {
                             let clouds_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
-                            self.renderer.draw_clouds(effective_camera.position, &view_proj, self.total_time);
+                            self.renderer.draw_clouds(
+                                effective_camera.position,
+                                &view_proj,
+                                self.total_time,
+                                self.world.weather.rain_strength,
+                                self.world.weather.thunder_strength,
+                            );
                             if let Some(c_start) = clouds_start {
                                 cur_profiler.render_clouds_ms = c_start.elapsed().as_secs_f32() * 1000.0;
                             }
@@ -2052,6 +2099,10 @@ impl RustCraftApp {
                             self.renderer.draw_billboard(bobber.pos, 0.16, bob_color, &effective_camera, &view_proj);
                             self.renderer.draw_billboard(bobber.pos + Vec3::new(0.0, 0.08, 0.0), 0.10, [0.95, 0.95, 0.95], &effective_camera, &view_proj);
                         }
+
+                        // Weather Precipitation (Rain & Snow) and Lightning Bolts
+                        self.renderer.draw_precipitation(&self.world, &effective_camera, &view_proj, self.total_time);
+                        self.renderer.draw_lightning_bolts(&self.world.weather.active_lightning, &view_proj);
                     }
 
                     let block_at_camera = self.world.get_block(self.camera.position.floor_to_ivec());
@@ -2294,7 +2345,20 @@ impl RustCraftApp {
                         let _ = write!(&mut self.debug_lines[5], "Facing: {} ({}) (Yaw: {:.1} / Pitch: {:.1})", facing_str, axis_str, yaw_deg, pitch_deg);
 
                         self.debug_lines[6].clear();
-                        let _ = write!(&mut self.debug_lines[6], "Biome: {} | Light: {:.0}% ({:02}:{:02})", crate::core::i18n::t(biome_key), self.world.sunlight_factor() * 100.0, hours, minutes);
+                        let weather_str = match self.world.weather.current_type {
+                            crate::world::weather::WeatherType::Clear => "Clear",
+                            crate::world::weather::WeatherType::Rain => "Rain",
+                            crate::world::weather::WeatherType::Thunder => "Thunder",
+                        };
+                        let _ = write!(
+                            &mut self.debug_lines[6],
+                            "Biome: {} | Light: {:.0}% ({:02}:{:02}) | Weather: {}",
+                            crate::core::i18n::t(biome_key),
+                            self.world.sunlight_factor() * 100.0,
+                            hours,
+                            minutes,
+                            weather_str
+                        );
 
                         self.debug_lines[7].clear();
                         if let Some(target) = self.break_target {
