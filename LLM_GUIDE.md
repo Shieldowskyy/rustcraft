@@ -8,11 +8,13 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
 
 | To modify / add: | Primary file/module: | Notes: |
 |---|---|---|
-| **New Block Type** | `src/world/block.rs`, `src/graphics/atlas.rs` | Add variant to `BlockId` (standard IDs 0..=139, custom modded IDs 140..=255), assign `TextureId`, add texture generator in `atlas.rs`. |
-| **New Mob Type** | `src/gameplay/mob.rs` | Add variant to `MobKind` (12 types: Pig, Cow, Chicken, Sheep, Zombie, Skeleton, Creeper, Dolphin, Cod, Salmon, Pufferfish, TropicalFish), define bounding boxes & AI tick, add draw calls in `software/mod.rs` and `platform/vita_gxm.rs`. |
-| **New UI Screen / Element** | `src/ui/` (`hud.rs`, `menu.rs`, `inventory_ui.rs`, `minimap.rs`) | Use functions in `src/ui/draw.rs` (`fill_rect_alpha`, `draw_text_shadowed`). |
+| **New Block Type** | `src/world/block.rs`, `src/graphics/atlas.rs` | Add variant to `BlockId` (standard IDs 0..=162, custom modded IDs 163..=255), assign `TextureId`, add texture generator in `atlas.rs`. |
+| **New Mob Type** | `src/gameplay/mob.rs` | Add variant to `MobKind` (14 types: Pig, Cow, Chicken, Sheep, Zombie, Skeleton, Creeper, Dolphin, Cod, Salmon, Pufferfish, TropicalFish, Villager, IronGolem), define bounding boxes & AI tick, add draw calls in `software/mod.rs` and `platform/vita_gxm.rs`. |
+| **Dynamic Weather** | `src/world/weather.rs` | Manage weather states (Clear, Rain, Thunderstorm), precipitation by biome temperature (rain/snow), storm audio, lightning flash, and `/weather` commands. |
+| **Villages & Trading** | `src/world/mod.rs`, `src/gameplay/trading.rs` | Village layout generator, professions, trade offerings, emerald currency, and trading window in `src/ui/container_ui.rs`. |
+| **New UI Screen / Element** | `src/ui/` (`hud.rs`, `menu.rs`, `inventory_ui.rs`, `container_ui.rs`, `minimap.rs`) | Use functions in `src/ui/draw.rs` (`fill_rect_alpha`, `draw_text_shadowed`). |
 | **Player / Physics / Movement** | `src/gameplay/physics.rs`, `player.rs` | Physics uses AABB sweeps. Maintain step-up, crouching checks, and fluid buoyancy. |
-| **World Generation / Biomes** | `src/world/mod.rs` (in `Chunk::generate`) | 20 biomes via noise axes in `get_biome_at()`. Uses `src/core/noise.rs`. Underwater vegetation (kelp/seagrass) in oceans. |
+| **World Generation / Biomes** | `src/world/mod.rs` (in `Chunk::generate`) | 20 biomes via noise axes in `get_biome_at()`. Uses `src/core/noise.rs`. Villages, ruins, wells, underwater vegetation (kelp/seagrass). |
 | **Procedural Sound / Audio** | `src/audio/synth.rs`, `src/audio/sound.rs` | Synthesize waveform in `synth.rs`, trigger via `AudioEngine::play_sound` or `play_spatial_sound`. |
 | **Soundtrack / Music** | `src/audio/soundtrack.rs` | Streaming background music player (OGG/Opus) with category shuffle and UI toast notifications. |
 | **Audio Platform Backend** | `src/audio/backend/` | Implement `AudioBackend` trait with ring buffer / hardware output stream. |
@@ -26,7 +28,7 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
 ## 2. Common Workflows
 
 ### How to Add a New Block
-1. **Define Block**: Open `src/world/block.rs` and add a new variant to `pub enum BlockId`. Note that IDs `0..=139` are reserved for standard vanilla items and blocks; `140..=255` are mapped to `BlockId::Custom(u8)`.
+1. **Define Block**: Open `src/world/block.rs` and add a new variant to `pub enum BlockId`. Note that IDs `0..=162` are reserved for standard vanilla items and blocks; `163..=255` are mapped to `BlockId::Custom(u8)`.
 2. **Configure Properties**: In `src/world/block.rs`, update:
    - `from_u8(v: u8)` and `to_u8(self)`
    - `name(&self)`
@@ -52,7 +54,7 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
 
 ### How to Add a New Mob
 1. Open `src/gameplay/mob.rs`:
-   - Add variant to `MobKind` (e.g. `MobKind::Dolphin`).
+   - Add variant to `MobKind` (e.g. `MobKind::Villager`, `MobKind::IronGolem`).
    - Define its hitbox dimensions and AI behavior in `Mob::update()`.
 2. Open `src/graphics/software/mod.rs` and `src/platform/vita_gxm.rs`:
    - In `Renderer::draw_mob()`, match on the new `MobKind` and define the 3D box hierarchy (head, body, limbs) with corresponding rotations and texture IDs.

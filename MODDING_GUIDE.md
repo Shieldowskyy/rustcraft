@@ -54,7 +54,7 @@ Every mod requires a `mod.json` file in its folder. The root structure looks lik
 Blocks are 3D voxels placed in the world, collision-checked, meshed, and lit.
 
 ### Block Attributes
-- `id` *(number, required)*: Numerical ID from **140 to 255** (IDs 0–139 are reserved for vanilla blocks).
+- `id` *(number, required)*: Numerical ID from **163 to 255** (IDs 0–162 are reserved for vanilla blocks and items; custom modded blocks map to `BlockId::Custom(u8)`).
 - `identifier` *(string, required)*: Unique string identifier (e.g. `"ruby_ore"`). Used in recipes, commands, and save files.
 - `name` *(string)*: Display name shown in tooltips, inventory, and chat.
 - `solid` *(boolean, default: `true`)*: Enables physical bounding box collision.
@@ -95,8 +95,8 @@ Blocks are 3D voxels placed in the world, collision-checked, meshed, and lit.
 Items exist in the player's inventory, hotbar, and dropped in the world as 3D floating items, but are not placeable as solid terrain blocks.
 
 ### Item Attributes
-- `id` *(number, required)*: Numerical ID from **140 to 255** (IDs 0–139 are reserved for vanilla blocks and items).
-- `identifier` *(string, required)*: Unique item identifier (e.g. `"emerald"`, `"ruby_apple"`).
+- `id` *(number, required)*: Numerical ID from **163 to 255** (IDs 0–162 are reserved for vanilla blocks and items; custom modded items map to `BlockId::Custom(u8)`).
+- `identifier` *(string, required)*: Unique item identifier (e.g. `"ruby"`, `"ruby_apple"`).
 - `name` *(string)*: Display name in inventory and chat.
 - `is_food` *(boolean, default: `false`)*: When `true`, holding right-click eats the item.
 - `nutrition` *(array `[hunger, saturation]`, optional)*:

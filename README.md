@@ -1,7 +1,7 @@
 # RustCraft — Cross-Platform Voxel Sandbox Engine
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
-[![Lines of Code](https://img.shields.io/badge/lines%20of%20code-66.9k-blue.svg)](#code-statistics--lines-of-code)
+[![Lines of Code](https://img.shields.io/badge/lines%20of%20code-71.6k-blue.svg)](#code-statistics--lines-of-code)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20FreeBSD%20%7C%20Android%20%7C%20Xbox%20360%20%7C%20ARM64%20%7C%20ARMv7%20%7C%20ARMv6%20%7C%20RISC--V%20%7C%20x86__32%20%7C%20Win__ARM64%20%7C%20PS%20Vita%20%7C%20WASM-brightgreen.svg)]()
 
@@ -48,8 +48,12 @@ RustCraft separates core engine capabilities from gameplay logic, providing huma
   [`BlockRegistry`](src/engine/registry.rs) and [`BlockProperties`](src/engine/registry.rs) for registering custom blocks with hardness, luminance, transparency, and flammability rules.
 * **Data-Driven Modding Subsystem (`src/engine/modding.rs`)**:
   Zero-dependency JSON mod loader (`mods/`) supporting custom blocks, items, food nutrition, crafting/smelting recipes, loot tables, and chat commands, with automatic client synchronization over multiplayer (Source engine style).
-* **Modular Typography Subsystem (`src/engine/fonts/`)**:
-  [`BitmapFont`](src/engine/fonts/mod.rs) trait with two built-in fonts: [`RustcraftRegular`](src/engine/fonts/rustcraft_regular.rs) (3×5 compact pixel font with Polish diacritics) and [`RustcraftLight`](src/engine/fonts/rustcraft_light.rs) (slender open 3×5 font optimized for profiler telemetry and diagnostics).
+* **Dynamic Weather Subsystem (`src/world/weather.rs`)**:
+  Complete atmospheric weather simulation: Clear, Rain, Thunderstorms, and Snow. Features biome-dependent precipitation (rain in temperate zones, falling snow in cold biomes, clear skies in deserts), realistic sky and cloud darkening, procedural precipitation particle rendering, procedural audio synthesis for rain ambiance, distant thunder rumbles, and random terrain lightning strikes, controllable via `/weather` in-game commands.
+* **Villages, Villagers & Trading Economy (`src/gameplay/trading.rs`, `src/world/mod.rs`)**:
+  Procedural village generation across biomes with houses, paths, lamp posts, wells, and farm plots. Inhabited by Villagers with 8 distinct professions, interactive trading interface, emerald-based currency economy, and trade level progression. Protected by towering Iron Golems.
+* **Modular Typography Subsystem (`src/engine/fonts/`, `src/graphics/font.rs`)**:
+  [`BitmapFont`](src/engine/fonts/mod.rs) trait supporting classic pixel fonts ([`RustcraftRegular`](src/engine/fonts/rustcraft_regular.rs), [`RustcraftLight`](src/engine/fonts/rustcraft_light.rs)) and high-resolution Unicode font rendering with toggle in Settings.
 * **Zero-Overhead Localization (`src/core/i18n.rs`)**:
   In-memory translation engine (`locales/*.json`) with zero runtime file I/O dependencies, dynamic in-game language switching, and Python synchronization pipeline (`scripts/sync_locales.py`).
 * **Audio & Music Subsystem (`src/audio/`)**:
@@ -277,39 +281,42 @@ The world generator procedurally synthesizes **20 distinct biomes** using multi-
 | **Ocean** | Deep sea floor with dynamic underwater lighting, kelp forests, seagrass, and coral ruins |
 | **Deep Ocean** | Extra-deep ocean floor far from continental shelves with ocean trenches |
 
-Each biome generates fitting procedural structures: **desert wells**, **stone ruins**, **forest log cabins** (with loot chests), and **coral ruins** in oceans.
+Each biome generates fitting procedural structures: **desert wells**, **stone ruins**, **forest log cabins** (with loot chests), **coral ruins** in oceans, and **procedural villages** (Plains, Savanna, Desert) featuring houses with wooden roofs and glass windows, furnaces, crafting tables, irrigated farm plots, community wells, and lamp posts.
 
 ---
 
 ## 7. Block, Item & Entity System
 
-RustCraft features **139 unique vanilla block and item IDs** (plus extensible modded IDs 140..=255) across building materials, agriculture, mechanisms, 16 colored wools, aquatic wildlife, and functional blocks:
+RustCraft features **163 unique vanilla block and item IDs** (plus extensible modded IDs 163..=255) across building materials, agriculture, mechanisms, 16 colored wools, aquatic wildlife, emerald economy, and functional blocks:
 
-* **Building blocks**: Grass, Dirt, Stone, Sand, Planks, Wood, Glass, Ice, Snow, Mud, Bedrock, WoodenSlab, StoneSlab, WoodenStairs, StoneStairs, Ladder
+* **Building blocks**: Grass, Dirt, Stone, Cobblestone, MossyCobblestone, Sand, Planks, Wood, Glass, Ice, Snow, Mud, Bedrock, Sandstone, SmoothStone, Bricks, Obsidian, Bookshelf, WoodenSlab, StoneSlab, CobblestoneSlab, SandstoneSlab, BrickSlab, WoodenStairs, StoneStairs, CobblestoneStairs, SandstoneStairs, BrickStairs, Ladder
 * **Fluids**: Water, Lava
 * **Foliage & Flora**: Leaves, SnowLeaves, CherryLeaves, AutumnLeaves, Cactus, Kelp (underwater plant), Seagrass (ocean floor vegetation), Sapling
 * **Agriculture & Crops**: Farmland, FarmlandWet, WheatSeeds, WheatCrop, Wheat, Bread, Carrot, CarrotCrop, Potato, PotatoCrop, BakedPotato, BoneMeal
 * **16 Wool Colors**: WhiteWool, OrangeWool, MagentaWool, LightBlueWool, YellowWool, LimeWool, PinkWool, GrayWool, LightGrayWool, CyanWool, PurpleWool, BlueWool, BrownWool, GreenWool, RedWool, BlackWool
 * **RustStone (Redstone Mechanisms)**: RustStoneOre, RustStone (dust/wire), RustStoneWireLit (active wire carrying power), RustStoneBlock (constant power source), RustStoneLamp (unlit), RustStoneLampLit (light-emitting when powered), Lever / LeverOn, Button / ButtonPressed, PressurePlate / PressurePlatePressed
-* **Ores & Minerals**: CoalOre, IronOre, GoldOre, DiamondOre, Diamond, IronOunce, GoldOunce, IronIngot, GoldIngot, CoalBlock, IronBlock, GoldBlock, DiamondBlock
+* **Ores, Minerals & Materials**: CoalOre, IronOre, GoldOre, DiamondOre, Diamond, EmeraldOre, Emerald, EmeraldBlock, IronOunce, GoldOunce, IronIngot, GoldIngot, CoalBlock, IronBlock, GoldBlock, DiamondBlock, Clay, ClayBall, Brick, Gravel, Flint
 * **Tools (5 tiers + utilities)**:
   * Pickaxes, Axes, Shovels, Swords, and Hoes across 5 material tiers: Wooden, Stone, Iron, Gold, Diamond
   * **Shears**: Used for shearing sheep (yielding matching colored wool) and instantly harvesting leaves and wool
   * **Fishing Rod**: Cast bobber into water, wait for bite splashes, and reel in cod, salmon, pufferfish, or treasure
 * **Items, Food & Mob Drops**: Stick, Torch, Apple, RawPorkchop, CookedPorkchop, RawBeef, CookedBeef, RawChicken, CookedChicken, Feather, Bone, Gunpowder, RawCod, CookedCod, RawSalmon, CookedSalmon, Pufferfish (causes poison if consumed), TropicalFish, DriedKelp (quick-snack food), Bed
-* **Spawn Eggs**: PigSpawnEgg, CowSpawnEgg, ChickenSpawnEgg, SheepSpawnEgg, DolphinSpawnEgg, FishSpawnEgg
+* **Spawn Eggs**: PigSpawnEgg, CowSpawnEgg, ChickenSpawnEgg, SheepSpawnEgg, DolphinSpawnEgg, FishSpawnEgg, VillagerSpawnEgg, IronGolemSpawnEgg
 * **Functional blocks**: CraftingTable, Chest, Furnace / FurnaceLit, Door / DoorOpen, TNT
 
-### Living Entities & Mobs (12 Mob Types)
+### Living Entities & Mobs (14 Mob Types)
 
-RustCraft includes a complete AI entity simulation with 12 distinct mob kinds (`MobKind`):
-* **Passive Wildlife**:
+RustCraft includes a complete AI entity simulation with 14 distinct mob kinds (`MobKind`):
+* **Passive Wildlife & Village Inhabitants**:
   * **Pig**: Roams grassy biomes, drops raw porkchops.
   * **Cow**: Roams plains and forests, drops raw beef.
   * **Chicken**: Smaller hitbox, pecks the ground, drops raw chicken and feathers.
   * **Sheep**: Features fleece color varieties, grazes on grass blocks (turning them into dirt and regrowing wool), and can be sheared using Shears without damage.
+  * **Villager**: Inhabits procedural villages. Features 8 distinct professions (Farmer, Librarian, Armorer, Cleric, Butcher, Mason, Weapon Smith, Tool Smith), full trading dialogue interface, emerald currency exchange, and level progression (Novice to Master). Panics and flees indoors when attacked.
+* **Village Guardians**:
+  * **Iron Golem**: Massive 100 HP iron-clad protector guarding villagers and players. Swings heavy iron arms to launch hostile monsters high into the air.
 * **Hostile Monsters**:
-  * **Zombie**: Tracks player via pathfinding, deals melee damage, burns in daylight.
+  * **Zombie**: Tracks player and villagers via pathfinding, deals melee damage, burns in daylight.
   * **Skeleton**: Ranged tracker, burns in daylight, drops bones (craftable into BoneMeal).
   * **Creeper**: Silently approaches the player, hisses with an ignition countdown, and explodes creating crater voxel destruction; drops gunpowder.
 * **Aquatic Marine Life**:
@@ -317,6 +324,19 @@ RustCraft includes a complete AI entity simulation with 12 distinct mob kinds (`
   * **Cod & Salmon**: Ambient schooling fish inhabiting rivers and oceans, drop raw fish.
   * **Pufferfish**: Puffs up defensively when approached by players, drops poisonous pufferfish.
   * **Tropical Fish**: Vibrant multi-colored fish populating warm ocean biomes.
+
+### Dynamic Weather & Atmosphere
+
+* **Weather States**: Cycles naturally between Clear skies, Rain, Thunderstorms, and Snow storms.
+* **Biome Temperature Awareness**: Warm biomes experience soothing rainfall; cold/alpine biomes (Taiga, Snowy Tundra, Ice Spikes) experience falling snowflakes; arid biomes (Desert, Badlands) stay clear.
+* **Atmospheric Visuals**: Sky and cloud layers dynamically darken during storm fronts. Precipitation particles are rendered with high performance across both CPU software and GPU rasterizers.
+* **Procedural Storm Audio**: Continuous procedural rain loops, distant thunder rumbles, and sudden ground-striking lightning bolts accompanied by blinding screen flashes.
+* **Commands**: Full control via in-game chat: `/weather clear`, `/weather rain`, `/weather thunder`, `/weather query`.
+
+### Villages, Villagers & Emerald Economy
+
+* **Procedural Architecture**: Spaced villages generated in Plains, Savanna, and Desert biomes with cobblestone/sandstone paths, village houses with glass windows and interior furniture, village wells, lamp posts, and irrigated farm plots with crops.
+* **Villager Trading UI**: Right-clicking a villager opens an interactive trading window displaying available trade offers, emerald and item costs, stock limits, and villager trade level progression.
 
 ---
 
@@ -425,27 +445,29 @@ rustcraft/
 │   │   ├── profiler.rs         # MemoryBreakdown & RenderStats telemetry structs
 │   │   └── profiler_server.rs  # Embedded HTTP profiler web dashboard
 │   ├── world/                  # Chunks, terrain gen, meshing, storage, tile entities
-│   │   ├── block.rs            # BlockId enum (139 types) & block properties
+│   │   ├── block.rs            # BlockId enum (163 types) & block properties
 │   │   ├── mesher.rs           # Chunk mesh builder with AO & async meshing
 │   │   ├── storage.rs          # Binary world save/load (cross-platform paths)
 │   │   ├── tile_entity.rs      # Chest (27-slot) & Furnace smelting simulation
-│   │   └── mod.rs              # World, 20-biome generator, structures, fluid/TNT sim
-│   ├── gameplay/               # Inventory, crafting, physics, mobs, particles
+│   │   ├── weather.rs          # Dynamic weather simulation (rain, snow, thunder, lightning)
+│   │   └── mod.rs              # World, 20-biome generator, villages, structures, fluid/TNT sim
+│   ├── gameplay/               # Inventory, crafting, physics, mobs, particles, trading
 │   │   ├── player.rs           # Player entity, GameMode, health, fall damage
 │   │   ├── inventory.rs        # Item stacking, hotbar (10), main inventory (27)
 │   │   ├── item.rs             # Dropped ItemEntity physics
 │   │   ├── physics.rs          # AABB collision, ice/lava friction, step-jumping
-│   │   ├── mob.rs              # MobManager: 12 mobs (Pig, Cow, Chicken, Sheep, Zombie, Skeleton, Creeper, Dolphin, Fish)
-│   │   ├── particles.rs        # Block-break, hit sparks, explosion, lava particles
+│   │   ├── mob.rs              # MobManager: 14 mobs (Pig, Cow, Chicken, Sheep, Zombie, Skeleton, Creeper, Dolphin, Fish, Villager, IronGolem)
+│   │   ├── trading.rs          # Villager professions, emerald trading economy & XP levels
+│   │   ├── particles.rs        # Block-break, hit sparks, explosion, rain/snow particles
 │   │   ├── recipe.rs           # 2×2 and 3×3 crafting recipe definitions
 │   │   ├── autotest.rs         # Headless self-test runner & autonomous bot AI
-│   │   └── chat.rs             # In-game chat log & command dispatch
+│   │   └── chat.rs             # In-game chat log & command dispatch (/weather, /give, /mobs)
 │   ├── graphics/               # Rendering backends, camera, font, texture atlas
 │   │   ├── traits.rs           # RenderBackend trait
-│   │   ├── atlas.rs            # Procedural 128×128 px ABGR8888 texture atlas (140+ textures)
+│   │   ├── atlas.rs            # Procedural 128×128 px ABGR8888 texture atlas (170+ textures)
 │   │   ├── camera.rs           # First-person camera, FOV, view matrix, chunk fade
-│   │   ├── font.rs             # Bitmap font renderer with shadow & measurement
-│   │   ├── software/           # Multi-threaded CPU rasterizer (Rayon tiled scanline)
+│   │   ├── font.rs             # Bitmap font & Unicode font renderer with shadow & measurement
+│   │   ├── software/           # Multi-threaded CPU rasterizer (Rayon tiled scanline, weather particles)
 │   │   └── gpu/                # WGPU hardware backend (Vulkan / DX12 / Metal / WebGPU)
 │   ├── platform/               # OS abstractions
 │   │   ├── mouse_capture.rs    # X11 / Win32 raw mouse & cursor trap
@@ -460,11 +482,11 @@ rustcraft/
 │       ├── hud.rs              # Crosshair, hotbar, debug panel, damage vignette
 │       ├── minimap.rs          # Real-time top-down radar & compass minimap
 │       ├── inventory_ui.rs     # Creative picker (tabbed, paginated), 2×2/3×3 crafting, inventory grid
-│       ├── container_ui.rs     # Chest (27-slot) & Furnace interaction UI
+│       ├── container_ui.rs     # Chest (27-slot), Furnace, and Villager Trading interaction UI
 │       ├── create_world.rs     # Create world form (name, seed, game mode)
 │       ├── save_select.rs      # Save slot selection screen
 │       ├── clipboard.rs        # Clipboard helper (wl-paste / xclip / fallback buffer)
-│       └── settings_ui.rs      # Settings menu (audio, video, controls, profiler...)
+│       └── settings_ui.rs      # Settings menu (audio, video, controls, Unicode font, profiler...)
 └── vita/                       # PS Vita shaders, LiveArea assets, param.sfo
     ├── shaders/                # Cg vertex + fragment shaders (*.vert.cg / *.frag.cg)
     └── sce_sys/                # Vita LiveArea assets & param.sfo metadata
@@ -474,18 +496,18 @@ rustcraft/
 
 | Subsystem / Directory | Description | Lines of Code |
 |---|---|---|
-| **`src/graphics/`** | Software Rayon rasterizer, WGPU backend, Camera, Font, Texture atlas | ~10,140 |
-| **`src/ui/`** | HUD, inventory, minimap, craft grids, menus, touch controls, audio settings | ~8,620 |
-| **`src/world/`** | Voxel storage, 20 biomes, terrain generation, chunk meshing, tile entities | ~8,260 |
-| **`src/platform/`** | Xbox 360, PS Vita (GXM GPU), Android NDK, Windows, X11 mouse, Gamepad | ~8,150 |
-| **`src/app/`** | Core engine loop, state machine, gameplay tick, containers, menus | ~7,220 |
-| **`src/audio/`** | 64-voice polyphonic mixer, procedural synthesis, 3D spatial sound, soundtrack engine | ~6,380 |
-| **`src/gameplay/`** | AutoTest bot AI, physics/collision, inventory, crafting, 12 mobs, chat | ~5,800 |
-| **`src/core/`** | Math (Vec3/Mat4), noise, settings, controls, profiler, crash reporter & Sentry, i18n | ~5,640 |
+| **`src/graphics/`** | Software Rayon rasterizer, WGPU backend, Camera, Font, Texture atlas (170+ tex) | ~11,420 |
+| **`src/world/`** | Voxel storage, 20 biomes, villages, weather system, chunk mesher, tile entities | ~9,730 |
+| **`src/ui/`** | HUD, inventory, minimap, trading UI, craft grids, menus, touch controls, settings | ~9,100 |
+| **`src/platform/`** | Xbox 360, PS Vita (GXM GPU), Android NDK, Windows, X11 mouse, Gamepad | ~8,260 |
+| **`src/app/`** | Core engine loop, state machine, gameplay tick, containers, menus | ~7,440 |
+| **`src/audio/`** | 64-voice polyphonic mixer, procedural synthesis, weather storm audio, soundtrack | ~6,770 |
+| **`src/gameplay/`** | AutoTest bot AI, physics/collision, inventory, crafting, 14 mobs, trading, chat | ~6,530 |
+| **`src/core/`** | Math (Vec3/Mat4), noise, settings, controls, profiler, crash reporter & Sentry, i18n | ~5,650 |
 | **`src/net/`** | Multiplayer networking protocol, packet serialization & LAN discovery | ~2,880 |
 | **`src/engine/`** | Modular engine traits, modding system, platform backend interfaces, bitmap fonts | ~2,470 |
 | **`Root & Entry Points`** | `main.rs`, `web.rs` (WASM), `cli.rs`, `build.rs`, `lib.rs` | ~1,370 |
-| **Total Rust Source** | **Complete Rust codebase (zero external engine dependencies)** | **~66,900 LOC** |
+| **Total Rust Source** | **Complete Rust codebase (zero external engine dependencies)** | **~71,600 LOC** |
 
 ---
 
