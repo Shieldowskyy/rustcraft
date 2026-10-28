@@ -144,6 +144,12 @@ impl RecipeBook {
         ] => Furnace * 1));
 
         self.add(recipe!(3, 3, [
+            Cobblestone, Cobblestone, Cobblestone,
+            Cobblestone, _,           Cobblestone,
+            Cobblestone, Cobblestone, Cobblestone,
+        ] => Furnace * 1));
+
+        self.add(recipe!(3, 3, [
             IronOunce, IronOunce, IronOunce,
             IronOunce, _,         IronOunce,
             IronOunce, IronOunce, IronOunce,
@@ -198,6 +204,7 @@ impl RecipeBook {
         let tool_materials = [
             (BlockId::Planks, BlockId::WoodenShovel, BlockId::WoodenSword, BlockId::WoodenPickaxe, BlockId::WoodenAxe, BlockId::WoodenHoe),
             (BlockId::Stone, BlockId::StoneShovel, BlockId::StoneSword, BlockId::StonePickaxe, BlockId::StoneAxe, BlockId::StoneHoe),
+            (BlockId::Cobblestone, BlockId::StoneShovel, BlockId::StoneSword, BlockId::StonePickaxe, BlockId::StoneAxe, BlockId::StoneHoe),
             (BlockId::IronIngot, BlockId::IronShovel, BlockId::IronSword, BlockId::IronPickaxe, BlockId::IronAxe, BlockId::IronHoe),
             (BlockId::GoldIngot, BlockId::GoldShovel, BlockId::GoldSword, BlockId::GoldPickaxe, BlockId::GoldAxe, BlockId::GoldHoe),
             (BlockId::Diamond, BlockId::DiamondShovel, BlockId::DiamondSword, BlockId::DiamondPickaxe, BlockId::DiamondAxe, BlockId::DiamondHoe),
@@ -368,9 +375,12 @@ impl RecipeBook {
         self.add(recipe!(1, 2, [Dirt, WhiteWool] => BrownWool * 1));
         self.add(recipe!(2, 1, [Dirt, WhiteWool] => BrownWool * 1));
 
-        // Slabs (3x1: 3 Planks/Stone horizontal -> 6 Slabs)
+        // Slabs (3x1: 3 Planks/Stone/Bricks/Cobblestone/Sandstone horizontal -> 6 Slabs)
         self.add(recipe!(3, 1, [Planks, Planks, Planks] => WoodenSlab * 6));
         self.add(recipe!(3, 1, [Stone, Stone, Stone] => StoneSlab * 6));
+        self.add(recipe!(3, 1, [Bricks, Bricks, Bricks] => BrickSlab * 6));
+        self.add(recipe!(3, 1, [Cobblestone, Cobblestone, Cobblestone] => CobblestoneSlab * 6));
+        self.add(recipe!(3, 1, [Sandstone, Sandstone, Sandstone] => SandstoneSlab * 6));
 
         // Stairs (3x3 stair shape -> 4 Stairs, both orientations)
         self.add(recipe!(3, 3, [
@@ -394,6 +404,65 @@ impl RecipeBook {
             _,     Stone, Stone,
             Stone, Stone, Stone,
         ] => StoneStairs * 4));
+
+        self.add(recipe!(3, 3, [
+            Bricks, _,      _,
+            Bricks, Bricks, _,
+            Bricks, Bricks, Bricks,
+        ] => BrickStairs * 4));
+        self.add(recipe!(3, 3, [
+            _,      _,      Bricks,
+            _,      Bricks, Bricks,
+            Bricks, Bricks, Bricks,
+        ] => BrickStairs * 4));
+
+        self.add(recipe!(3, 3, [
+            Cobblestone, _,           _,
+            Cobblestone, Cobblestone, _,
+            Cobblestone, Cobblestone, Cobblestone,
+        ] => CobblestoneStairs * 4));
+        self.add(recipe!(3, 3, [
+            _,           _,           Cobblestone,
+            _,           Cobblestone, Cobblestone,
+            Cobblestone, Cobblestone, Cobblestone,
+        ] => CobblestoneStairs * 4));
+
+        self.add(recipe!(3, 3, [
+            Sandstone, _,         _,
+            Sandstone, Sandstone, _,
+            Sandstone, Sandstone, Sandstone,
+        ] => SandstoneStairs * 4));
+        self.add(recipe!(3, 3, [
+            _,         _,         Sandstone,
+            _,         Sandstone, Sandstone,
+            Sandstone, Sandstone, Sandstone,
+        ] => SandstoneStairs * 4));
+
+        // --- Clay, Bricks, Sandstone, Bookshelf Crafting ---
+        self.add(recipe!(2, 2, [
+            ClayBall, ClayBall,
+            ClayBall, ClayBall,
+        ] => Clay * 1));
+        self.add(recipe!(Clay => ClayBall * 4));
+
+        self.add(recipe!(2, 2, [
+            Brick, Brick,
+            Brick, Brick,
+        ] => Bricks * 1));
+
+        self.add(recipe!(2, 2, [
+            Sand, Sand,
+            Sand, Sand,
+        ] => Sandstone * 1));
+
+        self.add(recipe!(3, 3, [
+            Planks, Planks, Planks,
+            Wheat,  Wheat,  Wheat,
+            Planks, Planks, Planks,
+        ] => Bookshelf * 1));
+
+        self.add(recipe!(1, 2, [Cobblestone, Leaves] => MossyCobblestone * 1));
+        self.add(recipe!(2, 1, [Cobblestone, Leaves] => MossyCobblestone * 1));
 
         // Ladder (3x3: H-shape of Sticks -> 3 Ladders)
         self.add(recipe!(3, 3, [
@@ -454,23 +523,31 @@ impl RecipeBook {
             _,         IronBlock, _,
         ] => IronGolemSpawnEgg * 1));
 
-        // Lever (1x2: Stick over Stone or Planks)
+        // Lever (1x2: Stick over Stone or Planks or Cobblestone)
         self.add(recipe!(1, 2, [
             Stick,
             Stone,
         ] => Lever * 1));
         self.add(recipe!(1, 2, [
             Stick,
+            Cobblestone,
+        ] => Lever * 1));
+        self.add(recipe!(1, 2, [
+            Stick,
             Planks,
         ] => Lever * 1));
 
-        // Button (1x1: Stone or Planks)
+        // Button (1x1: Stone or Planks or Cobblestone)
         self.add(recipe!(Stone => Button * 1));
+        self.add(recipe!(Cobblestone => Button * 1));
         self.add(recipe!(Planks => Button * 1));
 
-        // Pressure Plate (2x1: 2 Stone or 2 Planks)
+        // Pressure Plate (2x1: 2 Stone or 2 Planks or 2 Cobblestone)
         self.add(recipe!(2, 1, [
             Stone, Stone,
+        ] => PressurePlate * 1));
+        self.add(recipe!(2, 1, [
+            Cobblestone, Cobblestone,
         ] => PressurePlate * 1));
         self.add(recipe!(2, 1, [
             Planks, Planks,
@@ -987,6 +1064,81 @@ mod tests {
         assert_eq!(
             book.match_grid(&dye_grid, 2, 1),
             Some(ItemStack { block: BlockId::RedWool, count: 1 })
+        );
+    }
+
+    #[test]
+    fn test_new_building_blocks_recipes() {
+        let book = RecipeBook::new();
+
+        // 4 ClayBall -> 1 Clay
+        let clay_grid = [
+            Some(ItemStack { block: BlockId::ClayBall, count: 1 }),
+            Some(ItemStack { block: BlockId::ClayBall, count: 1 }),
+            Some(ItemStack { block: BlockId::ClayBall, count: 1 }),
+            Some(ItemStack { block: BlockId::ClayBall, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&clay_grid, 2, 2),
+            Some(ItemStack { block: BlockId::Clay, count: 1 })
+        );
+
+        // 4 Brick -> 1 Bricks
+        let brick_grid = [
+            Some(ItemStack { block: BlockId::Brick, count: 1 }),
+            Some(ItemStack { block: BlockId::Brick, count: 1 }),
+            Some(ItemStack { block: BlockId::Brick, count: 1 }),
+            Some(ItemStack { block: BlockId::Brick, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&brick_grid, 2, 2),
+            Some(ItemStack { block: BlockId::Bricks, count: 1 })
+        );
+
+        // 4 Sand -> 1 Sandstone
+        let sand_grid = [
+            Some(ItemStack { block: BlockId::Sand, count: 1 }),
+            Some(ItemStack { block: BlockId::Sand, count: 1 }),
+            Some(ItemStack { block: BlockId::Sand, count: 1 }),
+            Some(ItemStack { block: BlockId::Sand, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&sand_grid, 2, 2),
+            Some(ItemStack { block: BlockId::Sandstone, count: 1 })
+        );
+
+        // Cobblestone Furnace
+        let furn_grid = [
+            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
+            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
+            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
+            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
+            None,
+            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
+            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
+            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
+            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&furn_grid, 3, 3),
+            Some(ItemStack { block: BlockId::Furnace, count: 1 })
+        );
+
+        // Cobblestone Pickaxe (3 Cobblestone on top, 2 Sticks below)
+        let pick_grid = [
+            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
+            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
+            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
+            None,
+            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            None,
+            None,
+            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            None,
+        ];
+        assert_eq!(
+            book.match_grid(&pick_grid, 3, 3),
+            Some(ItemStack { block: BlockId::StonePickaxe, count: 1 })
         );
     }
 }

@@ -531,7 +531,14 @@ impl Chunk {
                             }
                             _ => {
                                 if height <= 21 {
-                                    BlockId::Sand
+                                    let water_h = hash_coords(wx, wz, seed.wrapping_add(51893));
+                                    if water_h % 10 < 3 {
+                                        BlockId::Clay
+                                    } else if water_h % 10 < 5 {
+                                        BlockId::Gravel
+                                    } else {
+                                        BlockId::Sand
+                                    }
                                 } else {
                                     BlockId::Grass
                                 }
@@ -539,7 +546,14 @@ impl Chunk {
                         }
                     } else if y > height - 4 {
                         match biome {
-                            Biome::DeepOcean | Biome::Ocean | Biome::Desert => BlockId::Sand,
+                            Biome::DeepOcean | Biome::Ocean => BlockId::Sand,
+                            Biome::Desert => {
+                                if y <= height - 3 {
+                                    BlockId::Sandstone
+                                } else {
+                                    BlockId::Sand
+                                }
+                            }
                             Biome::Badlands => {
                                 if (y / 2) % 3 == 0 { BlockId::Sand } else if (y / 2) % 3 == 1 { BlockId::Stone } else { BlockId::Mud }
                             }
@@ -583,7 +597,20 @@ impl Chunk {
                                     BlockId::Dirt
                                 }
                             }
-                            _ => if height <= 21 { BlockId::Sand } else { BlockId::Dirt },
+                            _ => {
+                                if height <= 21 {
+                                    let water_h = hash_coords(wx, wz, seed.wrapping_add(51893));
+                                    if water_h % 10 < 3 {
+                                        BlockId::Clay
+                                    } else if water_h % 10 < 5 {
+                                        BlockId::Gravel
+                                    } else {
+                                        BlockId::Sand
+                                    }
+                                } else {
+                                    BlockId::Dirt
+                                }
+                            }
                         }
                     } else if biome == Biome::Badlands && y >= 14 {
                         let ore_h = hash_coords_3d(wx, y, wz, seed);
@@ -607,12 +634,16 @@ impl Chunk {
                         let ore_h = hash_coords_3d(wx, y, wz, seed);
                         if ore_h % 37 == 0 {
                             BlockId::CoalOre
+                        } else if ore_h % 43 == 0 && y > 15 && y < 55 {
+                            BlockId::Gravel
                         } else if ore_h % 67 == 0 && y < 30 {
                             BlockId::IronOre
                         } else if ore_h % 127 == 0 && y < 20 {
                             BlockId::GoldOre
                         } else if ore_h % 79 == 0 && y < 24 {
                             BlockId::RustStoneOre
+                        } else if ore_h % 151 == 0 && y < 14 {
+                            BlockId::Obsidian
                         } else if ore_h % 199 == 0 && y < 14 {
                             BlockId::DiamondOre
                         } else if matches!(biome, Biome::Mountain | Biome::JaggedPeaks | Biome::FrozenPeaks | Biome::SnowySlopes) && ore_h % 149 == 0 && y >= 10 && y <= 60 {

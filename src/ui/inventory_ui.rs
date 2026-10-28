@@ -75,6 +75,21 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::StoneSlab,
                 BlockId::WoodenStairs,
                 BlockId::StoneStairs,
+                BlockId::BrickStairs,
+                BlockId::BrickSlab,
+                BlockId::Cobblestone,
+                BlockId::MossyCobblestone,
+                BlockId::CobblestoneStairs,
+                BlockId::CobblestoneSlab,
+                BlockId::Bricks,
+                BlockId::Sandstone,
+                BlockId::SandstoneStairs,
+                BlockId::SandstoneSlab,
+                BlockId::SmoothStone,
+                BlockId::Clay,
+                BlockId::Gravel,
+                BlockId::Obsidian,
+                BlockId::Bookshelf,
                 BlockId::Ladder,
                 BlockId::Door,
                 BlockId::CraftingTable,
@@ -161,6 +176,17 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::Diamond,
                 BlockId::Emerald,
                 BlockId::EmeraldBlock,
+                BlockId::ClayBall,
+                BlockId::Brick,
+                BlockId::Flint,
+                BlockId::Clay,
+                BlockId::Gravel,
+                BlockId::Cobblestone,
+                BlockId::Bricks,
+                BlockId::Sandstone,
+                BlockId::SmoothStone,
+                BlockId::Obsidian,
+                BlockId::Bookshelf,
                 BlockId::RustStone,
                 BlockId::RustStoneBlock,
                 BlockId::RustStoneLamp,
@@ -328,6 +354,21 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::StoneSlab,
                 BlockId::WoodenStairs,
                 BlockId::StoneStairs,
+                BlockId::BrickStairs,
+                BlockId::BrickSlab,
+                BlockId::Cobblestone,
+                BlockId::MossyCobblestone,
+                BlockId::CobblestoneStairs,
+                BlockId::CobblestoneSlab,
+                BlockId::Bricks,
+                BlockId::Sandstone,
+                BlockId::SandstoneStairs,
+                BlockId::SandstoneSlab,
+                BlockId::SmoothStone,
+                BlockId::Clay,
+                BlockId::Gravel,
+                BlockId::Obsidian,
+                BlockId::Bookshelf,
                 BlockId::Ladder,
                 BlockId::Glass,
                 BlockId::Door,
@@ -404,6 +445,9 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::GoldIngot,
                 BlockId::Diamond,
                 BlockId::Emerald,
+                BlockId::ClayBall,
+                BlockId::Brick,
+                BlockId::Flint,
                 // Animals & Meats
                 BlockId::PigSpawnEgg,
                 BlockId::CowSpawnEgg,
@@ -2241,6 +2285,79 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
             px(buffer, 7, 6, hi);
             px(buffer, 8, 6, base);
         }
+        BlockId::ClayBall => {
+            let outline = pack_color(0.35, 0.38, 0.42);
+            let hi = pack_color(0.78, 0.82, 0.88);
+            let base = pack_color(0.62, 0.65, 0.70);
+            let sh = pack_color(0.48, 0.50, 0.55);
+            for ly in 4..=12 {
+                for lx in 4..=12 {
+                    let d2 = (lx as f32 - 8.0).powi(2) + (ly as f32 - 8.0).powi(2);
+                    if d2 <= 16.0 {
+                        let is_border = d2 > 12.0;
+                        if is_border {
+                            px(buffer, lx, ly, outline);
+                        } else if lx <= 6 && ly <= 6 {
+                            px(buffer, lx, ly, hi);
+                        } else if lx >= 10 || ly >= 10 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+        }
+        BlockId::Brick => {
+            let outline = pack_color(0.38, 0.16, 0.10);
+            let hi = pack_color(0.82, 0.45, 0.35);
+            let base = pack_color(0.68, 0.32, 0.24);
+            let sh = pack_color(0.50, 0.22, 0.16);
+            for ly in 5..=11 {
+                for lx in 3..=13 {
+                    let is_border = ly == 5 || ly == 11 || lx == 3 || lx == 13;
+                    if is_border {
+                        px(buffer, lx, ly, outline);
+                    } else if ly == 6 || lx == 4 {
+                        px(buffer, lx, ly, hi);
+                    } else if ly == 10 || lx == 12 {
+                        px(buffer, lx, ly, sh);
+                    } else {
+                        px(buffer, lx, ly, base);
+                    }
+                }
+            }
+        }
+        BlockId::Flint => {
+            let outline = pack_color(0.10, 0.10, 0.12);
+            let hi = pack_color(0.45, 0.45, 0.48);
+            let base = pack_color(0.28, 0.28, 0.30);
+            let sh = pack_color(0.18, 0.18, 0.20);
+            for ly in 3..=13 {
+                for lx in 4..=12 {
+                    let in_shape = match ly {
+                        3..=4 => lx >= 7 && lx <= 9,
+                        5..=7 => lx >= 5 && lx <= 10,
+                        8..=10 => lx >= 4 && lx <= 12,
+                        11..=12 => lx >= 5 && lx <= 11,
+                        13 => lx >= 6 && lx <= 9,
+                        _ => false,
+                    };
+                    if in_shape {
+                        let is_border = ly == 3 || ly == 13 || (ly == 5 && (lx == 5 || lx == 10)) || (ly == 8 && (lx == 4 || lx == 12));
+                        if is_border {
+                            px(buffer, lx, ly, outline);
+                        } else if lx <= 6 && ly <= 7 {
+                            px(buffer, lx, ly, hi);
+                        } else if lx >= 10 || ly >= 11 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+        }
         BlockId::Bed => {
             let wood = pack_color(0.45, 0.28, 0.12);
             let white = pack_color(0.92, 0.92, 0.94);
@@ -2654,12 +2771,21 @@ mod tests {
         assert!(tab0.contains(&BlockId::ChickenSpawnEgg));
         assert!(tab0.contains(&BlockId::SheepSpawnEgg));
         assert!(tab0.contains(&BlockId::WhiteWool));
+        assert!(tab0.contains(&BlockId::Clay));
+        assert!(tab0.contains(&BlockId::Bricks));
+        assert!(tab0.contains(&BlockId::Cobblestone));
+        assert!(tab0.contains(&BlockId::Sandstone));
+        assert!(tab0.contains(&BlockId::Obsidian));
+        assert!(tab0.contains(&BlockId::Bookshelf));
 
         let tab1 = creative_tab_blocks(1);
         assert!(tab1.contains(&BlockId::WoodenPickaxe));
         assert!(tab1.contains(&BlockId::IronSword));
         assert!(tab1.contains(&BlockId::Shears));
         assert!(tab1.contains(&BlockId::Tnt));
+        assert!(tab1.contains(&BlockId::ClayBall));
+        assert!(tab1.contains(&BlockId::Brick));
+        assert!(tab1.contains(&BlockId::Flint));
         assert!(tab1.contains(&BlockId::PigSpawnEgg));
         assert!(tab1.contains(&BlockId::CowSpawnEgg));
         assert!(tab1.contains(&BlockId::ChickenSpawnEgg));

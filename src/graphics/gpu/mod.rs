@@ -1540,9 +1540,24 @@ impl VulkanContext {
             TextureId::IronGolemBody => 195,
             TextureId::IronGolemHead => 196,
             TextureId::IronGolemSpawnEgg => 197,
+            TextureId::Clay => 198,
+            TextureId::ClayBall => 199,
+            TextureId::Brick => 200,
+            TextureId::Bricks => 201,
+            TextureId::Gravel => 202,
+            TextureId::Flint => 203,
+            TextureId::Cobblestone => 204,
+            TextureId::MossyCobblestone => 205,
+            TextureId::SandstoneTop => 206,
+            TextureId::SandstoneSide => 207,
+            TextureId::SandstoneBottom => 208,
+            TextureId::SmoothStone => 209,
+            TextureId::Obsidian => 210,
+            TextureId::BookshelfSide => 211,
+            TextureId::BookshelfTop => 212,
             TextureId::Custom(idx) => {
                 let clamped = if (idx as u32) > 63 { 63 } else { idx as u32 };
-                198 + clamped
+                213 + clamped
             }
         }
     }
@@ -1747,7 +1762,22 @@ impl VulkanContext {
             195 => TextureId::IronGolemBody,
             196 => TextureId::IronGolemHead,
             197 => TextureId::IronGolemSpawnEgg,
-            l if l >= 198 && l < 198 + 64 => TextureId::Custom((l - 198) as u8),
+            198 => TextureId::Clay,
+            199 => TextureId::ClayBall,
+            200 => TextureId::Brick,
+            201 => TextureId::Bricks,
+            202 => TextureId::Gravel,
+            203 => TextureId::Flint,
+            204 => TextureId::Cobblestone,
+            205 => TextureId::MossyCobblestone,
+            206 => TextureId::SandstoneTop,
+            207 => TextureId::SandstoneSide,
+            208 => TextureId::SandstoneBottom,
+            209 => TextureId::SmoothStone,
+            210 => TextureId::Obsidian,
+            211 => TextureId::BookshelfSide,
+            212 => TextureId::BookshelfTop,
+            l if l >= 213 && l < 213 + 64 => TextureId::Custom((l - 213) as u8),
             _ => TextureId::CraftingTableFront,
         }
     }

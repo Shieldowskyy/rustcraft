@@ -249,9 +249,10 @@ impl SoundId {
             BlockId::Grass | BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves | BlockId::SnowLeaves => {
                 SoundId::StepGrass
             }
-            BlockId::Dirt | BlockId::Mud => {
+            BlockId::Dirt | BlockId::Mud | BlockId::Clay => {
                 SoundId::StepDirt
             }
+            BlockId::Gravel => SoundId::StepGravel,
             BlockId::Stone
             | BlockId::Bedrock
             | BlockId::CoalOre
@@ -267,7 +268,8 @@ impl SoundId {
             | BlockId::CraftingTable
             | BlockId::Chest
             | BlockId::Door
-            | BlockId::DoorOpen => SoundId::StepWood,
+            | BlockId::DoorOpen
+            | BlockId::Bookshelf => SoundId::StepWood,
             BlockId::Sand => SoundId::StepSand,
             BlockId::Water => SoundId::StepWater,
             _ => SoundId::StepStone,
@@ -284,7 +286,7 @@ impl SoundId {
             BlockId::Grass | BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves | BlockId::SnowLeaves => {
                 SoundId::DigGrass
             }
-            BlockId::Dirt | BlockId::Mud => {
+            BlockId::Dirt | BlockId::Mud | BlockId::Clay | BlockId::Gravel => {
                 SoundId::DigDirt
             }
             BlockId::Wood
@@ -292,7 +294,8 @@ impl SoundId {
             | BlockId::CraftingTable
             | BlockId::Chest
             | BlockId::Door
-            | BlockId::DoorOpen => SoundId::DigWood,
+            | BlockId::DoorOpen
+            | BlockId::Bookshelf => SoundId::DigWood,
             BlockId::Glass => SoundId::BreakGlass,
             BlockId::Sand => SoundId::DigSand,
             _ => SoundId::DigStone,
@@ -309,7 +312,7 @@ impl SoundId {
             BlockId::Grass | BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves | BlockId::SnowLeaves => {
                 SoundId::BreakGrass
             }
-            BlockId::Dirt | BlockId::Mud => {
+            BlockId::Dirt | BlockId::Mud | BlockId::Clay | BlockId::Gravel => {
                 SoundId::BreakDirt
             }
             BlockId::Wood
@@ -317,7 +320,8 @@ impl SoundId {
             | BlockId::CraftingTable
             | BlockId::Chest
             | BlockId::Door
-            | BlockId::DoorOpen => SoundId::BreakWood,
+            | BlockId::DoorOpen
+            | BlockId::Bookshelf => SoundId::BreakWood,
             BlockId::Glass => SoundId::BreakGlass,
             BlockId::Sand => SoundId::BreakSand,
             _ => SoundId::BreakStone,
@@ -334,14 +338,15 @@ impl SoundId {
             BlockId::Grass | BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves | BlockId::SnowLeaves => {
                 SoundId::PlaceGrass
             }
-            BlockId::Dirt | BlockId::Mud => {
+            BlockId::Dirt | BlockId::Mud | BlockId::Clay | BlockId::Gravel => {
                 SoundId::PlaceDirt
             }
             BlockId::Wood
             | BlockId::Planks
             | BlockId::CraftingTable
             | BlockId::Chest
-            | BlockId::Door => SoundId::PlaceWood,
+            | BlockId::Door
+            | BlockId::Bookshelf => SoundId::PlaceWood,
             BlockId::Sand => SoundId::PlaceSand,
             _ => SoundId::PlaceStone,
         }

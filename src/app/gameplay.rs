@@ -1075,6 +1075,24 @@ impl RustCraftApp {
                                             Some(BlockId::Diamond)
                                         } else if matches!(broken_block, BlockId::EmeraldOre) {
                                             Some(BlockId::Emerald)
+                                        } else if broken_block == BlockId::Clay {
+                                            self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, BlockId::ClayBall, 4));
+                                            None
+                                        } else if broken_block == BlockId::Gravel {
+                                            if seed % 10 == 0 {
+                                                Some(BlockId::Flint)
+                                            } else {
+                                                Some(BlockId::Gravel)
+                                            }
+                                        } else if broken_block == BlockId::Stone {
+                                            Some(BlockId::Cobblestone)
+                                        } else if broken_block == BlockId::Obsidian {
+                                            let held_tool = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].as_ref().map(|s| s.block);
+                                            if held_tool == Some(BlockId::DiamondPickaxe) {
+                                                Some(BlockId::Obsidian)
+                                            } else {
+                                                None
+                                            }
                                         } else {
                                             Some(broken_block)
                                         };

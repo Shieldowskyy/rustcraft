@@ -261,7 +261,43 @@ pub enum BlockId {
     VillagerSpawnEgg,
     /// Iron Golem spawn egg item
     IronGolemSpawnEgg,
-    /// Custom modded block or item (ID 145..=255)
+    /// Clay block found in rivers and shallow waters
+    Clay,
+    /// Clay ball item dropped by mining clay
+    ClayBall,
+    /// Brick item smelted from clay ball in a furnace
+    Brick,
+    /// Bricks block crafted from 4 bricks (2x2)
+    Bricks,
+    /// Brick stairs block
+    BrickStairs,
+    /// Brick slab block
+    BrickSlab,
+    /// Gravel block subject to gravity/falling or underground veins
+    Gravel,
+    /// Flint item dropped by gravel
+    Flint,
+    /// Cobblestone block mined from stone
+    Cobblestone,
+    /// Mossy cobblestone block
+    MossyCobblestone,
+    /// Cobblestone stairs block
+    CobblestoneStairs,
+    /// Cobblestone slab block
+    CobblestoneSlab,
+    /// Sandstone block crafted from 4 sand (2x2)
+    Sandstone,
+    /// Sandstone stairs block
+    SandstoneStairs,
+    /// Sandstone slab block
+    SandstoneSlab,
+    /// Smooth stone block smelted from stone
+    SmoothStone,
+    /// Obsidian blast-resistant block mined with diamond pickaxe
+    Obsidian,
+    /// Bookshelf block crafted from wood planks and wheat
+    Bookshelf,
+    /// Custom modded block or item (ID 163..=255)
     Custom(u8),
 }
 
@@ -412,7 +448,25 @@ impl BlockId {
             142 => BlockId::EmeraldBlock,
             143 => BlockId::VillagerSpawnEgg,
             144 => BlockId::IronGolemSpawnEgg,
-            v if v >= 145 => BlockId::Custom(v),
+            145 => BlockId::Clay,
+            146 => BlockId::ClayBall,
+            147 => BlockId::Brick,
+            148 => BlockId::Bricks,
+            149 => BlockId::BrickStairs,
+            150 => BlockId::BrickSlab,
+            151 => BlockId::Gravel,
+            152 => BlockId::Flint,
+            153 => BlockId::Cobblestone,
+            154 => BlockId::MossyCobblestone,
+            155 => BlockId::CobblestoneStairs,
+            156 => BlockId::CobblestoneSlab,
+            157 => BlockId::Sandstone,
+            158 => BlockId::SandstoneStairs,
+            159 => BlockId::SandstoneSlab,
+            160 => BlockId::SmoothStone,
+            161 => BlockId::Obsidian,
+            162 => BlockId::Bookshelf,
+            v if v >= 163 => BlockId::Custom(v),
             _ => BlockId::Air,
         }
     }
@@ -564,6 +618,24 @@ impl BlockId {
             BlockId::EmeraldBlock => 142,
             BlockId::VillagerSpawnEgg => 143,
             BlockId::IronGolemSpawnEgg => 144,
+            BlockId::Clay => 145,
+            BlockId::ClayBall => 146,
+            BlockId::Brick => 147,
+            BlockId::Bricks => 148,
+            BlockId::BrickStairs => 149,
+            BlockId::BrickSlab => 150,
+            BlockId::Gravel => 151,
+            BlockId::Flint => 152,
+            BlockId::Cobblestone => 153,
+            BlockId::MossyCobblestone => 154,
+            BlockId::CobblestoneStairs => 155,
+            BlockId::CobblestoneSlab => 156,
+            BlockId::Sandstone => 157,
+            BlockId::SandstoneStairs => 158,
+            BlockId::SandstoneSlab => 159,
+            BlockId::SmoothStone => 160,
+            BlockId::Obsidian => 161,
+            BlockId::Bookshelf => 162,
             BlockId::Custom(id) => id,
         }
     }
@@ -737,6 +809,9 @@ impl BlockId {
                     | BlockId::Emerald
                     | BlockId::VillagerSpawnEgg
                     | BlockId::IronGolemSpawnEgg
+                    | BlockId::ClayBall
+                    | BlockId::Brick
+                    | BlockId::Flint
             ),
         }
     }
@@ -756,12 +831,27 @@ impl BlockId {
 
     #[inline(always)]
     pub fn is_half_block(self) -> bool {
-        matches!(self, BlockId::WoodenSlab | BlockId::StoneSlab | BlockId::Bed)
+        matches!(
+            self,
+            BlockId::WoodenSlab
+                | BlockId::StoneSlab
+                | BlockId::BrickSlab
+                | BlockId::CobblestoneSlab
+                | BlockId::SandstoneSlab
+                | BlockId::Bed
+        )
     }
 
     #[inline(always)]
     pub fn is_stairs(self) -> bool {
-        matches!(self, BlockId::WoodenStairs | BlockId::StoneStairs)
+        matches!(
+            self,
+            BlockId::WoodenStairs
+                | BlockId::StoneStairs
+                | BlockId::BrickStairs
+                | BlockId::CobblestoneStairs
+                | BlockId::SandstoneStairs
+        )
     }
 
     #[inline(always)]
@@ -851,8 +941,8 @@ impl BlockId {
                 } else if id < 140 {
                     // Kelp (128), Seagrass (129), and items (130..=139) are non-solid
                     false
-                } else if id == 140 || id == 143 || id == 144 {
-                    // Emerald (140), VillagerSpawnEgg (143), and IronGolemSpawnEgg (144) are non-solid items
+                } else if id == 140 || id == 143 || id == 144 || id == 146 || id == 147 || id == 152 {
+                    // Emerald (140), VillagerSpawnEgg (143), IronGolemSpawnEgg (144), ClayBall (146), Brick (147), and Flint (152) are non-solid items
                     false
                 } else if id == 141 || id == 142 {
                     // EmeraldOre (141) and EmeraldBlock (142) are solid blocks
@@ -1089,49 +1179,49 @@ impl BlockId {
         let Some(t) = tool else { return 1.0; };
         match t {
             BlockId::DiamondPickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::EmeraldOre | BlockId::EmeraldBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 10.0 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::EmeraldOre | BlockId::EmeraldBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit | BlockId::Cobblestone | BlockId::MossyCobblestone | BlockId::CobblestoneStairs | BlockId::CobblestoneSlab | BlockId::Bricks | BlockId::BrickStairs | BlockId::BrickSlab | BlockId::Sandstone | BlockId::SandstoneStairs | BlockId::SandstoneSlab | BlockId::SmoothStone | BlockId::Obsidian) { 10.0 } else { 1.0 }
             }
             BlockId::GoldPickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::EmeraldOre | BlockId::EmeraldBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 8.0 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::EmeraldOre | BlockId::EmeraldBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit | BlockId::Cobblestone | BlockId::MossyCobblestone | BlockId::CobblestoneStairs | BlockId::CobblestoneSlab | BlockId::Bricks | BlockId::BrickStairs | BlockId::BrickSlab | BlockId::Sandstone | BlockId::SandstoneStairs | BlockId::SandstoneSlab | BlockId::SmoothStone) { 8.0 } else { 1.0 }
             }
             BlockId::IronPickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::EmeraldOre | BlockId::EmeraldBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 7.0 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre | BlockId::DiamondOre | BlockId::DiamondBlock | BlockId::EmeraldOre | BlockId::EmeraldBlock | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit | BlockId::Cobblestone | BlockId::MossyCobblestone | BlockId::CobblestoneStairs | BlockId::CobblestoneSlab | BlockId::Bricks | BlockId::BrickStairs | BlockId::BrickSlab | BlockId::Sandstone | BlockId::SandstoneStairs | BlockId::SandstoneSlab | BlockId::SmoothStone) { 7.0 } else { 1.0 }
             }
             BlockId::StonePickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::GoldOre | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 4.5 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::GoldOre | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit | BlockId::Cobblestone | BlockId::MossyCobblestone | BlockId::CobblestoneStairs | BlockId::CobblestoneSlab | BlockId::Bricks | BlockId::BrickStairs | BlockId::BrickSlab | BlockId::Sandstone | BlockId::SandstoneStairs | BlockId::SandstoneSlab | BlockId::SmoothStone) { 4.5 } else { 1.0 }
             }
             BlockId::WoodenPickaxe => {
-                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::GoldOre | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit) { 2.5 } else { 1.0 }
+                if matches!(target, BlockId::Stone | BlockId::CoalOre | BlockId::IronOre | BlockId::Ice | BlockId::Furnace | BlockId::FurnaceLit | BlockId::IronBlock | BlockId::GoldBlock | BlockId::GoldOre | BlockId::CoalBlock | BlockId::StoneSlab | BlockId::StoneStairs | BlockId::RustStoneOre | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::RustStoneLampLit | BlockId::Cobblestone | BlockId::MossyCobblestone | BlockId::CobblestoneStairs | BlockId::CobblestoneSlab | BlockId::Bricks | BlockId::BrickStairs | BlockId::BrickSlab | BlockId::Sandstone | BlockId::SandstoneStairs | BlockId::SandstoneSlab | BlockId::SmoothStone) { 2.5 } else { 1.0 }
             }
             BlockId::DiamondAxe => {
-                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest | BlockId::WoodenSlab | BlockId::WoodenStairs | BlockId::Bed | BlockId::Ladder) { 10.0 } else { 1.0 }
+                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest | BlockId::WoodenSlab | BlockId::WoodenStairs | BlockId::Bed | BlockId::Ladder | BlockId::Bookshelf) { 10.0 } else { 1.0 }
             }
             BlockId::GoldAxe => {
-                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest | BlockId::WoodenSlab | BlockId::WoodenStairs | BlockId::Bed | BlockId::Ladder) { 8.0 } else { 1.0 }
+                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest | BlockId::WoodenSlab | BlockId::WoodenStairs | BlockId::Bed | BlockId::Ladder | BlockId::Bookshelf) { 8.0 } else { 1.0 }
             }
             BlockId::IronAxe => {
-                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest | BlockId::WoodenSlab | BlockId::WoodenStairs | BlockId::Bed | BlockId::Ladder) { 7.0 } else { 1.0 }
+                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest | BlockId::WoodenSlab | BlockId::WoodenStairs | BlockId::Bed | BlockId::Ladder | BlockId::Bookshelf) { 7.0 } else { 1.0 }
             }
             BlockId::StoneAxe => {
-                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest | BlockId::WoodenSlab | BlockId::WoodenStairs | BlockId::Bed | BlockId::Ladder) { 4.5 } else { 1.0 }
+                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest | BlockId::WoodenSlab | BlockId::WoodenStairs | BlockId::Bed | BlockId::Ladder | BlockId::Bookshelf) { 4.5 } else { 1.0 }
             }
             BlockId::WoodenAxe => {
-                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest | BlockId::WoodenSlab | BlockId::WoodenStairs | BlockId::Bed | BlockId::Ladder) { 2.5 } else { 1.0 }
+                if matches!(target, BlockId::Wood | BlockId::Planks | BlockId::CraftingTable | BlockId::Door | BlockId::Cactus | BlockId::Chest | BlockId::WoodenSlab | BlockId::WoodenStairs | BlockId::Bed | BlockId::Ladder | BlockId::Bookshelf) { 2.5 } else { 1.0 }
             }
             BlockId::DiamondShovel => {
-                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud | BlockId::Farmland | BlockId::FarmlandWet) { 10.0 } else { 1.0 }
+                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud | BlockId::Farmland | BlockId::FarmlandWet | BlockId::Clay | BlockId::Gravel) { 10.0 } else { 1.0 }
             }
             BlockId::GoldShovel => {
-                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud | BlockId::Farmland | BlockId::FarmlandWet) { 8.0 } else { 1.0 }
+                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud | BlockId::Farmland | BlockId::FarmlandWet | BlockId::Clay | BlockId::Gravel) { 8.0 } else { 1.0 }
             }
             BlockId::IronShovel => {
-                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud | BlockId::Farmland | BlockId::FarmlandWet) { 7.0 } else { 1.0 }
+                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud | BlockId::Farmland | BlockId::FarmlandWet | BlockId::Clay | BlockId::Gravel) { 7.0 } else { 1.0 }
             }
             BlockId::StoneShovel => {
-                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud | BlockId::Farmland | BlockId::FarmlandWet) { 4.5 } else { 1.0 }
+                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud | BlockId::Farmland | BlockId::FarmlandWet | BlockId::Clay | BlockId::Gravel) { 4.5 } else { 1.0 }
             }
             BlockId::WoodenShovel => {
-                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud | BlockId::Farmland | BlockId::FarmlandWet) { 2.5 } else { 1.0 }
+                if matches!(target, BlockId::Dirt | BlockId::Grass | BlockId::Sand | BlockId::Snow | BlockId::Mud | BlockId::Farmland | BlockId::FarmlandWet | BlockId::Clay | BlockId::Gravel) { 2.5 } else { 1.0 }
             }
             BlockId::WoodenHoe | BlockId::StoneHoe | BlockId::IronHoe | BlockId::DiamondHoe | BlockId::GoldHoe => {
                 if matches!(target, BlockId::Leaves | BlockId::SnowLeaves | BlockId::CherryLeaves | BlockId::AutumnLeaves | BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop | BlockId::Sapling | BlockId::Farmland | BlockId::FarmlandWet) { 6.0 } else { 1.0 }
@@ -1202,6 +1292,17 @@ impl BlockId {
             BlockId::Lever | BlockId::LeverOn => 0.5,
             BlockId::Button | BlockId::ButtonPressed => 0.5,
             BlockId::PressurePlate | BlockId::PressurePlatePressed => 0.5,
+            BlockId::Clay => 0.6,
+            BlockId::Gravel => 0.6,
+            BlockId::Cobblestone
+            | BlockId::MossyCobblestone
+            | BlockId::CobblestoneStairs
+            | BlockId::CobblestoneSlab => 2.0,
+            BlockId::Bricks | BlockId::BrickStairs | BlockId::BrickSlab => 2.0,
+            BlockId::Sandstone | BlockId::SandstoneStairs | BlockId::SandstoneSlab => 0.8,
+            BlockId::SmoothStone => 2.0,
+            BlockId::Obsidian => 9.0,
+            BlockId::Bookshelf => 1.5,
             _ => 0.0,
         }
     }
@@ -1254,6 +1355,19 @@ impl BlockId {
                     ((TRANSPARENT_MASK >> id) & 1) != 0
                 } else if id < 140 {
                     // Kelp (128), Seagrass (129), and item entities (130..=139) are transparent
+                    true
+                } else if matches!(
+                    self,
+                    BlockId::ClayBall
+                        | BlockId::Brick
+                        | BlockId::Flint
+                        | BlockId::BrickStairs
+                        | BlockId::BrickSlab
+                        | BlockId::CobblestoneStairs
+                        | BlockId::CobblestoneSlab
+                        | BlockId::SandstoneStairs
+                        | BlockId::SandstoneSlab
+                ) {
                     true
                 } else {
                     false
@@ -1409,6 +1523,24 @@ impl BlockId {
             BlockId::EmeraldBlock => "blok szmaragdu",
             BlockId::VillagerSpawnEgg => "jajko wiesniaka",
             BlockId::IronGolemSpawnEgg => "jajko zelaznego golema",
+            BlockId::Clay => "glina",
+            BlockId::ClayBall => "kula gliny",
+            BlockId::Brick => "cegla",
+            BlockId::Bricks => "cegly",
+            BlockId::BrickStairs => "ceglane schody",
+            BlockId::BrickSlab => "ceglana plyta",
+            BlockId::Gravel => "zwir",
+            BlockId::Flint => "krzemien",
+            BlockId::Cobblestone => "bruk",
+            BlockId::MossyCobblestone => "zamszony bruk",
+            BlockId::CobblestoneStairs => "brukowe schody",
+            BlockId::CobblestoneSlab => "brukowa plyta",
+            BlockId::Sandstone => "piaskowiec",
+            BlockId::SandstoneStairs => "piaskowcowe schody",
+            BlockId::SandstoneSlab => "piaskowcowa plyta",
+            BlockId::SmoothStone => "gladki kamien",
+            BlockId::Obsidian => "obsydian",
+            BlockId::Bookshelf => "biblioteczka",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -1561,6 +1693,24 @@ impl BlockId {
             BlockId::EmeraldBlock => "Emerald Block",
             BlockId::VillagerSpawnEgg => "Spawn Villager",
             BlockId::IronGolemSpawnEgg => "Spawn Iron Golem",
+            BlockId::Clay => "Clay Block",
+            BlockId::ClayBall => "Clay Ball",
+            BlockId::Brick => "Brick",
+            BlockId::Bricks => "Bricks",
+            BlockId::BrickStairs => "Brick Stairs",
+            BlockId::BrickSlab => "Brick Slab",
+            BlockId::Gravel => "Gravel",
+            BlockId::Flint => "Flint",
+            BlockId::Cobblestone => "Cobblestone",
+            BlockId::MossyCobblestone => "Mossy Cobblestone",
+            BlockId::CobblestoneStairs => "Cobblestone Stairs",
+            BlockId::CobblestoneSlab => "Cobblestone Slab",
+            BlockId::Sandstone => "Sandstone",
+            BlockId::SandstoneStairs => "Sandstone Stairs",
+            BlockId::SandstoneSlab => "Sandstone Slab",
+            BlockId::SmoothStone => "Smooth Stone",
+            BlockId::Obsidian => "Obsidian",
+            BlockId::Bookshelf => "Bookshelf",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -1722,6 +1872,25 @@ impl BlockId {
             BlockId::EmeraldBlock => [0.08, 0.85, 0.30],
             BlockId::VillagerSpawnEgg => [0.55, 0.38, 0.24],
             BlockId::IronGolemSpawnEgg => [0.84, 0.84, 0.82],
+            BlockId::Clay => [0.62, 0.65, 0.70],
+            BlockId::ClayBall => [0.68, 0.71, 0.76],
+            BlockId::Brick => [0.70, 0.35, 0.25],
+            BlockId::Bricks | BlockId::BrickStairs | BlockId::BrickSlab => [0.65, 0.30, 0.22],
+            BlockId::Gravel => [0.52, 0.50, 0.50],
+            BlockId::Flint => [0.25, 0.25, 0.27],
+            BlockId::Cobblestone | BlockId::CobblestoneStairs | BlockId::CobblestoneSlab => [0.48, 0.48, 0.48],
+            BlockId::MossyCobblestone => [0.42, 0.50, 0.40],
+            BlockId::Sandstone | BlockId::SandstoneStairs | BlockId::SandstoneSlab => match face {
+                Face::Top => [0.86, 0.82, 0.65],
+                Face::Bottom => [0.82, 0.77, 0.60],
+                _ => [0.84, 0.80, 0.62],
+            },
+            BlockId::SmoothStone => [0.62, 0.62, 0.62],
+            BlockId::Obsidian => [0.12, 0.08, 0.18],
+            BlockId::Bookshelf => match face {
+                Face::Top | Face::Bottom => [0.55, 0.42, 0.25],
+                _ => [0.45, 0.35, 0.25],
+            },
             BlockId::Custom(id) => crate::engine::modding::get_custom_face_color(id, face),
             BlockId::Air => [0.0, 0.0, 0.0],
         }
@@ -1881,6 +2050,25 @@ impl BlockId {
             BlockId::EmeraldBlock => TextureId::EmeraldBlock,
             BlockId::VillagerSpawnEgg => TextureId::VillagerSpawnEgg,
             BlockId::IronGolemSpawnEgg => TextureId::IronGolemSpawnEgg,
+            BlockId::Clay => TextureId::Clay,
+            BlockId::ClayBall => TextureId::ClayBall,
+            BlockId::Brick => TextureId::Brick,
+            BlockId::Bricks | BlockId::BrickStairs | BlockId::BrickSlab => TextureId::Bricks,
+            BlockId::Gravel => TextureId::Gravel,
+            BlockId::Flint => TextureId::Flint,
+            BlockId::Cobblestone | BlockId::CobblestoneStairs | BlockId::CobblestoneSlab => TextureId::Cobblestone,
+            BlockId::MossyCobblestone => TextureId::MossyCobblestone,
+            BlockId::Sandstone | BlockId::SandstoneStairs | BlockId::SandstoneSlab => match face {
+                Face::Top => TextureId::SandstoneTop,
+                Face::Bottom => TextureId::SandstoneBottom,
+                _ => TextureId::SandstoneSide,
+            },
+            BlockId::SmoothStone => TextureId::SmoothStone,
+            BlockId::Obsidian => TextureId::Obsidian,
+            BlockId::Bookshelf => match face {
+                Face::Top | Face::Bottom => TextureId::BookshelfTop,
+                _ => TextureId::BookshelfSide,
+            },
             BlockId::Custom(id) => crate::engine::modding::get_custom_texture_id(id),
             _ => TextureId::Planks,
         }
@@ -1972,16 +2160,42 @@ mod tests {
     #[test]
     fn test_new_blocks_and_tools() {
         // Roundtrip u8
-        for id in 0..=144u8 {
+        for id in 0..=162u8 {
             let block = BlockId::from_u8(id);
             assert_eq!(block.to_u8(), id);
             // Verify is_solid and is_transparent don't panic on u128 masks
             let _ = block.is_solid();
             let _ = block.is_transparent();
         }
-        let custom = BlockId::from_u8(145);
-        assert_eq!(custom, BlockId::Custom(145));
-        assert_eq!(custom.to_u8(), 145);
+        let custom = BlockId::from_u8(163);
+        assert_eq!(custom, BlockId::Custom(163));
+        assert_eq!(custom.to_u8(), 163);
+
+        // New building blocks and materials properties
+        assert!(BlockId::Clay.is_solid());
+        assert!(BlockId::Clay.is_placeable());
+        assert!(!BlockId::ClayBall.is_solid());
+        assert!(!BlockId::ClayBall.is_placeable());
+        assert!(BlockId::Bricks.is_solid());
+        assert!(BlockId::BrickStairs.is_stairs());
+        assert!(BlockId::BrickSlab.is_half_block());
+        assert!(BlockId::Gravel.is_solid());
+        assert!(!BlockId::Flint.is_solid());
+        assert!(!BlockId::Flint.is_placeable());
+        assert!(BlockId::Cobblestone.is_solid());
+        assert!(BlockId::MossyCobblestone.is_solid());
+        assert!(BlockId::CobblestoneStairs.is_stairs());
+        assert!(BlockId::CobblestoneSlab.is_half_block());
+        assert!(BlockId::Sandstone.is_solid());
+        assert!(BlockId::SandstoneStairs.is_stairs());
+        assert!(BlockId::SandstoneSlab.is_half_block());
+        assert!(BlockId::SmoothStone.is_solid());
+        assert!(BlockId::Obsidian.is_solid());
+        assert_eq!(BlockId::Obsidian.break_time(), 9.0);
+        assert_eq!(BlockId::mining_speed_multiplier(Some(BlockId::DiamondPickaxe), BlockId::Obsidian), 10.0);
+        assert_eq!(BlockId::mining_speed_multiplier(Some(BlockId::StonePickaxe), BlockId::Obsidian), 1.0);
+        assert!(BlockId::Bookshelf.is_solid());
+        assert_eq!(BlockId::mining_speed_multiplier(Some(BlockId::IronAxe), BlockId::Bookshelf), 7.0);
 
         // Emerald, Villager, and Iron Golem properties
         assert!(!BlockId::Emerald.is_placeable());

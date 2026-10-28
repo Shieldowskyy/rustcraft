@@ -46,7 +46,9 @@ pub fn smelting_result(input: BlockId) -> Option<BlockId> {
         BlockId::GoldOre => Some(BlockId::GoldOunce),
         BlockId::EmeraldOre => Some(BlockId::Emerald),
         BlockId::Wood => Some(BlockId::CoalOre),
-        BlockId::Stone => Some(BlockId::Stone),
+        BlockId::Cobblestone => Some(BlockId::Stone),
+        BlockId::Stone => Some(BlockId::SmoothStone),
+        BlockId::ClayBall => Some(BlockId::Brick),
         _ => None,
     }
 }
@@ -373,7 +375,9 @@ mod tests {
         assert_eq!(smelting_result(BlockId::IronOre), Some(BlockId::IronOunce));
         assert_eq!(smelting_result(BlockId::GoldOre), Some(BlockId::GoldOunce));
         assert_eq!(smelting_result(BlockId::Wood), Some(BlockId::CoalOre));
-        assert_eq!(smelting_result(BlockId::Stone), Some(BlockId::Stone));
+        assert_eq!(smelting_result(BlockId::Cobblestone), Some(BlockId::Stone));
+        assert_eq!(smelting_result(BlockId::Stone), Some(BlockId::SmoothStone));
+        assert_eq!(smelting_result(BlockId::ClayBall), Some(BlockId::Brick));
         assert_eq!(smelting_result(BlockId::Air), None);
     }
 

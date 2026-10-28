@@ -1114,6 +1114,21 @@ pub enum TextureId {
     IronGolemBody,
     IronGolemHead,
     IronGolemSpawnEgg,
+    Clay,
+    ClayBall,
+    Brick,
+    Bricks,
+    Gravel,
+    Flint,
+    Cobblestone,
+    MossyCobblestone,
+    SandstoneTop,
+    SandstoneSide,
+    SandstoneBottom,
+    SmoothStone,
+    Obsidian,
+    BookshelfSide,
+    BookshelfTop,
     /// Custom modded texture (index 0..=63)
     Custom(u8),
 }
@@ -1612,6 +1627,21 @@ pub struct TextureAtlas {
     pub iron_golem_body: Texture,
     pub iron_golem_head: Texture,
     pub iron_golem_spawn_egg: Texture,
+    pub clay: Texture,
+    pub clay_ball: Texture,
+    pub brick: Texture,
+    pub bricks: Texture,
+    pub gravel: Texture,
+    pub flint: Texture,
+    pub cobblestone: Texture,
+    pub mossy_cobblestone: Texture,
+    pub sandstone_top: Texture,
+    pub sandstone_side: Texture,
+    pub sandstone_bottom: Texture,
+    pub smooth_stone: Texture,
+    pub obsidian: Texture,
+    pub bookshelf_side: Texture,
+    pub bookshelf_top: Texture,
     pub custom: Vec<Texture>,
 }
 
@@ -3881,6 +3911,289 @@ fn tropical_fish_skin() -> Texture {
     speckled([0.96, 0.50, 0.14], 0.05, 886)
 }
 
+fn clay() -> Texture {
+    let base = [0.62, 0.64, 0.69];
+    let dark = [0.52, 0.54, 0.58];
+    let light = [0.70, 0.72, 0.76];
+    let mut tex = speckled(base, 0.12, 117);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let r = rand_at(x, y, 142);
+            if r > 0.90 {
+                tex.texels[y * TEX_SIZE + x] = light;
+            } else if r < 0.12 {
+                tex.texels[y * TEX_SIZE + x] = dark;
+            }
+        }
+    }
+    tex
+}
+
+fn clay_ball() -> Texture {
+    let mut texels = vec![[-1.0, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
+    let cx = 7.5;
+    let cy = 7.5;
+    let radius = 4.8;
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let dx = x as f32 - cx;
+            let dy = y as f32 - cy;
+            let dist = (dx * dx + dy * dy).sqrt();
+            if dist <= radius {
+                let light_dir_dot = (-dx * 0.6 - dy * 0.8) / radius;
+                let shade = (0.5 + 0.5 * light_dir_dot).clamp(0.0, 1.0);
+                let col = mix([0.48, 0.50, 0.55], [0.72, 0.74, 0.79], shade);
+                texels[y * TEX_SIZE + x] = col;
+            }
+        }
+    }
+    Texture { texels }
+}
+
+fn brick_item() -> Texture {
+    let mut texels = vec![[-1.0, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
+    for y in 4..12 {
+        for x in 2..14 {
+            let is_edge = x == 2 || x == 13 || y == 4 || y == 11;
+            let is_highlight = x == 3 || y == 5;
+            let n = (rand_at(x, y, 83) - 0.5) * 0.08;
+            let col = if is_edge {
+                [0.45, 0.18, 0.12]
+            } else if is_highlight {
+                [0.78, 0.38, 0.28]
+            } else {
+                [(0.68 + n).clamp(0.0, 1.0), (0.28 + n).clamp(0.0, 1.0), (0.20 + n).clamp(0.0, 1.0)]
+            };
+            texels[y * TEX_SIZE + x] = col;
+        }
+    }
+    Texture { texels }
+}
+
+fn bricks() -> Texture {
+    let mortar = [0.78, 0.76, 0.73];
+    let dark_mortar = [0.60, 0.58, 0.55];
+    let mut texels = vec![mortar; TEX_SIZE * TEX_SIZE];
+    for y in 0..TEX_SIZE {
+        let row = y / 4;
+        let is_horiz_mortar = y % 4 == 0;
+        let x_offset = if row % 2 == 1 { 4 } else { 0 };
+
+        for x in 0..TEX_SIZE {
+            let local_x = (x + x_offset) % 8;
+            let is_vert_mortar = local_x == 0;
+
+            if is_horiz_mortar || is_vert_mortar {
+                let n = rand_at(x, y, 31) * 0.1;
+                texels[y * TEX_SIZE + x] = mix(mortar, dark_mortar, n);
+            } else {
+                let r = rand_at(x, y, 77) - 0.5;
+                let brick_base = match (x + y * 3) % 4 {
+                    0 => [0.68, 0.28, 0.20],
+                    1 => [0.62, 0.24, 0.18],
+                    2 => [0.72, 0.32, 0.24],
+                    _ => [0.58, 0.22, 0.16],
+                };
+                texels[y * TEX_SIZE + x] = [
+                    (brick_base[0] + r * 0.08).clamp(0.0, 1.0),
+                    (brick_base[1] + r * 0.06).clamp(0.0, 1.0),
+                    (brick_base[2] + r * 0.05).clamp(0.0, 1.0),
+                ];
+            }
+        }
+    }
+    Texture { texels }
+}
+
+fn gravel() -> Texture {
+    let base = [0.54, 0.51, 0.48];
+    let mut tex = speckled(base, 0.25, 43);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let r = rand_at(x, y, 89);
+            if r > 0.88 {
+                tex.texels[y * TEX_SIZE + x] = [0.72, 0.68, 0.62];
+            } else if r < 0.12 {
+                tex.texels[y * TEX_SIZE + x] = [0.35, 0.33, 0.32];
+            }
+        }
+    }
+    tex
+}
+
+fn flint() -> Texture {
+    let mut texels = vec![[-1.0, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
+    for y in 3..13 {
+        for x in 3..13 {
+            let is_in = (x >= 4 && x <= 11 && y >= 4 && y <= 12) && (x + y >= 9) && (x as i32 - y as i32 <= 4);
+            if is_in {
+                let n = rand_at(x, y, 66) * 0.08;
+                let edge = x == 4 || y == 4 || (x + y == 9);
+                let col = if edge {
+                    [0.45, 0.44, 0.48]
+                } else if x == 7 && y == 7 {
+                    [0.85, 0.85, 0.90] // glint
+                } else {
+                    [0.22 + n, 0.20 + n, 0.24 + n]
+                };
+                texels[y * TEX_SIZE + x] = col;
+            }
+        }
+    }
+    Texture { texels }
+}
+
+fn cobblestone() -> Texture {
+    let base = [0.55, 0.55, 0.55];
+    let mut tex = speckled(base, 0.20, 57);
+    let crevice = [0.28, 0.28, 0.30];
+    let highlight = [0.68, 0.68, 0.70];
+
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let h = ((x * 5 + y * 7) ^ (x * 3)) % 11;
+            if h == 0 || (x % 5 == 0 && y % 4 == 0) || (x % 6 == 3 && y % 5 == 2) {
+                tex.texels[y * TEX_SIZE + x] = crevice;
+            } else if h == 1 {
+                tex.texels[y * TEX_SIZE + x] = highlight;
+            }
+        }
+    }
+    tex
+}
+
+fn mossy_cobblestone() -> Texture {
+    let mut tex = cobblestone();
+    let moss = [0.32, 0.56, 0.18];
+    let dark_moss = [0.20, 0.38, 0.12];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let r = rand_at(x, y, 92);
+            let cluster = ((x as f32 * 0.4).sin() + (y as f32 * 0.4).cos()) > 0.35;
+            if cluster && r > 0.30 {
+                let col = if r > 0.65 { moss } else { dark_moss };
+                tex.texels[y * TEX_SIZE + x] = col;
+            }
+        }
+    }
+    tex
+}
+
+fn sandstone_top() -> Texture {
+    let base = [0.86, 0.82, 0.62];
+    let mut tex = speckled(base, 0.08, 19);
+    for i in 0..TEX_SIZE {
+        tex.texels[i] = mix(tex.texels[i], [0.76, 0.72, 0.54], 0.4);
+        tex.texels[(TEX_SIZE - 1) * TEX_SIZE + i] = mix(tex.texels[(TEX_SIZE - 1) * TEX_SIZE + i], [0.76, 0.72, 0.54], 0.4);
+        tex.texels[i * TEX_SIZE] = mix(tex.texels[i * TEX_SIZE], [0.76, 0.72, 0.54], 0.4);
+        tex.texels[i * TEX_SIZE + (TEX_SIZE - 1)] = mix(tex.texels[i * TEX_SIZE + (TEX_SIZE - 1)], [0.76, 0.72, 0.54], 0.4);
+    }
+    tex
+}
+
+fn sandstone_side() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let light = [0.88, 0.84, 0.64];
+    let mid = [0.84, 0.80, 0.60];
+    let dark = [0.78, 0.74, 0.54];
+    for y in 0..TEX_SIZE {
+        let layer_col = if y < 4 {
+            mid
+        } else if y == 4 || y == 11 {
+            dark
+        } else if y < 11 {
+            light
+        } else {
+            mid
+        };
+        for x in 0..TEX_SIZE {
+            let n = (rand_at(x, y, 48) - 0.5) * 0.08;
+            texels[y * TEX_SIZE + x] = [
+                (layer_col[0] + n).clamp(0.0, 1.0),
+                (layer_col[1] + n).clamp(0.0, 1.0),
+                (layer_col[2] + n).clamp(0.0, 1.0),
+            ];
+        }
+    }
+    Texture { texels }
+}
+
+fn sandstone_bottom() -> Texture {
+    speckled([0.80, 0.76, 0.56], 0.10, 22)
+}
+
+fn smooth_stone() -> Texture {
+    let base = [0.68, 0.68, 0.70];
+    let mut tex = speckled(base, 0.06, 33);
+    let border = [0.48, 0.48, 0.50];
+    let inner_hl = [0.78, 0.78, 0.80];
+    for i in 0..TEX_SIZE {
+        tex.texels[i] = border;
+        tex.texels[(TEX_SIZE - 1) * TEX_SIZE + i] = border;
+        tex.texels[i * TEX_SIZE] = border;
+        tex.texels[i * TEX_SIZE + (TEX_SIZE - 1)] = border;
+    }
+    for i in 1..TEX_SIZE - 1 {
+        tex.texels[TEX_SIZE + i] = inner_hl;
+        tex.texels[i * TEX_SIZE + 1] = inner_hl;
+    }
+    tex
+}
+
+fn obsidian() -> Texture {
+    let base = [0.10, 0.08, 0.14];
+    let mut tex = speckled(base, 0.35, 99);
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let r = rand_at(x, y, 73);
+            if r > 0.92 {
+                tex.texels[y * TEX_SIZE + x] = [0.28, 0.18, 0.36];
+            } else if r > 0.85 {
+                tex.texels[y * TEX_SIZE + x] = [0.18, 0.14, 0.26];
+            } else if r < 0.08 {
+                tex.texels[y * TEX_SIZE + x] = [0.04, 0.03, 0.06];
+            }
+        }
+    }
+    tex
+}
+
+fn bookshelf_side() -> Texture {
+    let wood = [0.65, 0.50, 0.30];
+    let dark_wood = [0.45, 0.32, 0.18];
+    let book_colors = [
+        [0.68, 0.18, 0.18],
+        [0.18, 0.42, 0.22],
+        [0.20, 0.28, 0.65],
+        [0.55, 0.35, 0.18],
+        [0.72, 0.60, 0.20],
+    ];
+    let mut texels = vec![dark_wood; TEX_SIZE * TEX_SIZE];
+
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let is_frame = y == 0 || y == 1 || y == 7 || y == 8 || y == 14 || y == 15 || x == 0 || x == 15;
+            if is_frame {
+                let n = (rand_at(x, y, 51) - 0.5) * 0.08;
+                texels[y * TEX_SIZE + x] = mix(wood, dark_wood, n + 0.3);
+            } else {
+                let book_idx = (x / 2 + (y / 8) * 3) % book_colors.len();
+                let col = book_colors[book_idx];
+                let is_binding = x % 2 == 0;
+                let page_edge = y == 2 || y == 9;
+                if page_edge {
+                    texels[y * TEX_SIZE + x] = [0.88, 0.85, 0.78];
+                } else if is_binding {
+                    texels[y * TEX_SIZE + x] = [col[0] * 0.8, col[1] * 0.8, col[2] * 0.8];
+                } else {
+                    texels[y * TEX_SIZE + x] = col;
+                }
+            }
+        }
+    }
+    Texture { texels }
+}
+
 impl TextureAtlas {
     pub fn generate() -> TextureAtlas {
         Self::generate_with_fancy(true)
@@ -4077,6 +4390,21 @@ impl TextureAtlas {
             iron_golem_body: iron_golem_body(),
             iron_golem_head: iron_golem_head(),
             iron_golem_spawn_egg: iron_golem_spawn_egg(),
+            clay: clay(),
+            clay_ball: clay_ball(),
+            brick: brick_item(),
+            bricks: bricks(),
+            gravel: gravel(),
+            flint: flint(),
+            cobblestone: cobblestone(),
+            mossy_cobblestone: mossy_cobblestone(),
+            sandstone_top: sandstone_top(),
+            sandstone_side: sandstone_side(),
+            sandstone_bottom: sandstone_bottom(),
+            smooth_stone: smooth_stone(),
+            obsidian: obsidian(),
+            bookshelf_side: bookshelf_side(),
+            bookshelf_top: planks(),
             custom: crate::engine::modding::generate_mod_textures(),
         }
     }
@@ -4281,6 +4609,21 @@ impl TextureAtlas {
             TextureId::IronGolemBody => &self.iron_golem_body,
             TextureId::IronGolemHead => &self.iron_golem_head,
             TextureId::IronGolemSpawnEgg => &self.iron_golem_spawn_egg,
+            TextureId::Clay => &self.clay,
+            TextureId::ClayBall => &self.clay_ball,
+            TextureId::Brick => &self.brick,
+            TextureId::Bricks => &self.bricks,
+            TextureId::Gravel => &self.gravel,
+            TextureId::Flint => &self.flint,
+            TextureId::Cobblestone => &self.cobblestone,
+            TextureId::MossyCobblestone => &self.mossy_cobblestone,
+            TextureId::SandstoneTop => &self.sandstone_top,
+            TextureId::SandstoneSide => &self.sandstone_side,
+            TextureId::SandstoneBottom => &self.sandstone_bottom,
+            TextureId::SmoothStone => &self.smooth_stone,
+            TextureId::Obsidian => &self.obsidian,
+            TextureId::BookshelfSide => &self.bookshelf_side,
+            TextureId::BookshelfTop => &self.bookshelf_top,
             TextureId::Custom(idx) => self.custom.get(idx as usize).unwrap_or(&self.stone),
         }
     }
