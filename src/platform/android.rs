@@ -113,6 +113,7 @@ enum TouchRole {
     FlyButton,
     CamButton,
     HotbarSlot(u8),
+    OffhandSlot,
     UiTouch,
     CloseMenuButton,
 }
@@ -130,7 +131,10 @@ pub struct TouchTracker {
     pub btn_sneak: bool,
     pub btn_sprint: bool,
     pub btn_mine: bool,
-    pub btn_place: bool,
+    pub btn_place_held: bool,
+    pub tap_place_pulse: bool,
+    pub offhand_swap_just: bool,
+    pub menu_right_click_held: bool,
     pub btn_menu_just: bool,
     pub btn_inv_just: bool,
     pub btn_chat_just: bool,
@@ -175,7 +179,10 @@ impl Default for TouchTracker {
             btn_sneak: false,
             btn_sprint: false,
             btn_mine: false,
-            btn_place: false,
+            btn_place_held: false,
+            tap_place_pulse: false,
+            offhand_swap_just: false,
+            menu_right_click_held: false,
             btn_menu_just: false,
             btn_inv_just: false,
             btn_chat_just: false,
@@ -256,6 +263,10 @@ impl TouchTracker {
                         self.btn_inv_just = true;
                         self.roles.insert(pointer_id, TouchRole::CloseMenuButton);
                     } else {
+                        // Two-finger touch in inventory/menus triggers right-click (split stack, quick-equip)
+                        if self.touches.len() > 1 {
+                            self.menu_right_click_held = true;
+                        }
                         self.roles.insert(pointer_id, TouchRole::UiTouch);
                     }
                     return;
@@ -308,12 +319,15 @@ impl TouchTracker {
             }
             AMOTION_EVENT_ACTION_UP | AMOTION_EVENT_ACTION_POINTER_UP | AMOTION_EVENT_ACTION_CANCEL => {
                 self.touches.remove(&pointer_id);
+                if in_menu && self.touches.len() <= 1 {
+                    self.menu_right_click_held = false;
+                }
                 if let Some(role) = self.roles.remove(&pointer_id) {
                     // Tap vs Hold detection for CameraLook
                     if let TouchRole::CameraLook { start_time, is_dragging, .. } = role {
                         if !is_dragging && start_time.elapsed().as_secs_f32() < 0.22 {
                             // Quick tap on world view without drag = Place / Use block or interact!
-                            self.btn_place = true;
+                            self.tap_place_pulse = true;
                         }
                         if start_time.elapsed().as_secs_f32() >= 0.22 {
                             // Stopped holding mining
@@ -387,9 +401,15 @@ impl TouchTracker {
         let hotbar_w = total_slots * (slot_size + margin) - margin;
         let hotbar_left = (w - hotbar_w) * 0.5;
         let hotbar_top = h - slot_size - 18.0;
-        if (hotbar_left - 6.0..=hotbar_left + hotbar_w + 6.0).contains(&x) && y >= hotbar_top - 6.0 {
+        if (hotbar_left - 4.0..=hotbar_left + hotbar_w + 4.0).contains(&x) && y >= hotbar_top - 6.0 {
             let slot = (((x - hotbar_left).max(0.0) / (slot_size + margin)).floor() as u8).min(9);
             return TouchRole::HotbarSlot(slot);
+        }
+
+        // Off-hand slot (to the left of hotbar)
+        let offhand_x = hotbar_left - slot_size - 10.0;
+        if (offhand_x - 6.0..=offhand_x + slot_size + 6.0).contains(&x) && y >= hotbar_top - 6.0 {
+            return TouchRole::OffhandSlot;
         }
 
         // 3. Action buttons (right side, tactile circular layout)
@@ -444,7 +464,8 @@ impl TouchTracker {
             TouchRole::SneakButton => self.btn_sneak = true,
             TouchRole::SprintButton => self.btn_sprint = !self.btn_sprint,
             TouchRole::MineButton => self.btn_mine = true,
-            TouchRole::PlaceButton => self.btn_place = true,
+            TouchRole::PlaceButton => self.btn_place_held = true,
+            TouchRole::OffhandSlot => self.offhand_swap_just = true,
             TouchRole::MenuButton => self.btn_menu_just = true,
             TouchRole::InventoryButton => self.btn_inv_just = true,
             TouchRole::ChatButton => self.btn_chat_just = true,
@@ -464,7 +485,7 @@ impl TouchTracker {
             TouchRole::JumpButton => self.btn_jump = false,
             TouchRole::SneakButton => self.btn_sneak = false,
             TouchRole::MineButton => self.btn_mine = false,
-            TouchRole::PlaceButton => self.btn_place = false,
+            TouchRole::PlaceButton => self.btn_place_held = false,
             TouchRole::MovementJoystick { .. } => self.reset_movement(),
             _ => {}
         }
@@ -488,6 +509,10 @@ impl TouchTracker {
             // Draw a convenient "CLOSE [X]" button at top right in inventory/menus
             fill_rect_alpha(buffer, width, height, w_i32 - 75, 8, 65, 26, 0x000000, 0.65);
             draw_text_shadowed(buffer, width, height, "CLOSE", w_i32 - 62, 14, 1, 1);
+
+            // Draw hint for 2-finger touch (right click / split stack / quick equip)
+            fill_rect_alpha(buffer, width, height, 12, 8, 155, 22, 0x000000, 0.45);
+            draw_text_shadowed(buffer, width, height, "2-FINGER: SPLIT/EQUIP", 16, 13, 1, 1);
             return;
         }
 
@@ -565,11 +590,11 @@ impl TouchTracker {
         let place_cx = w_i32 - 220;
         let place_cy = h_i32 - 60;
         fill_circle_alpha(buffer, width, height, place_cx, place_cy, 28, 0x000000, 0.55);
-        if self.btn_place {
+        if self.btn_place_held {
             fill_circle_alpha(buffer, width, height, place_cx, place_cy, 24, 0xb45309, 0.70);
-            draw_text_colored_shadowed(buffer, width, height, "PLACE", place_cx - 18, place_cy - 4, 1, 1, active_yellow);
+            draw_text_colored_shadowed(buffer, width, height, "USE", place_cx - 12, place_cy - 4, 1, 1, active_yellow);
         } else {
-            draw_text_shadowed(buffer, width, height, "PLACE", place_cx - 18, place_cy - 4, 1, 1);
+            draw_text_shadowed(buffer, width, height, "USE", place_cx - 12, place_cy - 4, 1, 1);
         }
 
         // --- Movement Virtual Joystick (Left) ---
@@ -823,9 +848,17 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
     }
 
     let is_mine = ctx.touch_tracker.btn_mine || ctx.touch_tracker.gp_axis_rt > 0.4;
-    let is_place = ctx.touch_tracker.btn_place || ctx.touch_tracker.gp_axis_lt > 0.4;
-    // Reset place pulse after applying
-    ctx.touch_tracker.btn_place = false;
+    let is_place = ctx.touch_tracker.btn_place_held || ctx.touch_tracker.tap_place_pulse || ctx.touch_tracker.gp_axis_lt > 0.4;
+    // Reset tap place pulse after applying
+    ctx.touch_tracker.tap_place_pulse = false;
+
+    // Swap offhand when tapping the offhand HUD slot
+    if ctx.touch_tracker.offhand_swap_just {
+        ctx.touch_tracker.offhand_swap_just = false;
+        let sel = ctx.app.player.selected_hotbar_slot as usize;
+        std::mem::swap(&mut ctx.app.player.inventory.hotbar[sel], &mut ctx.app.player.inventory.offhand);
+        ctx.app.audio.play_sound(crate::audio::SoundId::ArmorEquip, 0.85, 1.0);
+    }
 
     // Drain queued text input from software keyboard
     let typed_chars = std::mem::take(&mut ctx.touch_tracker.pending_typed_chars);
@@ -839,8 +872,8 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
         mouse_dx: ctx.touch_tracker.mouse_dx,
         mouse_dy: ctx.touch_tracker.mouse_dy,
         mouse_pos: ctx.touch_tracker.primary_touch_pos,
-        mouse_left: is_mine || (in_menu && ctx.touch_tracker.primary_touch_down),
-        mouse_right: is_place,
+        mouse_left: is_mine || (in_menu && ctx.touch_tracker.primary_touch_down && !ctx.touch_tracker.menu_right_click_held),
+        mouse_right: is_place || (in_menu && ctx.touch_tracker.menu_right_click_held),
         scroll_delta: 0.0,
 
         key_w: move_fwd,
@@ -1123,7 +1156,7 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeKeyE
                     }
                 }
                 KEYCODE_BUTTON_R1 => ctx.touch_tracker.btn_mine = down,
-                KEYCODE_BUTTON_L1 => ctx.touch_tracker.btn_place = down,
+                KEYCODE_BUTTON_L1 => ctx.touch_tracker.btn_place_held = down,
                 KEYCODE_ENTER | KEYCODE_NUMPAD_ENTER => {
                     if down {
                         ctx.touch_tracker.key_enter_just = true;
