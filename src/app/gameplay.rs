@@ -428,7 +428,7 @@ impl RustCraftApp {
                     self.camera.position = self.camera.position + self.fly_velocity * dt;
                     self.vertical_velocity = 0.0;
                     self.horiz_velocity = Vec3::zero();
-                    self.player.head_underwater = self.world.get_block(self.camera.position.floor_to_ivec()) == BlockId::Water;
+                    self.player.head_underwater = matches!(self.world.get_block(self.camera.position.floor_to_ivec()), BlockId::Water | BlockId::Kelp | BlockId::Seagrass);
                     self.player.air = self.player.max_air;
                     self.drown_damage_timer = 0.0;
                 } else {
@@ -439,7 +439,7 @@ impl RustCraftApp {
                     );
                     let feet_block = self.world.get_block(feet_pos.floor_to_ivec());
                     let eye_block = self.world.get_block(self.camera.position.floor_to_ivec());
-                    let in_water = feet_block == BlockId::Water || eye_block == BlockId::Water;
+                    let in_water = matches!(feet_block, BlockId::Water | BlockId::Kelp | BlockId::Seagrass) || matches!(eye_block, BlockId::Water | BlockId::Kelp | BlockId::Seagrass);
                     let in_lava = feet_block == BlockId::Lava || eye_block == BlockId::Lava;
 
                     // Dolphin's Grace: swimming near a dolphin grants * 1.85 swim speed boost
@@ -609,7 +609,7 @@ impl RustCraftApp {
                         for &(ox, oy, oz) in &PROBE_OFFSETS {
                             let probe = IVec3::new(p_block.x + ox, p_block.y + oy, p_block.z + oz);
                             let b = self.world.get_block(probe);
-                            if b == BlockId::Water && !near_water {
+                            if matches!(b, BlockId::Water | BlockId::Kelp | BlockId::Seagrass) && !near_water {
                                 near_water = true;
                                 water_pos = Some(Vec3::new(probe.x as f32 + 0.5, probe.y as f32 + 0.5, probe.z as f32 + 0.5));
                             } else if b.is_leaf() && !near_leaves {
@@ -717,7 +717,7 @@ impl RustCraftApp {
                     }
 
                     // Oxygen and underwater breathing mechanics
-                    let is_head_underwater = eye_block == BlockId::Water;
+                    let is_head_underwater = matches!(eye_block, BlockId::Water | BlockId::Kelp | BlockId::Seagrass);
                     self.player.head_underwater = is_head_underwater;
 
                     if self.player.gamemode == GameMode::Survival {
@@ -2073,7 +2073,7 @@ impl RustCraftApp {
                         self.fishing_bobber = None;
                     } else {
                         let block_at_bobber = self.world.get_block(bobber.pos.floor_to_ivec());
-                        if block_at_bobber == BlockId::Water {
+                        if matches!(block_at_bobber, BlockId::Water | BlockId::Kelp | BlockId::Seagrass) {
                             bobber.in_water = true;
                             let surface_y = bobber.pos.y.floor() + 0.85;
                             bobber.vel.y += (surface_y - bobber.pos.y) * 12.0 * dt;
@@ -2357,7 +2357,7 @@ impl RustCraftApp {
                     if block_at_camera == BlockId::Lava {
                         self.renderer.draw_lava_overlay(self.total_time);
                     } else {
-                        if self.settings.underwater_fx && block_at_camera == BlockId::Water {
+                        if self.settings.underwater_fx && matches!(block_at_camera, BlockId::Water | BlockId::Kelp | BlockId::Seagrass) {
                             self.renderer.draw_underwater_overlay(self.total_time);
                         }
                         if self.player.fire_timer > 0.0 {

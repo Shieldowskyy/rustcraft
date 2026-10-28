@@ -764,7 +764,7 @@ pub fn run_vita_app() {
             let hand_speed = (app.horiz_velocity.length() + app.fly_velocity.length()).max(0.0);
 
             let block_at_camera = app.world.get_block(app.camera.position.floor_to_ivec());
-            let is_underwater = app.settings.underwater_fx && block_at_camera == crate::world::block::BlockId::Water;
+            let is_underwater = app.settings.underwater_fx && matches!(block_at_camera, crate::world::block::BlockId::Water | crate::world::block::BlockId::Kelp | crate::world::block::BlockId::Seagrass);
             let is_in_lava = block_at_camera == crate::world::block::BlockId::Lava;
             let low_health = app.player.gamemode == crate::gameplay::player::GameMode::Survival && app.player.health <= 2.0 && app.player.health > 0.0;
 

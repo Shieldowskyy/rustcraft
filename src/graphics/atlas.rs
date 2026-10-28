@@ -3660,30 +3660,43 @@ fn sheep_spawn_egg() -> Texture {
 }
 
 fn kelp_texture() -> Texture {
-    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let mut texels = vec![[-0.001, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
     let dark_green = [0.10, 0.32, 0.12];
     let mid_green = [0.18, 0.48, 0.20];
-    let light_green = [0.26, 0.62, 0.26];
-    let highlight = [0.35, 0.75, 0.35];
+    let light_green = [0.28, 0.64, 0.28];
+    let highlight = [0.38, 0.78, 0.36];
 
+    // Central stalk running through the middle (x=7, x=8) continuous across block boundaries
     for y in 0..TEX_SIZE {
         texels[y * TEX_SIZE + 7] = if (y % 4) == 0 { highlight } else { mid_green };
         texels[y * TEX_SIZE + 8] = if (y % 4) == 0 { mid_green } else { dark_green };
     }
 
+    // Alternating wavy kelp fronds with lush leaves and dark outlines (Minecraft style)
     for y in 0..TEX_SIZE {
         let side = (y / 3) % 2;
+        let width = 3 + (y % 3);
         if side == 0 {
-            let width = 3 + (y % 3);
             for x in (8 - width)..7 {
                 let is_edge = x == (8 - width);
-                texels[y * TEX_SIZE + x] = if is_edge { dark_green } else if (x + y) % 2 == 0 { light_green } else { mid_green };
+                texels[y * TEX_SIZE + x] = if is_edge {
+                    dark_green
+                } else if (x + y) % 2 == 0 {
+                    light_green
+                } else {
+                    mid_green
+                };
             }
         } else {
-            let width = 3 + (y % 3);
             for x in 9..(9 + width).min(TEX_SIZE) {
                 let is_edge = x == (8 + width);
-                texels[y * TEX_SIZE + x] = if is_edge { dark_green } else if (x + y) % 2 == 0 { light_green } else { mid_green };
+                texels[y * TEX_SIZE + x] = if is_edge {
+                    dark_green
+                } else if (x + y) % 2 == 0 {
+                    light_green
+                } else {
+                    mid_green
+                };
             }
         }
     }
@@ -3691,20 +3704,43 @@ fn kelp_texture() -> Texture {
 }
 
 fn seagrass_texture() -> Texture {
-    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
-    let d_green = [0.14, 0.38, 0.16];
-    let m_green = [0.24, 0.58, 0.26];
-    let l_green = [0.36, 0.72, 0.36];
+    let mut texels = vec![[-0.001, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
+    let d_green = [0.12, 0.35, 0.14];
+    let m_green = [0.22, 0.58, 0.24];
+    let l_green = [0.36, 0.74, 0.36];
+    let tip_color = [0.46, 0.85, 0.44];
 
-    let stalks = [(3, 11), (6, 14), (9, 13), (12, 10)];
-    for &(sx, h) in &stalks {
-        for y in (TEX_SIZE - h)..TEX_SIZE {
-            let wave = if y < 8 { 1 } else { 0 };
-            let x = (sx + wave).clamp(1, 14);
-            texels[y * TEX_SIZE + x] = if y == (TEX_SIZE - h) { l_green } else if (x + y) % 2 == 0 { m_green } else { d_green };
-            if y > 10 {
+    // Clustered underwater blades anchored at the seabed (bottom y=15)
+    // Stalks: (base_x, height, wave_dir)
+    let stalks: &[(usize, usize, i32)] = &[
+        (4, 11, -1),
+        (6, 14, 0),
+        (8, 15, 1),
+        (10, 13, 0),
+        (12, 9, 1),
+    ];
+    for &(sx, h, wave_dir) in stalks {
+        let top_y = TEX_SIZE - h;
+        for y in top_y..TEX_SIZE {
+            let sway = if y < 7 { wave_dir } else { 0 };
+            let x = ((sx as i32) + sway).clamp(1, 14) as usize;
+            let col = if y == top_y {
+                tip_color
+            } else if (x + y) % 2 == 0 {
+                l_green
+            } else {
+                m_green
+            };
+            texels[y * TEX_SIZE + x] = col;
+            if y > 8 && x > 0 {
                 texels[y * TEX_SIZE + x - 1] = d_green;
             }
+        }
+    }
+    // Solid anchor cluster at the base (y=14..15)
+    for x in 4..=11 {
+        if texels[15 * TEX_SIZE + x][0] < 0.0 {
+            texels[15 * TEX_SIZE + x] = d_green;
         }
     }
     Texture { texels }
@@ -3943,7 +3979,7 @@ fn tropical_fish_texture() -> Texture {
 }
 
 fn dried_kelp_texture() -> Texture {
-    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let mut texels = vec![[-0.001, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
     let dark_leaf = [0.12, 0.24, 0.10];
     let mid_leaf = [0.18, 0.32, 0.14];
     let salt = [0.78, 0.84, 0.72];

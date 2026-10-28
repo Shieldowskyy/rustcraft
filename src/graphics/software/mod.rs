@@ -4412,6 +4412,53 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
             let feather_right = (right * tilt_angle.cos() - up * tilt_angle.sin()).normalized();
             let feather_forward = forward;
             self.draw_feather_3d(pos, feather_right, feather_up, feather_forward, scale * 1.1, view_proj);
+        } else if matches!(
+            block,
+            crate::world::block::BlockId::WheatCrop
+                | crate::world::block::BlockId::CarrotCrop
+                | crate::world::block::BlockId::PotatoCrop
+                | crate::world::block::BlockId::Sapling
+                | crate::world::block::BlockId::Kelp
+                | crate::world::block::BlockId::Seagrass
+        ) {
+            use crate::world::block::Face;
+            let size = 0.35 * scale;
+            let half = size * 0.5;
+            let tex = block.texture_id(Face::Top);
+            let ao = 0.95;
+
+            // Two crossed vertical quads
+            let p0 = pos + (right - forward) * half - up * half;
+            let p1 = pos + (-right + forward) * half - up * half;
+            let p2 = pos + (-right + forward) * half + up * half;
+            let p3 = pos + (right - forward) * half + up * half;
+
+            let q0 = pos + (right + forward) * half - up * half;
+            let q1 = pos + (-right - forward) * half - up * half;
+            let q2 = pos + (-right - forward) * half + up * half;
+            let q3 = pos + (right + forward) * half + up * half;
+
+            let mut add_quad = |a: Vec3, b: Vec3, c: Vec3, d: Vec3| {
+                let t1 = Triangle {
+                    v0: Vertex::new(a, (0.0, 1.0), ao),
+                    v1: Vertex::new(b, (1.0, 1.0), ao),
+                    v2: Vertex::new(c, (1.0, 0.0), ao),
+                    texture: tex,
+                };
+                let t2 = Triangle {
+                    v0: Vertex::new(a, (0.0, 1.0), ao),
+                    v1: Vertex::new(c, (1.0, 0.0), ao),
+                    v2: Vertex::new(d, (0.0, 0.0), ao),
+                    texture: tex,
+                };
+                self.raster_triangle(&t1, view_proj);
+                self.raster_triangle(&t2, view_proj);
+            };
+
+            add_quad(p0, p1, p2, p3);
+            add_quad(p1, p0, p3, p2);
+            add_quad(q0, q1, q2, q3);
+            add_quad(q1, q0, q3, q2);
         } else {
             use crate::world::block::Face;
             let size = 0.28 * scale;

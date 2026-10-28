@@ -754,6 +754,9 @@ impl VulkanContext {
                                 | TextureId::CarrotCrop
                                 | TextureId::PotatoCrop
                                 | TextureId::Sapling
+                                | TextureId::Kelp
+                                | TextureId::Seagrass
+                                | TextureId::DriedKelp
                         );
                         let dest = if is_trans {
                             &mut trans

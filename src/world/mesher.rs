@@ -539,8 +539,11 @@ pub fn build_subchunk_mesh_internal(
                     emit_pressure_plate(&mut solid_tris, wx, wy, wz, block == BlockId::PressurePlatePressed, cache);
                     continue;
                 }
-                if matches!(block, BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop | BlockId::Sapling) {
+                if matches!(block, BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop | BlockId::Sapling | BlockId::Kelp | BlockId::Seagrass) {
                     emit_cross(&mut solid_tris, wx, wy, wz, block.texture_id(Face::Top), cache);
+                    if matches!(block, BlockId::Kelp | BlockId::Seagrass) {
+                        emit_waterlogged_faces(&mut trans_tris, wx, wy, wz, lx, ly, lz, cache);
+                    }
                     continue;
                 }
 
@@ -563,15 +566,26 @@ pub fn build_subchunk_mesh_internal(
                         if !neighbor_loaded {
                             false
                         } else {
+                            let same_fluid = if block == BlockId::Water {
+                                matches!(neighbor, BlockId::Water | BlockId::Kelp | BlockId::Seagrass)
+                            } else {
+                                neighbor == block
+                            };
+
                             match face {
-                                Face::Top => neighbor != block,
-                                Face::Bottom => wy > 0 && neighbor != block && (neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)),
+                                Face::Top => !same_fluid,
+                                Face::Bottom => wy > 0 && !same_fluid && (neighbor == BlockId::Air || (neighbor.is_transparent() && !same_fluid)),
                                 _ => {
-                                    if neighbor != block {
-                                        neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)
+                                    if !same_fluid {
+                                        neighbor == BlockId::Air || (neighbor.is_transparent() && !same_fluid)
                                     } else {
                                         let above_neighbor = cache.sample_block(lx + n.x, ly + 1, lz + n.z);
-                                        if above_neighbor != block {
+                                        let above_same_fluid = if block == BlockId::Water {
+                                            matches!(above_neighbor, BlockId::Water | BlockId::Kelp | BlockId::Seagrass)
+                                        } else {
+                                            above_neighbor == block
+                                        };
+                                        if !above_same_fluid {
                                             let my_lvl = cache.fluid_level(IVec3::new(wx, wy, wz));
                                             let neighbor_lvl = cache.fluid_level(IVec3::new(wx + n.x, wy, wz + n.z));
                                             my_lvl > neighbor_lvl
@@ -709,8 +723,11 @@ pub fn build_chunk_mesh_from_job(job: &ChunkMeshJob) -> Vec<Triangle> {
                             emit_pressure_plate(&mut sub_solid, wx, wy, wz, block == BlockId::PressurePlatePressed, &cache);
                             continue;
                         }
-                        if matches!(block, BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop | BlockId::Sapling) {
+                        if matches!(block, BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop | BlockId::Sapling | BlockId::Kelp | BlockId::Seagrass) {
                             emit_cross(&mut sub_solid, wx, wy, wz, block.texture_id(Face::Top), &cache);
+                            if matches!(block, BlockId::Kelp | BlockId::Seagrass) {
+                                emit_waterlogged_faces(&mut sub_trans, wx, wy, wz, lx, ly, lz, &cache);
+                            }
                             continue;
                         }
 
@@ -733,15 +750,26 @@ pub fn build_chunk_mesh_from_job(job: &ChunkMeshJob) -> Vec<Triangle> {
                                 if !neighbor_loaded {
                                     false
                                 } else {
+                                    let same_fluid = if block == BlockId::Water {
+                                        matches!(neighbor, BlockId::Water | BlockId::Kelp | BlockId::Seagrass)
+                                    } else {
+                                        neighbor == block
+                                    };
+
                                     match face {
-                                        Face::Top => neighbor != block,
-                                        Face::Bottom => wy > 0 && neighbor != block && (neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)),
+                                        Face::Top => !same_fluid,
+                                        Face::Bottom => wy > 0 && !same_fluid && (neighbor == BlockId::Air || (neighbor.is_transparent() && !same_fluid)),
                                         _ => {
-                                            if neighbor != block {
-                                                neighbor == BlockId::Air || (neighbor.is_transparent() && neighbor != block)
+                                            if !same_fluid {
+                                                neighbor == BlockId::Air || (neighbor.is_transparent() && !same_fluid)
                                             } else {
                                                 let above_neighbor = cache.sample_block(lx + n.x, ly + 1, lz + n.z);
-                                                if above_neighbor != block {
+                                                let above_same_fluid = if block == BlockId::Water {
+                                                    matches!(above_neighbor, BlockId::Water | BlockId::Kelp | BlockId::Seagrass)
+                                                } else {
+                                                    above_neighbor == block
+                                                };
+                                                if !above_same_fluid {
                                                     let my_lvl = cache.fluid_level(IVec3::new(wx, wy, wz));
                                                     let neighbor_lvl = cache.fluid_level(IVec3::new(wx + n.x, wy, wz + n.z));
                                                     my_lvl > neighbor_lvl
@@ -1228,6 +1256,29 @@ fn emit_cross(
     add_quad(q1, q0, q3, q2);
 }
 
+#[inline]
+fn emit_waterlogged_faces(
+    trans_tris: &mut Vec<Triangle>,
+    wx: i32, wy: i32, wz: i32,
+    lx: i32, ly: i32, lz: i32,
+    cache: &ChunkNeighborCache,
+) {
+    for face in Face::ALL {
+        let n = face.normal();
+        let neighbor = cache.sample_block(lx + n.x, ly + n.y, lz + n.z);
+        if matches!(neighbor, BlockId::Water | BlockId::Kelp | BlockId::Seagrass) {
+            continue;
+        }
+        if neighbor.is_solid() && !neighbor.is_transparent() {
+            continue;
+        }
+        if face == Face::Bottom && wy == 0 {
+            continue;
+        }
+        emit_face(trans_tris, wx, wy, wz, face, BlockId::Water, cache);
+    }
+}
+
 fn emit_ruststone_wire(
     tris: &mut Vec<Triangle>,
     wx: i32, wy: i32, wz: i32,
@@ -1438,7 +1489,7 @@ fn emit_face(
 
     let top_y = if is_fluid {
         let above = cache.sample_block(lx, wy + 1, lz);
-        if above == block {
+        if above == block || matches!(above, BlockId::Water | BlockId::Kelp | BlockId::Seagrass) {
             y + 1.0
         } else {
             let lvl = cache.fluid_level(IVec3::new(wx, wy, wz));
@@ -1686,5 +1737,80 @@ mod tests {
         // At lx = -1, lz = 5, ly = 25 (above y=20 terrain), sky light should be full (1.0)
         let sky_above = cache.sample_sky_light(-1, 25, 5);
         assert_eq!(sky_above, 1.0, "Above terrain at chunk boundary should be 1.0 sky light, got {}", sky_above);
+    }
+
+    #[test]
+    fn test_kelp_and_seagrass_cross_mesh() {
+        let mut world = World::new();
+        let mut chunk = Chunk {
+            cx: 0,
+            cz: 0,
+            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
+            dirty: false,
+        };
+
+        // Surround position (5, 10, 5) with water and sand floor
+        chunk.set_local(5, 9, 5, BlockId::Sand);
+        chunk.set_local(5, 10, 5, BlockId::Kelp);
+        chunk.set_local(5, 11, 5, BlockId::Water);
+        chunk.set_local(4, 10, 5, BlockId::Water);
+        chunk.set_local(6, 10, 5, BlockId::Water);
+        chunk.set_local(5, 10, 4, BlockId::Water);
+        chunk.set_local(5, 10, 6, BlockId::Water);
+
+        // Place seagrass at (10, 10, 10)
+        chunk.set_local(10, 9, 10, BlockId::Sand);
+        chunk.set_local(10, 10, 10, BlockId::Seagrass);
+        chunk.set_local(10, 11, 10, BlockId::Water);
+
+        world.chunks.insert((0, 0), chunk);
+        let c = world.chunks.get(&(0, 0)).unwrap();
+        let mesh = build_chunk_mesh(c, &world);
+
+        // 1. Verify Kelp generated exactly 8 cross-quad triangles (2 double-sided crossed planes)
+        let kelp_tris: Vec<_> = mesh.iter().filter(|t| t.texture == TextureId::Kelp).collect();
+        assert_eq!(kelp_tris.len(), 8, "Kelp should generate 8 triangles (cross mesh)");
+
+        // 2. Verify Seagrass generated exactly 8 cross-quad triangles
+        let seagrass_tris: Vec<_> = mesh.iter().filter(|t| t.texture == TextureId::Seagrass).collect();
+        assert_eq!(seagrass_tris.len(), 8, "Seagrass should generate 8 triangles (cross mesh)");
+
+        // 3. Verify no water triangles separate water from submerged kelp at (5, 10, 5)
+        // Check vertical face between west water (4, 10, 5) and kelp (5, 10, 5): x=5.0, y in [10..11], z in (5..6)
+        let face_west_of_kelp = mesh.iter().filter(|t| {
+            t.texture == TextureId::Water
+                && (t.v0.pos.x - 5.0).abs() < 1e-4
+                && (t.v1.pos.x - 5.0).abs() < 1e-4
+                && (t.v2.pos.x - 5.0).abs() < 1e-4
+                && (t.v0.pos.y + t.v1.pos.y + t.v2.pos.y) / 3.0 < 11.0
+                && (t.v0.pos.z + t.v1.pos.z + t.v2.pos.z) / 3.0 > 5.0
+                && (t.v0.pos.z + t.v1.pos.z + t.v2.pos.z) / 3.0 < 6.0
+        }).count();
+        assert_eq!(face_west_of_kelp, 0, "No water face between west water and kelp");
+
+        // Check vertical face between east water (6, 10, 5) and kelp (5, 10, 5): x=6.0, y in [10..11], z in (5..6)
+        let face_east_of_kelp = mesh.iter().filter(|t| {
+            t.texture == TextureId::Water
+                && (t.v0.pos.x - 6.0).abs() < 1e-4
+                && (t.v1.pos.x - 6.0).abs() < 1e-4
+                && (t.v2.pos.x - 6.0).abs() < 1e-4
+                && (t.v0.pos.y + t.v1.pos.y + t.v2.pos.y) / 3.0 < 11.0
+                && (t.v0.pos.z + t.v1.pos.z + t.v2.pos.z) / 3.0 > 5.0
+                && (t.v0.pos.z + t.v1.pos.z + t.v2.pos.z) / 3.0 < 6.0
+        }).count();
+        assert_eq!(face_east_of_kelp, 0, "No water face between east water and kelp");
+
+        // Check horizontal face between top water (5, 11, 5) and kelp (5, 10, 5): y=11.0, x in (5..6), z in (5..6)
+        let face_above_kelp = mesh.iter().filter(|t| {
+            t.texture == TextureId::Water
+                && (t.v0.pos.y - 11.0).abs() < 1e-4
+                && (t.v1.pos.y - 11.0).abs() < 1e-4
+                && (t.v2.pos.y - 11.0).abs() < 1e-4
+                && (t.v0.pos.x + t.v1.pos.x + t.v2.pos.x) / 3.0 > 5.0
+                && (t.v0.pos.x + t.v1.pos.x + t.v2.pos.x) / 3.0 < 6.0
+                && (t.v0.pos.z + t.v1.pos.z + t.v2.pos.z) / 3.0 > 5.0
+                && (t.v0.pos.z + t.v1.pos.z + t.v2.pos.z) / 3.0 < 6.0
+        }).count();
+        assert_eq!(face_above_kelp, 0, "No bottom water face between top water and kelp");
     }
 }
