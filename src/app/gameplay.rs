@@ -1,7 +1,9 @@
 use std::fmt::Write;
 
 use crate::core::controls::Action;
-use crate::core::math::{IVec3, Mat4, Vec3};
+use crate::core::math::{IVec3, Vec3};
+#[cfg(not(target_os = "vita"))]
+use crate::core::math::Mat4;
 use crate::core::profiler::{FrameProfiler, MemoryBreakdown};
 use crate::gameplay::inventory::ItemStack;
 use crate::gameplay::item::ItemEntity;
@@ -1242,12 +1244,76 @@ impl RustCraftApp {
                     }
                 }
 
-                let interact_right = !self.chat.is_open && self.controls.is_just_pressed(Action::UsePlace);
+                let held_item = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
+                let offhand_item = self.player.inventory.offhand.map(|s| s.block);
+                let has_shield = held_item.map_or(false, |b| b.is_shield()) || offhand_item.map_or(false, |b| b.is_shield());
+                let has_bow = held_item == Some(BlockId::Bow);
+                let use_active = !self.chat.is_open && self.controls.is_active(Action::UsePlace);
+
+                // Bow drawing & release
+                if has_bow {
+                    if use_active {
+                        self.player.bow_draw_time += dt;
+                        self.horiz_velocity.x *= 0.70;
+                        self.horiz_velocity.z *= 0.70;
+                    } else if self.player.bow_draw_time > 0.0 {
+                        if self.player.bow_draw_time >= 0.25 {
+                            let is_creative = self.player.gamemode == GameMode::Creative;
+                            if is_creative || self.player.inventory.consume_item(BlockId::Arrow) {
+                                let charge = (self.player.bow_draw_time / 1.0).clamp(0.1, 1.0);
+                                let speed = 14.0 + charge * 22.0;
+                                let damage = 2.0 + charge * 7.0 + if charge >= 0.95 { 2.5 } else { 0.0 };
+                                let forward = self.camera.forward();
+                                let spawn_pos = self.camera.position + forward * 0.4 + Vec3::new(0.0, -0.08, 0.0);
+                                let arrow = crate::gameplay::ArrowEntity::new(
+                                    spawn_pos,
+                                    forward * speed,
+                                    true,
+                                    damage,
+                                );
+                                self.arrows.push(arrow);
+                                self.audio.play_sound(crate::audio::SoundId::BowShoot, 0.9, 0.9 + charge * 0.25);
+                                self.hand_animation = 0.8;
+                                crate::log_info!("COMBAT", "Player fired arrow with charge {:.2} (speed: {:.1}, dmg: {:.1})", charge, speed, damage);
+                            }
+                        }
+                        self.player.bow_draw_time = 0.0;
+                    }
+                } else {
+                    self.player.bow_draw_time = 0.0;
+                }
+
+                // Shield blocking
+                if has_shield && !has_bow {
+                    if use_active {
+                        self.player.is_blocking = true;
+                        self.horiz_velocity.x *= 0.55;
+                        self.horiz_velocity.z *= 0.55;
+                    } else {
+                        self.player.is_blocking = false;
+                    }
+                } else {
+                    self.player.is_blocking = false;
+                }
+
+                let interact_right = !self.chat.is_open && !has_bow && !self.player.is_blocking && self.controls.is_just_pressed(Action::UsePlace);
                 if interact_right {
-                    let held_item = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
                     let mut handled = false;
+
+                    // Quick auto-equip armor / shield from hotbar on right-click
+                    if let Some(item) = held_item {
+                        if item.is_armor() || item.is_shield() {
+                            let curr_slot = self.player.selected_hotbar_slot as usize;
+                            if self.player.inventory.try_auto_equip_hotbar(curr_slot) {
+                                self.audio.play_sound(crate::audio::SoundId::ArmorEquip, 0.85, 1.0);
+                                self.hand_animation = 0.5;
+                                handled = true;
+                            }
+                        }
+                    }
+
                     // 0. Fishing Rod casting / reeling
-                    if held_item == Some(BlockId::FishingRod) {
+                    if !handled && held_item == Some(BlockId::FishingRod) {
                         if let Some(bobber) = self.fishing_bobber.take() {
                             self.audio.play_sound(crate::audio::SoundId::FishingReel, 0.9, 1.0);
                             self.hand_animation = 1.0;
@@ -1756,13 +1822,24 @@ impl RustCraftApp {
 
                         // Hostile mob attack (creepers do not melee, they explode; ignored in creative mode)
                         if !is_creative && mob.kind.is_hostile() && mob.kind != crate::gameplay::mob::MobKind::Creeper && dist_sq < 1.4 * 1.4 && (mob.pos.y - self.camera.position.y).abs() < 1.8 {
-                            if self.player.take_damage(2.0) {
+                            let to_mob = (mob.pos - self.camera.position).normalized();
+                            let is_front = to_mob.dot(self.camera.forward()) > 0.35;
+                            let (took_damage, blocked) = self.player.take_physical_damage(2.0, is_front);
+                            if blocked {
+                                self.audio.play_sound(crate::audio::SoundId::ShieldBlock, 1.0, 1.0);
+                                mob.velocity.x -= to_mob.x * 6.0;
+                                mob.velocity.z -= to_mob.z * 6.0;
+                                mob.velocity.y += 2.0;
+                                self.damage_tilt_timer = 0.15;
+                                crate::log_info!("COMBAT", "Player blocked attack from {:?} with shield!", mob.kind);
+                            } else if took_damage {
                                 self.damage_tilt_timer = 0.4;
                                 self.damage_tilt_dir = if mob.pos.x > self.camera.position.x { -1.0 } else { 1.0 };
                                 if self.settings.vibration {
                                     self.pending_rumble = Some(RumbleRequest { strong: 0.85, weak: 0.6, duration_ms: 220 });
                                 }
-                                crate::log_info!("PLAYER", "Player took 2.0 damage from {:?} (health: {:.1}/{:.1})", mob.kind, self.player.health, self.player.max_health);
+                                self.audio.play_sound(crate::audio::SoundId::PlayerHurt, 1.0, 1.0);
+                                crate::log_info!("PLAYER", "Player took damage from {:?} (health: {:.1}/{:.1})", mob.kind, self.player.health, self.player.max_health);
                             }
                         }
                     }
@@ -1846,6 +1923,94 @@ impl RustCraftApp {
                         }
                     }
                     i += 1;
+                }
+
+                // Drain any skeleton-fired arrows from mob manager
+                self.arrows.extend(self.mob_manager.pending_arrows.drain(..));
+
+                // Update physical arrows (ballistics, block collision, entity collision)
+                let mut a_idx = 0;
+                while a_idx < self.arrows.len() {
+                    let struck_block = self.arrows[a_idx].update(dt, &self.world);
+                    if struck_block {
+                        self.audio.play_sound(crate::audio::SoundId::BowHit, 0.85, 1.0);
+                    }
+
+                    let arrow = &self.arrows[a_idx];
+                    let mut remove_arrow = false;
+
+                    // Despawn old arrows
+                    if arrow.lifetime > 60.0 {
+                        self.arrows.remove(a_idx);
+                        continue;
+                    }
+
+                    if !arrow.in_ground {
+                        if arrow.shooter_is_player {
+                            // Check collision with mobs
+                            let mut hit_mob = None;
+                            for (midx, mob) in self.mob_manager.mobs.iter().enumerate() {
+                                if mob.is_dead {
+                                    continue;
+                                }
+                                let mob_center = mob.pos + Vec3::new(0.0, mob.kind.height() * 0.5, 0.0);
+                                let d = (arrow.position - mob_center).length();
+                                if d < 0.6 + mob.kind.half_width() {
+                                    hit_mob = Some(midx);
+                                    break;
+                                }
+                            }
+                            if let Some(midx) = hit_mob {
+                                let mob = &mut self.mob_manager.mobs[midx];
+                                let kb = arrow.velocity.normalized() * 5.0;
+                                mob.take_damage(arrow.damage, Vec3::new(kb.x, 2.5, kb.z));
+                                self.audio.play_sound(crate::audio::SoundId::BowHit, 1.0, 1.0);
+                                self.particles.spawn_mob_hit(arrow.position);
+                                remove_arrow = true;
+                            }
+                        } else if !is_creative {
+                            // Skeleton arrow colliding with player
+                            let player_bb_min = self.camera.position - Vec3::new(0.4, 1.6, 0.4);
+                            let player_bb_max = self.camera.position + Vec3::new(0.4, 0.2, 0.4);
+                            if arrow.position.x >= player_bb_min.x && arrow.position.x <= player_bb_max.x &&
+                               arrow.position.y >= player_bb_min.y && arrow.position.y <= player_bb_max.y &&
+                               arrow.position.z >= player_bb_min.z && arrow.position.z <= player_bb_max.z {
+                                let to_arrow = (arrow.position - self.camera.position).normalized();
+                                let is_front = to_arrow.dot(self.camera.forward()) > 0.35;
+                                let (took_damage, blocked) = self.player.take_physical_damage(arrow.damage, is_front);
+                                if blocked {
+                                    self.audio.play_sound(crate::audio::SoundId::ShieldBlock, 1.0, 1.0);
+                                    self.damage_tilt_timer = 0.12;
+                                    crate::log_info!("COMBAT", "Player blocked skeleton arrow with shield!");
+                                } else if took_damage {
+                                    self.damage_tilt_timer = 0.4;
+                                    self.damage_tilt_dir = if arrow.position.x > self.camera.position.x { -1.0 } else { 1.0 };
+                                    if self.settings.vibration {
+                                        self.pending_rumble = Some(RumbleRequest { strong: 0.8, weak: 0.5, duration_ms: 200 });
+                                    }
+                                    self.audio.play_sound(crate::audio::SoundId::PlayerHurt, 1.0, 1.0);
+                                    crate::log_info!("PLAYER", "Player struck by arrow for {:.1} damage (health: {:.1}/{:.1})", arrow.damage, self.player.health, self.player.max_health);
+                                }
+                                self.audio.play_sound(crate::audio::SoundId::BowHit, 1.0, 1.0);
+                                remove_arrow = true;
+                            }
+                        }
+                    } else if !is_creative {
+                        // Arrow stuck in ground can be picked up by player
+                        let dist_sq = (arrow.position - player_center).length_sq();
+                        if dist_sq < 2.5 {
+                            if self.player.inventory.add_item(BlockId::Arrow, 1) == 0 {
+                                self.audio.play_sound(crate::audio::SoundId::ItemPop, 0.7, 1.0);
+                                remove_arrow = true;
+                            }
+                        }
+                    }
+
+                    if remove_arrow {
+                        self.arrows.remove(a_idx);
+                    } else {
+                        a_idx += 1;
+                    }
                 }
 
                 // Update fishing bobber physics and bite timer
@@ -2118,6 +2283,18 @@ impl RustCraftApp {
                             self.renderer.draw_billboard(bobber.pos + Vec3::new(0.0, 0.08, 0.0), 0.10, [0.95, 0.95, 0.95], &effective_camera, &view_proj);
                         }
 
+                        // Draw flying and lodged physical arrows
+                        for arrow in &self.arrows {
+                            let dir = if arrow.velocity.length() > 0.001 {
+                                arrow.velocity.normalized()
+                            } else {
+                                Vec3::new(0.0, -1.0, 0.0)
+                            };
+                            self.renderer.draw_billboard(arrow.position, 0.12, [0.35, 0.35, 0.38], &effective_camera, &view_proj);
+                            self.renderer.draw_billboard(arrow.position - dir * 0.18, 0.09, [0.65, 0.45, 0.25], &effective_camera, &view_proj);
+                            self.renderer.draw_billboard(arrow.position - dir * 0.36, 0.11, [0.95, 0.95, 0.95], &effective_camera, &view_proj);
+                        }
+
                         // Weather Precipitation (Rain & Snow) and Lightning Bolts
                         self.renderer.draw_precipitation(&self.world, &effective_camera, &view_proj, self.total_time);
                         self.renderer.draw_lightning_bolts(&self.world.weather.active_lightning, &view_proj);
@@ -2168,7 +2345,9 @@ impl RustCraftApp {
                         let aspect = (self.width as f32) / (self.height as f32);
                         let hand_proj = Mat4::perspective(68.0_f32.to_radians(), aspect, 0.01, 20.0);
                         let hand_view_proj = hand_proj.mul(&effective_camera.view_matrix());
+                        let offhand_block: Option<u8> = self.player.inventory.offhand.as_ref().map(|s| s.block.to_u8());
                         self.renderer.draw_hand_3d(&effective_camera, &hand_view_proj, hand_block, self.walk_phase, hand_speed, self.hand_animation);
+                        self.renderer.draw_offhand_3d(&effective_camera, &hand_view_proj, offhand_block, self.walk_phase, hand_speed, self.player.is_blocking);
                         if let Some(h_start) = hand_start {
                             cur_profiler.render_hand_ms = h_start.elapsed().as_secs_f32() * 1000.0;
                         }

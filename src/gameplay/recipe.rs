@@ -281,6 +281,121 @@ impl RecipeBook {
             ));
         }
 
+        // --- Armor Recipes (Leather, Iron, Gold, Diamond) ---
+        let armor_materials = [
+            (BlockId::Leather, BlockId::LeatherHelmet, BlockId::LeatherChestplate, BlockId::LeatherLeggings, BlockId::LeatherBoots),
+            (BlockId::IronIngot, BlockId::IronHelmet, BlockId::IronChestplate, BlockId::IronLeggings, BlockId::IronBoots),
+            (BlockId::GoldIngot, BlockId::GoldHelmet, BlockId::GoldChestplate, BlockId::GoldLeggings, BlockId::GoldBoots),
+            (BlockId::Diamond, BlockId::DiamondHelmet, BlockId::DiamondChestplate, BlockId::DiamondLeggings, BlockId::DiamondBoots),
+        ];
+
+        for (mat, helm, chest, legs, boots) in armor_materials {
+            // Helmet (3x2: 3 on top row, 2 on sides of second row)
+            self.add(Recipe::new(
+                3, 2,
+                vec![
+                    Some(mat), Some(mat), Some(mat),
+                    Some(mat), None,      Some(mat),
+                ],
+                helm, 1,
+            ));
+
+            // Chestplate (3x3: 8 materials leaving top center empty)
+            self.add(Recipe::new(
+                3, 3,
+                vec![
+                    Some(mat), None,      Some(mat),
+                    Some(mat), Some(mat), Some(mat),
+                    Some(mat), Some(mat), Some(mat),
+                ],
+                chest, 1,
+            ));
+
+            // Leggings (3x3: pants shape)
+            self.add(Recipe::new(
+                3, 3,
+                vec![
+                    Some(mat), Some(mat), Some(mat),
+                    Some(mat), None,      Some(mat),
+                    Some(mat), None,      Some(mat),
+                ],
+                legs, 1,
+            ));
+
+            // Boots (3x2: 2 on sides of two rows)
+            self.add(Recipe::new(
+                3, 2,
+                vec![
+                    Some(mat), None, Some(mat),
+                    Some(mat), None, Some(mat),
+                ],
+                boots, 1,
+            ));
+            // Boots (2x2 compact variant)
+            self.add(Recipe::new(
+                2, 2,
+                vec![
+                    Some(mat), Some(mat),
+                    Some(mat), Some(mat),
+                ],
+                boots, 1,
+            ));
+        }
+
+        // --- Ranged & Defensive Equipment (Bow, Arrow, Shield) ---
+        // Bow (3x3: 3 sticks and 3 wool / feathers) - Right-facing
+        self.add(Recipe::new(
+            3, 3,
+            vec![
+                None,                 Some(BlockId::Stick), Some(BlockId::WhiteWool),
+                Some(BlockId::Stick), None,                 Some(BlockId::WhiteWool),
+                None,                 Some(BlockId::Stick), Some(BlockId::WhiteWool),
+            ],
+            BlockId::Bow, 1,
+        ));
+        // Bow (3x3 with feathers)
+        self.add(Recipe::new(
+            3, 3,
+            vec![
+                None,                 Some(BlockId::Stick), Some(BlockId::Feather),
+                Some(BlockId::Stick), None,                 Some(BlockId::Feather),
+                None,                 Some(BlockId::Stick), Some(BlockId::Feather),
+            ],
+            BlockId::Bow, 1,
+        ));
+        // Bow - Left-facing
+        self.add(Recipe::new(
+            3, 3,
+            vec![
+                Some(BlockId::WhiteWool), Some(BlockId::Stick), None,
+                Some(BlockId::WhiteWool), None,                 Some(BlockId::Stick),
+                Some(BlockId::WhiteWool), Some(BlockId::Stick), None,
+            ],
+            BlockId::Bow, 1,
+        ));
+
+        // Arrow (1x3: Flint top, Stick middle, Feather bottom -> 4 Arrows)
+        self.add(Recipe::new(
+            1, 3,
+            vec![
+                Some(BlockId::Flint),
+                Some(BlockId::Stick),
+                Some(BlockId::Feather),
+            ],
+            BlockId::Arrow, 4,
+        ));
+
+        // Shield (3x3: Planks around Iron Ingot)
+        self.add(Recipe::new(
+            3, 3,
+            vec![
+                Some(BlockId::Planks), Some(BlockId::IronIngot), Some(BlockId::Planks),
+                Some(BlockId::Planks), Some(BlockId::Planks),    Some(BlockId::Planks),
+                None,                  Some(BlockId::Planks),    None,
+            ],
+            BlockId::Shield, 1,
+        ));
+
         // --- Farming & Food Recipes ---
         // Bread (3x1: 3 Wheat)
         self.add(recipe!(3, 1, [
@@ -1141,4 +1256,52 @@ mod tests {
             Some(ItemStack { block: BlockId::StonePickaxe, count: 1 })
         );
     }
+
+    #[test]
+    fn test_combat_and_armor_recipes() {
+        let book = RecipeBook::new();
+
+        // 1. Arrow recipe (Flint, Stick, Feather)
+        let arrow_grid = [
+            Some(ItemStack { block: BlockId::Flint, count: 1 }),
+            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            Some(ItemStack { block: BlockId::Feather, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&arrow_grid, 1, 3),
+            Some(ItemStack { block: BlockId::Arrow, count: 4 })
+        );
+
+        // 2. Shield recipe (Planks, IronIngot, Planks...)
+        let shield_grid = [
+            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
+            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            None,
+            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            None,
+        ];
+        assert_eq!(
+            book.match_grid(&shield_grid, 3, 3),
+            Some(ItemStack { block: BlockId::Shield, count: 1 })
+        );
+
+        // 3. Diamond Helmet (3 Diamond on top, 2 on sides)
+        let helmet_grid = [
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            None,
+            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+        ];
+        assert_eq!(
+            book.match_grid(&helmet_grid, 3, 2),
+            Some(ItemStack { block: BlockId::DiamondHelmet, count: 1 })
+        );
+    }
 }
+

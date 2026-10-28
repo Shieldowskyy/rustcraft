@@ -2291,7 +2291,10 @@ impl World {
         };
 
         #[cfg(any(target_arch = "wasm32", feature = "xbox360"))]
-        let (chunk_req_tx, chunk_res_rx) = (None, None);
+        let (chunk_req_tx, chunk_res_rx): (
+            Option<std::sync::mpsc::Sender<(i32, i32, u32)>>,
+            Option<std::sync::Mutex<std::sync::mpsc::Receiver<Chunk>>>,
+        ) = (None, None);
 
         let spawn_pos = Self::find_spawn_position(seed);
         let spawn_cx = (spawn_pos.x.floor() as i32) >> 4;
@@ -2626,6 +2629,22 @@ impl World {
                     bytes.push(0);
                 }
             }
+            for item in &p.armor {
+                if let Some(stack) = item {
+                    bytes.push(stack.block.to_u8());
+                    bytes.push(stack.count);
+                } else {
+                    bytes.push(0);
+                    bytes.push(0);
+                }
+            }
+            if let Some(stack) = p.offhand {
+                bytes.push(stack.block.to_u8());
+                bytes.push(stack.count);
+            } else {
+                bytes.push(0);
+                bytes.push(0);
+            }
         } else {
             bytes.push(0);
         }
@@ -2797,6 +2816,26 @@ impl World {
                                 }
                             }
                         }
+                        let mut armor = [None; 4];
+                        for slot_item in &mut armor {
+                            if let Ok(ib) = read_bytes(&bytes, &mut cursor, 2) {
+                                if ib[0] > 0 && ib[1] > 0 {
+                                    *slot_item = Some(crate::gameplay::inventory::ItemStack {
+                                        block: BlockId::from_u8(ib[0]),
+                                        count: ib[1],
+                                    });
+                                }
+                            }
+                        }
+                        let mut offhand = None;
+                        if let Ok(ib) = read_bytes(&bytes, &mut cursor, 2) {
+                            if ib[0] > 0 && ib[1] > 0 {
+                                offhand = Some(crate::gameplay::inventory::ItemStack {
+                                    block: BlockId::from_u8(ib[0]),
+                                    count: ib[1],
+                                });
+                            }
+                        }
                         world.saved_player = Some(crate::gameplay::player::SavedPlayerData {
                             health: f32::from_le_bytes(h.try_into().unwrap_or_default()),
                             max_health: f32::from_le_bytes(mh.try_into().unwrap_or_default()),
@@ -2808,6 +2847,8 @@ impl World {
                             selected_hotbar_slot: slot[0],
                             hotbar,
                             main,
+                            armor,
+                            offhand,
                         });
                     }
                 }
@@ -4194,6 +4235,14 @@ mod tests {
             block: BlockId::Torch,
             count: 16,
         });
+        player.inventory.armor[1] = Some(crate::gameplay::inventory::ItemStack {
+            block: BlockId::IronChestplate,
+            count: 1,
+        });
+        player.inventory.offhand = Some(crate::gameplay::inventory::ItemStack {
+            block: BlockId::Shield,
+            count: 1,
+        });
 
         world.saved_player = Some(player.save_state());
         assert!(world.save(&path_str).is_ok());
@@ -4207,6 +4256,8 @@ mod tests {
         assert_eq!(loaded_player.selected_hotbar_slot, 4);
         assert_eq!(loaded_player.hotbar[4].unwrap().block, BlockId::Torch);
         assert_eq!(loaded_player.hotbar[4].unwrap().count, 16);
+        assert_eq!(loaded_player.armor[1].unwrap().block, BlockId::IronChestplate);
+        assert_eq!(loaded_player.offhand.unwrap().block, BlockId::Shield);
 
         let _ = std::fs::remove_file(path);
     }

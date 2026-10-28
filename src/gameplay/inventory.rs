@@ -12,6 +12,8 @@ pub struct Inventory {
     pub crafting_2x2: [Option<ItemStack>; 4],
     pub crafting_3x3: [Option<ItemStack>; 9],
     pub held_item: Option<ItemStack>,
+    pub armor: [Option<ItemStack>; 4], // 0: Helmet, 1: Chestplate, 2: Leggings, 3: Boots
+    pub offhand: Option<ItemStack>,    // Shield, Torch, etc.
 }
 
 impl Inventory {
@@ -22,6 +24,8 @@ impl Inventory {
             crafting_2x2: [None; 4],
             crafting_3x3: [None; 9],
             held_item: None,
+            armor: [None; 4],
+            offhand: None,
         }
     }
 
@@ -51,6 +55,82 @@ impl Inventory {
                 self.held_item = Some(ItemStack { block: stack.block, count: rem });
             }
         }
+    }
+
+    pub fn try_auto_equip_hotbar(&mut self, idx: usize) -> bool {
+        if let Some(stack) = self.hotbar[idx] {
+            if let Some(armor_slot) = stack.block.armor_slot() {
+                let aidx = armor_slot as usize;
+                let old = self.armor[aidx].take();
+                self.armor[aidx] = self.hotbar[idx].take();
+                self.hotbar[idx] = old;
+                return true;
+            } else if stack.block.is_shield() {
+                let old = self.offhand.take();
+                self.offhand = self.hotbar[idx].take();
+                self.hotbar[idx] = old;
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn try_auto_equip_main(&mut self, idx: usize) -> bool {
+        if let Some(stack) = self.main[idx] {
+            if let Some(armor_slot) = stack.block.armor_slot() {
+                let aidx = armor_slot as usize;
+                let old = self.armor[aidx].take();
+                self.armor[aidx] = self.main[idx].take();
+                self.main[idx] = old;
+                return true;
+            } else if stack.block.is_shield() {
+                let old = self.offhand.take();
+                self.offhand = self.main[idx].take();
+                self.main[idx] = old;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Attempts to consume 1 item of the specified type from offhand, hotbar, or main inventory.
+    /// Returns true if found and consumed.
+    pub fn consume_item(&mut self, block: BlockId) -> bool {
+        if let Some(stack) = &mut self.offhand {
+            if stack.block == block {
+                if stack.count > 1 {
+                    stack.count -= 1;
+                } else {
+                    self.offhand = None;
+                }
+                return true;
+            }
+        }
+        for slot in &mut self.hotbar {
+            if let Some(stack) = slot {
+                if stack.block == block {
+                    if stack.count > 1 {
+                        stack.count -= 1;
+                    } else {
+                        *slot = None;
+                    }
+                    return true;
+                }
+            }
+        }
+        for slot in &mut self.main {
+            if let Some(stack) = slot {
+                if stack.block == block {
+                    if stack.count > 1 {
+                        stack.count -= 1;
+                    } else {
+                        *slot = None;
+                    }
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     pub fn handle_slot_left_click(slot: &mut Option<ItemStack>, held: &mut Option<ItemStack>) {

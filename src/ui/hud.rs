@@ -384,6 +384,134 @@ pub fn draw_hunger_icon(buffer: &mut [u32], width: usize, height: usize, x: i32,
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ArmorIconState {
+    Full,
+    Half,
+    Empty,
+}
+
+pub fn draw_armor_icon(buffer: &mut [u32], width: usize, height: usize, x: i32, y: i32, state: ArmorIconState) {
+    let outline = pack_color(0.12, 0.12, 0.12);
+    let empty_bg = pack_color(0.18, 0.18, 0.18);
+    let iron_hi = pack_color(0.95, 0.95, 0.98);
+    let iron_base = pack_color(0.80, 0.82, 0.85);
+    let iron_sh = pack_color(0.55, 0.58, 0.62);
+
+    match state {
+        ArmorIconState::Full => {
+            // Outline
+            fill_rect(buffer, width, height, x + 2, y + 0, 5, 1, outline);
+            set_px(buffer, width, height, x + 1, y + 1, outline);
+            set_px(buffer, width, height, x + 7, y + 1, outline);
+            set_px(buffer, width, height, x + 0, y + 2, outline);
+            set_px(buffer, width, height, x + 8, y + 2, outline);
+            fill_rect(buffer, width, height, x + 0, y + 3, 1, 3, outline);
+            fill_rect(buffer, width, height, x + 8, y + 3, 1, 3, outline);
+            set_px(buffer, width, height, x + 1, y + 6, outline);
+            set_px(buffer, width, height, x + 7, y + 6, outline);
+            fill_rect(buffer, width, height, x + 2, y + 7, 5, 1, outline);
+            set_px(buffer, width, height, x + 4, y + 8, outline);
+
+            // Neck notch
+            set_px(buffer, width, height, x + 4, y + 1, outline);
+            set_px(buffer, width, height, x + 4, y + 2, outline);
+
+            // Shading
+            fill_rect(buffer, width, height, x + 2, y + 1, 2, 1, iron_hi);
+            fill_rect(buffer, width, height, x + 5, y + 1, 2, 1, iron_base);
+
+            fill_rect(buffer, width, height, x + 1, y + 2, 3, 1, iron_hi);
+            fill_rect(buffer, width, height, x + 5, y + 2, 3, 1, iron_sh);
+
+            set_px(buffer, width, height, x + 1, y + 3, iron_hi);
+            fill_rect(buffer, width, height, x + 2, y + 3, 4, 1, iron_base);
+            set_px(buffer, width, height, x + 6, y + 3, iron_sh);
+            set_px(buffer, width, height, x + 7, y + 3, iron_sh);
+
+            set_px(buffer, width, height, x + 1, y + 4, iron_hi);
+            fill_rect(buffer, width, height, x + 2, y + 4, 4, 1, iron_base);
+            set_px(buffer, width, height, x + 6, y + 4, iron_sh);
+            set_px(buffer, width, height, x + 7, y + 4, iron_sh);
+
+            set_px(buffer, width, height, x + 1, y + 5, iron_base);
+            fill_rect(buffer, width, height, x + 2, y + 5, 4, 1, iron_base);
+            set_px(buffer, width, height, x + 6, y + 5, iron_sh);
+            set_px(buffer, width, height, x + 7, y + 5, iron_sh);
+
+            set_px(buffer, width, height, x + 2, y + 6, iron_base);
+            fill_rect(buffer, width, height, x + 3, y + 6, 2, 1, iron_base);
+            set_px(buffer, width, height, x + 5, y + 6, iron_sh);
+            set_px(buffer, width, height, x + 6, y + 6, iron_sh);
+
+            set_px(buffer, width, height, x + 3, y + 7, iron_sh);
+            set_px(buffer, width, height, x + 4, y + 7, iron_sh);
+            set_px(buffer, width, height, x + 5, y + 7, iron_sh);
+        }
+        ArmorIconState::Half => {
+            fill_rect(buffer, width, height, x + 2, y + 0, 5, 1, outline);
+            set_px(buffer, width, height, x + 1, y + 1, outline);
+            set_px(buffer, width, height, x + 7, y + 1, outline);
+            set_px(buffer, width, height, x + 0, y + 2, outline);
+            set_px(buffer, width, height, x + 8, y + 2, outline);
+            fill_rect(buffer, width, height, x + 0, y + 3, 1, 3, outline);
+            fill_rect(buffer, width, height, x + 8, y + 3, 1, 3, outline);
+            set_px(buffer, width, height, x + 1, y + 6, outline);
+            set_px(buffer, width, height, x + 7, y + 6, outline);
+            fill_rect(buffer, width, height, x + 2, y + 7, 5, 1, outline);
+            set_px(buffer, width, height, x + 4, y + 8, outline);
+
+            set_px(buffer, width, height, x + 4, y + 1, outline);
+            set_px(buffer, width, height, x + 4, y + 2, outline);
+
+            fill_rect(buffer, width, height, x + 2, y + 1, 2, 1, iron_hi);
+            fill_rect(buffer, width, height, x + 5, y + 1, 2, 1, empty_bg);
+
+            fill_rect(buffer, width, height, x + 1, y + 2, 3, 1, iron_hi);
+            fill_rect(buffer, width, height, x + 5, y + 2, 3, 1, empty_bg);
+
+            fill_rect(buffer, width, height, x + 1, y + 3, 3, 1, iron_base);
+            fill_rect(buffer, width, height, x + 5, y + 3, 3, 1, empty_bg);
+
+            fill_rect(buffer, width, height, x + 1, y + 4, 3, 1, iron_base);
+            fill_rect(buffer, width, height, x + 5, y + 4, 3, 1, empty_bg);
+
+            fill_rect(buffer, width, height, x + 1, y + 5, 3, 1, iron_base);
+            fill_rect(buffer, width, height, x + 5, y + 5, 3, 1, empty_bg);
+
+            fill_rect(buffer, width, height, x + 2, y + 6, 2, 1, iron_base);
+            fill_rect(buffer, width, height, x + 5, y + 6, 2, 1, empty_bg);
+
+            set_px(buffer, width, height, x + 3, y + 7, iron_sh);
+            fill_rect(buffer, width, height, x + 4, y + 7, 2, 1, empty_bg);
+        }
+        ArmorIconState::Empty => {
+            fill_rect(buffer, width, height, x + 2, y + 0, 5, 1, outline);
+            set_px(buffer, width, height, x + 1, y + 1, outline);
+            set_px(buffer, width, height, x + 7, y + 1, outline);
+            set_px(buffer, width, height, x + 0, y + 2, outline);
+            set_px(buffer, width, height, x + 8, y + 2, outline);
+            fill_rect(buffer, width, height, x + 0, y + 3, 1, 3, outline);
+            fill_rect(buffer, width, height, x + 8, y + 3, 1, 3, outline);
+            set_px(buffer, width, height, x + 1, y + 6, outline);
+            set_px(buffer, width, height, x + 7, y + 6, outline);
+            fill_rect(buffer, width, height, x + 2, y + 7, 5, 1, outline);
+            set_px(buffer, width, height, x + 4, y + 8, outline);
+
+            set_px(buffer, width, height, x + 4, y + 1, outline);
+            set_px(buffer, width, height, x + 4, y + 2, outline);
+
+            fill_rect(buffer, width, height, x + 2, y + 1, 2, 1, empty_bg);
+            fill_rect(buffer, width, height, x + 5, y + 1, 2, 1, empty_bg);
+            fill_rect(buffer, width, height, x + 1, y + 2, 3, 1, empty_bg);
+            fill_rect(buffer, width, height, x + 5, y + 2, 3, 1, empty_bg);
+            fill_rect(buffer, width, height, x + 1, y + 3, 7, 3, empty_bg);
+            fill_rect(buffer, width, height, x + 2, y + 6, 5, 1, empty_bg);
+            fill_rect(buffer, width, height, x + 3, y + 7, 3, 1, empty_bg);
+        }
+    }
+}
+
 pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Player) {
     let slot_size = 28i32;
     let margin = 3i32;
@@ -416,6 +544,31 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
         }
     }
 
+    // Off-hand slot to the left of hotbar
+    let offhand_x = start_x - slot_size - 10;
+    fill_rect_alpha(buffer, width, height, offhand_x - 4, y - 4, slot_size + 8, slot_size + 8, pack_color(0.0, 0.0, 0.0), 0.35);
+    fill_rect(buffer, width, height, offhand_x - 2, y - 2, slot_size + 4, slot_size + 4, pack_color(0.25, 0.25, 0.25));
+    fill_rect(buffer, width, height, offhand_x, y, slot_size, slot_size, pack_color(0.28, 0.28, 0.28));
+
+    if let Some(stack) = &player.inventory.offhand {
+        crate::ui::draw_item_icon(buffer, width, height, stack.block, offhand_x + 3, y + 3, slot_size - 6);
+        if stack.count > 1 {
+            let label = format!("{}", stack.count);
+            draw_text_shadowed(buffer, width, height, &label, offhand_x + slot_size - 10, y + slot_size - 12, 1, 1);
+        }
+    } else {
+        // Subtle shield silhouette watermark in empty offhand slot
+        let sx = offhand_x + 8;
+        let sy = y + 7;
+        let sil = pack_color(0.38, 0.38, 0.38);
+        fill_rect(buffer, width, height, sx, sy, 12, 2, sil);
+        fill_rect(buffer, width, height, sx + 1, sy + 2, 10, 6, sil);
+        fill_rect(buffer, width, height, sx + 2, sy + 8, 8, 3, sil);
+        fill_rect(buffer, width, height, sx + 4, sy + 11, 4, 2, sil);
+        set_px(buffer, width, height, sx + 5, sy + 13, sil);
+        set_px(buffer, width, height, sx + 6, sy + 13, sil);
+    }
+
     if player.gamemode == GameMode::Survival {
         let health_start_x = start_x;
         let health_y = y - 16;
@@ -440,6 +593,24 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
                 0
             };
             draw_heart_icon(buffer, width, height, heart_x, health_y + wobble, state, is_flashing);
+        }
+
+        // Armor bar - above health hearts on left side
+        let defense_pts = player.armor_defense_points().round() as i32;
+        if defense_pts > 0 {
+            let armor_y = health_y - 10;
+            for i in 0..10 {
+                let armor_x = health_start_x + i * 10;
+                let threshold = (i + 1) * 2;
+                let state = if defense_pts >= threshold {
+                    ArmorIconState::Full
+                } else if defense_pts == threshold - 1 {
+                    ArmorIconState::Half
+                } else {
+                    ArmorIconState::Empty
+                };
+                draw_armor_icon(buffer, width, height, armor_x, armor_y, state);
+            }
         }
 
         // Hunger bar - on right side above hotbar

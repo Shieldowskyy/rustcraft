@@ -33,6 +33,8 @@ pub struct Player {
     pub held_item_name_timer: f32,
     pub last_held_block: Option<crate::world::block::BlockId>,
     pub last_selected_slot: u8,
+    pub is_blocking: bool,
+    pub bow_draw_time: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -47,6 +49,8 @@ pub struct SavedPlayerData {
     pub selected_hotbar_slot: u8,
     pub hotbar: [Option<crate::gameplay::inventory::ItemStack>; 10],
     pub main: [Option<crate::gameplay::inventory::ItemStack>; 27],
+    pub armor: [Option<crate::gameplay::inventory::ItemStack>; 4],
+    pub offhand: Option<crate::gameplay::inventory::ItemStack>,
 }
 
 impl Player {
@@ -81,7 +85,44 @@ impl Player {
             held_item_name_timer: 0.0,
             last_held_block: None,
             last_selected_slot: 0,
+            is_blocking: false,
+            bow_draw_time: 0.0,
         }
+    }
+
+    /// Returns total defense points granted by equipped armor pieces (0.0 to 20.0).
+    pub fn armor_defense_points(&self) -> f32 {
+        let mut total = 0.0f32;
+        for item in &self.inventory.armor {
+            if let Some(stack) = item {
+                total += stack.block.armor_defense();
+            }
+        }
+        total
+    }
+
+    /// Computes damage multiplier after armor reduction (e.g. 20 points = 80% reduction -> 0.20 multiplier).
+    pub fn damage_reduction_multiplier(&self) -> f32 {
+        let defense = self.armor_defense_points();
+        // Each armor defense point grants 4% damage absorption, max 80%
+        (1.0 - (defense * 0.04).min(0.80)).max(0.20)
+    }
+
+    /// Takes physical damage from an attack. If the player is actively blocking with a shield
+    /// and facing the attacker, the damage is 100% blocked! Otherwise, damage is reduced by equipped armor.
+    /// Returns `(damaged, blocked)`.
+    pub fn take_physical_damage(&mut self, amount: f32, is_front_attack: bool) -> (bool, bool) {
+        if self.gamemode == GameMode::Creative || self.invulnerability_timer > 0.0 || self.is_dead() {
+            return (false, false);
+        }
+        if self.is_blocking && is_front_attack {
+            // Shield blocks 100% of damage!
+            self.invulnerability_timer = 0.25;
+            return (false, true);
+        }
+        let reduced = (amount * self.damage_reduction_multiplier()).max(1.0);
+        let damaged = self.take_damage(reduced);
+        (damaged, false)
     }
 
     /// Ticks the held item change detection and display timer.
@@ -122,6 +163,8 @@ impl Player {
             selected_hotbar_slot: self.selected_hotbar_slot.min(9),
             hotbar: self.inventory.hotbar,
             main: self.inventory.main,
+            armor: self.inventory.armor,
+            offhand: self.inventory.offhand,
         }
     }
 
@@ -136,11 +179,15 @@ impl Player {
         self.selected_hotbar_slot = data.selected_hotbar_slot.min(9);
         self.inventory.hotbar = data.hotbar;
         self.inventory.main = data.main;
+        self.inventory.armor = data.armor;
+        self.inventory.offhand = data.offhand;
         self.starvation_timer = 0.0;
         self.heal_timer = 0.0;
         self.invulnerability_timer = 1.0;
         self.fall_distance = 0.0;
         self.has_landed = false;
+        self.is_blocking = false;
+        self.bow_draw_time = 0.0;
     }
 
     pub fn take_damage(&mut self, amount: f32) -> bool {

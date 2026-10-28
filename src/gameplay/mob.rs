@@ -223,6 +223,7 @@ pub struct Mob {
     pub fish_variant: u8,
     pub villager_profession: u8,
     pub trades: Vec<crate::gameplay::trading::TradeOffer>,
+    pub attack_cooldown: f32,
 }
 
 impl Mob {
@@ -295,6 +296,7 @@ impl Mob {
             fish_variant: (id % 4) as u8,
             villager_profession,
             trades,
+            attack_cooldown: 0.0,
         }
     }
 
@@ -633,6 +635,12 @@ impl Mob {
                         self.ai_state_is_moving = self.fuse <= 0.0 || total_dist_sq > 2.8 * 2.8;
                         self.head_yaw_offset = 0.0;
                     }
+                } else if self.kind == MobKind::Skeleton && dist_sq < 24.0 * 24.0 && dy < 12.0 {
+                    pursuing_player = true;
+                    self.target_yaw = dx.atan2(dz);
+                    self.head_yaw_offset = 0.0;
+                    // Skeleton keeps combat distance (moves closer if > 9m, stops to aim if <= 9m)
+                    self.ai_state_is_moving = dist_sq > 9.0 * 9.0;
                 } else if dist_sq < 24.0 * 24.0 && dy < 12.0 {
                     pursuing_player = true;
                     self.target_yaw = dx.atan2(dz);
@@ -898,6 +906,7 @@ pub struct MobManager {
     pub breeding_hearts: Vec<Vec3>,
     pub love_hearts: Vec<Vec3>,
     pub pending_block_changes: Vec<(IVec3, BlockId)>,
+    pub pending_arrows: Vec<crate::gameplay::ArrowEntity>,
 }
 
 impl MobManager {
@@ -913,6 +922,7 @@ impl MobManager {
             breeding_hearts: Vec::new(),
             love_hearts: Vec::new(),
             pending_block_changes: Vec::new(),
+            pending_arrows: Vec::new(),
         }
     }
 
@@ -974,6 +984,31 @@ impl MobManager {
                 if mob.love_particle_timer <= 0.0 {
                     mob.love_particle_timer = 0.45;
                     self.love_hearts.push(mob.center_pos() + Vec3::new(0.0, mob.kind.height() * 0.45, 0.0));
+                }
+            }
+
+            // Skeleton ranged archery attack against player
+            if !is_creative && mob.kind == MobKind::Skeleton && !mob.is_dead {
+                let dx = player_pos.x - mob.pos.x;
+                let dz = player_pos.z - mob.pos.z;
+                let dy = (player_pos.y - mob.pos.y).abs();
+                let dist_sq = dx * dx + dz * dz;
+                if dist_sq < 18.0 * 18.0 && dy < 10.0 {
+                    mob.attack_cooldown += dt;
+                    if mob.attack_cooldown >= 2.2 {
+                        mob.attack_cooldown = 0.0;
+                        let start_pos = mob.pos + Vec3::new(0.0, 1.4, 0.0);
+                        let aim_pos = player_pos + Vec3::new(0.0, 0.8, 0.0);
+                        let dir = (aim_pos - start_pos).normalized();
+                        let arrow = crate::gameplay::ArrowEntity::new(
+                            start_pos,
+                            (dir + Vec3::new(0.0, 0.08, 0.0)) * 18.0,
+                            false,
+                            3.0,
+                        );
+                        self.pending_arrows.push(arrow);
+                        mob.pending_sound = Some(crate::audio::SoundId::BowShoot);
+                    }
                 }
             }
 
@@ -1097,6 +1132,14 @@ impl MobManager {
                                 block: BlockId::RawBeef,
                                 count,
                             });
+                            let leather_count = (m.id % 3) as u8; // 0-2 leather drops
+                            if leather_count > 0 {
+                                self.dying_drops.push(MobDrop {
+                                    pos: m.center_pos() + Vec3::new(0.05, 0.1, 0.05),
+                                    block: BlockId::Leather,
+                                    count: leather_count,
+                                });
+                            }
                         }
                         MobKind::Sheep => {
                             let count = 1 + (m.id % 2) as u8; // 1-2 meat drops
@@ -1150,6 +1193,14 @@ impl MobManager {
                                 block: BlockId::Bone,
                                 count: bone_count,
                             });
+                            let arrow_count = ((m.id >> 1) % 3) as u8; // 0-2 arrows
+                            if arrow_count > 0 {
+                                self.dying_drops.push(MobDrop {
+                                    pos: m.center_pos() + Vec3::new(0.05, 0.1, 0.05),
+                                    block: BlockId::Arrow,
+                                    count: arrow_count,
+                                });
+                            }
                         }
                         MobKind::Creeper => {
                             if m.fuse < 1.45 {

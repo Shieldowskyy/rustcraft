@@ -85,3 +85,57 @@ impl ItemEntity {
         self.position = p;
     }
 }
+
+/// Dynamic physical projectile entity for arrows shot by the player or skeleton archers.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArrowEntity {
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub shooter_is_player: bool,
+    pub in_ground: bool,
+    pub lifetime: f32,
+    pub damage: f32,
+}
+
+impl ArrowEntity {
+    pub fn new(position: Vec3, velocity: Vec3, shooter_is_player: bool, damage: f32) -> Self {
+        Self {
+            position,
+            velocity,
+            shooter_is_player,
+            in_ground: false,
+            lifetime: 0.0,
+            damage,
+        }
+    }
+
+    /// Ticks arrow ballistics, gravity, and voxel collision.
+    /// Returns true if the arrow struck a voxel block this tick (transitioned into ground).
+    pub fn update(&mut self, dt: f32, world: &World) -> bool {
+        self.lifetime += dt;
+        if self.in_ground {
+            return false;
+        }
+
+        // Apply realistic ballistic gravity and air drag
+        self.velocity.y -= 18.0 * dt;
+        self.velocity.x *= 0.99;
+        self.velocity.z *= 0.99;
+
+        let next_pos = self.position + self.velocity * dt;
+        let arrow_radius = 0.08;
+
+        if world.box_collides(
+            Vec3::new(next_pos.x - arrow_radius, next_pos.y - arrow_radius, next_pos.z - arrow_radius),
+            Vec3::new(next_pos.x + arrow_radius, next_pos.y + arrow_radius, next_pos.z + arrow_radius),
+        ) {
+            self.in_ground = true;
+            self.velocity = Vec3::zero();
+            return true;
+        }
+
+        self.position = next_pos;
+        false
+    }
+}
+

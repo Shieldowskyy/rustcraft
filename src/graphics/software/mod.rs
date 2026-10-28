@@ -3833,6 +3833,20 @@ impl Renderer {
                 let feather_origin = hand_pos + forward * (0.10 + attack * 0.10) + up * (0.10 - attack * 0.08);
 
                 self.draw_feather_3d(feather_origin, feather_right, feather_up, feather_forward, 1.0, view_proj);
+            } else if block == crate::world::block::BlockId::Shield {
+                let shield_pos = hand_pos + forward * (0.10 + attack * 0.12) - right * 0.08 + up * 0.05;
+                let s_right = (right * 0.95 - forward * 0.2).normalized();
+                let s_up = up;
+                let s_fwd = s_right.cross(s_up).normalized();
+                self.draw_cube_3d(shield_pos, s_right, s_up, s_fwd, [0.09, 0.13, 0.015], TextureId::Planks, view_proj);
+                self.draw_cube_3d(shield_pos + s_fwd * 0.012, s_right, s_up, s_fwd, [0.025, 0.025, 0.01], TextureId::IronOre, view_proj);
+            } else if block == crate::world::block::BlockId::Bow {
+                let bow_pos = hand_pos + forward * (0.12 + attack * 0.08) + up * 0.05;
+                let b_right = (right * 0.9 + forward * 0.2).normalized();
+                let b_up = up;
+                let b_fwd = b_right.cross(b_up).normalized();
+                self.draw_cube_3d(bow_pos, b_right, b_up, b_fwd, [0.015, 0.16, 0.015], TextureId::WoodSide, view_proj);
+                self.draw_cube_3d(bow_pos - b_fwd * 0.04, b_right, b_up, b_fwd, [0.005, 0.14, 0.005], TextureId::WhiteWool, view_proj);
             } else {
                 // Held block: positioned far enough forward so it never penetrates the camera or near clipping plane
                 let block_forward_dist = 0.92 + attack * 0.06;
@@ -3853,6 +3867,52 @@ impl Renderer {
                 let side_tex = block.texture_id(crate::world::block::Face::North);
                 let bot_tex = block.texture_id(crate::world::block::Face::Bottom);
                 self.draw_multitex_cube_3d(block_pos, b_right, b_up, b_fwd, [0.095, 0.095, 0.095], top_tex, bot_tex, side_tex, view_proj);
+            }
+        }
+    }
+
+    pub fn draw_offhand_3d(
+        &mut self,
+        camera: &Camera,
+        view_proj: &Mat4,
+        block_id: Option<u8>,
+        walk_phase: f32,
+        speed: f32,
+        is_blocking: bool,
+    ) {
+        let Some(id) = block_id else { return };
+        let block = crate::world::block::BlockId::from_u8(id);
+
+        let forward = camera.forward();
+        let right = camera.forward().cross(Vec3::new(0.0, 1.0, 0.0)).normalized();
+        let up = right.cross(forward).normalized();
+        let movement = (speed / 8.5).clamp(0.0, 1.0);
+        let swing = -walk_phase.sin() * 0.06 * movement;
+        let bob = (walk_phase * 2.0).cos() * 0.02 * movement;
+
+        if is_blocking {
+            // Raised in front of player center
+            let shield_pos = camera.position + forward * 0.55 - right * 0.05 + up * -0.15;
+            let s_right = right;
+            let s_up = up;
+            let s_fwd = forward;
+            self.draw_cube_3d(shield_pos, s_right, s_up, s_fwd, [0.12, 0.16, 0.018], TextureId::Planks, view_proj);
+            self.draw_cube_3d(shield_pos + s_fwd * 0.014, s_right, s_up, s_fwd, [0.035, 0.035, 0.012], TextureId::IronOre, view_proj);
+        } else {
+            // Held at the left side
+            let hand_pos = camera.position
+                + forward * 0.65
+                - right * (0.42 + swing)
+                + up * (-0.38 + bob);
+            if block == crate::world::block::BlockId::Shield {
+                let shield_pos = hand_pos + forward * 0.06 + right * 0.04;
+                let s_right = (right * 0.95 + forward * 0.2).normalized();
+                let s_up = up;
+                let s_fwd = s_right.cross(s_up).normalized();
+                self.draw_cube_3d(shield_pos, s_right, s_up, s_fwd, [0.08, 0.12, 0.015], TextureId::Planks, view_proj);
+                self.draw_cube_3d(shield_pos + s_fwd * 0.012, s_right, s_up, s_fwd, [0.025, 0.025, 0.01], TextureId::IronOre, view_proj);
+            } else if block == crate::world::block::BlockId::Torch {
+                self.draw_torch_3d(hand_pos + forward * 0.08 + up * 0.08, right, up, forward, 0.9, view_proj);
             }
         }
     }

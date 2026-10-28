@@ -11,6 +11,8 @@ pub enum InventorySlotTarget {
     Crafting2x2(usize),
     Crafting3x3(usize),
     CraftingOutput,
+    Armor(usize),
+    Offhand,
     Creative(u8),
     CreativeTab(usize),
     CreativeScrollUp,
@@ -163,6 +165,26 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::GoldHoe,
                 BlockId::DiamondHoe,
                 BlockId::Shears,
+                BlockId::Bow,
+                BlockId::Arrow,
+                BlockId::Shield,
+                BlockId::Leather,
+                BlockId::LeatherHelmet,
+                BlockId::LeatherChestplate,
+                BlockId::LeatherLeggings,
+                BlockId::LeatherBoots,
+                BlockId::IronHelmet,
+                BlockId::IronChestplate,
+                BlockId::IronLeggings,
+                BlockId::IronBoots,
+                BlockId::GoldHelmet,
+                BlockId::GoldChestplate,
+                BlockId::GoldLeggings,
+                BlockId::GoldBoots,
+                BlockId::DiamondHelmet,
+                BlockId::DiamondChestplate,
+                BlockId::DiamondLeggings,
+                BlockId::DiamondBoots,
                 BlockId::Stick,
                 BlockId::Bone,
                 BlockId::BoneMeal,
@@ -422,6 +444,26 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::GoldHoe,
                 BlockId::DiamondHoe,
                 BlockId::Shears,
+                BlockId::Bow,
+                BlockId::Arrow,
+                BlockId::Shield,
+                BlockId::Leather,
+                BlockId::LeatherHelmet,
+                BlockId::LeatherChestplate,
+                BlockId::LeatherLeggings,
+                BlockId::LeatherBoots,
+                BlockId::IronHelmet,
+                BlockId::IronChestplate,
+                BlockId::IronLeggings,
+                BlockId::IronBoots,
+                BlockId::GoldHelmet,
+                BlockId::GoldChestplate,
+                BlockId::GoldLeggings,
+                BlockId::GoldBoots,
+                BlockId::DiamondHelmet,
+                BlockId::DiamondChestplate,
+                BlockId::DiamondLeggings,
+                BlockId::DiamondBoots,
                 // Farming, Crops & Food
                 BlockId::WheatSeeds,
                 BlockId::Wheat,
@@ -600,6 +642,22 @@ impl InventoryLayout {
                     return Some(InventorySlotTarget::Trash);
                 }
 
+                // Armor slots (4 vertical slots)
+                let armor_x = self.start_x + 22;
+                let armor_y_start = self.start_y + 36;
+                for i in 0..4 {
+                    let y = armor_y_start + i * 26;
+                    if px >= armor_x && px < armor_x + 24 && py >= y && py < y + 24 {
+                        return Some(InventorySlotTarget::Armor(i as usize));
+                    }
+                }
+                // Offhand slot
+                let offhand_x = self.start_x + 82;
+                let offhand_y = self.start_y + 114;
+                if px >= offhand_x && px < offhand_x + 24 && py >= offhand_y && py < offhand_y + 24 {
+                    return Some(InventorySlotTarget::Offhand);
+                }
+
                 // Main inventory: 3 rows x 9 cols (27 slots)
                 let main_x = self.start_x + 22;
                 let main_y = self.start_y + 144;
@@ -661,6 +719,22 @@ impl InventoryLayout {
         }
 
         if self.crafting_table_open {
+            // Armor slots (4 vertical slots inside right preview panel)
+            let armor_x = self.start_x + 300;
+            let armor_y_start = self.start_y + 34;
+            for i in 0..4 {
+                let y = armor_y_start + i * 26;
+                if px >= armor_x && px < armor_x + 24 && py >= y && py < y + 24 {
+                    return Some(InventorySlotTarget::Armor(i as usize));
+                }
+            }
+            // Offhand slot
+            let offhand_x = self.start_x + 360;
+            let offhand_y = self.start_y + 112;
+            if px >= offhand_x && px < offhand_x + 24 && py >= offhand_y && py < offhand_y + 24 {
+                return Some(InventorySlotTarget::Offhand);
+            }
+
             // 3x3 crafting grid
             let craft_x = self.start_x + 40;
             let craft_y = self.start_y + 35;
@@ -680,6 +754,22 @@ impl InventoryLayout {
                 return Some(InventorySlotTarget::CraftingOutput);
             }
         } else {
+            // Armor slots (4 vertical slots on left of Steve)
+            let armor_x = self.start_x + 18;
+            let armor_y_start = self.start_y + 34;
+            for i in 0..4 {
+                let y = armor_y_start + i * 26;
+                if px >= armor_x && px < armor_x + 24 && py >= y && py < y + 24 {
+                    return Some(InventorySlotTarget::Armor(i as usize));
+                }
+            }
+            // Offhand slot
+            let offhand_x = self.start_x + 78;
+            let offhand_y = self.start_y + 112;
+            if px >= offhand_x && px < offhand_x + 24 && py >= offhand_y && py < offhand_y + 24 {
+                return Some(InventorySlotTarget::Offhand);
+            }
+
             // 2x2 crafting grid
             let craft_x = self.start_x + 220;
             let craft_y = self.start_y + 48;
@@ -715,6 +805,8 @@ pub fn draw_player_inventory_preview(
     center_x: i32,
     center_y: i32,
     mouse_pos: Option<(f32, f32)>,
+    armor: &[Option<ItemStack>; 4],
+    offhand: &Option<ItemStack>,
 ) {
     // 1. Shadow on ground
     let ground_y = center_y + 44;
@@ -758,19 +850,15 @@ pub fn draw_player_inventory_preview(
 
     // 3. LEGS (Nogi) - 2x 9px wide x 28px tall
     let legs_y = center_y + 16;
-    // Left leg (z perspektywy ekranu po lewej)
     fill_rect(buffer, width, height, center_x - 10, legs_y, 9, 22, pants_blue);
     fill_rect(buffer, width, height, center_x - 10, legs_y, 2, 22, pants_highlight);
     fill_rect(buffer, width, height, center_x - 3, legs_y, 2, 22, pants_shadow);
-    // Left shoe
     fill_rect(buffer, width, height, center_x - 10, legs_y + 22, 9, 6, shoes_gray);
     fill_rect(buffer, width, height, center_x - 10, legs_y + 26, 9, 2, shoes_dark);
 
-    // Right leg (z perspektywy ekranu po prawej)
     fill_rect(buffer, width, height, center_x + 1, legs_y, 9, 22, pants_blue);
     fill_rect(buffer, width, height, center_x + 1, legs_y, 2, 22, pants_highlight);
     fill_rect(buffer, width, height, center_x + 8, legs_y, 2, 22, pants_shadow);
-    // Right shoe
     fill_rect(buffer, width, height, center_x + 1, legs_y + 22, 9, 6, shoes_gray);
     fill_rect(buffer, width, height, center_x + 1, legs_y + 26, 9, 2, shoes_dark);
 
@@ -781,66 +869,172 @@ pub fn draw_player_inventory_preview(
     fill_rect(buffer, width, height, torso_x, torso_y, 2, 28, shirt_highlight);
     fill_rect(buffer, width, height, torso_x + 18, torso_y, 2, 28, shirt_shadow);
     fill_rect(buffer, width, height, torso_x, torso_y + 26, 20, 2, shirt_dark);
-    // Neck cut-out (dekolt pokazujący skórę)
     fill_rect(buffer, width, height, torso_x + 7, torso_y, 6, 4, skin_base);
     fill_rect(buffer, width, height, torso_x + 8, torso_y + 4, 4, 2, skin_shadow);
 
     // 5. ARMS (Ręce) - each 8px wide x 28px tall
-    // Left arm
     let left_arm_x = torso_x - 9;
     let left_arm_y = torso_y;
-    // Sleeve
     fill_rect(buffer, width, height, left_arm_x, left_arm_y, 8, 9, shirt_cyan);
     fill_rect(buffer, width, height, left_arm_x, left_arm_y, 2, 9, shirt_highlight);
     fill_rect(buffer, width, height, left_arm_x + 6, left_arm_y, 2, 9, shirt_shadow);
-    // Forearm & Hand
     fill_rect(buffer, width, height, left_arm_x, left_arm_y + 9, 8, 19, skin_base);
     fill_rect(buffer, width, height, left_arm_x, left_arm_y + 9, 2, 19, skin_highlight);
     fill_rect(buffer, width, height, left_arm_x + 6, left_arm_y + 9, 2, 19, skin_shadow);
 
-    // Right arm
     let right_arm_x = torso_x + 21;
     let right_arm_y = torso_y;
-    // Sleeve
     fill_rect(buffer, width, height, right_arm_x, right_arm_y, 8, 9, shirt_cyan);
     fill_rect(buffer, width, height, right_arm_x, right_arm_y, 2, 9, shirt_highlight);
     fill_rect(buffer, width, height, right_arm_x + 6, right_arm_y, 2, 9, shirt_shadow);
-    // Forearm & Hand
     fill_rect(buffer, width, height, right_arm_x, right_arm_y + 9, 8, 19, skin_base);
     fill_rect(buffer, width, height, right_arm_x, right_arm_y + 9, 2, 19, skin_highlight);
     fill_rect(buffer, width, height, right_arm_x + 6, right_arm_y + 9, 2, 19, skin_shadow);
 
-    // 6. HEAD (Głowa) - 20px wide x 20px tall, obraca się w stronę kursora
+    // 6. HEAD (Głowa)
     let head_x = center_x - 10 + lx;
     let head_y = torso_y - 20 + ly;
-
-    // Head base skin
     fill_rect(buffer, width, height, head_x, head_y, 20, 20, skin_base);
-
-    // Hair top (grzywka i włosy)
     fill_rect(buffer, width, height, head_x, head_y, 20, 6, hair_base);
     fill_rect(buffer, width, height, head_x, head_y, 20, 2, hair_dark);
     fill_rect(buffer, width, height, head_x, head_y + 6, 3, 5, hair_base);
     fill_rect(buffer, width, height, head_x + 17, head_y + 6, 3, 5, hair_base);
     fill_rect(buffer, width, height, head_x + 6, head_y + 6, 2, 2, hair_base);
 
-    // Eyes (Oczy z białkami i niebieskimi tęczówkami)
     let eye_y = head_y + 9;
     let eye_dx = lx.clamp(-1, 1);
     fill_rect(buffer, width, height, head_x + 3, eye_y, 5, 3, eye_white);
     fill_rect(buffer, width, height, head_x + 5 + eye_dx, eye_y, 2, 3, eye_blue);
-
     fill_rect(buffer, width, height, head_x + 12, eye_y, 5, 3, eye_white);
     fill_rect(buffer, width, height, head_x + 12 + eye_dx, eye_y, 2, 3, eye_blue);
 
-    // Nose (Nos)
     let nose_x = head_x + 9 + eye_dx;
     let nose_y = head_y + 12;
     fill_rect(buffer, width, height, nose_x, nose_y, 3, 2, skin_shadow);
-
-    // Mouth / Beard (Usta i zarost Steve'a)
     fill_rect(buffer, width, height, head_x + 7 + eye_dx, head_y + 15, 6, 3, mouth_color);
     fill_rect(buffer, width, height, head_x + 8 + eye_dx, head_y + 15, 4, 1, pack_color(0.50, 0.30, 0.20));
+
+    // 7. ARMOR OVERLAYS
+    let get_armor_colors = |b: BlockId| -> (u32, u32) {
+        match b {
+            BlockId::LeatherHelmet | BlockId::LeatherChestplate | BlockId::LeatherLeggings | BlockId::LeatherBoots => (
+                pack_color(0.55, 0.32, 0.15),
+                pack_color(0.68, 0.42, 0.22),
+            ),
+            BlockId::IronHelmet | BlockId::IronChestplate | BlockId::IronLeggings | BlockId::IronBoots => (
+                pack_color(0.80, 0.82, 0.85),
+                pack_color(0.95, 0.96, 0.98),
+            ),
+            BlockId::GoldHelmet | BlockId::GoldChestplate | BlockId::GoldLeggings | BlockId::GoldBoots => (
+                pack_color(0.92, 0.78, 0.18),
+                pack_color(1.00, 0.95, 0.45),
+            ),
+            BlockId::DiamondHelmet | BlockId::DiamondChestplate | BlockId::DiamondLeggings | BlockId::DiamondBoots => (
+                pack_color(0.25, 0.82, 0.85),
+                pack_color(0.65, 0.98, 0.98),
+            ),
+            _ => (pack_color(0.8, 0.8, 0.8), pack_color(0.95, 0.95, 0.95)),
+        }
+    };
+
+    if let Some(legs) = armor[2] {
+        let (base, hi) = get_armor_colors(legs.block);
+        fill_rect(buffer, width, height, center_x - 10, legs_y, 9, 21, base);
+        fill_rect(buffer, width, height, center_x - 10, legs_y, 2, 21, hi);
+        fill_rect(buffer, width, height, center_x + 1, legs_y, 9, 21, base);
+        fill_rect(buffer, width, height, center_x + 1, legs_y, 2, 21, hi);
+    }
+    if let Some(boots) = armor[3] {
+        let (base, hi) = get_armor_colors(boots.block);
+        fill_rect(buffer, width, height, center_x - 11, legs_y + 19, 11, 9, base);
+        fill_rect(buffer, width, height, center_x - 11, legs_y + 19, 2, 9, hi);
+        fill_rect(buffer, width, height, center_x, legs_y + 19, 11, 9, base);
+        fill_rect(buffer, width, height, center_x, legs_y + 19, 2, 9, hi);
+    }
+    if let Some(chest) = armor[1] {
+        let (base, hi) = get_armor_colors(chest.block);
+        fill_rect(buffer, width, height, torso_x - 1, torso_y - 1, 22, 29, base);
+        fill_rect(buffer, width, height, torso_x, torso_y - 1, 2, 29, hi);
+        fill_rect(buffer, width, height, left_arm_x - 1, left_arm_y - 1, 9, 10, base);
+        fill_rect(buffer, width, height, right_arm_x, right_arm_y - 1, 9, 10, base);
+    }
+    if let Some(helm) = armor[0] {
+        let (base, hi) = get_armor_colors(helm.block);
+        fill_rect(buffer, width, height, head_x - 1, head_y - 2, 22, 9, base);
+        fill_rect(buffer, width, height, head_x, head_y - 2, 2, 9, hi);
+        fill_rect(buffer, width, height, head_x - 1, head_y + 7, 3, 6, base);
+        fill_rect(buffer, width, height, head_x + 18, head_y + 7, 3, 6, base);
+        fill_rect(buffer, width, height, head_x + 9, head_y + 7, 2, 4, base);
+    }
+    if let Some(off) = offhand {
+        if off.block.is_shield() {
+            let sx = right_arm_x + 3;
+            let sy = torso_y + 2;
+            let rim = pack_color(0.80, 0.82, 0.86);
+            let wood = pack_color(0.55, 0.35, 0.15);
+            fill_rect(buffer, width, height, sx, sy, 10, 18, wood);
+            fill_rect(buffer, width, height, sx - 1, sy - 1, 12, 2, rim);
+            fill_rect(buffer, width, height, sx - 1, sy + 17, 12, 2, rim);
+            fill_rect(buffer, width, height, sx - 1, sy, 2, 18, rim);
+            fill_rect(buffer, width, height, sx + 9, sy, 2, 18, rim);
+            fill_rect(buffer, width, height, sx + 4, sy + 7, 2, 4, rim);
+        }
+    }
+}
+
+pub fn draw_armor_and_offhand_slots(
+    buffer: &mut [u32],
+    width: usize,
+    height: usize,
+    armor_x: i32,
+    armor_y_start: i32,
+    offhand_x: i32,
+    offhand_y: i32,
+    player: &Player,
+    hovered_slot: Option<InventorySlotTarget>,
+) {
+    for i in 0..4 {
+        let sy = armor_y_start + i as i32 * 26;
+        let is_hovered = hovered_slot == Some(InventorySlotTarget::Armor(i));
+        draw_slot(buffer, width, height, armor_x, sy, 24, 24, player.inventory.armor[i], is_hovered);
+        if player.inventory.armor[i].is_none() {
+            let sil = pack_color(0.24, 0.24, 0.28);
+            match i {
+                0 => {
+                    // Helmet silhouette
+                    fill_rect(buffer, width, height, armor_x + 7, sy + 6, 10, 5, sil);
+                    fill_rect(buffer, width, height, armor_x + 7, sy + 11, 3, 5, sil);
+                    fill_rect(buffer, width, height, armor_x + 14, sy + 11, 3, 5, sil);
+                }
+                1 => {
+                    // Chestplate silhouette
+                    fill_rect(buffer, width, height, armor_x + 5, sy + 5, 14, 12, sil);
+                    fill_rect(buffer, width, height, armor_x + 9, sy + 5, 6, 4, pack_color(0.12, 0.12, 0.14));
+                }
+                2 => {
+                    // Leggings silhouette
+                    fill_rect(buffer, width, height, armor_x + 6, sy + 5, 12, 4, sil);
+                    fill_rect(buffer, width, height, armor_x + 6, sy + 9, 5, 9, sil);
+                    fill_rect(buffer, width, height, armor_x + 13, sy + 9, 5, 9, sil);
+                }
+                _ => {
+                    // Boots silhouette
+                    fill_rect(buffer, width, height, armor_x + 5, sy + 8, 5, 9, sil);
+                    fill_rect(buffer, width, height, armor_x + 4, sy + 13, 6, 4, sil);
+                    fill_rect(buffer, width, height, armor_x + 14, sy + 8, 5, 9, sil);
+                    fill_rect(buffer, width, height, armor_x + 14, sy + 13, 6, 4, sil);
+                }
+            }
+        }
+    }
+
+    let is_off_hovered = hovered_slot == Some(InventorySlotTarget::Offhand);
+    draw_slot(buffer, width, height, offhand_x, offhand_y, 24, 24, player.inventory.offhand, is_off_hovered);
+    if player.inventory.offhand.is_none() {
+        let sil = pack_color(0.24, 0.24, 0.28);
+        fill_rect(buffer, width, height, offhand_x + 6, offhand_y + 4, 12, 10, sil);
+        fill_rect(buffer, width, height, offhand_x + 8, offhand_y + 14, 8, 4, sil);
+    }
 }
 
 pub fn draw_inventory_screen(
@@ -1059,12 +1253,15 @@ pub fn draw_inventory_screen(
 
             // Character floor shadow & model
             fill_rect_alpha(buffer, width, height, box_x + 12, box_y + 86, 64, 12, pack_color(0.14, 0.14, 0.18), 0.7);
-            draw_player_inventory_preview(buffer, width, height, box_x + 44, box_y + 54, mouse_pos);
+            draw_player_inventory_preview(buffer, width, height, box_x + 52, box_y + 54, mouse_pos, &player.inventory.armor, &player.inventory.offhand);
 
-            draw_text_colored_shadowed(buffer, width, height, "PLAYER", box_x + 85, box_y + 16, 1, 1, pack_color(1.0, 0.88, 0.25));
-            draw_text_colored_shadowed(buffer, width, height, "CREATIVE", box_x + 85, box_y + 38, 1, 1, pack_color(0.4, 0.9, 0.4));
-            draw_text_colored_shadowed(buffer, width, height, "FLYING: ON", box_x + 85, box_y + 58, 1, 1, pack_color(0.4, 0.8, 1.0));
-            draw_text_colored_shadowed(buffer, width, height, "GODMODE", box_x + 85, box_y + 78, 1, 1, pack_color(0.9, 0.7, 0.3));
+            // Armor slots & Off-hand slot
+            draw_armor_and_offhand_slots(buffer, width, height, start_x + 22, start_y + 36, start_x + 82, start_y + 114, player, hovered_slot);
+
+            draw_text_colored_shadowed(buffer, width, height, "PLAYER", box_x + 110, box_y + 16, 1, 1, pack_color(1.0, 0.88, 0.25));
+            draw_text_colored_shadowed(buffer, width, height, "CREATIVE", box_x + 110, box_y + 38, 1, 1, pack_color(0.4, 0.9, 0.4));
+            draw_text_colored_shadowed(buffer, width, height, "FLYING: ON", box_x + 110, box_y + 58, 1, 1, pack_color(0.4, 0.8, 1.0));
+            draw_text_colored_shadowed(buffer, width, height, "GODMODE", box_x + 110, box_y + 78, 1, 1, pack_color(0.9, 0.7, 0.3));
 
             // 2x2 Crafting Grid
             let craft_panel_x = start_x + 208;
@@ -1243,26 +1440,33 @@ pub fn draw_inventory_screen(
             fill_rect(buffer, width, height, char_box_x, char_box_y + char_box_h - 2, char_box_w, 2, pack_color(0.26, 0.26, 0.30));
             fill_rect(buffer, width, height, char_box_x + char_box_w - 2, char_box_y, 2, char_box_h, pack_color(0.26, 0.26, 0.30));
 
-            fill_rect_alpha(buffer, width, height, char_box_x + 10, char_box_y + 88, 55, 12, pack_color(0.14, 0.14, 0.18), 0.7);
-            draw_player_inventory_preview(buffer, width, height, char_box_x + 38, char_box_y + 54, mouse_pos);
+            // Armor slots & Offhand slot
+            draw_armor_and_offhand_slots(buffer, width, height, start_x + 300, start_y + 34, start_x + 360, start_y + 112, player, hovered_slot);
 
-            draw_text_colored_shadowed(buffer, width, height, "PLAYER", char_box_x + 72, char_box_y + 10, 1, 1, pack_color(1.0, 0.88, 0.25));
+            fill_rect_alpha(buffer, width, height, char_box_x + 30, char_box_y + 88, 45, 12, pack_color(0.14, 0.14, 0.18), 0.7);
+            draw_player_inventory_preview(buffer, width, height, char_box_x + 50, char_box_y + 54, mouse_pos, &player.inventory.armor, &player.inventory.offhand);
+
+            draw_text_colored_shadowed(buffer, width, height, "PLAYER", char_box_x + 75, char_box_y + 10, 1, 1, pack_color(1.0, 0.88, 0.25));
             let hp_text = format!("HP: {}/20", player.health as i32);
-            draw_text_colored_shadowed(buffer, width, height, &hp_text, char_box_x + 72, char_box_y + 24, 1, 1, pack_color(1.0, 0.35, 0.35));
+            draw_text_colored_shadowed(buffer, width, height, &hp_text, char_box_x + 75, char_box_y + 24, 1, 1, pack_color(1.0, 0.35, 0.35));
             let hp_ratio = (player.health / 20.0).clamp(0.0, 1.0);
-            fill_rect(buffer, width, height, char_box_x + 72, char_box_y + 36, 70, 4, pack_color(0.25, 0.05, 0.05));
-            fill_rect(buffer, width, height, char_box_x + 72, char_box_y + 36, (70.0 * hp_ratio) as i32, 4, pack_color(0.9, 0.2, 0.2));
+            fill_rect(buffer, width, height, char_box_x + 75, char_box_y + 36, 68, 4, pack_color(0.25, 0.05, 0.05));
+            fill_rect(buffer, width, height, char_box_x + 75, char_box_y + 36, (68.0 * hp_ratio) as i32, 4, pack_color(0.9, 0.2, 0.2));
 
             let hunger_text = format!("HUNGER: {}/20", player.hunger as i32);
-            draw_text_colored_shadowed(buffer, width, height, &hunger_text, char_box_x + 72, char_box_y + 46, 1, 1, pack_color(1.0, 0.65, 0.2));
+            draw_text_colored_shadowed(buffer, width, height, &hunger_text, char_box_x + 75, char_box_y + 46, 1, 1, pack_color(1.0, 0.65, 0.2));
             let hunger_ratio = (player.hunger / player.max_hunger.max(1.0)).clamp(0.0, 1.0);
-            fill_rect(buffer, width, height, char_box_x + 72, char_box_y + 58, 70, 4, pack_color(0.25, 0.15, 0.05));
-            fill_rect(buffer, width, height, char_box_x + 72, char_box_y + 58, (70.0 * hunger_ratio) as i32, 4, pack_color(0.9, 0.55, 0.15));
+            fill_rect(buffer, width, height, char_box_x + 75, char_box_y + 58, 68, 4, pack_color(0.25, 0.15, 0.05));
+            fill_rect(buffer, width, height, char_box_x + 75, char_box_y + 58, (68.0 * hunger_ratio) as i32, 4, pack_color(0.9, 0.55, 0.15));
 
-            if player.fire_timer > 0.0 {
-                draw_text_colored_shadowed(buffer, width, height, "BURNING!", char_box_x + 72, char_box_y + 70, 1, 1, pack_color(1.0, 0.5, 0.1));
+            let def = player.armor_defense_points();
+            if def > 0.0 {
+                let def_text = format!("ARMOR: {:.0}", def);
+                draw_text_colored_shadowed(buffer, width, height, &def_text, char_box_x + 75, char_box_y + 68, 1, 1, pack_color(0.8, 0.85, 0.95));
+            } else if player.fire_timer > 0.0 {
+                draw_text_colored_shadowed(buffer, width, height, "BURNING!", char_box_x + 75, char_box_y + 70, 1, 1, pack_color(1.0, 0.5, 0.1));
             } else {
-                draw_text_colored_shadowed(buffer, width, height, "STATUS: OK", char_box_x + 72, char_box_y + 70, 1, 1, pack_color(0.4, 0.85, 0.4));
+                draw_text_colored_shadowed(buffer, width, height, "STATUS: OK", char_box_x + 75, char_box_y + 70, 1, 1, pack_color(0.4, 0.85, 0.4));
             }
         } else {
             // Player character info area
@@ -1276,27 +1480,34 @@ pub fn draw_inventory_screen(
             fill_rect(buffer, width, height, char_box_x, char_box_y + char_box_h - 2, char_box_w, 2, pack_color(0.26, 0.26, 0.30));
             fill_rect(buffer, width, height, char_box_x + char_box_w - 2, char_box_y, 2, char_box_h, pack_color(0.26, 0.26, 0.30));
 
-            // Floor pedestal under player & model preview
-            fill_rect_alpha(buffer, width, height, char_box_x + 12, char_box_y + 88, 66, 12, pack_color(0.14, 0.14, 0.18), 0.7);
-            draw_player_inventory_preview(buffer, width, height, char_box_x + 45, char_box_y + 54, mouse_pos);
+            // Armor slots & Off-hand slot
+            draw_armor_and_offhand_slots(buffer, width, height, start_x + 18, start_y + 34, start_x + 78, start_y + 112, player, hovered_slot);
 
-            draw_text_colored_shadowed(buffer, width, height, "PLAYER", char_box_x + 85, char_box_y + 10, 1, 1, pack_color(1.0, 0.88, 0.25));
+            // Floor pedestal under player & model preview
+            fill_rect_alpha(buffer, width, height, char_box_x + 36, char_box_y + 88, 48, 12, pack_color(0.14, 0.14, 0.18), 0.7);
+            draw_player_inventory_preview(buffer, width, height, char_box_x + 56, char_box_y + 54, mouse_pos, &player.inventory.armor, &player.inventory.offhand);
+
+            draw_text_colored_shadowed(buffer, width, height, "PLAYER", char_box_x + 106, char_box_y + 10, 1, 1, pack_color(1.0, 0.88, 0.25));
             let hp_text = format!("HP: {}/20", player.health as i32);
-            draw_text_colored_shadowed(buffer, width, height, &hp_text, char_box_x + 85, char_box_y + 24, 1, 1, pack_color(1.0, 0.35, 0.35));
+            draw_text_colored_shadowed(buffer, width, height, &hp_text, char_box_x + 106, char_box_y + 24, 1, 1, pack_color(1.0, 0.35, 0.35));
             let hp_ratio = (player.health / 20.0).clamp(0.0, 1.0);
-            fill_rect(buffer, width, height, char_box_x + 85, char_box_y + 36, 85, 4, pack_color(0.25, 0.05, 0.05));
-            fill_rect(buffer, width, height, char_box_x + 85, char_box_y + 36, (85.0 * hp_ratio) as i32, 4, pack_color(0.9, 0.2, 0.2));
+            fill_rect(buffer, width, height, char_box_x + 106, char_box_y + 36, 72, 4, pack_color(0.25, 0.05, 0.05));
+            fill_rect(buffer, width, height, char_box_x + 106, char_box_y + 36, (72.0 * hp_ratio) as i32, 4, pack_color(0.9, 0.2, 0.2));
 
             let hunger_text = format!("HUNGER: {}/20", player.hunger as i32);
-            draw_text_colored_shadowed(buffer, width, height, &hunger_text, char_box_x + 85, char_box_y + 46, 1, 1, pack_color(1.0, 0.65, 0.2));
+            draw_text_colored_shadowed(buffer, width, height, &hunger_text, char_box_x + 106, char_box_y + 46, 1, 1, pack_color(1.0, 0.65, 0.2));
             let hunger_ratio = (player.hunger / player.max_hunger.max(1.0)).clamp(0.0, 1.0);
-            fill_rect(buffer, width, height, char_box_x + 85, char_box_y + 58, 85, 4, pack_color(0.25, 0.15, 0.05));
-            fill_rect(buffer, width, height, char_box_x + 85, char_box_y + 58, (85.0 * hunger_ratio) as i32, 4, pack_color(0.9, 0.55, 0.15));
+            fill_rect(buffer, width, height, char_box_x + 106, char_box_y + 58, 72, 4, pack_color(0.25, 0.15, 0.05));
+            fill_rect(buffer, width, height, char_box_x + 106, char_box_y + 58, (72.0 * hunger_ratio) as i32, 4, pack_color(0.9, 0.55, 0.15));
 
-            if player.fire_timer > 0.0 {
-                draw_text_colored_shadowed(buffer, width, height, "BURNING!", char_box_x + 85, char_box_y + 70, 1, 1, pack_color(1.0, 0.5, 0.1));
+            let def = player.armor_defense_points();
+            if def > 0.0 {
+                let def_text = format!("ARMOR: {:.0}", def);
+                draw_text_colored_shadowed(buffer, width, height, &def_text, char_box_x + 106, char_box_y + 68, 1, 1, pack_color(0.8, 0.85, 0.95));
+            } else if player.fire_timer > 0.0 {
+                draw_text_colored_shadowed(buffer, width, height, "BURNING!", char_box_x + 106, char_box_y + 70, 1, 1, pack_color(1.0, 0.5, 0.1));
             } else {
-                draw_text_colored_shadowed(buffer, width, height, "STATUS: OK", char_box_x + 85, char_box_y + 70, 1, 1, pack_color(0.4, 0.85, 0.4));
+                draw_text_colored_shadowed(buffer, width, height, "STATUS: OK", char_box_x + 106, char_box_y + 70, 1, 1, pack_color(0.4, 0.85, 0.4));
             }
 
             // 2x2 Crafting inset panel
@@ -1386,6 +1597,8 @@ pub fn draw_inventory_screen(
             InventorySlotTarget::Main(i) => hovered_item_name = player.inventory.main[i].map(|s| (s.block.display_name().to_string(), s.count)),
             InventorySlotTarget::Crafting2x2(i) => hovered_item_name = player.inventory.crafting_2x2[i].map(|s| (s.block.display_name().to_string(), s.count)),
             InventorySlotTarget::Crafting3x3(i) => hovered_item_name = player.inventory.crafting_3x3[i].map(|s| (s.block.display_name().to_string(), s.count)),
+            InventorySlotTarget::Armor(i) => hovered_item_name = player.inventory.armor[i].map(|s| (s.block.display_name().to_string(), s.count)),
+            InventorySlotTarget::Offhand => hovered_item_name = player.inventory.offhand.map(|s| (s.block.display_name().to_string(), s.count)),
             InventorySlotTarget::CraftingOutput => {
                 let res = if crafting_table_open {
                     recipes.match_grid(&player.inventory.crafting_3x3, 3, 3)
@@ -2734,6 +2947,366 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                 let x2 = 9 + ((14 - y) % 2);
                 px(buffer, x2, y, leaf2);
                 px(buffer, x2 + 1, y, dark);
+            }
+        }
+        BlockId::Leather => {
+            let outline = pack_color(0.26, 0.14, 0.06);
+            let base = pack_color(0.62, 0.36, 0.16);
+            let hi = pack_color(0.76, 0.48, 0.24);
+            let sh = pack_color(0.44, 0.22, 0.08);
+
+            // Tanned animal hide shape
+            for ly in 3..=13 {
+                for lx in 3..=13 {
+                    let in_hide = match ly {
+                        3 => lx >= 6 && lx <= 10,
+                        4 => lx >= 4 && lx <= 12,
+                        5 | 6 => lx >= 3 && lx <= 13 && lx != 8,
+                        7..=9 => lx >= 4 && lx <= 12,
+                        10 | 11 => lx >= 3 && lx <= 13,
+                        12 => lx >= 4 && lx <= 12 && lx != 8,
+                        13 => (lx >= 4 && lx <= 6) || (lx >= 10 && lx <= 12),
+                        _ => false,
+                    };
+                    if in_hide {
+                        let is_edge = lx == 3 || lx == 13 || ly == 3 || ly == 13;
+                        if is_edge {
+                            px(buffer, lx, ly, outline);
+                        } else if lx <= 6 && ly <= 7 {
+                            px(buffer, lx, ly, hi);
+                        } else if lx >= 10 || ly >= 11 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+        }
+        BlockId::LeatherHelmet | BlockId::IronHelmet | BlockId::GoldHelmet | BlockId::DiamondHelmet => {
+            let (glint, hi, base, sh, outline) = match block {
+                BlockId::LeatherHelmet => (
+                    pack_color(0.76, 0.50, 0.28),
+                    pack_color(0.65, 0.40, 0.20),
+                    pack_color(0.52, 0.30, 0.14),
+                    pack_color(0.36, 0.18, 0.06),
+                    pack_color(0.22, 0.10, 0.04),
+                ),
+                BlockId::IronHelmet => (
+                    pack_color(1.0, 1.0, 1.0),
+                    pack_color(0.95, 0.96, 0.98),
+                    pack_color(0.80, 0.82, 0.86),
+                    pack_color(0.52, 0.55, 0.60),
+                    pack_color(0.24, 0.25, 0.28),
+                ),
+                BlockId::GoldHelmet => (
+                    pack_color(1.0, 1.0, 0.7),
+                    pack_color(1.00, 0.95, 0.45),
+                    pack_color(0.92, 0.78, 0.18),
+                    pack_color(0.68, 0.52, 0.08),
+                    pack_color(0.38, 0.28, 0.04),
+                ),
+                _ => (
+                    pack_color(0.88, 1.0, 1.0),
+                    pack_color(0.65, 0.98, 0.98),
+                    pack_color(0.25, 0.82, 0.85),
+                    pack_color(0.12, 0.52, 0.56),
+                    pack_color(0.06, 0.30, 0.34),
+                ),
+            };
+
+            for ly in 3..=12 {
+                for lx in 3..=12 {
+                    let in_helm = match ly {
+                        3 => lx >= 6 && lx <= 9,
+                        4 => lx >= 4 && lx <= 11,
+                        5..=8 => lx >= 3 && lx <= 12,
+                        9..=11 => (lx >= 3 && lx <= 5) || (lx >= 10 && lx <= 12) || (lx >= 7 && lx <= 8 && ly == 9),
+                        12 => (lx >= 3 && lx <= 5) || (lx >= 10 && lx <= 12),
+                        _ => false,
+                    };
+                    if in_helm {
+                        let is_rim = ly == 3 || (ly == 4 && (lx == 4 || lx == 11)) || (lx == 3 || lx == 12) || ly == 12 || (ly == 8 && lx >= 6 && lx <= 9);
+                        if is_rim {
+                            px(buffer, lx, ly, outline);
+                        } else if lx <= 5 && ly <= 6 {
+                            px(buffer, lx, ly, if lx == 4 && ly == 4 { glint } else { hi });
+                        } else if lx >= 9 || ly >= 10 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+        }
+        BlockId::LeatherChestplate | BlockId::IronChestplate | BlockId::GoldChestplate | BlockId::DiamondChestplate => {
+            let (glint, hi, base, sh, outline) = match block {
+                BlockId::LeatherChestplate => (
+                    pack_color(0.76, 0.50, 0.28),
+                    pack_color(0.65, 0.40, 0.20),
+                    pack_color(0.52, 0.30, 0.14),
+                    pack_color(0.36, 0.18, 0.06),
+                    pack_color(0.22, 0.10, 0.04),
+                ),
+                BlockId::IronChestplate => (
+                    pack_color(1.0, 1.0, 1.0),
+                    pack_color(0.95, 0.96, 0.98),
+                    pack_color(0.80, 0.82, 0.86),
+                    pack_color(0.52, 0.55, 0.60),
+                    pack_color(0.24, 0.25, 0.28),
+                ),
+                BlockId::GoldChestplate => (
+                    pack_color(1.0, 1.0, 0.7),
+                    pack_color(1.00, 0.95, 0.45),
+                    pack_color(0.92, 0.78, 0.18),
+                    pack_color(0.68, 0.52, 0.08),
+                    pack_color(0.38, 0.28, 0.04),
+                ),
+                _ => (
+                    pack_color(0.88, 1.0, 1.0),
+                    pack_color(0.65, 0.98, 0.98),
+                    pack_color(0.25, 0.82, 0.85),
+                    pack_color(0.12, 0.52, 0.56),
+                    pack_color(0.06, 0.30, 0.34),
+                ),
+            };
+
+            for ly in 2..=14 {
+                for lx in 2..=13 {
+                    let in_chest = match ly {
+                        2 => (lx >= 3 && lx <= 5) || (lx >= 10 && lx <= 12),
+                        3..=4 => (lx >= 2 && lx <= 5) || (lx >= 10 && lx <= 13),
+                        5..=10 => lx >= 2 && lx <= 13,
+                        11..=13 => lx >= 4 && lx <= 11,
+                        14 => lx >= 5 && lx <= 10,
+                        _ => false,
+                    };
+                    if in_chest {
+                        let is_rim = ly == 2 || ly == 14 || lx == 2 || lx == 13 || (ly >= 11 && (lx == 4 || lx == 11)) || (ly <= 4 && (lx == 5 || lx == 10));
+                        if is_rim {
+                            px(buffer, lx, ly, outline);
+                        } else if lx <= 6 && ly <= 6 {
+                            px(buffer, lx, ly, if lx <= 4 && ly <= 3 { glint } else { hi });
+                        } else if lx >= 9 || ly >= 10 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+        }
+        BlockId::LeatherLeggings | BlockId::IronLeggings | BlockId::GoldLeggings | BlockId::DiamondLeggings => {
+            let (glint, hi, base, sh, outline) = match block {
+                BlockId::LeatherLeggings => (
+                    pack_color(0.76, 0.50, 0.28),
+                    pack_color(0.65, 0.40, 0.20),
+                    pack_color(0.52, 0.30, 0.14),
+                    pack_color(0.36, 0.18, 0.06),
+                    pack_color(0.22, 0.10, 0.04),
+                ),
+                BlockId::IronLeggings => (
+                    pack_color(1.0, 1.0, 1.0),
+                    pack_color(0.95, 0.96, 0.98),
+                    pack_color(0.80, 0.82, 0.86),
+                    pack_color(0.52, 0.55, 0.60),
+                    pack_color(0.24, 0.25, 0.28),
+                ),
+                BlockId::GoldLeggings => (
+                    pack_color(1.0, 1.0, 0.7),
+                    pack_color(1.00, 0.95, 0.45),
+                    pack_color(0.92, 0.78, 0.18),
+                    pack_color(0.68, 0.52, 0.08),
+                    pack_color(0.38, 0.28, 0.04),
+                ),
+                _ => (
+                    pack_color(0.88, 1.0, 1.0),
+                    pack_color(0.65, 0.98, 0.98),
+                    pack_color(0.25, 0.82, 0.85),
+                    pack_color(0.12, 0.52, 0.56),
+                    pack_color(0.06, 0.30, 0.34),
+                ),
+            };
+
+            for ly in 2..=14 {
+                for lx in 3..=12 {
+                    let in_legs = match ly {
+                        2..=5 => lx >= 3 && lx <= 12,
+                        6..=14 => (lx >= 3 && lx <= 6) || (lx >= 9 && lx <= 12),
+                        _ => false,
+                    };
+                    if in_legs {
+                        let is_rim = ly == 2 || ly == 14 || lx == 3 || lx == 12 || (ly >= 6 && (lx == 6 || lx == 9)) || (ly == 5 && lx >= 7 && lx <= 8);
+                        if is_rim {
+                            px(buffer, lx, ly, outline);
+                        } else if lx <= 5 && ly <= 5 {
+                            px(buffer, lx, ly, if lx == 4 && ly == 3 { glint } else { hi });
+                        } else if lx >= 10 || ly >= 10 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+        }
+        BlockId::LeatherBoots | BlockId::IronBoots | BlockId::GoldBoots | BlockId::DiamondBoots => {
+            let (glint, hi, base, sh, outline) = match block {
+                BlockId::LeatherBoots => (
+                    pack_color(0.76, 0.50, 0.28),
+                    pack_color(0.65, 0.40, 0.20),
+                    pack_color(0.52, 0.30, 0.14),
+                    pack_color(0.36, 0.18, 0.06),
+                    pack_color(0.22, 0.10, 0.04),
+                ),
+                BlockId::IronBoots => (
+                    pack_color(1.0, 1.0, 1.0),
+                    pack_color(0.95, 0.96, 0.98),
+                    pack_color(0.80, 0.82, 0.86),
+                    pack_color(0.52, 0.55, 0.60),
+                    pack_color(0.24, 0.25, 0.28),
+                ),
+                BlockId::GoldBoots => (
+                    pack_color(1.0, 1.0, 0.7),
+                    pack_color(1.00, 0.95, 0.45),
+                    pack_color(0.92, 0.78, 0.18),
+                    pack_color(0.68, 0.52, 0.08),
+                    pack_color(0.38, 0.28, 0.04),
+                ),
+                _ => (
+                    pack_color(0.88, 1.0, 1.0),
+                    pack_color(0.65, 0.98, 0.98),
+                    pack_color(0.25, 0.82, 0.85),
+                    pack_color(0.12, 0.52, 0.56),
+                    pack_color(0.06, 0.30, 0.34),
+                ),
+            };
+
+            for ly in 6..=14 {
+                // Left boot
+                for lx in 2..=6 {
+                    let in_boot = match ly {
+                        6..=9 => lx >= 3 && lx <= 6,
+                        10..=13 => lx >= 2 && lx <= 6,
+                        14 => lx >= 2 && lx <= 6,
+                        _ => false,
+                    };
+                    if in_boot {
+                        let is_rim = ly == 6 || ly == 14 || lx == 2 || lx == 6 || (ly <= 9 && lx == 3);
+                        if is_rim {
+                            px(buffer, lx, ly, outline);
+                        } else if lx <= 4 && ly <= 8 {
+                            px(buffer, lx, ly, if lx == 3 && ly == 7 { glint } else { hi });
+                        } else if lx >= 5 || ly >= 12 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+                // Right boot
+                for lx in 9..=13 {
+                    let in_boot = match ly {
+                        6..=9 => lx >= 9 && lx <= 12,
+                        10..=13 => lx >= 9 && lx <= 13,
+                        14 => lx >= 9 && lx <= 13,
+                        _ => false,
+                    };
+                    if in_boot {
+                        let is_rim = ly == 6 || ly == 14 || lx == 9 || lx == 13 || (ly <= 9 && lx == 12);
+                        if is_rim {
+                            px(buffer, lx, ly, outline);
+                        } else if lx <= 10 && ly <= 8 {
+                            px(buffer, lx, ly, hi);
+                        } else if lx >= 12 || ly >= 12 {
+                            px(buffer, lx, ly, sh);
+                        } else {
+                            px(buffer, lx, ly, base);
+                        }
+                    }
+                }
+            }
+        }
+        BlockId::Bow => {
+            let stave = wood_mid;
+            let stave_hi = wood_light;
+            let stave_sh = wood_dark;
+            let string = pack_color(0.92, 0.92, 0.94);
+
+            let stave_pts = [
+                (13, 2), (12, 2), (11, 3), (9, 4), (7, 6), (6, 7), (4, 9), (3, 11), (2, 12), (2, 13)
+            ];
+            for &(sx, sy) in &stave_pts {
+                px(buffer, sx, sy, stave);
+                px(buffer, sx - 1, sy, stave_hi);
+                px(buffer, sx, sy + 1, stave_sh);
+            }
+            for i in 2..=13 {
+                px(buffer, i, i, string);
+            }
+        }
+        BlockId::Arrow => {
+            let flint = pack_color(0.40, 0.40, 0.44);
+            let flint_hi = pack_color(0.65, 0.65, 0.70);
+            let shaft = wood_mid;
+            let feather = pack_color(0.95, 0.95, 0.98);
+            let feather_sh = pack_color(0.70, 0.70, 0.75);
+
+            px(buffer, 14, 1, flint_hi);
+            px(buffer, 13, 2, flint);
+            px(buffer, 14, 2, flint);
+            px(buffer, 13, 1, flint_hi);
+            px(buffer, 12, 3, flint);
+            px(buffer, 13, 3, flint);
+
+            for i in 4..=11 {
+                px(buffer, 15 - i, i, shaft);
+            }
+
+            px(buffer, 3, 12, feather);
+            px(buffer, 2, 13, feather);
+            px(buffer, 4, 13, feather_sh);
+            px(buffer, 2, 11, feather);
+            px(buffer, 1, 12, feather_sh);
+            px(buffer, 1, 14, feather);
+        }
+        BlockId::Shield => {
+            let iron_rim = pack_color(0.78, 0.80, 0.84);
+            let iron_hi = pack_color(0.95, 0.95, 0.98);
+            let iron_sh = pack_color(0.42, 0.44, 0.48);
+            let plank_light = pack_color(0.68, 0.48, 0.28);
+            let plank_dark = pack_color(0.48, 0.32, 0.16);
+
+            for ly in 2..=14 {
+                for lx in 3..=12 {
+                    let in_shield = match ly {
+                        2 => lx >= 4 && lx <= 11,
+                        3..=9 => lx >= 3 && lx <= 12,
+                        10..=11 => lx >= 4 && lx <= 11,
+                        12..=13 => lx >= 5 && lx <= 10,
+                        14 => lx >= 6 && lx <= 9,
+                        _ => false,
+                    };
+                    if in_shield {
+                        let is_rim = ly == 2 || ly == 14 || lx == 3 || lx == 12 || (ly >= 10 && (lx == 4 || lx == 11)) || (ly >= 12 && (lx == 5 || lx == 10));
+                        if is_rim {
+                            if lx <= 5 || ly <= 3 {
+                                px(buffer, lx, ly, iron_hi);
+                            } else if lx >= 10 || ly >= 12 {
+                                px(buffer, lx, ly, iron_sh);
+                            } else {
+                                px(buffer, lx, ly, iron_rim);
+                            }
+                        } else if (lx == 7 || lx == 8) && (ly == 7 || ly == 8) {
+                            px(buffer, lx, ly, iron_hi);
+                        } else if (lx + ly) % 2 == 0 {
+                            px(buffer, lx, ly, plank_light);
+                        } else {
+                            px(buffer, lx, ly, plank_dark);
+                        }
+                    }
+                }
             }
         }
         _ => {

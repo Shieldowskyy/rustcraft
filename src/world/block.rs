@@ -297,8 +297,68 @@ pub enum BlockId {
     Obsidian,
     /// Bookshelf block crafted from wood planks and wheat
     Bookshelf,
-    /// Custom modded block or item (ID 163..=255)
+    /// Leather material item dropped by cows
+    Leather,
+    /// Leather helmet
+    LeatherHelmet,
+    /// Leather chestplate / tunic
+    LeatherChestplate,
+    /// Leather leggings / pants
+    LeatherLeggings,
+    /// Leather boots
+    LeatherBoots,
+    /// Iron helmet
+    IronHelmet,
+    /// Iron chestplate
+    IronChestplate,
+    /// Iron leggings
+    IronLeggings,
+    /// Iron boots
+    IronBoots,
+    /// Gold helmet
+    GoldHelmet,
+    /// Gold chestplate
+    GoldChestplate,
+    /// Gold leggings
+    GoldLeggings,
+    /// Gold boots
+    GoldBoots,
+    /// Diamond helmet
+    DiamondHelmet,
+    /// Diamond chestplate
+    DiamondChestplate,
+    /// Diamond leggings
+    DiamondLeggings,
+    /// Diamond boots
+    DiamondBoots,
+    /// Bow ranged weapon
+    Bow,
+    /// Arrow ammunition projectile
+    Arrow,
+    /// Shield defensive equipment for blocking attacks
+    Shield,
+    /// Custom modded block or item (ID 183..=255)
     Custom(u8),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum ArmorSlot {
+    Helmet = 0,
+    Chestplate = 1,
+    Leggings = 2,
+    Boots = 3,
+}
+
+impl ArmorSlot {
+    #[inline(always)]
+    pub fn from_index(idx: usize) -> Self {
+        match idx {
+            0 => ArmorSlot::Helmet,
+            1 => ArmorSlot::Chestplate,
+            2 => ArmorSlot::Leggings,
+            _ => ArmorSlot::Boots,
+        }
+    }
 }
 
 impl BlockId {
@@ -466,7 +526,27 @@ impl BlockId {
             160 => BlockId::SmoothStone,
             161 => BlockId::Obsidian,
             162 => BlockId::Bookshelf,
-            v if v >= 163 => BlockId::Custom(v),
+            163 => BlockId::Leather,
+            164 => BlockId::LeatherHelmet,
+            165 => BlockId::LeatherChestplate,
+            166 => BlockId::LeatherLeggings,
+            167 => BlockId::LeatherBoots,
+            168 => BlockId::IronHelmet,
+            169 => BlockId::IronChestplate,
+            170 => BlockId::IronLeggings,
+            171 => BlockId::IronBoots,
+            172 => BlockId::GoldHelmet,
+            173 => BlockId::GoldChestplate,
+            174 => BlockId::GoldLeggings,
+            175 => BlockId::GoldBoots,
+            176 => BlockId::DiamondHelmet,
+            177 => BlockId::DiamondChestplate,
+            178 => BlockId::DiamondLeggings,
+            179 => BlockId::DiamondBoots,
+            180 => BlockId::Bow,
+            181 => BlockId::Arrow,
+            182 => BlockId::Shield,
+            v if v >= 183 => BlockId::Custom(v),
             _ => BlockId::Air,
         }
     }
@@ -636,6 +716,26 @@ impl BlockId {
             BlockId::SmoothStone => 160,
             BlockId::Obsidian => 161,
             BlockId::Bookshelf => 162,
+            BlockId::Leather => 163,
+            BlockId::LeatherHelmet => 164,
+            BlockId::LeatherChestplate => 165,
+            BlockId::LeatherLeggings => 166,
+            BlockId::LeatherBoots => 167,
+            BlockId::IronHelmet => 168,
+            BlockId::IronChestplate => 169,
+            BlockId::IronLeggings => 170,
+            BlockId::IronBoots => 171,
+            BlockId::GoldHelmet => 172,
+            BlockId::GoldChestplate => 173,
+            BlockId::GoldLeggings => 174,
+            BlockId::GoldBoots => 175,
+            BlockId::DiamondHelmet => 176,
+            BlockId::DiamondChestplate => 177,
+            BlockId::DiamondLeggings => 178,
+            BlockId::DiamondBoots => 179,
+            BlockId::Bow => 180,
+            BlockId::Arrow => 181,
+            BlockId::Shield => 182,
             BlockId::Custom(id) => id,
         }
     }
@@ -812,6 +912,26 @@ impl BlockId {
                     | BlockId::ClayBall
                     | BlockId::Brick
                     | BlockId::Flint
+                    | BlockId::Leather
+                    | BlockId::LeatherHelmet
+                    | BlockId::LeatherChestplate
+                    | BlockId::LeatherLeggings
+                    | BlockId::LeatherBoots
+                    | BlockId::IronHelmet
+                    | BlockId::IronChestplate
+                    | BlockId::IronLeggings
+                    | BlockId::IronBoots
+                    | BlockId::GoldHelmet
+                    | BlockId::GoldChestplate
+                    | BlockId::GoldLeggings
+                    | BlockId::GoldBoots
+                    | BlockId::DiamondHelmet
+                    | BlockId::DiamondChestplate
+                    | BlockId::DiamondLeggings
+                    | BlockId::DiamondBoots
+                    | BlockId::Bow
+                    | BlockId::Arrow
+                    | BlockId::Shield
             ),
         }
     }
@@ -947,6 +1067,9 @@ impl BlockId {
                 } else if id == 141 || id == 142 {
                     // EmeraldOre (141) and EmeraldBlock (142) are solid blocks
                     true
+                } else if id >= 163 && id <= 182 {
+                    // Leather, Armor, Bow, Arrow, Shield are non-solid items
+                    false
                 } else {
                     true
                 }
@@ -1369,6 +1492,8 @@ impl BlockId {
                         | BlockId::SandstoneSlab
                 ) {
                     true
+                } else if id >= 163 && id <= 182 {
+                    true
                 } else {
                     false
                 }
@@ -1541,6 +1666,26 @@ impl BlockId {
             BlockId::SmoothStone => "gladki kamien",
             BlockId::Obsidian => "obsydian",
             BlockId::Bookshelf => "biblioteczka",
+            BlockId::Leather => "skora",
+            BlockId::LeatherHelmet => "skorzany helm",
+            BlockId::LeatherChestplate => "skorzana kurtka",
+            BlockId::LeatherLeggings => "skorzane spodnie",
+            BlockId::LeatherBoots => "skorzane buty",
+            BlockId::IronHelmet => "zelazny helm",
+            BlockId::IronChestplate => "zelazna klata",
+            BlockId::IronLeggings => "zelazne spodnie",
+            BlockId::IronBoots => "zelazne buty",
+            BlockId::GoldHelmet => "zloty helm",
+            BlockId::GoldChestplate => "zlota klata",
+            BlockId::GoldLeggings => "zlote spodnie",
+            BlockId::GoldBoots => "zlote buty",
+            BlockId::DiamondHelmet => "diamentowy helm",
+            BlockId::DiamondChestplate => "diamentowy napiersnik",
+            BlockId::DiamondLeggings => "diamentowe spodnie",
+            BlockId::DiamondBoots => "diamentowe buty",
+            BlockId::Bow => "luk",
+            BlockId::Arrow => "strzala",
+            BlockId::Shield => "tarcza",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -1711,6 +1856,26 @@ impl BlockId {
             BlockId::SmoothStone => "Smooth Stone",
             BlockId::Obsidian => "Obsidian",
             BlockId::Bookshelf => "Bookshelf",
+            BlockId::Leather => "Leather",
+            BlockId::LeatherHelmet => "Leather Cap",
+            BlockId::LeatherChestplate => "Leather Tunic",
+            BlockId::LeatherLeggings => "Leather Pants",
+            BlockId::LeatherBoots => "Leather Boots",
+            BlockId::IronHelmet => "Iron Helmet",
+            BlockId::IronChestplate => "Iron Chestplate",
+            BlockId::IronLeggings => "Iron Leggings",
+            BlockId::IronBoots => "Iron Boots",
+            BlockId::GoldHelmet => "Golden Helmet",
+            BlockId::GoldChestplate => "Golden Chestplate",
+            BlockId::GoldLeggings => "Golden Leggings",
+            BlockId::GoldBoots => "Golden Boots",
+            BlockId::DiamondHelmet => "Diamond Helmet",
+            BlockId::DiamondChestplate => "Diamond Chestplate",
+            BlockId::DiamondLeggings => "Diamond Leggings",
+            BlockId::DiamondBoots => "Diamond Boots",
+            BlockId::Bow => "Bow",
+            BlockId::Arrow => "Arrow",
+            BlockId::Shield => "Shield",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -1891,9 +2056,71 @@ impl BlockId {
                 Face::Top | Face::Bottom => [0.55, 0.42, 0.25],
                 _ => [0.45, 0.35, 0.25],
             },
+            BlockId::Leather => [0.65, 0.42, 0.22],
+            BlockId::LeatherHelmet | BlockId::LeatherChestplate | BlockId::LeatherLeggings | BlockId::LeatherBoots => [0.62, 0.38, 0.20],
+            BlockId::IronHelmet | BlockId::IronChestplate | BlockId::IronLeggings | BlockId::IronBoots => [0.85, 0.85, 0.88],
+            BlockId::GoldHelmet | BlockId::GoldChestplate | BlockId::GoldLeggings | BlockId::GoldBoots => [0.95, 0.85, 0.25],
+            BlockId::DiamondHelmet | BlockId::DiamondChestplate | BlockId::DiamondLeggings | BlockId::DiamondBoots => [0.25, 0.90, 0.95],
+            BlockId::Bow => [0.55, 0.38, 0.18],
+            BlockId::Arrow => [0.75, 0.75, 0.72],
+            BlockId::Shield => [0.60, 0.45, 0.25],
             BlockId::Custom(id) => crate::engine::modding::get_custom_face_color(id, face),
             BlockId::Air => [0.0, 0.0, 0.0],
         }
+    }
+
+    #[inline(always)]
+    pub fn armor_slot(self) -> Option<ArmorSlot> {
+        match self {
+            BlockId::LeatherHelmet | BlockId::IronHelmet | BlockId::GoldHelmet | BlockId::DiamondHelmet => Some(ArmorSlot::Helmet),
+            BlockId::LeatherChestplate | BlockId::IronChestplate | BlockId::GoldChestplate | BlockId::DiamondChestplate => Some(ArmorSlot::Chestplate),
+            BlockId::LeatherLeggings | BlockId::IronLeggings | BlockId::GoldLeggings | BlockId::DiamondLeggings => Some(ArmorSlot::Leggings),
+            BlockId::LeatherBoots | BlockId::IronBoots | BlockId::GoldBoots | BlockId::DiamondBoots => Some(ArmorSlot::Boots),
+            _ => None,
+        }
+    }
+
+    #[inline(always)]
+    pub fn armor_defense(self) -> f32 {
+        match self {
+            BlockId::LeatherHelmet => 1.0,
+            BlockId::LeatherChestplate => 3.0,
+            BlockId::LeatherLeggings => 2.0,
+            BlockId::LeatherBoots => 1.0,
+            BlockId::GoldHelmet => 2.0,
+            BlockId::GoldChestplate => 5.0,
+            BlockId::GoldLeggings => 3.0,
+            BlockId::GoldBoots => 1.0,
+            BlockId::IronHelmet => 2.0,
+            BlockId::IronChestplate => 6.0,
+            BlockId::IronLeggings => 5.0,
+            BlockId::IronBoots => 2.0,
+            BlockId::DiamondHelmet => 3.0,
+            BlockId::DiamondChestplate => 8.0,
+            BlockId::DiamondLeggings => 6.0,
+            BlockId::DiamondBoots => 3.0,
+            _ => 0.0,
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_armor(self) -> bool {
+        self.armor_slot().is_some()
+    }
+
+    #[inline(always)]
+    pub fn is_shield(self) -> bool {
+        matches!(self, BlockId::Shield)
+    }
+
+    #[inline(always)]
+    pub fn is_bow(self) -> bool {
+        matches!(self, BlockId::Bow)
+    }
+
+    #[inline(always)]
+    pub fn is_arrow(self) -> bool {
+        matches!(self, BlockId::Arrow)
     }
 
     /// Which procedural texture to use for a given face of this block.
@@ -2160,16 +2387,26 @@ mod tests {
     #[test]
     fn test_new_blocks_and_tools() {
         // Roundtrip u8
-        for id in 0..=162u8 {
+        for id in 0..=182u8 {
             let block = BlockId::from_u8(id);
             assert_eq!(block.to_u8(), id);
             // Verify is_solid and is_transparent don't panic on u128 masks
             let _ = block.is_solid();
             let _ = block.is_transparent();
         }
-        let custom = BlockId::from_u8(163);
-        assert_eq!(custom, BlockId::Custom(163));
-        assert_eq!(custom.to_u8(), 163);
+        let custom = BlockId::from_u8(183);
+        assert_eq!(custom, BlockId::Custom(183));
+        assert_eq!(custom.to_u8(), 183);
+
+        // Armor and combat item properties
+        assert_eq!(BlockId::DiamondChestplate.armor_defense(), 8.0);
+        assert_eq!(BlockId::DiamondChestplate.armor_slot(), Some(ArmorSlot::Chestplate));
+        assert!(BlockId::DiamondChestplate.is_armor());
+        assert!(!BlockId::DiamondChestplate.is_solid());
+        assert!(!BlockId::DiamondChestplate.is_placeable());
+        assert!(BlockId::Shield.is_shield());
+        assert!(BlockId::Bow.is_bow());
+        assert!(BlockId::Arrow.is_arrow());
 
         // New building blocks and materials properties
         assert!(BlockId::Clay.is_solid());

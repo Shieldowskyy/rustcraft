@@ -142,6 +142,12 @@ pub enum SoundId {
     Rain,
     ThunderClose,
     ThunderDistant,
+
+    // Combat, Ranged & Defense
+    BowShoot,
+    BowHit,
+    ShieldBlock,
+    ArmorEquip,
 }
 
 impl SoundId {
@@ -223,7 +229,11 @@ impl SoundId {
             | SoundId::FishingCast
             | SoundId::FishingReel
             | SoundId::FishCatch
-            | SoundId::StepWoodCreak => SoundCategory::Sfx,
+            | SoundId::StepWoodCreak
+            | SoundId::BowShoot
+            | SoundId::BowHit
+            | SoundId::ShieldBlock
+            | SoundId::ArmorEquip => SoundCategory::Sfx,
 
             SoundId::UiClick | SoundId::UiHover => SoundCategory::Ui,
 

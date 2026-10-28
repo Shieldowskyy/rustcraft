@@ -271,6 +271,10 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::Rain => 708,
         SoundId::ThunderClose => 709,
         SoundId::ThunderDistant => 710,
+        SoundId::BowShoot => 711,
+        SoundId::BowHit => 712,
+        SoundId::ShieldBlock => 713,
+        SoundId::ArmorEquip => 714,
     });
 
     let samples = match id {
@@ -375,6 +379,10 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::Rain => synth_rain_ambient(&mut rng, sr, 3.8, 0.50),
         SoundId::ThunderClose => synth_thunder(&mut rng, sr, true, 0.90),
         SoundId::ThunderDistant => synth_thunder(&mut rng, sr, false, 0.80),
+        SoundId::BowShoot => synth_bow_shoot(&mut rng, sr, 0.22, 0.90),
+        SoundId::BowHit => synth_bow_hit(&mut rng, sr, 0.12, 0.95),
+        SoundId::ShieldBlock => synth_shield_block(&mut rng, sr, 0.28, 0.95),
+        SoundId::ArmorEquip => synth_armor_equip(&mut rng, sr, 0.25, 0.90),
     };
 
     SoundSample::new(samples, sample_rate, 1) // Mono procedural source for 3D spatial panning
@@ -2344,4 +2352,99 @@ fn synth_thunder(rng: &mut FastRng, sr: f32, is_close: bool, volume: f32) -> Vec
     normalize_and_scale(&mut out, volume);
     out
 }
+
+/// Synthesizes Minecraft-style bow string release: fast frequency drop twang + noise whoosh.
+fn synth_bow_shoot(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration) as usize;
+    let mut out = vec![0.0f32; count];
+    let mut phase = 0.0f32;
+    let mut hp_whoosh = IirFilter::highpass(1600.0, sr);
+
+    for i in 0..count {
+        let t = i as f32 / sr;
+        let env_sine = (-t * 22.0).exp();
+        // Pitch drop from ~360 Hz to ~140 Hz
+        let freq = 140.0 + 220.0 * (-t * 30.0).exp();
+        phase += 2.0 * PI * freq / sr;
+        let sine = phase.sin() * env_sine * 0.75;
+
+        // Brief rushing whoosh of arrow leaving the bow
+        let whoosh_env = if t < 0.08 { (1.0 - t / 0.08) * 0.45 } else { 0.0 };
+        let whoosh = hp_whoosh.process(rng.next_f32()) * whoosh_env;
+
+        out[i] = (sine + whoosh) * volume;
+    }
+    out
+}
+
+/// Synthesizes arrow impact: sharp snap and wooden fleche shudder.
+fn synth_bow_hit(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration) as usize;
+    let mut out = vec![0.0f32; count];
+    let mut phase = 0.0f32;
+    let mut bp_snap = BiquadFilter::bandpass(2400.0, 3.0, sr);
+
+    for i in 0..count {
+        let t = i as f32 / sr;
+        let env_snap = (-t * 45.0).exp();
+        let snap = bp_snap.process(rng.next_f32()) * env_snap * 0.9;
+
+        // Resonant wood body click
+        let freq = 420.0 * (-t * 25.0).exp() + 180.0;
+        phase += 2.0 * PI * freq / sr;
+        let body = phase.sin() * (-t * 35.0).exp() * 0.6;
+
+        out[i] = (snap + body) * volume;
+    }
+    out
+}
+
+/// Synthesizes shield block: metallic deflection clang + solid wood dissipation.
+fn synth_shield_block(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration) as usize;
+    let mut out = vec![0.0f32; count];
+    let mut bp_metal1 = BiquadFilter::bandpass(1450.0, 5.0, sr);
+    let mut bp_metal2 = BiquadFilter::bandpass(2900.0, 6.0, sr);
+    let mut phase = 0.0f32;
+
+    for i in 0..count {
+        let t = i as f32 / sr;
+        let raw = rng.next_f32();
+        let metal_env = (-t * 16.0).exp();
+        let clang = (bp_metal1.process(raw) * 0.6 + bp_metal2.process(raw) * 0.4) * metal_env * 0.85;
+
+        // Heavy solid wood backing thump
+        let wood_env = (-t * 28.0).exp();
+        phase += 2.0 * PI * 180.0 / sr;
+        let thud = phase.sin() * wood_env * 0.6;
+
+        out[i] = (clang + thud) * volume;
+    }
+    out
+}
+
+/// Synthesizes armor equip: metallic / leather buckle clicks.
+fn synth_armor_equip(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration) as usize;
+    let mut out = vec![0.0f32; count];
+    let mut bp_clink = BiquadFilter::bandpass(3200.0, 4.0, sr);
+
+    // Three rapid micro-clinks representing buckles buckling
+    let clink_times = [0.015f32, 0.075, 0.14];
+    for &ct in &clink_times {
+        let start_idx = (ct * sr) as usize;
+        let clink_len = (0.05 * sr) as usize;
+        for j in 0..clink_len {
+            let idx = start_idx + j;
+            if idx >= count { break; }
+            let t = j as f32 / sr;
+            let env = (-t * 60.0).exp();
+            let clink = bp_clink.process(rng.next_f32()) * env * 0.7;
+            out[idx] += clink;
+        }
+    }
+    normalize_and_scale(&mut out, volume);
+    out
+}
+
 

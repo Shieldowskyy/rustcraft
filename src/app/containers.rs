@@ -84,6 +84,12 @@ impl RustCraftApp {
                         InventorySlotTarget::Main(from_idx) => {
                             std::mem::swap(&mut self.player.inventory.hotbar[i], &mut self.player.inventory.main[from_idx]);
                         }
+                        InventorySlotTarget::Armor(armor_idx) => {
+                            std::mem::swap(&mut self.player.inventory.hotbar[i], &mut self.player.inventory.armor[armor_idx]);
+                        }
+                        InventorySlotTarget::Offhand => {
+                            std::mem::swap(&mut self.player.inventory.hotbar[i], &mut self.player.inventory.offhand);
+                        }
                         _ => {}
                     }
                 }
@@ -101,23 +107,33 @@ impl RustCraftApp {
         // Handle right-click dragging across slots to distribute 1 item per slot (like Minecraft)
         if is_right_active {
             if let Some(target) = inv_hovered_target {
-                if matches!(target, InventorySlotTarget::Hotbar(_) | InventorySlotTarget::Main(_) | InventorySlotTarget::Crafting2x2(_) | InventorySlotTarget::Crafting3x3(_)) {
+                if matches!(target, InventorySlotTarget::Hotbar(_) | InventorySlotTarget::Main(_) | InventorySlotTarget::Crafting2x2(_) | InventorySlotTarget::Crafting3x3(_) | InventorySlotTarget::Armor(_) | InventorySlotTarget::Offhand) {
                     if !self.right_drag_visited.contains(&target) {
                         self.right_drag_visited.push(target);
                         match target {
                             InventorySlotTarget::Hotbar(idx) => {
-                                let slot = &mut self.player.inventory.hotbar[idx];
                                 if click_right && self.player.inventory.held_item.is_none() {
-                                    Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                    if self.player.inventory.try_auto_equip_hotbar(idx) {
+                                        self.audio.play_sound(crate::audio::SoundId::ArmorEquip, 0.85, 1.0);
+                                    } else {
+                                        let slot = &mut self.player.inventory.hotbar[idx];
+                                        Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                    }
                                 } else {
+                                    let slot = &mut self.player.inventory.hotbar[idx];
                                     Inventory::handle_slot_right_drag(slot, &mut self.player.inventory.held_item);
                                 }
                             }
                             InventorySlotTarget::Main(idx) => {
-                                let slot = &mut self.player.inventory.main[idx];
                                 if click_right && self.player.inventory.held_item.is_none() {
-                                    Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                    if self.player.inventory.try_auto_equip_main(idx) {
+                                        self.audio.play_sound(crate::audio::SoundId::ArmorEquip, 0.85, 1.0);
+                                    } else {
+                                        let slot = &mut self.player.inventory.main[idx];
+                                        Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                    }
                                 } else {
+                                    let slot = &mut self.player.inventory.main[idx];
                                     Inventory::handle_slot_right_drag(slot, &mut self.player.inventory.held_item);
                                 }
                             }
@@ -131,6 +147,21 @@ impl RustCraftApp {
                             }
                             InventorySlotTarget::Crafting3x3(idx) => {
                                 let slot = &mut self.player.inventory.crafting_3x3[idx];
+                                if click_right && self.player.inventory.held_item.is_none() {
+                                    Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
+                                } else {
+                                    Inventory::handle_slot_right_drag(slot, &mut self.player.inventory.held_item);
+                                }
+                            }
+                            InventorySlotTarget::Armor(armor_idx) => {
+                                let slot = &mut self.player.inventory.armor[armor_idx];
+                                if click_right && self.player.inventory.held_item.is_none() && slot.is_some() {
+                                    self.player.inventory.held_item = slot.take();
+                                    self.audio.play_sound(crate::audio::SoundId::ArmorEquip, 0.85, 1.0);
+                                }
+                            }
+                            InventorySlotTarget::Offhand => {
+                                let slot = &mut self.player.inventory.offhand;
                                 if click_right && self.player.inventory.held_item.is_none() {
                                     Inventory::handle_slot_right_click(slot, &mut self.player.inventory.held_item);
                                 } else {
@@ -208,6 +239,25 @@ impl RustCraftApp {
                     }
                     InventorySlotTarget::Crafting3x3(idx) => {
                         let slot = &mut self.player.inventory.crafting_3x3[idx];
+                        if click_left {
+                            Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
+                        }
+                    }
+                    InventorySlotTarget::Armor(armor_idx) => {
+                        let slot = &mut self.player.inventory.armor[armor_idx];
+                        if let Some(held) = self.player.inventory.held_item {
+                            let expected_slot = crate::world::block::ArmorSlot::from_index(armor_idx);
+                            if held.block.armor_slot() == Some(expected_slot) {
+                                std::mem::swap(slot, &mut self.player.inventory.held_item);
+                                self.audio.play_sound(crate::audio::SoundId::ArmorEquip, 0.85, 1.0);
+                            }
+                        } else if slot.is_some() {
+                            self.player.inventory.held_item = slot.take();
+                            self.audio.play_sound(crate::audio::SoundId::ArmorEquip, 0.85, 1.0);
+                        }
+                    }
+                    InventorySlotTarget::Offhand => {
+                        let slot = &mut self.player.inventory.offhand;
                         if click_left {
                             Inventory::handle_slot_left_click(slot, &mut self.player.inventory.held_item);
                         }
