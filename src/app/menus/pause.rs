@@ -2,11 +2,13 @@ use super::find_hovered_rect;
 use crate::app::{AppOutput, GameState, InputState, PreviousMenu, RustCraftApp};
 #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
 use crate::app::WorldLoadResult;
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
+use crate::gameplay::mob::MobManager;
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
+use crate::graphics::camera::Camera;
 use crate::core::controls::Action;
 use crate::core::math::Vec3;
 use crate::core::profiler::FrameProfiler;
-use crate::gameplay::mob::MobManager;
-use crate::graphics::camera::Camera;
 use crate::world::storage::{get_save_metadata, save_current_world};
 
 impl RustCraftApp {

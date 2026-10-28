@@ -262,6 +262,7 @@ impl WebGame {
 
             is_mouse_captured: is_pointer_locked,
             gp_connected: false,
+            ..Default::default()
         };
 
         let output = self.app.update_and_render(dt, &input);

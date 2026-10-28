@@ -3467,7 +3467,7 @@ fn append_mob(
             };
 
             // Main robe / body
-            let body_box = MobBox {
+            let body_box = GxmMobBox {
                 center: Vec3::new(0.0, 0.88, 0.0),
                 size: Vec3::new(0.50, 0.88, 0.38),
                 yaw,
@@ -3482,7 +3482,7 @@ fn append_mob(
             append_mob_box(&body_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
 
             // Folded arms
-            let arms_box = MobBox {
+            let arms_box = GxmMobBox {
                 center: Vec3::new(0.0, 0.98, 0.16),
                 size: Vec3::new(0.54, 0.24, 0.22),
                 yaw,
@@ -3499,7 +3499,7 @@ fn append_mob(
             // Head
             let head_pos = base_pos + Vec3::new(0.0, 1.34, 0.0);
             let head_yaw = yaw + mob.head_yaw_offset;
-            let head_box = MobBox {
+            let head_box = GxmMobBox {
                 center: Vec3::new(0.0, 0.26, 0.0),
                 size: Vec3::new(0.48, 0.52, 0.48),
                 yaw: head_yaw,
@@ -3514,7 +3514,7 @@ fn append_mob(
             append_mob_box(&head_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
 
             // 3D Villager Nose
-            let nose_box = MobBox {
+            let nose_box = GxmMobBox {
                 center: Vec3::new(0.0, 0.16, 0.28),
                 size: Vec3::new(0.12, 0.22, 0.14),
                 yaw: head_yaw,
@@ -3538,7 +3538,7 @@ fn append_mob(
                 let rotated_z = -lx * yaw.sin();
                 let leg_origin = base_pos + Vec3::new(rotated_x, 0.44, rotated_z);
 
-                let leg_box = MobBox {
+                let leg_box = GxmMobBox {
                     center: Vec3::new(0.0, -0.22, 0.0),
                     size: Vec3::new(0.20, 0.44, 0.20),
                     yaw,
@@ -3551,6 +3551,118 @@ fn append_mob(
                     tex_front: TextureId::VillagerRobe,
                 };
                 append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+            }
+        }
+        MobKind::IronGolem => {
+            // Lower torso / waist
+            let waist_box = GxmMobBox {
+                center: Vec3::new(0.0, 1.10, 0.0),
+                size: Vec3::new(0.72, 0.52, 0.46),
+                yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::IronGolemBody,
+                tex_bottom: TextureId::IronGolemBody,
+                tex_side: TextureId::IronGolemBody,
+                tex_front: TextureId::IronGolemBody,
+            };
+            append_mob_box(&waist_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            // Huge Upper Chest
+            let chest_box = GxmMobBox {
+                center: Vec3::new(0.0, 1.70, 0.0),
+                size: Vec3::new(1.16, 0.76, 0.66),
+                yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::IronGolemBody,
+                tex_bottom: TextureId::IronGolemBody,
+                tex_side: TextureId::IronGolemBody,
+                tex_front: TextureId::IronGolemBody,
+            };
+            append_mob_box(&chest_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            // Head & Nose
+            let head_pos = base_pos + Vec3::new(0.0, 2.08, 0.12);
+            let head_yaw = yaw + mob.head_yaw_offset;
+            let head_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.26, 0.0),
+                size: Vec3::new(0.52, 0.56, 0.48),
+                yaw: head_yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: head_pos,
+                tex_top: TextureId::IronGolemBody,
+                tex_bottom: TextureId::IronGolemBody,
+                tex_side: TextureId::IronGolemBody,
+                tex_front: TextureId::IronGolemHead,
+            };
+            append_mob_box(&head_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let nose_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.16, 0.28),
+                size: Vec3::new(0.12, 0.24, 0.14),
+                yaw: head_yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: head_pos,
+                tex_top: TextureId::IronGolemBody,
+                tex_bottom: TextureId::IronGolemBody,
+                tex_side: TextureId::IronGolemBody,
+                tex_front: TextureId::IronGolemBody,
+            };
+            append_mob_box(&nose_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            // Legs
+            let leg_offsets = [
+                (-0.25f32, leg_swing * 0.45),
+                (0.25f32, -leg_swing * 0.45),
+            ];
+            for &(lx, swing) in &leg_offsets {
+                let rotated_x = lx * yaw.cos();
+                let rotated_z = -lx * yaw.sin();
+                let leg_origin = base_pos + Vec3::new(rotated_x, 0.84, rotated_z);
+
+                let leg_box = GxmMobBox {
+                    center: Vec3::new(0.0, -0.42, 0.0),
+                    size: Vec3::new(0.32, 0.84, 0.32),
+                    yaw,
+                    pitch: swing,
+                    roll: roll_angle,
+                    origin: leg_origin,
+                    tex_top: TextureId::IronGolemBody,
+                    tex_bottom: TextureId::IronGolemBody,
+                    tex_side: TextureId::IronGolemBody,
+                    tex_front: TextureId::IronGolemBody,
+                };
+                append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+            }
+
+            // Arms
+            let arm_offsets = [
+                (-0.70f32, -leg_swing * 0.5),
+                (0.70f32, leg_swing * 0.5),
+            ];
+            for &(ax, swing) in &arm_offsets {
+                let rotated_x = ax * yaw.cos();
+                let rotated_z = -ax * yaw.sin();
+                let arm_origin = base_pos + Vec3::new(rotated_x, 1.95, rotated_z);
+
+                let arm_box = GxmMobBox {
+                    center: Vec3::new(0.0, -0.70, 0.0),
+                    size: Vec3::new(0.28, 1.45, 0.34),
+                    yaw,
+                    pitch: swing,
+                    roll: roll_angle,
+                    origin: arm_origin,
+                    tex_top: TextureId::IronGolemBody,
+                    tex_bottom: TextureId::IronGolemBody,
+                    tex_side: TextureId::IronGolemBody,
+                    tex_front: TextureId::IronGolemBody,
+                };
+                append_mob_box(&arm_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
             }
         }
     }
