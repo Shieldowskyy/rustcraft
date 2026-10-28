@@ -182,6 +182,24 @@ pub fn draw_slot(
             let ty = y + size - 14;
             draw_text_shadowed(framebuffer, fb_w, fb_h, &count_str, tx, ty, 1, 1);
         }
+
+        if st.block.is_damageable() && st.durability < st.block.max_durability() {
+            let ratio = st.durability_ratio();
+            let bar_w = ((size - 8) as f32 * ratio).round() as i32;
+            let bar_x = x + 4;
+            let bar_y = y + size - 5;
+            let color = if ratio > 0.6 {
+                pack_color(0.2, 0.9, 0.2)
+            } else if ratio > 0.25 {
+                pack_color(0.95, 0.75, 0.1)
+            } else {
+                pack_color(0.9, 0.2, 0.2)
+            };
+            fill_rect(framebuffer, fb_w, fb_h, bar_x, bar_y, size - 8, 2, pack_color(0.0, 0.0, 0.0));
+            if bar_w > 0 {
+                fill_rect(framebuffer, fb_w, fb_h, bar_x, bar_y, bar_w, 2, color);
+            }
+        }
     }
 }
 

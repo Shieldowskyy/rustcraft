@@ -115,6 +115,9 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::IronGolemSpawnEgg,
                 BlockId::DolphinSpawnEgg,
                 BlockId::FishSpawnEgg,
+                BlockId::SpiderSpawnEgg,
+                BlockId::StringItem,
+                BlockId::SpiderEye,
                 BlockId::Kelp,
                 BlockId::Seagrass,
                 BlockId::WhiteWool,
@@ -236,6 +239,8 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::IronGolemSpawnEgg,
                 BlockId::DolphinSpawnEgg,
                 BlockId::FishSpawnEgg,
+                BlockId::SpiderSpawnEgg,
+                BlockId::SpiderEye,
                 BlockId::FishingRod,
                 BlockId::RawCod,
                 BlockId::CookedCod,
@@ -499,6 +504,9 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::IronGolemSpawnEgg,
                 BlockId::DolphinSpawnEgg,
                 BlockId::FishSpawnEgg,
+                BlockId::SpiderSpawnEgg,
+                BlockId::StringItem,
+                BlockId::SpiderEye,
                 BlockId::FishingRod,
                 BlockId::RawCod,
                 BlockId::CookedCod,
@@ -1135,7 +1143,7 @@ pub fn draw_inventory_screen(
                     if idx < blocks.len() {
                         let block = blocks[idx];
                         let is_hovered = hovered_slot == Some(InventorySlotTarget::Creative(block.to_u8()));
-                        draw_slot_custom(buffer, width, height, x, y, 38, 38, Some(ItemStack { block, count: 64 }), is_hovered, None);
+                        draw_slot_custom(buffer, width, height, x, y, 38, 38, Some(ItemStack::new(block, 64)), is_hovered, None);
                     } else {
                         // Empty slot frame
                         draw_slot_custom(buffer, width, height, x, y, 38, 38, None, false, Some(pack_color(0.18, 0.18, 0.20)));
@@ -1727,6 +1735,24 @@ fn draw_slot_custom(
             let tx = x + w - (count_str.len() as i32 * 8) - 4;
             let ty = y + h - 11;
             draw_text_colored_shadowed(buffer, width, height, &count_str, tx, ty, 1, 1, pack_color(1.0, 1.0, 1.0));
+        }
+
+        if stack.block.is_damageable() && stack.durability < stack.block.max_durability() {
+            let ratio = stack.durability_ratio();
+            let bar_w = ((w - 8) as f32 * ratio).round() as i32;
+            let bar_x = x + 4;
+            let bar_y = y + h - 5;
+            let color = if ratio > 0.6 {
+                pack_color(0.2, 0.9, 0.2)
+            } else if ratio > 0.25 {
+                pack_color(0.95, 0.75, 0.1)
+            } else {
+                pack_color(0.9, 0.2, 0.2)
+            };
+            fill_rect(buffer, width, height, bar_x, bar_y, w - 8, 2, pack_color(0.0, 0.0, 0.0));
+            if bar_w > 0 {
+                fill_rect(buffer, width, height, bar_x, bar_y, bar_w, 2, color);
+            }
         }
     }
 }
@@ -2333,7 +2359,7 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
             px(buffer, 9, 13, iron_dark);
             px(buffer, 9, 12, iron_hi);
         }
-        BlockId::PigSpawnEgg | BlockId::CowSpawnEgg | BlockId::ChickenSpawnEgg | BlockId::SheepSpawnEgg | BlockId::DolphinSpawnEgg | BlockId::FishSpawnEgg | BlockId::VillagerSpawnEgg | BlockId::IronGolemSpawnEgg => {
+        BlockId::PigSpawnEgg | BlockId::CowSpawnEgg | BlockId::ChickenSpawnEgg | BlockId::SheepSpawnEgg | BlockId::DolphinSpawnEgg | BlockId::FishSpawnEgg | BlockId::VillagerSpawnEgg | BlockId::IronGolemSpawnEgg | BlockId::SpiderSpawnEgg => {
             let (base, spot, outline) = match block {
                 BlockId::PigSpawnEgg => (
                     pack_color(0.95, 0.62, 0.68),
@@ -2375,6 +2401,11 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                     pack_color(0.45, 0.45, 0.42),
                     pack_color(0.28, 0.28, 0.28),
                 ),
+                BlockId::SpiderSpawnEgg => (
+                    pack_color(0.20, 0.16, 0.16),
+                    pack_color(0.80, 0.12, 0.12),
+                    pack_color(0.10, 0.08, 0.08),
+                ),
                 _ => unreachable!(),
             };
 
@@ -2403,6 +2434,7 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                                 BlockId::FishSpawnEgg => (lx == 7 && ly == 5) || (lx == 8 && ly == 7) || (lx == 6 && ly == 9) || (lx == 8 && ly == 12),
                                 BlockId::VillagerSpawnEgg => (lx == 6 && ly == 6) || (lx == 8 && ly == 8) || (lx == 6 && ly == 11) || (lx == 9 && ly == 11),
                                 BlockId::IronGolemSpawnEgg => (lx == 7 && ly == 5) || (lx == 8 && ly == 8) || (lx == 6 && ly == 10) || (lx == 9 && ly == 12),
+                                BlockId::SpiderSpawnEgg => (lx == 6 && ly == 5) || (lx == 8 && ly == 8) || (lx == 5 && ly == 10) || (lx == 9 && ly == 11),
                                 _ => false,
                             };
                             if is_spot {
@@ -2414,6 +2446,46 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                     }
                 }
             }
+        }
+        BlockId::StringItem => {
+            let silk = pack_color(0.95, 0.95, 0.95);
+            let silk_dim = pack_color(0.65, 0.65, 0.68);
+            let coords = [
+                (3, 12), (4, 11), (5, 10), (6, 9), (7, 8),
+                (8, 7), (9, 6), (10, 5), (11, 4), (12, 3),
+                (5, 12), (6, 11), (7, 10), (8, 9), (9, 8),
+                (10, 7), (11, 6), (7, 6), (8, 5)
+            ];
+            for &(lx, ly) in &coords {
+                px(buffer, lx, ly, silk);
+                px(buffer, lx, ly + 1, silk_dim);
+            }
+        }
+        BlockId::SpiderEye => {
+            let red_bright = pack_color(0.92, 0.12, 0.12);
+            let red_dark = pack_color(0.55, 0.06, 0.06);
+            let highlight = pack_color(1.00, 0.70, 0.70);
+            let pupil = pack_color(0.12, 0.02, 0.02);
+            let outline = pack_color(0.28, 0.04, 0.04);
+            for ly in 3..=12 {
+                for lx in 3..=12 {
+                    let d2 = (lx as f32 - 7.5).powi(2) + (ly as f32 - 7.5).powi(2);
+                    if d2 <= 18.0 {
+                        if d2 > 13.0 {
+                            px(buffer, lx, ly, outline);
+                        } else if d2 <= 6.0 {
+                            px(buffer, lx, ly, red_bright);
+                        } else {
+                            px(buffer, lx, ly, red_dark);
+                        }
+                    }
+                }
+            }
+            px(buffer, 6, 6, highlight);
+            px(buffer, 7, 7, pupil);
+            px(buffer, 8, 7, pupil);
+            px(buffer, 7, 8, pupil);
+            px(buffer, 8, 8, pupil);
         }
         BlockId::Emerald => {
             let outline = pack_color(0.04, 0.28, 0.08);
@@ -3484,11 +3556,11 @@ mod tests {
     fn test_creative_hotbar_assignment_and_trash() {
         let mut inv = crate::gameplay::inventory::Inventory::new();
         // Place 64 grass into hotbar slot 0
-        inv.hotbar[0] = Some(ItemStack { block: BlockId::Grass, count: 64 });
-        assert_eq!(inv.hotbar[0], Some(ItemStack { block: BlockId::Grass, count: 64 }));
+        inv.hotbar[0] = Some(ItemStack::new(BlockId::Grass, 64));
+        assert_eq!(inv.hotbar[0], Some(ItemStack::new(BlockId::Grass, 64)));
 
         // Trash action: delete held item
-        inv.held_item = Some(ItemStack { block: BlockId::StonePickaxe, count: 1 });
+        inv.held_item = Some(ItemStack::new(BlockId::StonePickaxe, 1));
         inv.held_item = None;
         assert_eq!(inv.held_item, None);
 

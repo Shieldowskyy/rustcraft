@@ -148,6 +148,10 @@ pub enum SoundId {
     BowHit,
     ShieldBlock,
     ArmorEquip,
+    SpiderIdle,
+    SpiderHurt,
+    SpiderDeath,
+    ToolBreak,
 }
 
 impl SoundId {
@@ -233,7 +237,11 @@ impl SoundId {
             | SoundId::BowShoot
             | SoundId::BowHit
             | SoundId::ShieldBlock
-            | SoundId::ArmorEquip => SoundCategory::Sfx,
+            | SoundId::ArmorEquip
+            | SoundId::SpiderIdle
+            | SoundId::SpiderHurt
+            | SoundId::SpiderDeath
+            | SoundId::ToolBreak => SoundCategory::Sfx,
 
             SoundId::UiClick | SoundId::UiHover => SoundCategory::Ui,
 

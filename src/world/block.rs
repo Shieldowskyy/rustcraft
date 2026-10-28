@@ -337,7 +337,13 @@ pub enum BlockId {
     Arrow,
     /// Shield defensive equipment for blocking attacks
     Shield,
-    /// Custom modded block or item (ID 183..=255)
+    /// String material item dropped by spiders
+    StringItem,
+    /// Spider eye ingredient dropped by spiders
+    SpiderEye,
+    /// Spider spawn egg
+    SpiderSpawnEgg,
+    /// Custom modded block or item (ID 186..=255)
     Custom(u8),
 }
 
@@ -546,7 +552,10 @@ impl BlockId {
             180 => BlockId::Bow,
             181 => BlockId::Arrow,
             182 => BlockId::Shield,
-            v if v >= 183 => BlockId::Custom(v),
+            183 => BlockId::StringItem,
+            184 => BlockId::SpiderEye,
+            185 => BlockId::SpiderSpawnEgg,
+            v if v >= 186 => BlockId::Custom(v),
             _ => BlockId::Air,
         }
     }
@@ -736,6 +745,9 @@ impl BlockId {
             BlockId::Bow => 180,
             BlockId::Arrow => 181,
             BlockId::Shield => 182,
+            BlockId::StringItem => 183,
+            BlockId::SpiderEye => 184,
+            BlockId::SpiderSpawnEgg => 185,
             BlockId::Custom(id) => id,
         }
     }
@@ -932,6 +944,9 @@ impl BlockId {
                     | BlockId::Bow
                     | BlockId::Arrow
                     | BlockId::Shield
+                    | BlockId::StringItem
+                    | BlockId::SpiderEye
+                    | BlockId::SpiderSpawnEgg
             ),
         }
     }
@@ -1067,8 +1082,8 @@ impl BlockId {
                 } else if id == 141 || id == 142 {
                     // EmeraldOre (141) and EmeraldBlock (142) are solid blocks
                     true
-                } else if id >= 163 && id <= 182 {
-                    // Leather, Armor, Bow, Arrow, Shield are non-solid items
+                } else if id >= 163 && id <= 185 {
+                    // Leather, Armor, Bow, Arrow, Shield, String, SpiderEye, SpiderSpawnEgg are non-solid items
                     false
                 } else {
                     true
@@ -1087,6 +1102,7 @@ impl BlockId {
             BlockId::FishSpawnEgg => Some(crate::gameplay::mob::MobKind::Cod),
             BlockId::VillagerSpawnEgg => Some(crate::gameplay::mob::MobKind::Villager),
             BlockId::IronGolemSpawnEgg => Some(crate::gameplay::mob::MobKind::IronGolem),
+            BlockId::SpiderSpawnEgg => Some(crate::gameplay::mob::MobKind::Spider),
             _ => None,
         }
     }
@@ -1152,6 +1168,7 @@ impl BlockId {
                     | BlockId::Pufferfish
                     | BlockId::TropicalFish
                     | BlockId::DriedKelp
+                    | BlockId::SpiderEye
             ),
         }
     }
@@ -1178,6 +1195,7 @@ impl BlockId {
             BlockId::Pufferfish => Some((1.0, 0.2)),
             BlockId::TropicalFish => Some((1.0, 0.2)),
             BlockId::DriedKelp => Some((1.0, 0.6)),
+            BlockId::SpiderEye => Some((2.0, 3.2)),
             _ => None,
         }
     }
@@ -1296,6 +1314,17 @@ impl BlockId {
             BlockId::WoodenHoe | BlockId::GoldHoe => 2.0,
             _ => 1.5,
         }
+    }
+
+    pub fn is_sword(self) -> bool {
+        matches!(
+            self,
+            BlockId::WoodenSword
+                | BlockId::StoneSword
+                | BlockId::IronSword
+                | BlockId::GoldSword
+                | BlockId::DiamondSword
+        )
     }
 
     pub fn mining_speed_multiplier(tool: Option<BlockId>, target: BlockId) -> f32 {
@@ -1686,6 +1715,9 @@ impl BlockId {
             BlockId::Bow => "luk",
             BlockId::Arrow => "strzala",
             BlockId::Shield => "tarcza",
+            BlockId::StringItem => "nic",
+            BlockId::SpiderEye => "oko pajaka",
+            BlockId::SpiderSpawnEgg => "jajo przyzywajace pajaka",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -1876,6 +1908,9 @@ impl BlockId {
             BlockId::Bow => "Bow",
             BlockId::Arrow => "Arrow",
             BlockId::Shield => "Shield",
+            BlockId::StringItem => "String",
+            BlockId::SpiderEye => "Spider Eye",
+            BlockId::SpiderSpawnEgg => "Spider Spawn Egg",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -2064,6 +2099,9 @@ impl BlockId {
             BlockId::Bow => [0.55, 0.38, 0.18],
             BlockId::Arrow => [0.75, 0.75, 0.72],
             BlockId::Shield => [0.60, 0.45, 0.25],
+            BlockId::StringItem => [0.92, 0.92, 0.95],
+            BlockId::SpiderEye => [0.65, 0.12, 0.15],
+            BlockId::SpiderSpawnEgg => [0.18, 0.14, 0.14],
             BlockId::Custom(id) => crate::engine::modding::get_custom_face_color(id, face),
             BlockId::Air => [0.0, 0.0, 0.0],
         }
@@ -2116,6 +2154,44 @@ impl BlockId {
     #[inline(always)]
     pub fn is_bow(self) -> bool {
         matches!(self, BlockId::Bow)
+    }
+
+    /// Returns the maximum durability of tools, weapons, armor, bows, and shields.
+    /// Returns 0 for non-damageable items/blocks.
+    pub const fn max_durability(self) -> u16 {
+        match self {
+            BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword | BlockId::WoodenHoe => 59,
+            BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword | BlockId::StoneHoe => 131,
+            BlockId::IronPickaxe | BlockId::IronAxe | BlockId::IronShovel | BlockId::IronSword | BlockId::IronHoe => 250,
+            BlockId::GoldPickaxe | BlockId::GoldAxe | BlockId::GoldShovel | BlockId::GoldSword | BlockId::GoldHoe => 32,
+            BlockId::DiamondPickaxe | BlockId::DiamondAxe | BlockId::DiamondShovel | BlockId::DiamondSword | BlockId::DiamondHoe => 1561,
+            BlockId::Shears => 238,
+            BlockId::FishingRod => 64,
+            BlockId::Bow => 384,
+            BlockId::Shield => 336,
+            BlockId::LeatherHelmet => 55,
+            BlockId::LeatherChestplate => 80,
+            BlockId::LeatherLeggings => 75,
+            BlockId::LeatherBoots => 65,
+            BlockId::IronHelmet => 165,
+            BlockId::IronChestplate => 240,
+            BlockId::IronLeggings => 225,
+            BlockId::IronBoots => 195,
+            BlockId::GoldHelmet => 77,
+            BlockId::GoldChestplate => 112,
+            BlockId::GoldLeggings => 105,
+            BlockId::GoldBoots => 91,
+            BlockId::DiamondHelmet => 363,
+            BlockId::DiamondChestplate => 528,
+            BlockId::DiamondLeggings => 495,
+            BlockId::DiamondBoots => 429,
+            _ => 0,
+        }
+    }
+
+    #[inline(always)]
+    pub const fn is_damageable(self) -> bool {
+        self.max_durability() > 0
     }
 
     #[inline(always)]
@@ -2277,6 +2353,9 @@ impl BlockId {
             BlockId::EmeraldBlock => TextureId::EmeraldBlock,
             BlockId::VillagerSpawnEgg => TextureId::VillagerSpawnEgg,
             BlockId::IronGolemSpawnEgg => TextureId::IronGolemSpawnEgg,
+            BlockId::SpiderSpawnEgg => TextureId::SpiderSpawnEgg,
+            BlockId::StringItem => TextureId::StringItem,
+            BlockId::SpiderEye => TextureId::SpiderEye,
             BlockId::Clay => TextureId::Clay,
             BlockId::ClayBall => TextureId::ClayBall,
             BlockId::Brick => TextureId::Brick,
@@ -2387,16 +2466,16 @@ mod tests {
     #[test]
     fn test_new_blocks_and_tools() {
         // Roundtrip u8
-        for id in 0..=182u8 {
+        for id in 0..=185u8 {
             let block = BlockId::from_u8(id);
             assert_eq!(block.to_u8(), id);
             // Verify is_solid and is_transparent don't panic on u128 masks
             let _ = block.is_solid();
             let _ = block.is_transparent();
         }
-        let custom = BlockId::from_u8(183);
-        assert_eq!(custom, BlockId::Custom(183));
-        assert_eq!(custom.to_u8(), 183);
+        let custom = BlockId::from_u8(186);
+        assert_eq!(custom, BlockId::Custom(186));
+        assert_eq!(custom.to_u8(), 186);
 
         // Armor and combat item properties
         assert_eq!(BlockId::DiamondChestplate.armor_defense(), 8.0);

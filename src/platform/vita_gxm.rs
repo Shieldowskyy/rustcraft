@@ -3665,6 +3665,51 @@ fn append_mob(
                 append_mob_box(&arm_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
             }
         }
+        MobKind::Spider => {
+            let thorax_box = GxmMobBox {
+                center: Vec3::new(0.0, 0.32, 0.0),
+                size: Vec3::new(0.38, 0.32, 0.44),
+                yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: base_pos,
+                tex_top: TextureId::SpiderSkin,
+                tex_bottom: TextureId::SpiderSkin,
+                tex_side: TextureId::SpiderSkin,
+                tex_front: TextureId::SpiderSkin,
+            };
+            append_mob_box(&thorax_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let head_pos = base_pos + Vec3::new(yaw.sin() * 0.38, 0.34, yaw.cos() * 0.38);
+            let head_box = GxmMobBox {
+                center: Vec3::zero(),
+                size: Vec3::new(0.46, 0.38, 0.44),
+                yaw: yaw + mob.head_yaw_offset,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: head_pos,
+                tex_top: TextureId::SpiderSkin,
+                tex_bottom: TextureId::SpiderSkin,
+                tex_side: TextureId::SpiderSkin,
+                tex_front: TextureId::SpiderFace,
+            };
+            append_mob_box(&head_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+
+            let abdomen_pos = base_pos - Vec3::new(yaw.sin() * 0.52, -0.06, yaw.cos() * 0.52);
+            let abdomen_box = GxmMobBox {
+                center: Vec3::zero(),
+                size: Vec3::new(0.68, 0.48, 0.72),
+                yaw,
+                pitch: 0.0,
+                roll: roll_angle,
+                origin: abdomen_pos,
+                tex_top: TextureId::SpiderSkin,
+                tex_bottom: TextureId::SpiderSkin,
+                tex_side: TextureId::SpiderSkin,
+                tex_front: TextureId::SpiderSkin,
+            };
+            append_mob_box(&abdomen_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
+        }
     }
 }
 

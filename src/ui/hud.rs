@@ -541,6 +541,22 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
                 let label = format!("{}", stack.count);
                 draw_text_shadowed(buffer, width, height, &label, x + slot_size - 10, y + slot_size - 12, 1, 1);
             }
+
+            if stack.block.is_damageable() && stack.durability < stack.block.max_durability() {
+                let ratio = stack.durability_ratio();
+                let bar_w = ((slot_size - 6) as f32 * ratio).round() as i32;
+                let color = if ratio > 0.6 {
+                    pack_color(0.2, 0.9, 0.2)
+                } else if ratio > 0.25 {
+                    pack_color(0.95, 0.75, 0.1)
+                } else {
+                    pack_color(0.9, 0.2, 0.2)
+                };
+                fill_rect(buffer, width, height, x + 3, y + slot_size - 4, slot_size - 6, 2, pack_color(0.0, 0.0, 0.0));
+                if bar_w > 0 {
+                    fill_rect(buffer, width, height, x + 3, y + slot_size - 4, bar_w, 2, color);
+                }
+            }
         }
     }
 
@@ -555,6 +571,22 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
         if stack.count > 1 {
             let label = format!("{}", stack.count);
             draw_text_shadowed(buffer, width, height, &label, offhand_x + slot_size - 10, y + slot_size - 12, 1, 1);
+        }
+
+        if stack.block.is_damageable() && stack.durability < stack.block.max_durability() {
+            let ratio = stack.durability_ratio();
+            let bar_w = ((slot_size - 6) as f32 * ratio).round() as i32;
+            let color = if ratio > 0.6 {
+                pack_color(0.2, 0.9, 0.2)
+            } else if ratio > 0.25 {
+                pack_color(0.95, 0.75, 0.1)
+            } else {
+                pack_color(0.9, 0.2, 0.2)
+            };
+            fill_rect(buffer, width, height, offhand_x + 3, y + slot_size - 4, slot_size - 6, 2, pack_color(0.0, 0.0, 0.0));
+            if bar_w > 0 {
+                fill_rect(buffer, width, height, offhand_x + 3, y + slot_size - 4, bar_w, 2, color);
+            }
         }
     } else {
         // Subtle shield silhouette watermark in empty offhand slot

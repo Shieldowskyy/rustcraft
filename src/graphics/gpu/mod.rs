@@ -6,7 +6,7 @@ use crate::core::math::{Mat4, Vec3};
 use crate::graphics::atlas::{TextureAtlas, TextureId, TEX_SIZE};
 use crate::world::mesher::Triangle;
 
-pub const TEXTURE_LAYER_COUNT: u32 = 183 + 64;
+pub const TEXTURE_LAYER_COUNT: u32 = 222 + 64;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -1555,9 +1555,18 @@ impl VulkanContext {
             TextureId::Obsidian => 210,
             TextureId::BookshelfSide => 211,
             TextureId::BookshelfTop => 212,
+            TextureId::SpiderSkin => 213,
+            TextureId::SpiderFace => 214,
+            TextureId::SpiderSpawnEgg => 215,
+            TextureId::StringItem => 216,
+            TextureId::SpiderEye => 217,
+            TextureId::LeatherArmor => 218,
+            TextureId::IronArmor => 219,
+            TextureId::GoldArmor => 220,
+            TextureId::DiamondArmor => 221,
             TextureId::Custom(idx) => {
                 let clamped = if (idx as u32) > 63 { 63 } else { idx as u32 };
-                213 + clamped
+                222 + clamped
             }
         }
     }
@@ -1777,7 +1786,16 @@ impl VulkanContext {
             210 => TextureId::Obsidian,
             211 => TextureId::BookshelfSide,
             212 => TextureId::BookshelfTop,
-            l if l >= 213 && l < 213 + 64 => TextureId::Custom((l - 213) as u8),
+            213 => TextureId::SpiderSkin,
+            214 => TextureId::SpiderFace,
+            215 => TextureId::SpiderSpawnEgg,
+            216 => TextureId::StringItem,
+            217 => TextureId::SpiderEye,
+            218 => TextureId::LeatherArmor,
+            219 => TextureId::IronArmor,
+            220 => TextureId::GoldArmor,
+            221 => TextureId::DiamondArmor,
+            l if l >= 222 && l < 222 + 64 => TextureId::Custom((l - 222) as u8),
             _ => TextureId::CraftingTableFront,
         }
     }

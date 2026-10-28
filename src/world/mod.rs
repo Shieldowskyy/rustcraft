@@ -2730,10 +2730,7 @@ impl World {
                                 let block_id = item_bytes[0];
                                 let count = item_bytes[1];
                                 if block_id > 0 && count > 0 {
-                                    *slot = Some(crate::gameplay::inventory::ItemStack {
-                                        block: BlockId::from_u8(block_id),
-                                        count,
-                                    });
+                                    *slot = Some(crate::gameplay::inventory::ItemStack::new(BlockId::from_u8(block_id), count));
                                 }
                             }
                         }
@@ -2760,10 +2757,7 @@ impl World {
                                 let block_id = item_bytes[0];
                                 let count = item_bytes[1];
                                 if block_id > 0 && count > 0 {
-                                    *slot = Some(crate::gameplay::inventory::ItemStack {
-                                        block: BlockId::from_u8(block_id),
-                                        count,
-                                    });
+                                    *slot = Some(crate::gameplay::inventory::ItemStack::new(BlockId::from_u8(block_id), count));
                                 }
                             }
                         }
@@ -2798,10 +2792,7 @@ impl World {
                         for slot_item in &mut hotbar {
                             if let Ok(ib) = read_bytes(&bytes, &mut cursor, 2) {
                                 if ib[0] > 0 && ib[1] > 0 {
-                                    *slot_item = Some(crate::gameplay::inventory::ItemStack {
-                                        block: BlockId::from_u8(ib[0]),
-                                        count: ib[1],
-                                    });
+                                    *slot_item = Some(crate::gameplay::inventory::ItemStack::new(BlockId::from_u8(ib[0]), ib[1]));
                                 }
                             }
                         }
@@ -2809,10 +2800,7 @@ impl World {
                         for slot_item in &mut main {
                             if let Ok(ib) = read_bytes(&bytes, &mut cursor, 2) {
                                 if ib[0] > 0 && ib[1] > 0 {
-                                    *slot_item = Some(crate::gameplay::inventory::ItemStack {
-                                        block: BlockId::from_u8(ib[0]),
-                                        count: ib[1],
-                                    });
+                                    *slot_item = Some(crate::gameplay::inventory::ItemStack::new(BlockId::from_u8(ib[0]), ib[1]));
                                 }
                             }
                         }
@@ -2820,20 +2808,14 @@ impl World {
                         for slot_item in &mut armor {
                             if let Ok(ib) = read_bytes(&bytes, &mut cursor, 2) {
                                 if ib[0] > 0 && ib[1] > 0 {
-                                    *slot_item = Some(crate::gameplay::inventory::ItemStack {
-                                        block: BlockId::from_u8(ib[0]),
-                                        count: ib[1],
-                                    });
+                                    *slot_item = Some(crate::gameplay::inventory::ItemStack::new(BlockId::from_u8(ib[0]), ib[1]));
                                 }
                             }
                         }
                         let mut offhand = None;
                         if let Ok(ib) = read_bytes(&bytes, &mut cursor, 2) {
                             if ib[0] > 0 && ib[1] > 0 {
-                                offhand = Some(crate::gameplay::inventory::ItemStack {
-                                    block: BlockId::from_u8(ib[0]),
-                                    count: ib[1],
-                                });
+                                offhand = Some(crate::gameplay::inventory::ItemStack::new(BlockId::from_u8(ib[0]), ib[1]));
                             }
                         }
                         world.saved_player = Some(crate::gameplay::player::SavedPlayerData {
@@ -4231,18 +4213,9 @@ mod tests {
         player.exhaustion = 2.0;
         player.air = 18.0;
         player.selected_hotbar_slot = 4;
-        player.inventory.hotbar[4] = Some(crate::gameplay::inventory::ItemStack {
-            block: BlockId::Torch,
-            count: 16,
-        });
-        player.inventory.armor[1] = Some(crate::gameplay::inventory::ItemStack {
-            block: BlockId::IronChestplate,
-            count: 1,
-        });
-        player.inventory.offhand = Some(crate::gameplay::inventory::ItemStack {
-            block: BlockId::Shield,
-            count: 1,
-        });
+        player.inventory.hotbar[4] = Some(crate::gameplay::inventory::ItemStack::new(BlockId::Torch, 16));
+        player.inventory.armor[1] = Some(crate::gameplay::inventory::ItemStack::new(BlockId::IronChestplate, 1));
+        player.inventory.offhand = Some(crate::gameplay::inventory::ItemStack::new(BlockId::Shield, 1));
 
         world.saved_player = Some(player.save_state());
         assert!(world.save(&path_str).is_ok());

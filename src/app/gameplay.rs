@@ -919,6 +919,19 @@ impl RustCraftApp {
                         }
                     }
 
+                    if entity_hit && self.player.gamemode == GameMode::Survival {
+                        let selected = self.player.selected_hotbar_slot as usize;
+                        if let Some(stack) = &mut self.player.inventory.hotbar[selected] {
+                            if stack.block.is_damageable() {
+                                let cost = if stack.block.is_sword() { 1 } else { 2 };
+                                if stack.damage(cost) {
+                                    self.player.inventory.hotbar[selected] = None;
+                                    self.audio.play_sound(crate::audio::SoundId::ToolBreak, 1.0, 1.0);
+                                }
+                            }
+                        }
+                    }
+
                     if !entity_hit {
                         if self.player.gamemode == GameMode::Creative && self.creative_break_cooldown > 0.0 {
                             self.break_target = None;
@@ -1019,6 +1032,15 @@ impl RustCraftApp {
 
                                 if self.player.gamemode == GameMode::Survival {
                                     self.player.exhaustion += 0.025;
+                                    let selected = self.player.selected_hotbar_slot as usize;
+                                    if let Some(stack) = &mut self.player.inventory.hotbar[selected] {
+                                        if stack.block.is_damageable() {
+                                            if stack.damage(1) {
+                                                self.player.inventory.hotbar[selected] = None;
+                                                self.audio.play_sound(crate::audio::SoundId::ToolBreak, 1.0, 1.0);
+                                            }
+                                        }
+                                    }
                                     let seed = ((target.x as u32).wrapping_mul(73856093) ^ (target.y as u32).wrapping_mul(19349663) ^ (target.z as u32).wrapping_mul(83492791)) % 1000;
                                     let rx = ((seed % 100) as f32 / 100.0 - 0.5) * 1.8;
                                     let rz = (((seed / 10) % 100) as f32 / 100.0 - 0.5) * 1.8;
@@ -1215,23 +1237,14 @@ impl RustCraftApp {
                             }
                         } else if self.player.inventory.hotbar[curr_slot].is_none() {
                             // Current selected slot is free/empty: place it in the current slot
-                            self.player.inventory.hotbar[curr_slot] = Some(ItemStack {
-                                block: item_block,
-                                count: 64,
-                            });
+                            self.player.inventory.hotbar[curr_slot] = Some(ItemStack::new(item_block, 64));
                         } else if let Some(free_slot) = self.player.inventory.hotbar.iter().position(|slot| slot.is_none()) {
                             // Current slot is occupied, but another hotbar slot is free: place in free slot and select it
-                            self.player.inventory.hotbar[free_slot] = Some(ItemStack {
-                                block: item_block,
-                                count: 64,
-                            });
+                            self.player.inventory.hotbar[free_slot] = Some(ItemStack::new(item_block, 64));
                             self.player.selected_hotbar_slot = free_slot as u8;
                         } else {
                             // All hotbar slots are full: replace current slot
-                            self.player.inventory.hotbar[curr_slot] = Some(ItemStack {
-                                block: item_block,
-                                count: 64,
-                            });
+                            self.player.inventory.hotbar[curr_slot] = Some(ItemStack::new(item_block, 64));
                         }
 
                         let new_selected_slot = self.player.selected_hotbar_slot as usize;
@@ -1275,6 +1288,17 @@ impl RustCraftApp {
                                 self.audio.play_sound(crate::audio::SoundId::BowShoot, 0.9, 0.9 + charge * 0.25);
                                 self.hand_animation = 0.8;
                                 crate::log_info!("COMBAT", "Player fired arrow with charge {:.2} (speed: {:.1}, dmg: {:.1})", charge, speed, damage);
+                                if self.player.gamemode == GameMode::Survival {
+                                    let selected = self.player.selected_hotbar_slot as usize;
+                                    if let Some(stack) = &mut self.player.inventory.hotbar[selected] {
+                                        if stack.block == BlockId::Bow {
+                                            if stack.damage(1) {
+                                                self.player.inventory.hotbar[selected] = None;
+                                                self.audio.play_sound(crate::audio::SoundId::ToolBreak, 1.0, 1.0);
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         self.player.bow_draw_time = 0.0;
@@ -1317,6 +1341,17 @@ impl RustCraftApp {
                         if let Some(bobber) = self.fishing_bobber.take() {
                             self.audio.play_sound(crate::audio::SoundId::FishingReel, 0.9, 1.0);
                             self.hand_animation = 1.0;
+                            if self.player.gamemode == GameMode::Survival {
+                                let selected = self.player.selected_hotbar_slot as usize;
+                                if let Some(stack) = &mut self.player.inventory.hotbar[selected] {
+                                    if stack.block == BlockId::FishingRod {
+                                        if stack.damage(1) {
+                                            self.player.inventory.hotbar[selected] = None;
+                                            self.audio.play_sound(crate::audio::SoundId::ToolBreak, 1.0, 1.0);
+                                        }
+                                    }
+                                }
+                            }
                             if bobber.in_water && bobber.bite_timer <= 0.0 && bobber.bite_window > 0.0 {
                                 let seed = (self.total_time * 1000.0) as u32;
                                 let roll = seed % 100;
@@ -1392,6 +1427,17 @@ impl RustCraftApp {
                                 self.audio.play_sound(crate::audio::SoundId::SheepShear, 0.9, 1.0);
                                 self.particles.spawn_growth(center);
                                 self.hand_animation = 1.0;
+                                if self.player.gamemode == GameMode::Survival {
+                                    let selected = self.player.selected_hotbar_slot as usize;
+                                    if let Some(stack) = &mut self.player.inventory.hotbar[selected] {
+                                        if stack.block == BlockId::Shears {
+                                            if stack.damage(1) {
+                                                self.player.inventory.hotbar[selected] = None;
+                                                self.audio.play_sound(crate::audio::SoundId::ToolBreak, 1.0, 1.0);
+                                            }
+                                        }
+                                    }
+                                }
                                 handled = true;
                             } else if item.is_wool() && mob.kind == crate::gameplay::mob::MobKind::Sheep && !mob.is_baby {
                                 let dye_color = item.wool_color_index().unwrap();
@@ -1824,7 +1870,10 @@ impl RustCraftApp {
                         if !is_creative && mob.kind.is_hostile() && mob.kind != crate::gameplay::mob::MobKind::Creeper && dist_sq < 1.4 * 1.4 && (mob.pos.y - self.camera.position.y).abs() < 1.8 {
                             let to_mob = (mob.pos - self.camera.position).normalized();
                             let is_front = to_mob.dot(self.camera.forward()) > 0.35;
-                            let (took_damage, blocked) = self.player.take_physical_damage(2.0, is_front);
+                            let (took_damage, blocked, item_broke) = self.player.take_physical_damage(2.0, is_front);
+                            if item_broke {
+                                self.audio.play_sound(crate::audio::SoundId::ToolBreak, 1.0, 1.0);
+                            }
                             if blocked {
                                 self.audio.play_sound(crate::audio::SoundId::ShieldBlock, 1.0, 1.0);
                                 mob.velocity.x -= to_mob.x * 6.0;
@@ -1977,7 +2026,10 @@ impl RustCraftApp {
                                arrow.position.z >= player_bb_min.z && arrow.position.z <= player_bb_max.z {
                                 let to_arrow = (arrow.position - self.camera.position).normalized();
                                 let is_front = to_arrow.dot(self.camera.forward()) > 0.35;
-                                let (took_damage, blocked) = self.player.take_physical_damage(arrow.damage, is_front);
+                                let (took_damage, blocked, item_broke) = self.player.take_physical_damage(arrow.damage, is_front);
+                                if item_broke {
+                                    self.audio.play_sound(crate::audio::SoundId::ToolBreak, 1.0, 1.0);
+                                }
                                 if blocked {
                                     self.audio.play_sound(crate::audio::SoundId::ShieldBlock, 1.0, 1.0);
                                     self.damage_tilt_timer = 0.12;
@@ -2204,6 +2256,7 @@ impl RustCraftApp {
                                 hurt_tint,
                                 None,
                                 held,
+                                &self.player.inventory.armor,
                                 &effective_camera,
                                 &view_proj,
                             );
@@ -2808,7 +2861,7 @@ mod tests {
         let _ = app.update_and_render(0.016, &input);
         assert_eq!(
             app.player.inventory.hotbar[0],
-            Some(ItemStack { block: BlockId::RustStoneBlock, count: 64 }),
+            Some(ItemStack::new(BlockId::RustStoneBlock, 64)),
             "Middle click in creative should place 64x of picked block into current free slot"
         );
         assert_eq!(app.player.selected_hotbar_slot, 0);
@@ -2826,7 +2879,7 @@ mod tests {
         // DiamondBlock should be placed into free slot 1 and selected!
         assert_eq!(
             app.player.inventory.hotbar[1],
-            Some(ItemStack { block: BlockId::DiamondBlock, count: 64 }),
+            Some(ItemStack::new(BlockId::DiamondBlock, 64)),
             "DiamondBlock should go into the next free slot"
         );
         assert_eq!(app.player.selected_hotbar_slot, 1, "Selected slot should switch to the free slot where item was placed");
@@ -2849,7 +2902,7 @@ mod tests {
         let _ = app.update_and_render(0.016, &input);
         assert_eq!(
             app.player.inventory.hotbar[2],
-            Some(ItemStack { block: BlockId::RustStone, count: 64 }),
+            Some(ItemStack::new(BlockId::RustStone, 64)),
             "Middle click on RustStoneWireLit should pick RustStone item"
         );
     }

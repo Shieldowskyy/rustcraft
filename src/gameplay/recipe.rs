@@ -47,10 +47,7 @@ macro_rules! recipe {
             width: 1,
             height: 1,
             pattern: vec![Some($crate::world::block::BlockId::$input)],
-            result: $crate::gameplay::inventory::ItemStack {
-                block: $crate::world::block::BlockId::$result,
-                count: $count,
-            },
+            result: $crate::gameplay::inventory::ItemStack::new($crate::world::block::BlockId::$result, $count),
         }
     };
 
@@ -60,10 +57,7 @@ macro_rules! recipe {
             width: $w,
             height: $h,
             pattern: vec![ $( $crate::recipe_slot!($item) ),* ],
-            result: $crate::gameplay::inventory::ItemStack {
-                block: $crate::world::block::BlockId::$result,
-                count: $count,
-            },
+            result: $crate::gameplay::inventory::ItemStack::new($crate::world::block::BlockId::$result, $count),
         }
     };
 }
@@ -74,7 +68,7 @@ impl Recipe {
             width,
             height,
             pattern,
-            result: ItemStack { block: result, count },
+            result: ItemStack::new(result, count),
         }
     }
 }
@@ -343,7 +337,27 @@ impl RecipeBook {
         }
 
         // --- Ranged & Defensive Equipment (Bow, Arrow, Shield) ---
-        // Bow (3x3: 3 sticks and 3 wool / feathers) - Right-facing
+        // Bow (3x3: 3 sticks and 3 strings) - Right-facing (official Minecraft)
+        self.add(Recipe::new(
+            3, 3,
+            vec![
+                None,                 Some(BlockId::Stick), Some(BlockId::StringItem),
+                Some(BlockId::Stick), None,                 Some(BlockId::StringItem),
+                None,                 Some(BlockId::Stick), Some(BlockId::StringItem),
+            ],
+            BlockId::Bow, 1,
+        ));
+        // Bow (3x3: 3 sticks and 3 strings) - Left-facing (official Minecraft)
+        self.add(Recipe::new(
+            3, 3,
+            vec![
+                Some(BlockId::StringItem), Some(BlockId::Stick), None,
+                Some(BlockId::StringItem), None,                 Some(BlockId::Stick),
+                Some(BlockId::StringItem), Some(BlockId::Stick), None,
+            ],
+            BlockId::Bow, 1,
+        ));
+        // Bow (3x3: 3 sticks and 3 wool / feathers fallback) - Right-facing
         self.add(Recipe::new(
             3, 3,
             vec![
@@ -416,7 +430,18 @@ impl RecipeBook {
             _,         IronIngot,
         ] => Shears * 1));
 
-        // Fishing Rod (3x3: 3 Sticks diagonally + 2 Feathers or Wool vertically)
+        // Fishing Rod (3x3: 3 Sticks diagonally + 2 Strings vertically) - official Minecraft
+        self.add(recipe!(3, 3, [
+            _,     _,     Stick,
+            _,     Stick, StringItem,
+            Stick, _,     StringItem,
+        ] => FishingRod * 1));
+        self.add(recipe!(2, 2, [
+            Stick, StringItem,
+            Stick, StringItem,
+        ] => FishingRod * 1));
+
+        // Fishing Rod (fallbacks with Feather or Wool)
         self.add(recipe!(3, 3, [
             _,     _,     Stick,
             _,     Stick, Feather,
@@ -435,6 +460,12 @@ impl RecipeBook {
             Stick, WhiteWool,
             Stick, WhiteWool,
         ] => FishingRod * 1));
+
+        // Wool from 4 String (2x2: 4 StringItem -> 1 WhiteWool) - official Minecraft
+        self.add(recipe!(2, 2, [
+            StringItem, StringItem,
+            StringItem, StringItem,
+        ] => WhiteWool * 1));
 
         // Beds (3x2: 3 Wool, Feathers or Leaves over 3 Planks)
         for &wool in &crate::world::block::BlockId::WOOL_BLOCKS {
@@ -733,57 +764,57 @@ mod tests {
     fn test_planks_crafting_2x2() {
         let book = RecipeBook::new();
         let mut grid = [None; 4];
-        grid[0] = Some(ItemStack { block: BlockId::Wood, count: 1 });
+        grid[0] = Some(ItemStack::new(BlockId::Wood, 1));
         let result = book.match_grid(&grid, 2, 2);
-        assert_eq!(result, Some(ItemStack { block: BlockId::Planks, count: 4 }));
+        assert_eq!(result, Some(ItemStack::new(BlockId::Planks, 4)));
     }
 
     #[test]
     fn test_crafting_table_2x2() {
         let book = RecipeBook::new();
         let grid = [
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack::new(BlockId::Planks, 1)),
+            Some(ItemStack::new(BlockId::Planks, 1)),
+            Some(ItemStack::new(BlockId::Planks, 1)),
+            Some(ItemStack::new(BlockId::Planks, 1)),
         ];
         let result = book.match_grid(&grid, 2, 2);
-        assert_eq!(result, Some(ItemStack { block: BlockId::CraftingTable, count: 1 }));
+        assert_eq!(result, Some(ItemStack::new(BlockId::CraftingTable, 1)));
     }
 
     #[test]
     fn test_pickaxe_3x3() {
         let book = RecipeBook::new();
         let grid = [
-            Some(ItemStack { block: BlockId::Stone, count: 1 }),
-            Some(ItemStack { block: BlockId::Stone, count: 1 }),
-            Some(ItemStack { block: BlockId::Stone, count: 1 }),
+            Some(ItemStack::new(BlockId::Stone, 1)),
+            Some(ItemStack::new(BlockId::Stone, 1)),
+            Some(ItemStack::new(BlockId::Stone, 1)),
             None,
-            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            Some(ItemStack::new(BlockId::Stick, 1)),
             None,
             None,
-            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            Some(ItemStack::new(BlockId::Stick, 1)),
             None,
         ];
         let result = book.match_grid(&grid, 3, 3);
-        assert_eq!(result, Some(ItemStack { block: BlockId::StonePickaxe, count: 1 }));
+        assert_eq!(result, Some(ItemStack::new(BlockId::StonePickaxe, 1)));
     }
 
     #[test]
     fn test_stick_recipe_in_2x2_and_consumption() {
         let book = RecipeBook::new();
         let mut grid = [
-            Some(ItemStack { block: BlockId::Planks, count: 2 }),
+            Some(ItemStack::new(BlockId::Planks, 2)),
             None,
-            Some(ItemStack { block: BlockId::Planks, count: 2 }),
+            Some(ItemStack::new(BlockId::Planks, 2)),
             None,
         ];
         let result = book.match_grid(&grid, 2, 2);
-        assert_eq!(result, Some(ItemStack { block: BlockId::Stick, count: 4 }));
+        assert_eq!(result, Some(ItemStack::new(BlockId::Stick, 4)));
 
         RecipeBook::consume_grid(&mut grid);
-        assert_eq!(grid[0], Some(ItemStack { block: BlockId::Planks, count: 1 }));
-        assert_eq!(grid[2], Some(ItemStack { block: BlockId::Planks, count: 1 }));
+        assert_eq!(grid[0], Some(ItemStack::new(BlockId::Planks, 1)));
+        assert_eq!(grid[2], Some(ItemStack::new(BlockId::Planks, 1)));
 
         RecipeBook::consume_grid(&mut grid);
         assert_eq!(grid[0], None);
@@ -795,24 +826,24 @@ mod tests {
         let book = RecipeBook::new();
         // Iron Sword
         let sword_grid = [
-            None, Some(ItemStack { block: BlockId::IronIngot, count: 1 }), None,
-            None, Some(ItemStack { block: BlockId::IronIngot, count: 1 }), None,
-            None, Some(ItemStack { block: BlockId::Stick, count: 1 }), None,
+            None, Some(ItemStack::new(BlockId::IronIngot, 1)), None,
+            None, Some(ItemStack::new(BlockId::IronIngot, 1)), None,
+            None, Some(ItemStack::new(BlockId::Stick, 1)), None,
         ];
         assert_eq!(
             book.match_grid(&sword_grid, 3, 3),
-            Some(ItemStack { block: BlockId::IronSword, count: 1 })
+            Some(ItemStack::new(BlockId::IronSword, 1))
         );
 
         // Wooden Shovel
         let shovel_grid = [
-            Some(ItemStack { block: BlockId::Planks, count: 1 }), None, None,
-            Some(ItemStack { block: BlockId::Stick, count: 1 }), None, None,
-            Some(ItemStack { block: BlockId::Stick, count: 1 }), None, None,
+            Some(ItemStack::new(BlockId::Planks, 1)), None, None,
+            Some(ItemStack::new(BlockId::Stick, 1)), None, None,
+            Some(ItemStack::new(BlockId::Stick, 1)), None, None,
         ];
         assert_eq!(
             book.match_grid(&shovel_grid, 3, 3),
-            Some(ItemStack { block: BlockId::WoodenShovel, count: 1 })
+            Some(ItemStack::new(BlockId::WoodenShovel, 1))
         );
     }
 
@@ -820,10 +851,10 @@ mod tests {
     fn test_torch_crafting() {
         let book = RecipeBook::new();
         let mut grid = [None; 4];
-        grid[0] = Some(ItemStack { block: BlockId::CoalOre, count: 1 });
-        grid[2] = Some(ItemStack { block: BlockId::Stick, count: 1 });
+        grid[0] = Some(ItemStack::new(BlockId::CoalOre, 1));
+        grid[2] = Some(ItemStack::new(BlockId::Stick, 1));
         let result = book.match_grid(&grid, 2, 2);
-        assert_eq!(result, Some(ItemStack { block: BlockId::Torch, count: 4 }));
+        assert_eq!(result, Some(ItemStack::new(BlockId::Torch, 4)));
     }
 
     #[test]
@@ -831,56 +862,56 @@ mod tests {
         let book = RecipeBook::new();
         // 8 ounces in hollow 3x3 ring -> 1 ingot
         let iron_ring = [
-            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
-            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
-            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
-            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
+            Some(ItemStack::new(BlockId::IronOunce, 1)),
+            Some(ItemStack::new(BlockId::IronOunce, 1)),
+            Some(ItemStack::new(BlockId::IronOunce, 1)),
+            Some(ItemStack::new(BlockId::IronOunce, 1)),
             None,
-            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
-            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
-            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
-            Some(ItemStack { block: BlockId::IronOunce, count: 1 }),
+            Some(ItemStack::new(BlockId::IronOunce, 1)),
+            Some(ItemStack::new(BlockId::IronOunce, 1)),
+            Some(ItemStack::new(BlockId::IronOunce, 1)),
+            Some(ItemStack::new(BlockId::IronOunce, 1)),
         ];
         assert_eq!(
             book.match_grid(&iron_ring, 3, 3),
-            Some(ItemStack { block: BlockId::IronIngot, count: 1 })
+            Some(ItemStack::new(BlockId::IronIngot, 1))
         );
 
         // 1 ingot -> 8 ounces (1x1 in 2x2 or 3x3)
         let ingot_grid = [
-            Some(ItemStack { block: BlockId::IronIngot, count: 1 }), None,
+            Some(ItemStack::new(BlockId::IronIngot, 1)), None,
             None, None,
         ];
         assert_eq!(
             book.match_grid(&ingot_grid, 2, 2),
-            Some(ItemStack { block: BlockId::IronOunce, count: 8 })
+            Some(ItemStack::new(BlockId::IronOunce, 8))
         );
 
         // Gold ring -> gold ingot
         let gold_ring = [
-            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
-            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
-            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
-            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
+            Some(ItemStack::new(BlockId::GoldOunce, 1)),
+            Some(ItemStack::new(BlockId::GoldOunce, 1)),
+            Some(ItemStack::new(BlockId::GoldOunce, 1)),
+            Some(ItemStack::new(BlockId::GoldOunce, 1)),
             None,
-            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
-            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
-            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
-            Some(ItemStack { block: BlockId::GoldOunce, count: 1 }),
+            Some(ItemStack::new(BlockId::GoldOunce, 1)),
+            Some(ItemStack::new(BlockId::GoldOunce, 1)),
+            Some(ItemStack::new(BlockId::GoldOunce, 1)),
+            Some(ItemStack::new(BlockId::GoldOunce, 1)),
         ];
         assert_eq!(
             book.match_grid(&gold_ring, 3, 3),
-            Some(ItemStack { block: BlockId::GoldIngot, count: 1 })
+            Some(ItemStack::new(BlockId::GoldIngot, 1))
         );
 
         // 1 gold ingot -> 8 gold ounces
         let gold_ingot_grid = [
-            Some(ItemStack { block: BlockId::GoldIngot, count: 1 }), None,
+            Some(ItemStack::new(BlockId::GoldIngot, 1)), None,
             None, None,
         ];
         assert_eq!(
             book.match_grid(&gold_ingot_grid, 2, 2),
-            Some(ItemStack { block: BlockId::GoldOunce, count: 8 })
+            Some(ItemStack::new(BlockId::GoldOunce, 8))
         );
     }
 
@@ -889,29 +920,29 @@ mod tests {
         let book = RecipeBook::new();
         // 9 ingots -> 1 block
         let block_grid = [
-            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
-            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
-            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
-            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
-            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
-            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
-            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
-            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
-            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
+            Some(ItemStack::new(BlockId::IronIngot, 1)),
+            Some(ItemStack::new(BlockId::IronIngot, 1)),
+            Some(ItemStack::new(BlockId::IronIngot, 1)),
+            Some(ItemStack::new(BlockId::IronIngot, 1)),
+            Some(ItemStack::new(BlockId::IronIngot, 1)),
+            Some(ItemStack::new(BlockId::IronIngot, 1)),
+            Some(ItemStack::new(BlockId::IronIngot, 1)),
+            Some(ItemStack::new(BlockId::IronIngot, 1)),
+            Some(ItemStack::new(BlockId::IronIngot, 1)),
         ];
         assert_eq!(
             book.match_grid(&block_grid, 3, 3),
-            Some(ItemStack { block: BlockId::IronBlock, count: 1 })
+            Some(ItemStack::new(BlockId::IronBlock, 1))
         );
 
         // 1 block -> 9 ingots
         let decraft_block = [
-            Some(ItemStack { block: BlockId::IronBlock, count: 1 }), None,
+            Some(ItemStack::new(BlockId::IronBlock, 1)), None,
             None, None,
         ];
         assert_eq!(
             book.match_grid(&decraft_block, 2, 2),
-            Some(ItemStack { block: BlockId::IronIngot, count: 9 })
+            Some(ItemStack::new(BlockId::IronIngot, 9))
         );
     }
 
@@ -919,28 +950,28 @@ mod tests {
     fn test_coal_block_and_reverse() {
         let book = RecipeBook::new();
         let coal_grid = [
-            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
-            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
-            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
-            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
-            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
-            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
-            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
-            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
-            Some(ItemStack { block: BlockId::CoalOre, count: 1 }),
+            Some(ItemStack::new(BlockId::CoalOre, 1)),
+            Some(ItemStack::new(BlockId::CoalOre, 1)),
+            Some(ItemStack::new(BlockId::CoalOre, 1)),
+            Some(ItemStack::new(BlockId::CoalOre, 1)),
+            Some(ItemStack::new(BlockId::CoalOre, 1)),
+            Some(ItemStack::new(BlockId::CoalOre, 1)),
+            Some(ItemStack::new(BlockId::CoalOre, 1)),
+            Some(ItemStack::new(BlockId::CoalOre, 1)),
+            Some(ItemStack::new(BlockId::CoalOre, 1)),
         ];
         assert_eq!(
             book.match_grid(&coal_grid, 3, 3),
-            Some(ItemStack { block: BlockId::CoalBlock, count: 1 })
+            Some(ItemStack::new(BlockId::CoalBlock, 1))
         );
 
         let decraft_coal = [
-            Some(ItemStack { block: BlockId::CoalBlock, count: 1 }), None,
+            Some(ItemStack::new(BlockId::CoalBlock, 1)), None,
             None, None,
         ];
         assert_eq!(
             book.match_grid(&decraft_coal, 2, 2),
-            Some(ItemStack { block: BlockId::CoalOre, count: 9 })
+            Some(ItemStack::new(BlockId::CoalOre, 9))
         );
     }
 
@@ -950,91 +981,91 @@ mod tests {
 
         // 9x Diamond -> Diamond Block
         let dia_block_grid = [
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
         ];
         assert_eq!(
             book.match_grid(&dia_block_grid, 3, 3),
-            Some(ItemStack { block: BlockId::DiamondBlock, count: 1 })
+            Some(ItemStack::new(BlockId::DiamondBlock, 1))
         );
 
         // 1x Diamond Block -> 9x Diamond
         let decraft_dia = [
-            Some(ItemStack { block: BlockId::DiamondBlock, count: 1 }), None,
+            Some(ItemStack::new(BlockId::DiamondBlock, 1)), None,
             None, None,
         ];
         assert_eq!(
             book.match_grid(&decraft_dia, 2, 2),
-            Some(ItemStack { block: BlockId::Diamond, count: 9 })
+            Some(ItemStack::new(BlockId::Diamond, 9))
         );
 
         // Diamond Pickaxe (3 Diamonds + 2 Sticks)
         let dia_pick_grid = [
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
             None,
-            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            Some(ItemStack::new(BlockId::Stick, 1)),
             None,
             None,
-            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            Some(ItemStack::new(BlockId::Stick, 1)),
             None,
         ];
         assert_eq!(
             book.match_grid(&dia_pick_grid, 3, 3),
-            Some(ItemStack { block: BlockId::DiamondPickaxe, count: 1 })
+            Some(ItemStack::new(BlockId::DiamondPickaxe, 1))
         );
 
         // Bed (3 Feathers over 3 Planks)
         let bed_grid = [
             None, None, None,
-            Some(ItemStack { block: BlockId::Feather, count: 1 }),
-            Some(ItemStack { block: BlockId::Feather, count: 1 }),
-            Some(ItemStack { block: BlockId::Feather, count: 1 }),
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack::new(BlockId::Feather, 1)),
+            Some(ItemStack::new(BlockId::Feather, 1)),
+            Some(ItemStack::new(BlockId::Feather, 1)),
+            Some(ItemStack::new(BlockId::Planks, 1)),
+            Some(ItemStack::new(BlockId::Planks, 1)),
+            Some(ItemStack::new(BlockId::Planks, 1)),
         ];
         assert_eq!(
             book.match_grid(&bed_grid, 3, 3),
-            Some(ItemStack { block: BlockId::Bed, count: 1 })
+            Some(ItemStack::new(BlockId::Bed, 1))
         );
 
         // Wooden Slab (3 Planks horizontal -> 6 Wooden Slabs)
         let slab_grid = [
             None, None, None,
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack::new(BlockId::Planks, 1)),
+            Some(ItemStack::new(BlockId::Planks, 1)),
+            Some(ItemStack::new(BlockId::Planks, 1)),
             None, None, None,
         ];
         assert_eq!(
             book.match_grid(&slab_grid, 3, 3),
-            Some(ItemStack { block: BlockId::WoodenSlab, count: 6 })
+            Some(ItemStack::new(BlockId::WoodenSlab, 6))
         );
 
         // Ladder (7 Sticks in H shape -> 3 Ladders)
         let ladder_grid = [
-            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            Some(ItemStack::new(BlockId::Stick, 1)),
             None,
-            Some(ItemStack { block: BlockId::Stick, count: 1 }),
-            Some(ItemStack { block: BlockId::Stick, count: 1 }),
-            Some(ItemStack { block: BlockId::Stick, count: 1 }),
-            Some(ItemStack { block: BlockId::Stick, count: 1 }),
-            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            Some(ItemStack::new(BlockId::Stick, 1)),
+            Some(ItemStack::new(BlockId::Stick, 1)),
+            Some(ItemStack::new(BlockId::Stick, 1)),
+            Some(ItemStack::new(BlockId::Stick, 1)),
+            Some(ItemStack::new(BlockId::Stick, 1)),
             None,
-            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            Some(ItemStack::new(BlockId::Stick, 1)),
         ];
         assert_eq!(
             book.match_grid(&ladder_grid, 3, 3),
-            Some(ItemStack { block: BlockId::Ladder, count: 3 })
+            Some(ItemStack::new(BlockId::Ladder, 3))
         );
     }
 
@@ -1048,7 +1079,7 @@ mod tests {
         assert_eq!(custom_1x1.width, 1);
         assert_eq!(custom_1x1.height, 1);
         assert_eq!(custom_1x1.pattern, vec![Some(BlockId::Dirt)]);
-        assert_eq!(custom_1x1.result, ItemStack { block: BlockId::Grass, count: 2 });
+        assert_eq!(custom_1x1.result, ItemStack::new(BlockId::Grass, 2));
 
         // Shaped 2x2 with slot wildcard _
         let custom_2x2 = recipe!(2, 2, [
@@ -1058,16 +1089,16 @@ mod tests {
         assert_eq!(custom_2x2.width, 2);
         assert_eq!(custom_2x2.height, 2);
         assert_eq!(custom_2x2.pattern, vec![Some(BlockId::Dirt), None, None, Some(BlockId::Dirt)]);
-        assert_eq!(custom_2x2.result, ItemStack { block: BlockId::Sand, count: 4 });
+        assert_eq!(custom_2x2.result, ItemStack::new(BlockId::Sand, 4));
 
         book.add(custom_2x2);
         assert_eq!(book.recipes().len(), initial_count + 1);
 
         let grid = [
-            Some(ItemStack { block: BlockId::Dirt, count: 1 }), None,
-            None, Some(ItemStack { block: BlockId::Dirt, count: 1 }),
+            Some(ItemStack::new(BlockId::Dirt, 1)), None,
+            None, Some(ItemStack::new(BlockId::Dirt, 1)),
         ];
-        assert_eq!(book.match_grid(&grid, 2, 2), Some(ItemStack { block: BlockId::Sand, count: 4 }));
+        assert_eq!(book.match_grid(&grid, 2, 2), Some(ItemStack::new(BlockId::Sand, 4)));
     }
 
     #[test]
@@ -1076,58 +1107,58 @@ mod tests {
 
         // 9x RustStone -> RustStoneBlock
         let block_grid = [
-            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
-            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
-            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
-            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
-            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
-            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
-            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
-            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
-            Some(ItemStack { block: BlockId::RustStone, count: 1 }),
+            Some(ItemStack::new(BlockId::RustStone, 1)),
+            Some(ItemStack::new(BlockId::RustStone, 1)),
+            Some(ItemStack::new(BlockId::RustStone, 1)),
+            Some(ItemStack::new(BlockId::RustStone, 1)),
+            Some(ItemStack::new(BlockId::RustStone, 1)),
+            Some(ItemStack::new(BlockId::RustStone, 1)),
+            Some(ItemStack::new(BlockId::RustStone, 1)),
+            Some(ItemStack::new(BlockId::RustStone, 1)),
+            Some(ItemStack::new(BlockId::RustStone, 1)),
         ];
         assert_eq!(
             book.match_grid(&block_grid, 3, 3),
-            Some(ItemStack { block: BlockId::RustStoneBlock, count: 1 })
+            Some(ItemStack::new(BlockId::RustStoneBlock, 1))
         );
 
         // 1x RustStoneBlock -> 9x RustStone
         let decraft_grid = [
-            Some(ItemStack { block: BlockId::RustStoneBlock, count: 1 }), None,
+            Some(ItemStack::new(BlockId::RustStoneBlock, 1)), None,
             None, None,
         ];
         assert_eq!(
             book.match_grid(&decraft_grid, 2, 2),
-            Some(ItemStack { block: BlockId::RustStone, count: 9 })
+            Some(ItemStack::new(BlockId::RustStone, 9))
         );
 
         // Lever: Stick over Stone
         let lever_grid = [
-            Some(ItemStack { block: BlockId::Stick, count: 1 }),
-            Some(ItemStack { block: BlockId::Stone, count: 1 }),
+            Some(ItemStack::new(BlockId::Stick, 1)),
+            Some(ItemStack::new(BlockId::Stone, 1)),
         ];
         assert_eq!(
             book.match_grid(&lever_grid, 1, 2),
-            Some(ItemStack { block: BlockId::Lever, count: 1 })
+            Some(ItemStack::new(BlockId::Lever, 1))
         );
 
         // Button: 1 Stone
         let button_grid = [
-            Some(ItemStack { block: BlockId::Stone, count: 1 }),
+            Some(ItemStack::new(BlockId::Stone, 1)),
         ];
         assert_eq!(
             book.match_grid(&button_grid, 1, 1),
-            Some(ItemStack { block: BlockId::Button, count: 1 })
+            Some(ItemStack::new(BlockId::Button, 1))
         );
 
         // Pressure Plate: 2 Stone
         let plate_grid = [
-            Some(ItemStack { block: BlockId::Stone, count: 1 }),
-            Some(ItemStack { block: BlockId::Stone, count: 1 }),
+            Some(ItemStack::new(BlockId::Stone, 1)),
+            Some(ItemStack::new(BlockId::Stone, 1)),
         ];
         assert_eq!(
             book.match_grid(&plate_grid, 2, 1),
-            Some(ItemStack { block: BlockId::PressurePlate, count: 1 })
+            Some(ItemStack::new(BlockId::PressurePlate, 1))
         );
     }
 
@@ -1137,48 +1168,48 @@ mod tests {
 
         // 1. Shears: 2 Iron Ingots diagonally
         let shears_grid = [
-            None, Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
-            Some(ItemStack { block: BlockId::IronIngot, count: 1 }), None,
+            None, Some(ItemStack::new(BlockId::IronIngot, 1)),
+            Some(ItemStack::new(BlockId::IronIngot, 1)), None,
         ];
         assert_eq!(
             book.match_grid(&shears_grid, 2, 2),
-            Some(ItemStack { block: BlockId::Shears, count: 1 })
+            Some(ItemStack::new(BlockId::Shears, 1))
         );
 
         // 2. Bed: 3 Wool over 3 Planks
         let bed_grid = [
-            Some(ItemStack { block: BlockId::RedWool, count: 1 }),
-            Some(ItemStack { block: BlockId::RedWool, count: 1 }),
-            Some(ItemStack { block: BlockId::RedWool, count: 1 }),
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack::new(BlockId::RedWool, 1)),
+            Some(ItemStack::new(BlockId::RedWool, 1)),
+            Some(ItemStack::new(BlockId::RedWool, 1)),
+            Some(ItemStack::new(BlockId::Planks, 1)),
+            Some(ItemStack::new(BlockId::Planks, 1)),
+            Some(ItemStack::new(BlockId::Planks, 1)),
         ];
         assert_eq!(
             book.match_grid(&bed_grid, 3, 2),
-            Some(ItemStack { block: BlockId::Bed, count: 1 })
+            Some(ItemStack::new(BlockId::Bed, 1))
         );
 
         // 3. 4 Feathers -> 1 White Wool
         let wool_grid = [
-            Some(ItemStack { block: BlockId::Feather, count: 1 }),
-            Some(ItemStack { block: BlockId::Feather, count: 1 }),
-            Some(ItemStack { block: BlockId::Feather, count: 1 }),
-            Some(ItemStack { block: BlockId::Feather, count: 1 }),
+            Some(ItemStack::new(BlockId::Feather, 1)),
+            Some(ItemStack::new(BlockId::Feather, 1)),
+            Some(ItemStack::new(BlockId::Feather, 1)),
+            Some(ItemStack::new(BlockId::Feather, 1)),
         ];
         assert_eq!(
             book.match_grid(&wool_grid, 2, 2),
-            Some(ItemStack { block: BlockId::WhiteWool, count: 1 })
+            Some(ItemStack::new(BlockId::WhiteWool, 1))
         );
 
         // 4. Dyeing: Apple + WhiteWool -> RedWool
         let dye_grid = [
-            Some(ItemStack { block: BlockId::Apple, count: 1 }),
-            Some(ItemStack { block: BlockId::WhiteWool, count: 1 }),
+            Some(ItemStack::new(BlockId::Apple, 1)),
+            Some(ItemStack::new(BlockId::WhiteWool, 1)),
         ];
         assert_eq!(
             book.match_grid(&dye_grid, 2, 1),
-            Some(ItemStack { block: BlockId::RedWool, count: 1 })
+            Some(ItemStack::new(BlockId::RedWool, 1))
         );
     }
 
@@ -1188,72 +1219,72 @@ mod tests {
 
         // 4 ClayBall -> 1 Clay
         let clay_grid = [
-            Some(ItemStack { block: BlockId::ClayBall, count: 1 }),
-            Some(ItemStack { block: BlockId::ClayBall, count: 1 }),
-            Some(ItemStack { block: BlockId::ClayBall, count: 1 }),
-            Some(ItemStack { block: BlockId::ClayBall, count: 1 }),
+            Some(ItemStack::new(BlockId::ClayBall, 1)),
+            Some(ItemStack::new(BlockId::ClayBall, 1)),
+            Some(ItemStack::new(BlockId::ClayBall, 1)),
+            Some(ItemStack::new(BlockId::ClayBall, 1)),
         ];
         assert_eq!(
             book.match_grid(&clay_grid, 2, 2),
-            Some(ItemStack { block: BlockId::Clay, count: 1 })
+            Some(ItemStack::new(BlockId::Clay, 1))
         );
 
         // 4 Brick -> 1 Bricks
         let brick_grid = [
-            Some(ItemStack { block: BlockId::Brick, count: 1 }),
-            Some(ItemStack { block: BlockId::Brick, count: 1 }),
-            Some(ItemStack { block: BlockId::Brick, count: 1 }),
-            Some(ItemStack { block: BlockId::Brick, count: 1 }),
+            Some(ItemStack::new(BlockId::Brick, 1)),
+            Some(ItemStack::new(BlockId::Brick, 1)),
+            Some(ItemStack::new(BlockId::Brick, 1)),
+            Some(ItemStack::new(BlockId::Brick, 1)),
         ];
         assert_eq!(
             book.match_grid(&brick_grid, 2, 2),
-            Some(ItemStack { block: BlockId::Bricks, count: 1 })
+            Some(ItemStack::new(BlockId::Bricks, 1))
         );
 
         // 4 Sand -> 1 Sandstone
         let sand_grid = [
-            Some(ItemStack { block: BlockId::Sand, count: 1 }),
-            Some(ItemStack { block: BlockId::Sand, count: 1 }),
-            Some(ItemStack { block: BlockId::Sand, count: 1 }),
-            Some(ItemStack { block: BlockId::Sand, count: 1 }),
+            Some(ItemStack::new(BlockId::Sand, 1)),
+            Some(ItemStack::new(BlockId::Sand, 1)),
+            Some(ItemStack::new(BlockId::Sand, 1)),
+            Some(ItemStack::new(BlockId::Sand, 1)),
         ];
         assert_eq!(
             book.match_grid(&sand_grid, 2, 2),
-            Some(ItemStack { block: BlockId::Sandstone, count: 1 })
+            Some(ItemStack::new(BlockId::Sandstone, 1))
         );
 
         // Cobblestone Furnace
         let furn_grid = [
-            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
-            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
-            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
-            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
+            Some(ItemStack::new(BlockId::Cobblestone, 1)),
+            Some(ItemStack::new(BlockId::Cobblestone, 1)),
+            Some(ItemStack::new(BlockId::Cobblestone, 1)),
+            Some(ItemStack::new(BlockId::Cobblestone, 1)),
             None,
-            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
-            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
-            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
-            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
+            Some(ItemStack::new(BlockId::Cobblestone, 1)),
+            Some(ItemStack::new(BlockId::Cobblestone, 1)),
+            Some(ItemStack::new(BlockId::Cobblestone, 1)),
+            Some(ItemStack::new(BlockId::Cobblestone, 1)),
         ];
         assert_eq!(
             book.match_grid(&furn_grid, 3, 3),
-            Some(ItemStack { block: BlockId::Furnace, count: 1 })
+            Some(ItemStack::new(BlockId::Furnace, 1))
         );
 
         // Cobblestone Pickaxe (3 Cobblestone on top, 2 Sticks below)
         let pick_grid = [
-            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
-            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
-            Some(ItemStack { block: BlockId::Cobblestone, count: 1 }),
+            Some(ItemStack::new(BlockId::Cobblestone, 1)),
+            Some(ItemStack::new(BlockId::Cobblestone, 1)),
+            Some(ItemStack::new(BlockId::Cobblestone, 1)),
             None,
-            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            Some(ItemStack::new(BlockId::Stick, 1)),
             None,
             None,
-            Some(ItemStack { block: BlockId::Stick, count: 1 }),
+            Some(ItemStack::new(BlockId::Stick, 1)),
             None,
         ];
         assert_eq!(
             book.match_grid(&pick_grid, 3, 3),
-            Some(ItemStack { block: BlockId::StonePickaxe, count: 1 })
+            Some(ItemStack::new(BlockId::StonePickaxe, 1))
         );
     }
 
@@ -1263,44 +1294,44 @@ mod tests {
 
         // 1. Arrow recipe (Flint, Stick, Feather)
         let arrow_grid = [
-            Some(ItemStack { block: BlockId::Flint, count: 1 }),
-            Some(ItemStack { block: BlockId::Stick, count: 1 }),
-            Some(ItemStack { block: BlockId::Feather, count: 1 }),
+            Some(ItemStack::new(BlockId::Flint, 1)),
+            Some(ItemStack::new(BlockId::Stick, 1)),
+            Some(ItemStack::new(BlockId::Feather, 1)),
         ];
         assert_eq!(
             book.match_grid(&arrow_grid, 1, 3),
-            Some(ItemStack { block: BlockId::Arrow, count: 4 })
+            Some(ItemStack::new(BlockId::Arrow, 4))
         );
 
         // 2. Shield recipe (Planks, IronIngot, Planks...)
         let shield_grid = [
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
-            Some(ItemStack { block: BlockId::IronIngot, count: 1 }),
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack::new(BlockId::Planks, 1)),
+            Some(ItemStack::new(BlockId::IronIngot, 1)),
+            Some(ItemStack::new(BlockId::Planks, 1)),
+            Some(ItemStack::new(BlockId::Planks, 1)),
+            Some(ItemStack::new(BlockId::Planks, 1)),
+            Some(ItemStack::new(BlockId::Planks, 1)),
             None,
-            Some(ItemStack { block: BlockId::Planks, count: 1 }),
+            Some(ItemStack::new(BlockId::Planks, 1)),
             None,
         ];
         assert_eq!(
             book.match_grid(&shield_grid, 3, 3),
-            Some(ItemStack { block: BlockId::Shield, count: 1 })
+            Some(ItemStack::new(BlockId::Shield, 1))
         );
 
         // 3. Diamond Helmet (3 Diamond on top, 2 on sides)
         let helmet_grid = [
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
             None,
-            Some(ItemStack { block: BlockId::Diamond, count: 1 }),
+            Some(ItemStack::new(BlockId::Diamond, 1)),
         ];
         assert_eq!(
             book.match_grid(&helmet_grid, 3, 2),
-            Some(ItemStack { block: BlockId::DiamondHelmet, count: 1 })
+            Some(ItemStack::new(BlockId::DiamondHelmet, 1))
         );
     }
 }

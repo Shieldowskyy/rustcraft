@@ -80,50 +80,20 @@ impl ChestData {
         };
 
         // Always add some food, fuel, materials and tools
-        chest.items[0] = Some(ItemStack {
-            block: BlockId::Apple,
-            count: 3 + (next_rand() % 5) as u8,
-        });
-        chest.items[1] = Some(ItemStack {
-            block: BlockId::CookedPorkchop,
-            count: 2 + (next_rand() % 4) as u8,
-        });
-        chest.items[4] = Some(ItemStack {
-            block: BlockId::IronIngot,
-            count: 2 + (next_rand() % 4) as u8,
-        });
-        chest.items[9] = Some(ItemStack {
-            block: BlockId::CoalOre,
-            count: 4 + (next_rand() % 8) as u8,
-        });
-        chest.items[10] = Some(ItemStack {
-            block: BlockId::Torch,
-            count: 4 + (next_rand() % 6) as u8,
-        });
-        chest.items[13] = Some(ItemStack {
-            block: BlockId::Stick,
-            count: 6 + (next_rand() % 10) as u8,
-        });
+        chest.items[0] = Some(ItemStack::new(BlockId::Apple, 3 + (next_rand() % 5) as u8));
+        chest.items[1] = Some(ItemStack::new(BlockId::CookedPorkchop, 2 + (next_rand() % 4) as u8));
+        chest.items[4] = Some(ItemStack::new(BlockId::IronIngot, 2 + (next_rand() % 4) as u8));
+        chest.items[9] = Some(ItemStack::new(BlockId::CoalOre, 4 + (next_rand() % 8) as u8));
+        chest.items[10] = Some(ItemStack::new(BlockId::Torch, 4 + (next_rand() % 6) as u8));
+        chest.items[13] = Some(ItemStack::new(BlockId::Stick, 6 + (next_rand() % 10) as u8));
         if next_rand() % 2 == 0 {
-            chest.items[14] = Some(ItemStack {
-                block: BlockId::Emerald,
-                count: 1 + (next_rand() % 3) as u8,
-            });
+            chest.items[14] = Some(ItemStack::new(BlockId::Emerald, 1 + (next_rand() % 3) as u8));
         }
-        chest.items[18] = Some(ItemStack {
-            block: BlockId::Planks,
-            count: 8 + (next_rand() % 16) as u8,
-        });
+        chest.items[18] = Some(ItemStack::new(BlockId::Planks, 8 + (next_rand() % 16) as u8));
         if next_rand() % 2 == 0 {
-            chest.items[22] = Some(ItemStack {
-                block: BlockId::StonePickaxe,
-                count: 1,
-            });
+            chest.items[22] = Some(ItemStack::new(BlockId::StonePickaxe, 1));
         } else {
-            chest.items[22] = Some(ItemStack {
-                block: BlockId::StoneAxe,
-                count: 1,
-            });
+            chest.items[22] = Some(ItemStack::new(BlockId::StoneAxe, 1));
         }
 
         chest
@@ -143,51 +113,27 @@ impl ChestData {
         };
 
         // Emeralds (1 - 6)
-        chest.items[2] = Some(ItemStack {
-            block: BlockId::Emerald,
-            count: 1 + (next_rand() % 6) as u8,
-        });
+        chest.items[2] = Some(ItemStack::new(BlockId::Emerald, 1 + (next_rand() % 6) as u8));
         // Iron Ingots (2 - 7)
-        chest.items[4] = Some(ItemStack {
-            block: BlockId::IronIngot,
-            count: 2 + (next_rand() % 6) as u8,
-        });
+        chest.items[4] = Some(ItemStack::new(BlockId::IronIngot, 2 + (next_rand() % 6) as u8));
         // Bread (1 - 4)
-        chest.items[7] = Some(ItemStack {
-            block: BlockId::Bread,
-            count: 1 + (next_rand() % 4) as u8,
-        });
+        chest.items[7] = Some(ItemStack::new(BlockId::Bread, 1 + (next_rand() % 4) as u8));
         // Gold Ingot or Apple
         if next_rand() % 2 == 0 {
-            chest.items[11] = Some(ItemStack {
-                block: BlockId::GoldIngot,
-                count: 1 + (next_rand() % 3) as u8,
-            });
+            chest.items[11] = Some(ItemStack::new(BlockId::GoldIngot, 1 + (next_rand() % 3) as u8));
         } else {
-            chest.items[11] = Some(ItemStack {
-                block: BlockId::Apple,
-                count: 2 + (next_rand() % 3) as u8,
-            });
+            chest.items[11] = Some(ItemStack::new(BlockId::Apple, 2 + (next_rand() % 3) as u8));
         }
         // Blacksmith Tool
         match next_rand() % 3 {
             0 => {
-                chest.items[20] = Some(ItemStack {
-                    block: BlockId::IronPickaxe,
-                    count: 1,
-                });
+                chest.items[20] = Some(ItemStack::new(BlockId::IronPickaxe, 1));
             }
             1 => {
-                chest.items[20] = Some(ItemStack {
-                    block: BlockId::IronSword,
-                    count: 1,
-                });
+                chest.items[20] = Some(ItemStack::new(BlockId::IronSword, 1));
             }
             _ => {
-                chest.items[20] = Some(ItemStack {
-                    block: BlockId::IronAxe,
-                    count: 1,
-                });
+                chest.items[20] = Some(ItemStack::new(BlockId::IronAxe, 1));
             }
         }
 
@@ -211,7 +157,7 @@ impl ChestData {
         for slot in &mut self.items {
             if slot.is_none() {
                 let to_add = count.min(64);
-                *slot = Some(ItemStack { block, count: to_add });
+                *slot = Some(ItemStack::new(block, to_add));
                 count -= to_add;
                 if count == 0 {
                     return 0;
@@ -299,10 +245,7 @@ impl FurnaceData {
                     if let Some(res) = smelting_result(input_stack.block) {
                         match &mut self.output {
                             None => {
-                                self.output = Some(ItemStack {
-                                    block: res,
-                                    count: 1,
-                                });
+                                self.output = Some(ItemStack::new(res, 1));
                             }
                             Some(out) => {
                                 out.count += 1;
@@ -331,8 +274,8 @@ mod tests {
     #[test]
     fn test_furnace_smelting_food_and_ores() {
         let mut furnace = FurnaceData::new();
-        furnace.input = Some(ItemStack { block: BlockId::RawPorkchop, count: 2 });
-        furnace.fuel = Some(ItemStack { block: BlockId::CoalOre, count: 1 });
+        furnace.input = Some(ItemStack::new(BlockId::RawPorkchop, 2));
+        furnace.fuel = Some(ItemStack::new(BlockId::CoalOre, 1));
 
         // Tick to consume fuel and cook first porkchop (SMELT_DURATION = 10s)
         let state_changed = furnace.tick(5.0);
@@ -341,12 +284,12 @@ mod tests {
         assert_eq!(furnace.fuel, None); // 1 coal consumed
 
         furnace.tick(5.0); // complete cooking
-        assert_eq!(furnace.output, Some(ItemStack { block: BlockId::CookedPorkchop, count: 1 }));
-        assert_eq!(furnace.input, Some(ItemStack { block: BlockId::RawPorkchop, count: 1 }));
+        assert_eq!(furnace.output, Some(ItemStack::new(BlockId::CookedPorkchop, 1)));
+        assert_eq!(furnace.input, Some(ItemStack::new(BlockId::RawPorkchop, 1)));
         assert!(furnace.is_burning()); // Coal lasts 80s, so still burning
 
         furnace.tick(10.0); // cook second porkchop
-        assert_eq!(furnace.output, Some(ItemStack { block: BlockId::CookedPorkchop, count: 2 }));
+        assert_eq!(furnace.output, Some(ItemStack::new(BlockId::CookedPorkchop, 2)));
         assert_eq!(furnace.input, None);
 
         // Fuel continues to burn down even when input is empty (nothing being smelted)

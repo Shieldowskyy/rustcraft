@@ -1129,6 +1129,15 @@ pub enum TextureId {
     Obsidian,
     BookshelfSide,
     BookshelfTop,
+    SpiderSkin,
+    SpiderFace,
+    SpiderSpawnEgg,
+    StringItem,
+    SpiderEye,
+    LeatherArmor,
+    IronArmor,
+    GoldArmor,
+    DiamondArmor,
     /// Custom modded texture (index 0..=63)
     Custom(u8),
 }
@@ -1642,6 +1651,15 @@ pub struct TextureAtlas {
     pub obsidian: Texture,
     pub bookshelf_side: Texture,
     pub bookshelf_top: Texture,
+    pub spider_skin: Texture,
+    pub spider_face: Texture,
+    pub spider_spawn_egg: Texture,
+    pub string_item: Texture,
+    pub spider_eye: Texture,
+    pub leather_armor: Texture,
+    pub iron_armor: Texture,
+    pub gold_armor: Texture,
+    pub diamond_armor: Texture,
     pub custom: Vec<Texture>,
 }
 
@@ -1997,6 +2015,131 @@ fn iron_golem_spawn_egg() -> Texture {
         }
     }
     Texture { texels }
+}
+
+fn spider_skin() -> Texture {
+    speckled([0.16, 0.14, 0.13], 0.12, 831)
+}
+
+fn spider_face() -> Texture {
+    let mut tex = spider_skin();
+    let eye_bright = [0.95, 0.12, 0.12];
+    let eye_dim = [0.65, 0.08, 0.08];
+    tex.texels[7 * TEX_SIZE + 5] = eye_bright;
+    tex.texels[7 * TEX_SIZE + 6] = eye_bright;
+    tex.texels[7 * TEX_SIZE + 9] = eye_bright;
+    tex.texels[7 * TEX_SIZE + 10] = eye_bright;
+    tex.texels[8 * TEX_SIZE + 3] = eye_dim;
+    tex.texels[8 * TEX_SIZE + 4] = eye_bright;
+    tex.texels[8 * TEX_SIZE + 11] = eye_bright;
+    tex.texels[8 * TEX_SIZE + 12] = eye_dim;
+    tex
+}
+
+fn spider_spawn_egg() -> Texture {
+    spawn_egg_texture([0.20, 0.15, 0.15], [0.75, 0.12, 0.12], [0.10, 0.08, 0.08], 708)
+}
+
+fn string_item() -> Texture {
+    let mut texels = vec![[-1.0, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
+    let silk = [0.92, 0.92, 0.92];
+    let silk_dim = [0.68, 0.68, 0.70];
+    let coords = [
+        (3, 12), (4, 11), (5, 10), (6, 9), (7, 8),
+        (8, 7), (9, 6), (10, 5), (11, 4), (12, 3),
+        (5, 12), (6, 11), (7, 10), (8, 9), (9, 8),
+        (10, 7), (11, 6), (7, 6), (8, 5)
+    ];
+    for &(x, y) in &coords {
+        texels[y * TEX_SIZE + x] = silk;
+        if y + 1 < TEX_SIZE && texels[(y + 1) * TEX_SIZE + x][0] < 0.0 {
+            texels[(y + 1) * TEX_SIZE + x] = silk_dim;
+        }
+    }
+    Texture { texels }
+}
+
+fn spider_eye_texture() -> Texture {
+    let mut texels = vec![[-1.0, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
+    let red_bright = [0.92, 0.12, 0.12];
+    let red_dark = [0.55, 0.06, 0.06];
+    let highlight = [1.00, 0.65, 0.65];
+    let pupil = [0.15, 0.02, 0.02];
+    for y in 4..12 {
+        for x in 4..12 {
+            let dx = (x as f32 - 7.5).abs();
+            let dy = (y as f32 - 7.5).abs();
+            if dx * dx + dy * dy <= 12.0 {
+                texels[y * TEX_SIZE + x] = red_dark;
+            }
+        }
+    }
+    for y in 5..11 {
+        for x in 5..11 {
+            let dx = (x as f32 - 7.5).abs();
+            let dy = (y as f32 - 7.5).abs();
+            if dx * dx + dy * dy <= 7.0 {
+                texels[y * TEX_SIZE + x] = red_bright;
+            }
+        }
+    }
+    texels[6 * TEX_SIZE + 6] = highlight;
+    texels[7 * TEX_SIZE + 7] = pupil;
+    texels[7 * TEX_SIZE + 8] = pupil;
+    texels[8 * TEX_SIZE + 7] = pupil;
+    texels[8 * TEX_SIZE + 8] = pupil;
+    Texture { texels }
+}
+
+fn leather_armor() -> Texture {
+    let mut tex = speckled([0.55, 0.32, 0.16], 0.10, 401);
+    let seam = [0.40, 0.22, 0.10];
+    for i in 0..TEX_SIZE {
+        tex.texels[i] = seam;
+        tex.texels[(TEX_SIZE - 1) * TEX_SIZE + i] = seam;
+        tex.texels[i * TEX_SIZE] = seam;
+        tex.texels[i * TEX_SIZE + (TEX_SIZE - 1)] = seam;
+    }
+    tex
+}
+
+fn iron_armor() -> Texture {
+    let mut tex = speckled([0.82, 0.82, 0.85], 0.08, 402);
+    let highlight = [0.94, 0.94, 0.97];
+    let shadow = [0.65, 0.65, 0.68];
+    for i in 0..TEX_SIZE {
+        tex.texels[i] = highlight;
+        tex.texels[i * TEX_SIZE] = highlight;
+        tex.texels[(TEX_SIZE - 1) * TEX_SIZE + i] = shadow;
+        tex.texels[i * TEX_SIZE + (TEX_SIZE - 1)] = shadow;
+    }
+    tex
+}
+
+fn gold_armor() -> Texture {
+    let mut tex = speckled([0.94, 0.82, 0.22], 0.08, 403);
+    let highlight = [1.00, 0.95, 0.45];
+    let shadow = [0.72, 0.58, 0.12];
+    for i in 0..TEX_SIZE {
+        tex.texels[i] = highlight;
+        tex.texels[i * TEX_SIZE] = highlight;
+        tex.texels[(TEX_SIZE - 1) * TEX_SIZE + i] = shadow;
+        tex.texels[i * TEX_SIZE + (TEX_SIZE - 1)] = shadow;
+    }
+    tex
+}
+
+fn diamond_armor() -> Texture {
+    let mut tex = speckled([0.22, 0.88, 0.92], 0.08, 404);
+    let highlight = [0.60, 0.98, 1.00];
+    let shadow = [0.12, 0.65, 0.72];
+    for i in 0..TEX_SIZE {
+        tex.texels[i] = highlight;
+        tex.texels[i * TEX_SIZE] = highlight;
+        tex.texels[(TEX_SIZE - 1) * TEX_SIZE + i] = shadow;
+        tex.texels[i * TEX_SIZE + (TEX_SIZE - 1)] = shadow;
+    }
+    tex
 }
 
 fn bed_top() -> Texture {
@@ -4405,6 +4548,15 @@ impl TextureAtlas {
             obsidian: obsidian(),
             bookshelf_side: bookshelf_side(),
             bookshelf_top: planks(),
+            spider_skin: spider_skin(),
+            spider_face: spider_face(),
+            spider_spawn_egg: spider_spawn_egg(),
+            string_item: string_item(),
+            spider_eye: spider_eye_texture(),
+            leather_armor: leather_armor(),
+            iron_armor: iron_armor(),
+            gold_armor: gold_armor(),
+            diamond_armor: diamond_armor(),
             custom: crate::engine::modding::generate_mod_textures(),
         }
     }
@@ -4624,6 +4776,15 @@ impl TextureAtlas {
             TextureId::Obsidian => &self.obsidian,
             TextureId::BookshelfSide => &self.bookshelf_side,
             TextureId::BookshelfTop => &self.bookshelf_top,
+            TextureId::SpiderSkin => &self.spider_skin,
+            TextureId::SpiderFace => &self.spider_face,
+            TextureId::SpiderSpawnEgg => &self.spider_spawn_egg,
+            TextureId::StringItem => &self.string_item,
+            TextureId::SpiderEye => &self.spider_eye,
+            TextureId::LeatherArmor => &self.leather_armor,
+            TextureId::IronArmor => &self.iron_armor,
+            TextureId::GoldArmor => &self.gold_armor,
+            TextureId::DiamondArmor => &self.diamond_armor,
             TextureId::Custom(idx) => self.custom.get(idx as usize).unwrap_or(&self.stone),
         }
     }

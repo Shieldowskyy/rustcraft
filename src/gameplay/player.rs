@@ -111,18 +111,40 @@ impl Player {
     /// Takes physical damage from an attack. If the player is actively blocking with a shield
     /// and facing the attacker, the damage is 100% blocked! Otherwise, damage is reduced by equipped armor.
     /// Returns `(damaged, blocked)`.
-    pub fn take_physical_damage(&mut self, amount: f32, is_front_attack: bool) -> (bool, bool) {
+    pub fn take_physical_damage(&mut self, amount: f32, is_front_attack: bool) -> (bool, bool, bool) {
         if self.gamemode == GameMode::Creative || self.invulnerability_timer > 0.0 || self.is_dead() {
-            return (false, false);
+            return (false, false, false);
         }
+        let mut item_broke = false;
         if self.is_blocking && is_front_attack {
             // Shield blocks 100% of damage!
             self.invulnerability_timer = 0.25;
-            return (false, true);
+            if let Some(shield) = &mut self.inventory.offhand {
+                if shield.block.is_damageable() {
+                    if shield.damage(1) {
+                        self.inventory.offhand = None;
+                        item_broke = true;
+                    }
+                }
+            }
+            return (false, true, item_broke);
         }
         let reduced = (amount * self.damage_reduction_multiplier()).max(1.0);
         let damaged = self.take_damage(reduced);
-        (damaged, false)
+        if damaged {
+            let armor_damage = (amount as u16 / 4).max(1);
+            for slot in &mut self.inventory.armor {
+                if let Some(armor_piece) = slot {
+                    if armor_piece.block.is_damageable() {
+                        if armor_piece.damage(armor_damage) {
+                            *slot = None;
+                            item_broke = true;
+                        }
+                    }
+                }
+            }
+        }
+        (damaged, false, item_broke)
     }
 
     /// Ticks the held item change detection and display timer.
@@ -281,10 +303,7 @@ mod tests {
         player.exhaustion = 1.2;
         player.air = 15.0;
         player.selected_hotbar_slot = 3;
-        player.inventory.hotbar[3] = Some(crate::gameplay::inventory::ItemStack {
-            block: BlockId::IronPickaxe,
-            count: 1,
-        });
+        player.inventory.hotbar[3] = Some(crate::gameplay::inventory::ItemStack::new(BlockId::IronPickaxe, 1));
 
         let saved = player.save_state();
         assert_eq!(saved.health, 14.0);

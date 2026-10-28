@@ -73,10 +73,7 @@ impl RustCraftApp {
                 if let Some(target) = inv_hovered_target {
                     match target {
                         InventorySlotTarget::Creative(id) => {
-                            self.player.inventory.hotbar[i] = Some(ItemStack {
-                                block: BlockId::from_u8(id),
-                                count: 64,
-                            });
+                            self.player.inventory.hotbar[i] = Some(ItemStack::new(BlockId::from_u8(id), 64));
                         }
                         InventorySlotTarget::Hotbar(from_idx) => {
                             self.player.inventory.hotbar.swap(i, from_idx);
@@ -197,17 +194,17 @@ impl RustCraftApp {
                         if input.key_shift {
                             // Shift-click places 64-stack into first empty hotbar slot
                             let placed = if let Some(slot) = self.player.inventory.hotbar.iter_mut().find(|s| s.is_none()) {
-                                *slot = Some(ItemStack { block, count: 64 });
+                                *slot = Some(ItemStack::new(block, 64));
                                 true
                             } else {
                                 false
                             };
                             if !placed {
-                                self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = Some(ItemStack { block, count: 64 });
+                                self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = Some(ItemStack::new(block, 64));
                             }
                         } else {
                             // Normal click: pick up full 64-stack into hand
-                            self.player.inventory.held_item = Some(ItemStack { block, count: 64 });
+                            self.player.inventory.held_item = Some(ItemStack::new(block, 64));
                         }
                     }
                     InventorySlotTarget::Trash => {
@@ -383,7 +380,7 @@ impl RustCraftApp {
                                 if let Some(st) = chest.items[idx].take() {
                                     let rem = self.player.inventory.add_item(st.block, st.count);
                                     if rem > 0 {
-                                        chest.items[idx] = Some(ItemStack { block: st.block, count: rem });
+                                        chest.items[idx] = Some(ItemStack::new(st.block, rem));
                                     }
                                 }
                             } else {
@@ -399,7 +396,7 @@ impl RustCraftApp {
                                 if let Some(st) = self.player.inventory.main[idx].take() {
                                     let rem = chest.add_item(st.block, st.count);
                                     if rem > 0 {
-                                        self.player.inventory.main[idx] = Some(ItemStack { block: st.block, count: rem });
+                                        self.player.inventory.main[idx] = Some(ItemStack::new(st.block, rem));
                                     }
                                 }
                             } else {
@@ -415,7 +412,7 @@ impl RustCraftApp {
                                 if let Some(st) = self.player.inventory.hotbar[idx].take() {
                                     let rem = chest.add_item(st.block, st.count);
                                     if rem > 0 {
-                                        self.player.inventory.hotbar[idx] = Some(ItemStack { block: st.block, count: rem });
+                                        self.player.inventory.hotbar[idx] = Some(ItemStack::new(st.block, rem));
                                     }
                                 }
                             } else {
@@ -505,7 +502,7 @@ impl RustCraftApp {
                             if let Some(out_stack) = furnace.output.take() {
                                 let rem = self.player.inventory.add_item(out_stack.block, out_stack.count);
                                 if rem > 0 {
-                                    furnace.output = Some(ItemStack { block: out_stack.block, count: rem });
+                                    furnace.output = Some(ItemStack::new(out_stack.block, rem));
                                 }
                             }
                         }
@@ -531,7 +528,7 @@ impl RustCraftApp {
                                 if let Some(st) = furnace.input.take() {
                                     let rem = self.player.inventory.add_item(st.block, st.count);
                                     if rem > 0 {
-                                        furnace.input = Some(ItemStack { block: st.block, count: rem });
+                                        furnace.input = Some(ItemStack::new(st.block, rem));
                                     }
                                 }
                             } else {
@@ -547,7 +544,7 @@ impl RustCraftApp {
                                 if let Some(st) = furnace.fuel.take() {
                                     let rem = self.player.inventory.add_item(st.block, st.count);
                                     if rem > 0 {
-                                        furnace.fuel = Some(ItemStack { block: st.block, count: rem });
+                                        furnace.fuel = Some(ItemStack::new(st.block, rem));
                                     }
                                 }
                             } else {
@@ -563,7 +560,7 @@ impl RustCraftApp {
                                 if let Some(out_stack) = furnace.output.take() {
                                     let rem = self.player.inventory.add_item(out_stack.block, out_stack.count);
                                     if rem > 0 {
-                                        furnace.output = Some(ItemStack { block: out_stack.block, count: rem });
+                                        furnace.output = Some(ItemStack::new(out_stack.block, rem));
                                     }
                                 }
                             } else if let Some(out_stack) = &mut furnace.output {

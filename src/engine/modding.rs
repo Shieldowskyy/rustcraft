@@ -399,7 +399,7 @@ pub fn execute_mod_command(cmd_def: &ModCommandDef, chat: &mut ChatState, ctx: &
                             }
                         } else {
                             let add = remaining.min(64);
-                            *slot = Some(ItemStack { block, count: add });
+                            *slot = Some(ItemStack::new(block, add));
                             remaining -= add;
                         }
                     }
@@ -416,7 +416,7 @@ pub fn execute_mod_command(cmd_def: &ModCommandDef, chat: &mut ChatState, ctx: &
                             }
                         } else {
                             let add = remaining.min(64);
-                            *slot = Some(ItemStack { block, count: add });
+                            *slot = Some(ItemStack::new(block, add));
                             remaining -= add;
                         }
                     }
@@ -449,6 +449,7 @@ pub fn execute_mod_command(cmd_def: &ModCommandDef, chat: &mut ChatState, ctx: &
                     "zombie" => Some(crate::gameplay::mob::MobKind::Zombie),
                     "skeleton" => Some(crate::gameplay::mob::MobKind::Skeleton),
                     "creeper" => Some(crate::gameplay::mob::MobKind::Creeper),
+                    "spider" => Some(crate::gameplay::mob::MobKind::Spider),
                     _ => None,
                 };
                 if let Some(kind) = kind_opt {
@@ -1147,10 +1148,7 @@ impl ModManager {
             width,
             height,
             pattern,
-            result: ItemStack {
-                block: result_block,
-                count,
-            },
+            result: ItemStack::new(result_block, count),
         })
     }
 
@@ -1594,10 +1592,7 @@ mod tests {
         let mut book = RecipeBook::new();
         let _ = ModManager::register_mod_from_str(json, Path::new("mods/craft"), &mut book).unwrap();
 
-        let gem_item = Some(crate::gameplay::inventory::ItemStack {
-            block: BlockId::Custom(221),
-            count: 1,
-        });
+        let gem_item = Some(crate::gameplay::inventory::ItemStack::new(BlockId::Custom(221), 1));
 
         let grid_2x2 = [gem_item, gem_item, gem_item, gem_item];
         let result = book.match_grid(&grid_2x2, 2, 2);

@@ -303,11 +303,11 @@ impl AutoTestRunner {
                 app.player.selected_hotbar_slot = 0;
 
                 // Load designated test item inventory
-                app.player.inventory.hotbar[0] = Some(ItemStack { block: BlockId::Stone, count: 64 });
-                app.player.inventory.hotbar[1] = Some(ItemStack { block: BlockId::Wood, count: 16 });
-                app.player.inventory.hotbar[2] = Some(ItemStack { block: BlockId::Apple, count: 8 });
-                app.player.inventory.hotbar[3] = Some(ItemStack { block: BlockId::Chest, count: 2 });
-                app.player.inventory.hotbar[4] = Some(ItemStack { block: BlockId::IronPickaxe, count: 1 });
+                app.player.inventory.hotbar[0] = Some(ItemStack::new(BlockId::Stone, 64));
+                app.player.inventory.hotbar[1] = Some(ItemStack::new(BlockId::Wood, 16));
+                app.player.inventory.hotbar[2] = Some(ItemStack::new(BlockId::Apple, 8));
+                app.player.inventory.hotbar[3] = Some(ItemStack::new(BlockId::Chest, 2));
+                app.player.inventory.hotbar[4] = Some(ItemStack::new(BlockId::IronPickaxe, 1));
 
                 let passed = app.player.inventory.hotbar[0].is_some() && app.player.selected_hotbar_slot == 0;
                 let details = "9 hotbar slots indexed, test item stacks initialized".to_string();
@@ -393,13 +393,13 @@ impl AutoTestRunner {
 
             AutoTestStage::Crafting => {
                 // Test 2x2 Crafting: Wood -> 4 Planks, 2 Planks -> 4 Sticks
-                let wood_grid = [Some(ItemStack { block: BlockId::Wood, count: 1 }), None, None, None];
+                let wood_grid = [Some(ItemStack::new(BlockId::Wood, 1)), None, None, None];
                 let planks_match = app.recipe_book.match_grid(&wood_grid, 2, 2);
 
                 let stick_grid = [
-                    Some(ItemStack { block: BlockId::Planks, count: 1 }),
+                    Some(ItemStack::new(BlockId::Planks, 1)),
                     None,
-                    Some(ItemStack { block: BlockId::Planks, count: 1 }),
+                    Some(ItemStack::new(BlockId::Planks, 1)),
                     None,
                 ];
                 let stick_match = app.recipe_book.match_grid(&stick_grid, 2, 2);
@@ -416,11 +416,11 @@ impl AutoTestRunner {
                 // Test Chest container tile entity
                 let chest_pos = self.placed_block_pos.unwrap_or(IVec3::new(0, 64, 0));
                 let mut chest = ChestData::new();
-                chest.items[0] = Some(ItemStack { block: BlockId::Stone, count: 16 });
+                chest.items[0] = Some(ItemStack::new(BlockId::Stone, 16));
                 app.world.chests.insert(chest_pos, chest);
 
                 let stored_ok = app.world.chests.get(&chest_pos).and_then(|c| c.items[0])
-                    == Some(ItemStack { block: BlockId::Stone, count: 16 });
+                    == Some(ItemStack::new(BlockId::Stone, 16));
 
                 // Test Furnace container tile entity
                 let furnace_pos = chest_pos + IVec3::new(1, 0, 0);

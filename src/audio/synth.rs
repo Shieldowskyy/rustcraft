@@ -275,6 +275,10 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::BowHit => 712,
         SoundId::ShieldBlock => 713,
         SoundId::ArmorEquip => 714,
+        SoundId::SpiderIdle => 831,
+        SoundId::SpiderHurt => 832,
+        SoundId::SpiderDeath => 833,
+        SoundId::ToolBreak => 715,
     });
 
     let samples = match id {
@@ -383,6 +387,10 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::BowHit => synth_bow_hit(&mut rng, sr, 0.12, 0.95),
         SoundId::ShieldBlock => synth_shield_block(&mut rng, sr, 0.28, 0.95),
         SoundId::ArmorEquip => synth_armor_equip(&mut rng, sr, 0.25, 0.90),
+        SoundId::SpiderIdle => synth_spider_idle(&mut rng, sr, 0.35, 0.85),
+        SoundId::SpiderHurt => synth_spider_hurt(&mut rng, sr, 0.22, 0.90),
+        SoundId::SpiderDeath => synth_spider_death(&mut rng, sr, 0.50, 0.95),
+        SoundId::ToolBreak => synth_tool_break(&mut rng, sr, 0.28, 1.0),
     };
 
     SoundSample::new(samples, sample_rate, 1) // Mono procedural source for 3D spatial panning
@@ -2446,5 +2454,71 @@ fn synth_armor_equip(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> 
     normalize_and_scale(&mut out, volume);
     out
 }
+
+fn synth_spider_idle(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut lp = IirFilter::lowpass(2800.0, sr);
+    let mut hp = IirFilter::highpass(900.0, sr);
+    for i in 0..count {
+        let t = i as f32 / sr;
+        let env = (1.0 - t / duration).max(0.0);
+        let rattle = ((t * 85.0).sin() * 0.5 + 0.5).powi(2);
+        let raw = (rng.next_f32() * 2.0 - 1.0) * rattle;
+        let s = hp.process(lp.process(raw)) * env * volume;
+        out.push(s);
+    }
+    out
+}
+
+fn synth_spider_hurt(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut hp = IirFilter::highpass(1200.0, sr);
+    for i in 0..count {
+        let t = i as f32 / sr;
+        let env = (1.0 - t / duration).powf(1.5);
+        let freq = 800.0 + (1.0 - t / duration) * 900.0;
+        let tone = (t * freq * std::f32::consts::TAU).sin() * 0.4;
+        let noise = (rng.next_f32() * 2.0 - 1.0) * 0.6;
+        let s = hp.process(tone + noise) * env * volume;
+        out.push(s);
+    }
+    out
+}
+
+fn synth_spider_death(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut lp = IirFilter::lowpass(2200.0, sr);
+    for i in 0..count {
+        let t = i as f32 / sr;
+        let env = (1.0 - t / duration).powf(1.8);
+        let freq = 600.0 * (1.0 - t / duration) + 150.0;
+        let tone = (t * freq * std::f32::consts::TAU).sin() * 0.45;
+        let noise = (rng.next_f32() * 2.0 - 1.0) * 0.55;
+        let s = lp.process(tone + noise) * env * volume;
+        out.push(s);
+    }
+    out
+}
+
+fn synth_tool_break(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut hp = IirFilter::highpass(400.0, sr);
+    let mut lp = IirFilter::lowpass(4500.0, sr);
+    for i in 0..count {
+        let t = i as f32 / sr;
+        let env = (-18.0 * t).exp();
+        let crack_freq = 1400.0 - t * 3000.0;
+        let crack = (t * crack_freq.max(100.0) * std::f32::consts::TAU).sin() * 0.4;
+        let snap = if i < (sr * 0.015) as usize { (rng.next_f32() * 2.0 - 1.0) * 0.9 } else { (rng.next_f32() * 2.0 - 1.0) * 0.3 };
+        let s = hp.process(lp.process(crack + snap)) * env * volume;
+        out.push(s);
+    }
+    out
+}
+
 
 

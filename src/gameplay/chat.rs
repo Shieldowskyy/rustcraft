@@ -633,6 +633,7 @@ impl ChatState {
                     "pufferfish" | "rozdymka" => Some(MobKind::Pufferfish),
                     "tropical_fish" | "tropikalna_ryba" => Some(MobKind::TropicalFish),
                     "villager" | "osadnik" | "wiesniak" => Some(MobKind::Villager),
+                    "spider" | "pajak" => Some(MobKind::Spider),
                     _ => None,
                 };
 
@@ -757,6 +758,7 @@ impl ChatState {
         let mut tropical_fish = 0;
         let mut villagers = 0;
         let mut iron_golems = 0;
+        let mut spiders = 0;
 
         for mob in &ctx.mob_manager.mobs {
             match mob.kind {
@@ -774,6 +776,7 @@ impl ChatState {
                 MobKind::TropicalFish => tropical_fish += 1,
                 MobKind::Villager => villagers += 1,
                 MobKind::IronGolem => iron_golems += 1,
+                MobKind::Spider => spiders += 1,
             }
             let dist = (mob.pos - player_pos).length();
             let hostile_tag = if mob.kind.is_hostile() { " [HOSTILE]" } else { "" };
@@ -799,8 +802,8 @@ impl ChatState {
         }
 
         self.add_info(format!(
-            "Summary: Pigs: {}, Cows: {}, Chickens: {}, Sheep: {}, Zombies: {}, Skeletons: {}, Creepers: {}, Dolphins: {}, Fish: {}, Villagers: {}, Iron Golems: {}",
-            pigs, cows, chickens, sheep, zombies, skeletons, creepers, dolphins, cod + salmon + pufferfish + tropical_fish, villagers, iron_golems
+            "Summary: Pigs: {}, Cows: {}, Chickens: {}, Sheep: {}, Zombies: {}, Skeletons: {}, Creepers: {}, Spiders: {}, Dolphins: {}, Fish: {}, Villagers: {}, Iron Golems: {}",
+            pigs, cows, chickens, sheep, zombies, skeletons, creepers, spiders, dolphins, cod + salmon + pufferfish + tropical_fish, villagers, iron_golems
         ));
     }
 }
@@ -902,6 +905,9 @@ pub fn parse_vanilla_block_id(s: &str) -> Option<BlockId> {
         "emerald_ore" | "ruda_szmaragdu" => Some(BlockId::EmeraldOre),
         "emerald_block" | "blok_szmaragdu" => Some(BlockId::EmeraldBlock),
         "fishing_rod" | "wedka" => Some(BlockId::FishingRod),
+        "string" | "nici" | "nic" => Some(BlockId::StringItem),
+        "spider_eye" | "oko_pajaka" => Some(BlockId::SpiderEye),
+        "spider_spawn_egg" | "spider_egg" | "jajko_pajaka" => Some(BlockId::SpiderSpawnEgg),
         _ => {
             if let Ok(id) = s.parse::<u8>() {
                 if id > 0 {

@@ -125,25 +125,16 @@ pub struct TradeOffer {
 impl TradeOffer {
     pub fn new(cost_block: BlockId, cost_count: u8, result_block: BlockId, result_count: u8) -> Self {
         Self {
-            cost_a: ItemStack {
-                block: cost_block,
-                count: cost_count,
-            },
+            cost_a: ItemStack::new(cost_block, cost_count),
             cost_b: None,
-            result: ItemStack {
-                block: result_block,
-                count: result_count,
-            },
+            result: ItemStack::new(result_block, result_count),
             uses: 0,
             max_uses: 16,
         }
     }
 
     pub fn with_secondary_cost(mut self, cost_block: BlockId, cost_count: u8) -> Self {
-        self.cost_b = Some(ItemStack {
-            block: cost_block,
-            count: cost_count,
-        });
+        self.cost_b = Some(ItemStack::new(cost_block, cost_count));
         self
     }
 
@@ -181,10 +172,7 @@ impl TradeOffer {
             // Hotbar fallback
             for slot in &mut player.inventory.hotbar {
                 if slot.is_none() {
-                    *slot = Some(ItemStack {
-                        block: self.result.block,
-                        count: remaining,
-                    });
+                    *slot = Some(ItemStack::new(self.result.block, remaining));
                     break;
                 }
             }
@@ -291,7 +279,7 @@ mod tests {
         assert!(!offer.execute(&mut player));
 
         // Add 20 wheat to player
-        player.inventory.main[0] = Some(ItemStack { block: BlockId::Wheat, count: 20 });
+        player.inventory.main[0] = Some(ItemStack::new(BlockId::Wheat, 20));
         assert!(offer.player_can_afford(&player));
 
         // Execute trade
@@ -311,7 +299,7 @@ mod tests {
         let mut offer = TradeOffer::new(BlockId::Emerald, 1, BlockId::Bread, 6);
         offer.max_uses = 2;
 
-        player.inventory.main[0] = Some(ItemStack { block: BlockId::Emerald, count: 10 });
+        player.inventory.main[0] = Some(ItemStack::new(BlockId::Emerald, 10));
 
         assert!(offer.execute(&mut player));
         assert_eq!(offer.uses, 1);

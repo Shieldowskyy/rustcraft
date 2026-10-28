@@ -1768,9 +1768,10 @@ impl Renderer {
 
         match mob.kind {
             MobKind::Pig => {
+                let scale = if mob.is_baby { 0.5f32 } else { 1.0f32 };
                 let body_box = MobBox {
-                    center: Vec3::new(0.0, 0.45, 0.0),
-                    size: Vec3::new(0.65, 0.45, 0.90),
+                    center: Vec3::new(0.0, 0.45 * scale, 0.0),
+                    size: Vec3::new(0.65 * scale, 0.45 * scale, 0.90 * scale),
                     yaw,
                     pitch: 0.0,
                     roll: roll_angle,
@@ -1782,11 +1783,11 @@ impl Renderer {
                 };
                 self.draw_mob_box(&body_box, hurt_tint, camera_pos, view_proj);
 
-                let head_pos = base_pos + Vec3::new(yaw.sin() * 0.48, 0.52, yaw.cos() * 0.48);
+                let head_pos = base_pos + Vec3::new(yaw.sin() * 0.48 * scale, 0.52 * scale, yaw.cos() * 0.48 * scale);
                 let head_yaw = yaw + mob.head_yaw_offset;
                 let head_box = MobBox {
                     center: Vec3::zero(),
-                    size: Vec3::new(0.48, 0.48, 0.48),
+                    size: Vec3::new(0.48 * scale, 0.48 * scale, 0.48 * scale),
                     yaw: head_yaw,
                     pitch: 0.0,
                     roll: roll_angle,
@@ -1798,10 +1799,10 @@ impl Renderer {
                 };
                 self.draw_mob_box(&head_box, hurt_tint, camera_pos, view_proj);
 
-                let snout_pos = head_pos + Vec3::new(head_yaw.sin() * 0.28, -0.06, head_yaw.cos() * 0.28);
+                let snout_pos = head_pos + Vec3::new(head_yaw.sin() * 0.28 * scale, -0.06 * scale, head_yaw.cos() * 0.28 * scale);
                 let snout_box = MobBox {
                     center: Vec3::zero(),
-                    size: Vec3::new(0.24, 0.18, 0.12),
+                    size: Vec3::new(0.24 * scale, 0.18 * scale, 0.12 * scale),
                     yaw: head_yaw,
                     pitch: 0.0,
                     roll: roll_angle,
@@ -1814,20 +1815,20 @@ impl Renderer {
                 self.draw_mob_box(&snout_box, hurt_tint, camera_pos, view_proj);
 
                 let leg_offsets = [
-                    (-0.22, -0.28, leg_swing),
-                    (0.22, -0.28, -leg_swing),
-                    (-0.22, 0.28, -leg_swing),
-                    (0.22, 0.28, leg_swing),
+                    (-0.22 * scale, -0.28 * scale, leg_swing),
+                    (0.22 * scale, -0.28 * scale, -leg_swing),
+                    (-0.22 * scale, 0.28 * scale, -leg_swing),
+                    (0.22 * scale, 0.28 * scale, leg_swing),
                 ];
 
                 for &(lx, lz, swing) in &leg_offsets {
                     let rotated_x = lx * yaw.cos() + lz * yaw.sin();
                     let rotated_z = -lx * yaw.sin() + lz * yaw.cos();
-                    let leg_origin = base_pos + Vec3::new(rotated_x, 0.30, rotated_z);
+                    let leg_origin = base_pos + Vec3::new(rotated_x, 0.30 * scale, rotated_z);
 
                     let leg_box = MobBox {
-                        center: Vec3::new(0.0, -0.15, 0.0),
-                        size: Vec3::new(0.20, 0.30, 0.20),
+                        center: Vec3::new(0.0, -0.15 * scale, 0.0),
+                        size: Vec3::new(0.20 * scale, 0.30 * scale, 0.20 * scale),
                         yaw,
                         pitch: swing,
                         roll: roll_angle,
@@ -1841,9 +1842,10 @@ impl Renderer {
                 }
             }
             MobKind::Cow => {
+                let scale = if mob.is_baby { 0.5f32 } else { 1.0f32 };
                 let body_box = MobBox {
-                    center: Vec3::new(0.0, 0.78, 0.0),
-                    size: Vec3::new(0.75, 0.65, 1.15),
+                    center: Vec3::new(0.0, 0.78 * scale, 0.0),
+                    size: Vec3::new(0.75 * scale, 0.65 * scale, 1.15 * scale),
                     yaw,
                     pitch: 0.0,
                     roll: roll_angle,
@@ -1855,26 +1857,28 @@ impl Renderer {
                 };
                 self.draw_mob_box(&body_box, hurt_tint, camera_pos, view_proj);
 
-                let udder_pos = base_pos + Vec3::new(0.0, 0.44, 0.0);
-                let udder_box = MobBox {
-                    center: Vec3::zero(),
-                    size: Vec3::new(0.28, 0.12, 0.36),
-                    yaw,
-                    pitch: 0.0,
-                    roll: roll_angle,
-                    origin: udder_pos,
-                    tex_top: TextureId::CowUdder,
-                    tex_bottom: TextureId::CowUdder,
-                    tex_side: TextureId::CowUdder,
-                    tex_front: TextureId::CowUdder,
-                };
-                self.draw_mob_box(&udder_box, hurt_tint, camera_pos, view_proj);
+                if !mob.is_baby {
+                    let udder_pos = base_pos + Vec3::new(0.0, 0.44 * scale, 0.0);
+                    let udder_box = MobBox {
+                        center: Vec3::zero(),
+                        size: Vec3::new(0.28 * scale, 0.12 * scale, 0.36 * scale),
+                        yaw,
+                        pitch: 0.0,
+                        roll: roll_angle,
+                        origin: udder_pos,
+                        tex_top: TextureId::CowUdder,
+                        tex_bottom: TextureId::CowUdder,
+                        tex_side: TextureId::CowUdder,
+                        tex_front: TextureId::CowUdder,
+                    };
+                    self.draw_mob_box(&udder_box, hurt_tint, camera_pos, view_proj);
+                }
 
-                let head_pos = base_pos + Vec3::new(yaw.sin() * 0.62, 0.95, yaw.cos() * 0.62);
+                let head_pos = base_pos + Vec3::new(yaw.sin() * 0.62 * scale, 0.95 * scale, yaw.cos() * 0.62 * scale);
                 let head_yaw = yaw + mob.head_yaw_offset;
                 let head_box = MobBox {
                     center: Vec3::zero(),
-                    size: Vec3::new(0.48, 0.48, 0.46),
+                    size: Vec3::new(0.48 * scale, 0.48 * scale, 0.46 * scale),
                     yaw: head_yaw,
                     pitch: 0.0,
                     roll: roll_angle,
@@ -1886,10 +1890,10 @@ impl Renderer {
                 };
                 self.draw_mob_box(&head_box, hurt_tint, camera_pos, view_proj);
 
-                let snout_pos = head_pos + Vec3::new(head_yaw.sin() * 0.26, -0.10, head_yaw.cos() * 0.26);
+                let snout_pos = head_pos + Vec3::new(head_yaw.sin() * 0.26 * scale, -0.10 * scale, head_yaw.cos() * 0.26 * scale);
                 let snout_box = MobBox {
                     center: Vec3::zero(),
-                    size: Vec3::new(0.34, 0.22, 0.16),
+                    size: Vec3::new(0.34 * scale, 0.22 * scale, 0.16 * scale),
                     yaw: head_yaw,
                     pitch: 0.0,
                     roll: roll_angle,
@@ -1901,40 +1905,42 @@ impl Renderer {
                 };
                 self.draw_mob_box(&snout_box, hurt_tint, camera_pos, view_proj);
 
-                for side in [-1.0f32, 1.0f32] {
-                    let horn_x = side * 0.28 * head_yaw.cos();
-                    let horn_z = -side * 0.28 * head_yaw.sin();
-                    let horn_pos = head_pos + Vec3::new(horn_x, 0.26, horn_z);
-                    let horn_box = MobBox {
-                        center: Vec3::zero(),
-                        size: Vec3::new(0.10, 0.18, 0.10),
-                        yaw: head_yaw,
-                        pitch: 0.0,
-                        roll: roll_angle,
-                        origin: horn_pos,
-                        tex_top: TextureId::CowHorns,
-                        tex_bottom: TextureId::CowHorns,
-                        tex_side: TextureId::CowHorns,
-                        tex_front: TextureId::CowHorns,
-                    };
-                    self.draw_mob_box(&horn_box, hurt_tint, camera_pos, view_proj);
+                if !mob.is_baby {
+                    for side in [-1.0f32, 1.0f32] {
+                        let horn_x = side * 0.28 * scale * head_yaw.cos();
+                        let horn_z = -side * 0.28 * scale * head_yaw.sin();
+                        let horn_pos = head_pos + Vec3::new(horn_x, 0.26 * scale, horn_z);
+                        let horn_box = MobBox {
+                            center: Vec3::zero(),
+                            size: Vec3::new(0.10 * scale, 0.18 * scale, 0.10 * scale),
+                            yaw: head_yaw,
+                            pitch: 0.0,
+                            roll: roll_angle,
+                            origin: horn_pos,
+                            tex_top: TextureId::CowHorns,
+                            tex_bottom: TextureId::CowHorns,
+                            tex_side: TextureId::CowHorns,
+                            tex_front: TextureId::CowHorns,
+                        };
+                        self.draw_mob_box(&horn_box, hurt_tint, camera_pos, view_proj);
+                    }
                 }
 
                 let leg_offsets = [
-                    (-0.25, -0.38, leg_swing),
-                    (0.25, -0.38, -leg_swing),
-                    (-0.25, 0.38, -leg_swing),
-                    (0.25, 0.38, leg_swing),
+                    (-0.25 * scale, -0.38 * scale, leg_swing),
+                    (0.25 * scale, -0.38 * scale, -leg_swing),
+                    (-0.25 * scale, 0.38 * scale, -leg_swing),
+                    (0.25 * scale, 0.38 * scale, leg_swing),
                 ];
 
                 for &(lx, lz, swing) in &leg_offsets {
                     let rotated_x = lx * yaw.cos() + lz * yaw.sin();
                     let rotated_z = -lx * yaw.sin() + lz * yaw.cos();
-                    let leg_origin = base_pos + Vec3::new(rotated_x, 0.50, rotated_z);
+                    let leg_origin = base_pos + Vec3::new(rotated_x, 0.50 * scale, rotated_z);
 
                     let leg_box = MobBox {
-                        center: Vec3::new(0.0, -0.25, 0.0),
-                        size: Vec3::new(0.22, 0.50, 0.22),
+                        center: Vec3::new(0.0, -0.25 * scale, 0.0),
+                        size: Vec3::new(0.22 * scale, 0.50 * scale, 0.22 * scale),
                         yaw,
                         pitch: swing,
                         roll: roll_angle,
@@ -1948,9 +1954,10 @@ impl Renderer {
                 }
             }
             MobKind::Chicken => {
+                let scale = if mob.is_baby { 0.5f32 } else { 1.0f32 };
                 let body_box = MobBox {
-                    center: Vec3::new(0.0, 0.34, 0.0),
-                    size: Vec3::new(0.36, 0.30, 0.44),
+                    center: Vec3::new(0.0, 0.34 * scale, 0.0),
+                    size: Vec3::new(0.36 * scale, 0.30 * scale, 0.44 * scale),
                     yaw,
                     pitch: 0.0,
                     roll: roll_angle,
@@ -1962,11 +1969,11 @@ impl Renderer {
                 };
                 self.draw_mob_box(&body_box, hurt_tint, camera_pos, view_proj);
 
-                let head_pos = base_pos + Vec3::new(yaw.sin() * 0.22, 0.48, yaw.cos() * 0.22);
+                let head_pos = base_pos + Vec3::new(yaw.sin() * 0.22 * scale, 0.48 * scale, yaw.cos() * 0.22 * scale);
                 let head_yaw = yaw + mob.head_yaw_offset;
                 let head_box = MobBox {
                     center: Vec3::zero(),
-                    size: Vec3::new(0.28, 0.28, 0.24),
+                    size: Vec3::new(0.28 * scale, 0.28 * scale, 0.24 * scale),
                     yaw: head_yaw,
                     pitch: 0.0,
                     roll: roll_angle,
@@ -1978,10 +1985,10 @@ impl Renderer {
                 };
                 self.draw_mob_box(&head_box, hurt_tint, camera_pos, view_proj);
 
-                let beak_pos = head_pos + Vec3::new(head_yaw.sin() * 0.14, -0.03, head_yaw.cos() * 0.14);
+                let beak_pos = head_pos + Vec3::new(head_yaw.sin() * 0.14 * scale, -0.03 * scale, head_yaw.cos() * 0.14 * scale);
                 let beak_box = MobBox {
                     center: Vec3::zero(),
-                    size: Vec3::new(0.12, 0.06, 0.08),
+                    size: Vec3::new(0.12 * scale, 0.06 * scale, 0.08 * scale),
                     yaw: head_yaw,
                     pitch: 0.0,
                     roll: roll_angle,
@@ -1993,26 +2000,28 @@ impl Renderer {
                 };
                 self.draw_mob_box(&beak_box, hurt_tint, camera_pos, view_proj);
 
-                let wattle_pos = head_pos + Vec3::new(head_yaw.sin() * 0.13, -0.08, head_yaw.cos() * 0.13);
-                let wattle_box = MobBox {
-                    center: Vec3::zero(),
-                    size: Vec3::new(0.06, 0.08, 0.06),
-                    yaw: head_yaw,
-                    pitch: 0.0,
-                    roll: roll_angle,
-                    origin: wattle_pos,
-                    tex_top: TextureId::ChickenWattle,
-                    tex_bottom: TextureId::ChickenWattle,
-                    tex_side: TextureId::ChickenWattle,
-                    tex_front: TextureId::ChickenWattle,
-                };
-                self.draw_mob_box(&wattle_box, hurt_tint, camera_pos, view_proj);
+                if !mob.is_baby {
+                    let wattle_pos = head_pos + Vec3::new(head_yaw.sin() * 0.13 * scale, -0.08 * scale, head_yaw.cos() * 0.13 * scale);
+                    let wattle_box = MobBox {
+                        center: Vec3::zero(),
+                        size: Vec3::new(0.06 * scale, 0.08 * scale, 0.06 * scale),
+                        yaw: head_yaw,
+                        pitch: 0.0,
+                        roll: roll_angle,
+                        origin: wattle_pos,
+                        tex_top: TextureId::ChickenWattle,
+                        tex_bottom: TextureId::ChickenWattle,
+                        tex_side: TextureId::ChickenWattle,
+                        tex_front: TextureId::ChickenWattle,
+                    };
+                    self.draw_mob_box(&wattle_box, hurt_tint, camera_pos, view_proj);
+                }
 
                 let flap = (mob.walk_phase.sin() * 0.45).abs();
-                let left_wing_origin = base_pos + Vec3::new(-0.20 * yaw.cos(), 0.38, 0.20 * yaw.sin());
+                let left_wing_origin = base_pos + Vec3::new(-0.20 * scale * yaw.cos(), 0.38 * scale, 0.20 * scale * yaw.sin());
                 let left_wing_box = MobBox {
-                    center: Vec3::new(-0.02, -0.06, 0.0),
-                    size: Vec3::new(0.06, 0.20, 0.30),
+                    center: Vec3::new(-0.02 * scale, -0.06 * scale, 0.0),
+                    size: Vec3::new(0.06 * scale, 0.20 * scale, 0.30 * scale),
                     yaw,
                     pitch: 0.0,
                     roll: roll_angle - flap,
@@ -2024,10 +2033,10 @@ impl Renderer {
                 };
                 self.draw_mob_box(&left_wing_box, hurt_tint, camera_pos, view_proj);
 
-                let right_wing_origin = base_pos + Vec3::new(0.20 * yaw.cos(), 0.38, -0.20 * yaw.sin());
+                let right_wing_origin = base_pos + Vec3::new(0.20 * scale * yaw.cos(), 0.38 * scale, -0.20 * scale * yaw.sin());
                 let right_wing_box = MobBox {
-                    center: Vec3::new(0.02, -0.06, 0.0),
-                    size: Vec3::new(0.06, 0.20, 0.30),
+                    center: Vec3::new(0.02 * scale, -0.06 * scale, 0.0),
+                    size: Vec3::new(0.06 * scale, 0.20 * scale, 0.30 * scale),
                     yaw,
                     pitch: 0.0,
                     roll: roll_angle + flap,
@@ -2040,18 +2049,18 @@ impl Renderer {
                 self.draw_mob_box(&right_wing_box, hurt_tint, camera_pos, view_proj);
 
                 let leg_offsets = [
-                    (-0.08, -0.02, leg_swing),
-                    (0.08, -0.02, -leg_swing),
+                    (-0.08 * scale, -0.02 * scale, leg_swing),
+                    (0.08 * scale, -0.02 * scale, -leg_swing),
                 ];
 
                 for &(lx, lz, swing) in &leg_offsets {
                     let rotated_x = lx * yaw.cos() + lz * yaw.sin();
                     let rotated_z = -lx * yaw.sin() + lz * yaw.cos();
-                    let leg_origin = base_pos + Vec3::new(rotated_x, 0.20, rotated_z);
+                    let leg_origin = base_pos + Vec3::new(rotated_x, 0.20 * scale, rotated_z);
 
                     let leg_box = MobBox {
-                        center: Vec3::new(0.0, -0.10, 0.0),
-                        size: Vec3::new(0.08, 0.20, 0.08),
+                        center: Vec3::new(0.0, -0.10 * scale, 0.0),
+                        size: Vec3::new(0.08 * scale, 0.20 * scale, 0.08 * scale),
                         yaw,
                         pitch: swing,
                         roll: roll_angle,
@@ -2854,8 +2863,124 @@ impl Renderer {
                     self.draw_mob_box(&arm_box, hurt_tint, camera_pos, view_proj);
                 }
             }
+            MobKind::Spider => {
+                let scale = if mob.is_baby { 0.5f32 } else { 1.0f32 };
+                // Thorax (middle body)
+                let thorax_box = MobBox {
+                    center: Vec3::new(0.0, 0.32 * scale, 0.0),
+                    size: Vec3::new(0.38 * scale, 0.32 * scale, 0.44 * scale),
+                    yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: base_pos,
+                    tex_top: TextureId::SpiderSkin,
+                    tex_bottom: TextureId::SpiderSkin,
+                    tex_side: TextureId::SpiderSkin,
+                    tex_front: TextureId::SpiderSkin,
+                };
+                self.draw_mob_box(&thorax_box, hurt_tint, camera_pos, view_proj);
+
+                // Head (front)
+                let head_pos = base_pos + Vec3::new(yaw.sin() * 0.38 * scale, 0.34 * scale, yaw.cos() * 0.38 * scale);
+                let head_yaw = yaw + mob.head_yaw_offset;
+                let head_box = MobBox {
+                    center: Vec3::zero(),
+                    size: Vec3::new(0.46 * scale, 0.38 * scale, 0.44 * scale),
+                    yaw: head_yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: head_pos,
+                    tex_top: TextureId::SpiderSkin,
+                    tex_bottom: TextureId::SpiderSkin,
+                    tex_side: TextureId::SpiderSkin,
+                    tex_front: TextureId::SpiderFace,
+                };
+                self.draw_mob_box(&head_box, hurt_tint, camera_pos, view_proj);
+
+                // Abdomen (rear)
+                let abdomen_pos = base_pos - Vec3::new(yaw.sin() * 0.52 * scale, -0.06 * scale, yaw.cos() * 0.52 * scale);
+                let abdomen_box = MobBox {
+                    center: Vec3::zero(),
+                    size: Vec3::new(0.68 * scale, 0.48 * scale, 0.72 * scale),
+                    yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: abdomen_pos,
+                    tex_top: TextureId::SpiderSkin,
+                    tex_bottom: TextureId::SpiderSkin,
+                    tex_side: TextureId::SpiderSkin,
+                    tex_front: TextureId::SpiderSkin,
+                };
+                self.draw_mob_box(&abdomen_box, hurt_tint, camera_pos, view_proj);
+
+                // 8 Spider Legs (4 pairs)
+                let z_offsets = [0.18f32, 0.06, -0.06, -0.18];
+                for (i, &lz) in z_offsets.iter().enumerate() {
+                    let swing_sign = if i % 2 == 0 { 1.0f32 } else { -1.0f32 };
+                    let leg_pitch = leg_swing * swing_sign * 0.6;
+
+                    // Left leg
+                    let lx_left = -0.22f32 * scale;
+                    let rot_xl = lx_left * yaw.cos() + (lz * scale) * yaw.sin();
+                    let rot_zl = -lx_left * yaw.sin() + (lz * scale) * yaw.cos();
+                    let leg_origin_l = base_pos + Vec3::new(rot_xl, 0.32 * scale, rot_zl);
+
+                    let leg_box_l = MobBox {
+                        center: Vec3::new(-0.25 * scale, -0.08 * scale, 0.0),
+                        size: Vec3::new(0.55 * scale, 0.10 * scale, 0.10 * scale),
+                        yaw,
+                        pitch: leg_pitch,
+                        roll: roll_angle + 0.35,
+                        origin: leg_origin_l,
+                        tex_top: TextureId::SpiderSkin,
+                        tex_bottom: TextureId::SpiderSkin,
+                        tex_side: TextureId::SpiderSkin,
+                        tex_front: TextureId::SpiderSkin,
+                    };
+                    self.draw_mob_box(&leg_box_l, hurt_tint, camera_pos, view_proj);
+
+                    // Right leg
+                    let lx_right = 0.22f32 * scale;
+                    let rot_xr = lx_right * yaw.cos() + (lz * scale) * yaw.sin();
+                    let rot_zr = -lx_right * yaw.sin() + (lz * scale) * yaw.cos();
+                    let leg_origin_r = base_pos + Vec3::new(rot_xr, 0.32 * scale, rot_zr);
+
+                    let leg_box_r = MobBox {
+                        center: Vec3::new(0.25 * scale, -0.08 * scale, 0.0),
+                        size: Vec3::new(0.55 * scale, 0.10 * scale, 0.10 * scale),
+                        yaw,
+                        pitch: -leg_pitch,
+                        roll: roll_angle - 0.35,
+                        origin: leg_origin_r,
+                        tex_top: TextureId::SpiderSkin,
+                        tex_bottom: TextureId::SpiderSkin,
+                        tex_side: TextureId::SpiderSkin,
+                        tex_front: TextureId::SpiderSkin,
+                    };
+                    self.draw_mob_box(&leg_box_r, hurt_tint, camera_pos, view_proj);
+                }
+            }
         }
     }
+
+fn armor_material_texture(block: crate::world::block::BlockId) -> Option<TextureId> {
+    use crate::world::block::BlockId;
+    match block {
+        BlockId::LeatherHelmet | BlockId::LeatherChestplate | BlockId::LeatherLeggings | BlockId::LeatherBoots => {
+            Some(TextureId::LeatherArmor)
+        }
+        BlockId::IronHelmet | BlockId::IronChestplate | BlockId::IronLeggings | BlockId::IronBoots => {
+            Some(TextureId::IronArmor)
+        }
+        BlockId::GoldHelmet | BlockId::GoldChestplate | BlockId::GoldLeggings | BlockId::GoldBoots => {
+            Some(TextureId::GoldArmor)
+        }
+        BlockId::DiamondHelmet | BlockId::DiamondChestplate | BlockId::DiamondLeggings | BlockId::DiamondBoots => {
+            Some(TextureId::DiamondArmor)
+        }
+        _ => None,
+    }
+}
 
     pub fn draw_player_model(
         &mut self,
@@ -2868,6 +2993,7 @@ impl Renderer {
         hurt_tint: f32,
         nickname: Option<&str>,
         held_block: Option<crate::world::block::BlockId>,
+        armor: &[Option<crate::gameplay::inventory::ItemStack>; 4],
         camera: &Camera,
         view_proj: &Mat4,
     ) {
@@ -2906,6 +3032,29 @@ impl Renderer {
             camera_pos,
             view_proj,
         );
+
+        // Armor: Helmet
+        if let Some(helmet) = &armor[0] {
+            if let Some(tex) = Self::armor_material_texture(helmet.block) {
+                self.draw_oriented_box(
+                    head_origin,
+                    Vec3::new(0.0, 0.25, 0.0),
+                    Vec3::new(0.54, 0.54, 0.54),
+                    head_forward,
+                    player_right,
+                    head_up,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    hurt_tint,
+                    camera_pos,
+                    view_proj,
+                );
+            }
+        }
 
         // 2. Torso / Body (0.48 x 0.70 x 0.26, Steve cyan t-shirt with neckline)
         let body_origin = pos + player_up * 0.72;
@@ -2980,6 +3129,65 @@ impl Renderer {
             view_proj,
         );
 
+        // Armor: Chestplate & Pauldrons
+        if let Some(chest) = &armor[1] {
+            if let Some(tex) = Self::armor_material_texture(chest.block) {
+                // Torso box
+                self.draw_oriented_box(
+                    body_origin,
+                    Vec3::new(0.0, 0.35 - sneak_y_drop * 0.5, 0.0) + sneak_forward * 0.5,
+                    Vec3::new(0.54, 0.72, 0.32),
+                    torso_forward,
+                    player_right,
+                    torso_up,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    hurt_tint,
+                    camera_pos,
+                    view_proj,
+                );
+                // Shoulder pads
+                self.draw_oriented_box(
+                    left_shoulder_origin,
+                    Vec3::new(0.0, -0.16, 0.0),
+                    Vec3::new(0.28, 0.36, 0.28),
+                    left_arm_forward,
+                    player_right,
+                    left_arm_up,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    hurt_tint,
+                    camera_pos,
+                    view_proj,
+                );
+                self.draw_oriented_box(
+                    right_shoulder_origin,
+                    Vec3::new(0.0, -0.16, 0.0),
+                    Vec3::new(0.28, 0.36, 0.28),
+                    right_arm_forward,
+                    player_right,
+                    right_arm_up,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    hurt_tint,
+                    camera_pos,
+                    view_proj,
+                );
+            }
+        }
+
         // 3D Held Item in right hand (if equipped)
         if let Some(blk) = held_block {
             if blk != crate::world::block::BlockId::Air {
@@ -3042,6 +3250,108 @@ impl Renderer {
             view_proj,
         );
 
+        // Armor: Leggings
+        if let Some(legs) = &armor[2] {
+            if let Some(tex) = Self::armor_material_texture(legs.block) {
+                // Belt/pelvis
+                self.draw_oriented_box(
+                    body_origin,
+                    Vec3::new(0.0, 0.12 - sneak_y_drop * 0.5, 0.0) + sneak_forward * 0.5,
+                    Vec3::new(0.52, 0.24, 0.30),
+                    torso_forward,
+                    player_right,
+                    torso_up,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    hurt_tint,
+                    camera_pos,
+                    view_proj,
+                );
+                // Left legging
+                self.draw_oriented_box(
+                    left_hip_origin,
+                    Vec3::new(0.0, -0.24, 0.0),
+                    Vec3::new(0.27, 0.48, 0.27),
+                    left_leg_forward,
+                    player_right,
+                    left_leg_up,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    hurt_tint,
+                    camera_pos,
+                    view_proj,
+                );
+                // Right legging
+                self.draw_oriented_box(
+                    right_hip_origin,
+                    Vec3::new(0.0, -0.24, 0.0),
+                    Vec3::new(0.27, 0.48, 0.27),
+                    right_leg_forward,
+                    player_right,
+                    right_leg_up,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    hurt_tint,
+                    camera_pos,
+                    view_proj,
+                );
+            }
+        }
+
+        // Armor: Boots
+        if let Some(boots) = &armor[3] {
+            if let Some(tex) = Self::armor_material_texture(boots.block) {
+                // Left boot
+                self.draw_oriented_box(
+                    left_hip_origin,
+                    Vec3::new(0.0, -0.58, 0.0),
+                    Vec3::new(0.28, 0.28, 0.28),
+                    left_leg_forward,
+                    player_right,
+                    left_leg_up,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    hurt_tint,
+                    camera_pos,
+                    view_proj,
+                );
+                // Right boot
+                self.draw_oriented_box(
+                    right_hip_origin,
+                    Vec3::new(0.0, -0.58, 0.0),
+                    Vec3::new(0.28, 0.28, 0.28),
+                    right_leg_forward,
+                    player_right,
+                    right_leg_up,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    tex,
+                    hurt_tint,
+                    camera_pos,
+                    view_proj,
+                );
+            }
+        }
+
         // 7. Floating nametag above player head (billboard)
         if let Some(nick) = nickname {
             let tag_pos = pos + Vec3::new(0.0, 2.22, 0.0);
@@ -3098,6 +3408,7 @@ impl Renderer {
             hurt_tint,
             Some(&player.nickname),
             None,
+            &[None, None, None, None],
             camera,
             view_proj,
         );

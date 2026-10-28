@@ -19,6 +19,7 @@ pub enum MobKind {
     TropicalFish,
     Villager,
     IronGolem,
+    Spider,
 }
 
 impl MobKind {
@@ -49,6 +50,7 @@ impl MobKind {
             MobKind::TropicalFish => 3.0,
             MobKind::Villager => 20.0,
             MobKind::IronGolem => 100.0,
+            MobKind::Spider => 16.0,
         }
     }
 
@@ -68,6 +70,7 @@ impl MobKind {
             MobKind::TropicalFish => 0.18,
             MobKind::Villager => 0.32,
             MobKind::IronGolem => 0.65,
+            MobKind::Spider => 0.65,
         }
     }
 
@@ -87,6 +90,7 @@ impl MobKind {
             MobKind::TropicalFish => 0.28,
             MobKind::Villager => 1.95,
             MobKind::IronGolem => 2.70,
+            MobKind::Spider => 0.50,
         }
     }
 
@@ -95,7 +99,7 @@ impl MobKind {
         match self {
             MobKind::Pig | MobKind::Cow | MobKind::Chicken | MobKind::Sheep | MobKind::Villager | MobKind::IronGolem => false,
             MobKind::Dolphin | MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => false,
-            MobKind::Zombie | MobKind::Skeleton | MobKind::Creeper => true,
+            MobKind::Zombie | MobKind::Skeleton | MobKind::Creeper | MobKind::Spider => true,
         }
     }
 
@@ -131,6 +135,7 @@ impl MobKind {
             MobKind::TropicalFish => "Tropical Fish",
             MobKind::Villager => "Villager",
             MobKind::IronGolem => "Iron Golem",
+            MobKind::Spider => "Spider",
         }
     }
 
@@ -146,6 +151,7 @@ impl MobKind {
             MobKind::Dolphin => Some(crate::audio::SoundId::DolphinIdle),
             MobKind::Villager => Some(crate::audio::SoundId::VillagerIdle),
             MobKind::IronGolem => Some(crate::audio::SoundId::IronGolemIdle),
+            MobKind::Spider => Some(crate::audio::SoundId::SpiderIdle),
             MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => None,
         }
     }
@@ -162,6 +168,7 @@ impl MobKind {
             MobKind::Dolphin => crate::audio::SoundId::DolphinHurt,
             MobKind::Villager => crate::audio::SoundId::VillagerHurt,
             MobKind::IronGolem => crate::audio::SoundId::IronGolemHurt,
+            MobKind::Spider => crate::audio::SoundId::SpiderHurt,
             MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => crate::audio::SoundId::FishFlop,
         }
     }
@@ -178,6 +185,7 @@ impl MobKind {
             MobKind::Dolphin => crate::audio::SoundId::DolphinDeath,
             MobKind::Villager => crate::audio::SoundId::VillagerDeath,
             MobKind::IronGolem => crate::audio::SoundId::IronGolemDeath,
+            MobKind::Spider => crate::audio::SoundId::SpiderDeath,
             MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => crate::audio::SoundId::FishFlop,
         }
     }
@@ -641,6 +649,18 @@ impl Mob {
                     self.head_yaw_offset = 0.0;
                     // Skeleton keeps combat distance (moves closer if > 9m, stops to aim if <= 9m)
                     self.ai_state_is_moving = dist_sq > 9.0 * 9.0;
+                } else if self.kind == MobKind::Spider && dist_sq < 24.0 * 24.0 && dy < 12.0 {
+                    pursuing_player = true;
+                    self.target_yaw = dx.atan2(dz);
+                    self.ai_state_is_moving = true;
+                    self.head_yaw_offset = 0.0;
+                    if dist_sq < 6.0 * 6.0 && dist_sq > 1.8 * 1.8 && self.on_ground {
+                        let to_p = Vec3::new(dx, 0.0, dz).normalized();
+                        self.velocity.y = 4.8;
+                        self.velocity.x = to_p.x * 5.5;
+                        self.velocity.z = to_p.z * 5.5;
+                        self.on_ground = false;
+                    }
                 } else if dist_sq < 24.0 * 24.0 && dy < 12.0 {
                     pursuing_player = true;
                     self.target_yaw = dx.atan2(dz);
@@ -799,7 +819,11 @@ impl Mob {
             }
         }
 
-        let _hit_wall = self.apply_movement(dt, world);
+        let hit_wall = self.apply_movement(dt, world);
+        if self.kind == MobKind::Spider && hit_wall && !self.is_dead {
+            self.velocity.y = 3.8;
+            self.on_ground = false;
+        }
 
         let horizontal_speed = (self.velocity.x * self.velocity.x + self.velocity.z * self.velocity.z).sqrt();
 
@@ -1212,6 +1236,21 @@ impl MobManager {
                                 });
                             }
                         }
+                        MobKind::Spider => {
+                            let count = 1 + (m.id % 2) as u8; // 1-2 string
+                            self.dying_drops.push(MobDrop {
+                                pos: m.center_pos(),
+                                block: BlockId::StringItem,
+                                count,
+                            });
+                            if m.id % 3 == 0 {
+                                self.dying_drops.push(MobDrop {
+                                    pos: m.center_pos() + Vec3::new(0.05, 0.1, 0.05),
+                                    block: BlockId::SpiderEye,
+                                    count: 1,
+                                });
+                            }
+                        }
                         MobKind::Dolphin => {
                             if m.id % 2 == 0 {
                                 self.dying_drops.push(MobDrop {
@@ -1390,12 +1429,14 @@ impl MobManager {
 
                 if let Some(sy) = surface_y {
                     let roll = rand_f32(rng);
-                    let kind = if roll < 0.42 {
+                    let kind = if roll < 0.35 {
                         MobKind::Zombie
-                    } else if roll < 0.74 {
+                    } else if roll < 0.60 {
                         MobKind::Skeleton
-                    } else {
+                    } else if roll < 0.80 {
                         MobKind::Creeper
+                    } else {
+                        MobKind::Spider
                     };
                     let spawn_pos = Vec3::new(target_x as f32 + 0.5, sy as f32, target_z as f32 + 0.5);
                     self.spawn_mob(kind, spawn_pos);
@@ -1433,12 +1474,14 @@ impl MobManager {
 
             if let Some(cy) = cave_spawn {
                 let roll = rand_f32(rng);
-                let kind = if roll < 0.45 {
+                let kind = if roll < 0.35 {
                     MobKind::Zombie
-                } else if roll < 0.75 {
+                } else if roll < 0.60 {
                     MobKind::Skeleton
-                } else {
+                } else if roll < 0.80 {
                     MobKind::Creeper
+                } else {
+                    MobKind::Spider
                 };
                 let spawn_pos = Vec3::new(target_x as f32 + 0.5, cy as f32, target_z as f32 + 0.5);
                 self.spawn_mob(kind, spawn_pos);
@@ -1627,6 +1670,7 @@ mod tests {
             MobKind::Zombie,
             MobKind::Skeleton,
             MobKind::Creeper,
+            MobKind::Spider,
         ];
         for kind in kinds {
             let mut mob = Mob::new(42, kind, Vec3::zero());
