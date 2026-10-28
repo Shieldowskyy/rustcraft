@@ -828,7 +828,7 @@ impl SoundtrackManager {
         self.delay_timer = self.rand_f32(self.min_delay_seconds, self.max_delay_seconds);
     }
 
-    /// Renders the now-playing toast notification, always showing on pause menu with a progress bar.
+    /// Renders the now-playing toast notification, showing on pause menu only when music is active.
     pub fn draw_toast(
         &mut self,
         buffer: &mut [u32],
@@ -838,9 +838,14 @@ impl SoundtrackManager {
         audio: &AudioEngine,
     ) {
         let progress = audio.music_playback_progress();
+        // Only force-show toast on pause menu when a track is actually playing.
+        // During silence gaps between tracks current_track_idx may still be set,
+        // but audio.is_music_playing() will return false — we respect that and hide
+        // the toast so it doesn't linger over the pause menu during silent intervals.
+        let music_active = audio.is_music_playing();
 
-        if is_paused {
-            // Requirement 5: on pause menu ALWAYS display toast of current soundtrack with progress bar
+        if is_paused && music_active {
+            // Pause menu: always display toast of current soundtrack with progress bar
             let track_info = self.current_track_idx
                 .and_then(|i| self.tracks.get(i))
                 .map(|track| {

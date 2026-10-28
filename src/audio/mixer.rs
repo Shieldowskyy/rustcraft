@@ -231,9 +231,11 @@ impl AudioMixer {
         for v in &self.voices {
             if v.active && v.category == category && v.fade_out_samples == 0 {
                 if let Some(sample) = &v.sample {
-                    let total = sample.len() as f64;
-                    if total > 0.0 {
-                        return Some((v.cursor / total).clamp(0.0, 1.0) as f32);
+                    let sample_len = sample.len();
+                    // cursor is in frame units; for stereo the raw buffer is 2× frame count
+                    let total_frames = if v.channels == 2 { sample_len / 2 } else { sample_len };
+                    if total_frames > 0 {
+                        return Some((v.cursor / total_frames as f64).clamp(0.0, 1.0) as f32);
                     }
                 }
             }
