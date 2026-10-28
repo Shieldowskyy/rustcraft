@@ -30,7 +30,7 @@ impl RustCraftApp {
                     let start_pos = loaded_pos.unwrap_or(self.world.player_position);
                     self.camera = Camera::new(start_pos);
                     self.mob_manager = MobManager::new();
-                    self.minimap.waypoints = crate::ui::minimap::load_waypoints(self.save_slot);
+                    self.minimap.waypoints = crate::ui::minimap::load_waypoints(self.save_slot, self.world.seed);
                     self.state = GameState::Playing;
                     crate::log_info!("STATE", "Entered world '{}' (seed: {}, mode: {:?}) at position ({:.1}, {:.1}, {:.1})", self.world.name, self.world.seed, self.player.gamemode, start_pos.x, start_pos.y, start_pos.z);
                 }
@@ -133,7 +133,7 @@ impl RustCraftApp {
                         self.is_multiplayer = false;
                     } else {
                         let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
-                        crate::ui::minimap::save_waypoints(self.save_slot, &self.minimap.waypoints);
+                        crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
                         self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                     }
                     self.state = GameState::MainMenu;
@@ -149,7 +149,7 @@ impl RustCraftApp {
                         self.is_multiplayer = false;
                     } else {
                         let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
-                        crate::ui::minimap::save_waypoints(self.save_slot, &self.minimap.waypoints);
+                        crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
                     }
                     out.quit_requested = true;
                     crate::log_info!("STATE", "Saved and quitting game from pause menu");
@@ -170,13 +170,13 @@ impl RustCraftApp {
         }
         if q_down && !self.prev_q_down {
             let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
-            crate::ui::minimap::save_waypoints(self.save_slot, &self.minimap.waypoints);
+            crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
             out.quit_requested = true;
             crate::log_info!("STATE", "Saved and quitting game via shortcut");
         }
         if m_down && !self.prev_m_down {
             let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
-            crate::ui::minimap::save_waypoints(self.save_slot, &self.minimap.waypoints);
+            crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
             self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
             self.state = GameState::MainMenu;
             out.request_release_mouse = true;
@@ -292,7 +292,7 @@ impl RustCraftApp {
                     self.player.reset(self.player.gamemode);
                     self.camera.position = self.world.player_position;
                     let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
-                    crate::ui::minimap::save_waypoints(self.save_slot, &self.minimap.waypoints);
+                    crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
                     self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                     crate::log_info!("STATE", "Player chose Title Screen from Death Screen, game saved");
                     self.state = GameState::MainMenu;
@@ -307,7 +307,7 @@ impl RustCraftApp {
             self.player.reset(self.player.gamemode);
             self.camera.position = self.world.player_position;
             let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
-            crate::ui::minimap::save_waypoints(self.save_slot, &self.minimap.waypoints);
+            crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
             self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
             crate::log_info!("STATE", "Quit to Main Menu from Death Screen via shortcut, game saved");
             self.state = GameState::MainMenu;

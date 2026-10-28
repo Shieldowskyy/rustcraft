@@ -454,7 +454,7 @@ impl RustCraftApp {
             prev_u_down: false,
             prev_space_down: false,
             controls: ControlsManager::new(),
-            minimap: crate::ui::minimap::MinimapState::new(1),
+            minimap: crate::ui::minimap::MinimapState::new(1, 0),
             worldmap: crate::ui::minimap::WorldMapState::new(start_player_pos),
             splash_index: (seed as usize) % crate::ui::splashes::SPLASH_TEXTS.len(),
         };

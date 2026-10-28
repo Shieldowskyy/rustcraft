@@ -243,7 +243,7 @@ impl RustCraftApp {
                         color,
                         enabled: true,
                     });
-                    crate::ui::minimap::save_waypoints(self.save_slot, &self.minimap.waypoints);
+                    crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
                     self.chat.add_message(format!("Dodano punkt nawigacyjny: {} ({}, {}, {})", name, bpos.x, bpos.y, bpos.z), crate::ui::pack_color(0.4, 1.0, 0.4));
                     self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.2);
                 }

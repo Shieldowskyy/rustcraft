@@ -182,7 +182,7 @@ impl RustCraftApp {
                             self.world = loaded_world;
                             self.camera = Camera::new(pos);
                             self.mob_manager = MobManager::new();
-                            self.minimap.waypoints = crate::ui::minimap::load_waypoints(self.save_slot);
+                            self.minimap.waypoints = crate::ui::minimap::load_waypoints(self.save_slot, self.world.seed);
                             self.state = GameState::Playing;
                         }
                         Err(_) => {
@@ -190,7 +190,7 @@ impl RustCraftApp {
                             self.player.reset(self.world.gamemode);
                             self.camera = Camera::new(self.world.player_position);
                             self.mob_manager = MobManager::new();
-                            self.minimap.waypoints = crate::ui::minimap::load_waypoints(self.save_slot);
+                            self.minimap.waypoints = crate::ui::minimap::load_waypoints(self.save_slot, self.world.seed);
                             self.state = GameState::Playing;
                         }
                     }

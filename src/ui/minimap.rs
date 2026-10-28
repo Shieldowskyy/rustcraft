@@ -67,11 +67,11 @@ pub struct MinimapState {
 }
 
 impl MinimapState {
-    pub fn new(slot: u8) -> Self {
+    pub fn new(slot: u8, seed: u32) -> Self {
         Self {
             mode: MinimapMode::Circle,
             zoom: 1.0,
-            waypoints: load_waypoints(slot),
+            waypoints: load_waypoints(slot, seed),
         }
     }
 }
@@ -140,13 +140,14 @@ impl WorldMapState {
     }
 }
 
-fn waypoints_file_path(slot: u8) -> std::path::PathBuf {
+fn waypoints_file_path(slot: u8, seed: u32) -> std::path::PathBuf {
     let save_file = crate::world::storage::save_path(slot);
     let p = std::path::Path::new(&save_file);
+    let filename = format!("slot_{}_seed_{:08X}_waypoints.txt", slot, seed);
     if let Some(parent) = p.parent() {
-        parent.join(format!("slot_{}_waypoints.txt", slot))
+        parent.join(filename)
     } else {
-        std::path::PathBuf::from(format!("slot_{}_waypoints.txt", slot))
+        std::path::PathBuf::from(filename)
     }
 }
 
@@ -193,8 +194,8 @@ pub fn parse_waypoints_str(content: &str) -> Vec<Waypoint> {
     waypoints
 }
 
-pub fn load_waypoints(slot: u8) -> Vec<Waypoint> {
-    let path = waypoints_file_path(slot);
+pub fn load_waypoints(slot: u8, seed: u32) -> Vec<Waypoint> {
+    let path = waypoints_file_path(slot, seed);
     if let Ok(content) = std::fs::read_to_string(path) {
         parse_waypoints_str(&content)
     } else {
@@ -202,8 +203,8 @@ pub fn load_waypoints(slot: u8) -> Vec<Waypoint> {
     }
 }
 
-pub fn save_waypoints(slot: u8, waypoints: &[Waypoint]) {
-    let path = waypoints_file_path(slot);
+pub fn save_waypoints(slot: u8, seed: u32, waypoints: &[Waypoint]) {
+    let path = waypoints_file_path(slot, seed);
     let out = serialize_waypoints(waypoints);
     let _ = std::fs::write(path, out);
 }

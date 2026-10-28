@@ -37,7 +37,7 @@ impl RustCraftApp {
                         color,
                         enabled: true,
                     });
-                    crate::ui::minimap::save_waypoints(self.save_slot, &self.minimap.waypoints);
+                    crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
                     self.audio.play_sound(crate::audio::SoundId::UiClick, 0.8, 1.2);
                 }
                 self.worldmap.creating_waypoint = false;
@@ -79,7 +79,7 @@ impl RustCraftApp {
                                     color,
                                     enabled: true,
                                 });
-                                crate::ui::minimap::save_waypoints(self.save_slot, &self.minimap.waypoints);
+                                crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
                                 self.audio.play_sound(crate::audio::SoundId::UiClick, 0.8, 1.2);
                             }
                             self.worldmap.creating_waypoint = false;
@@ -166,7 +166,7 @@ impl RustCraftApp {
 
                                 if px >= vis_btn.0 && px < vis_btn.0 + vis_btn.2 && py >= vis_btn.1 && py < vis_btn.1 + vis_btn.3 {
                                     self.minimap.waypoints[i].enabled = !self.minimap.waypoints[i].enabled;
-                                    crate::ui::minimap::save_waypoints(self.save_slot, &self.minimap.waypoints);
+                                    crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
                                     self.audio.play_sound(crate::audio::SoundId::UiClick, 0.6, 1.2);
                                     break;
                                 } else if px >= tp_btn.0 && px < tp_btn.0 + tp_btn.2 && py >= tp_btn.1 && py < tp_btn.1 + tp_btn.3 {
@@ -191,7 +191,7 @@ impl RustCraftApp {
                                 if self.worldmap.waypoint_manager_scroll > 0 && self.worldmap.waypoint_manager_scroll >= self.minimap.waypoints.len() {
                                     self.worldmap.waypoint_manager_scroll = self.worldmap.waypoint_manager_scroll.saturating_sub(1);
                                 }
-                                crate::ui::minimap::save_waypoints(self.save_slot, &self.minimap.waypoints);
+                                crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
                                 self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 0.9);
                             }
                         }
