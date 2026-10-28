@@ -439,7 +439,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_graphics_rects(&self) -> [(i32, i32, i32, i32); 13] {
+    pub fn settings_graphics_rects(&self) -> [(i32, i32, i32, i32); 14] {
         crate::ui::settings_graphics_rects(self.width, self.height)
     }
 
@@ -454,7 +454,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 13] {
+    pub fn settings_option_rects(&self) -> [(i32, i32, i32, i32); 14] {
         crate::ui::settings_graphics_rects(self.width, self.height)
     }
 
@@ -2464,6 +2464,119 @@ impl Renderer {
                         tex_front: TextureId::VillagerRobe,
                     };
                     self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
+                }
+            }
+            MobKind::IronGolem => {
+                // Massive Iron Golem model (height 2.7m)
+                // 1. Lower torso / waist
+                let waist_box = MobBox {
+                    center: Vec3::new(0.0, 1.10, 0.0),
+                    size: Vec3::new(0.72, 0.52, 0.46),
+                    yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: base_pos,
+                    tex_top: TextureId::IronGolemBody,
+                    tex_bottom: TextureId::IronGolemBody,
+                    tex_side: TextureId::IronGolemBody,
+                    tex_front: TextureId::IronGolemBody,
+                };
+                self.draw_mob_box(&waist_box, hurt_tint, camera_pos, view_proj);
+
+                // 2. Huge Upper Chest
+                let chest_box = MobBox {
+                    center: Vec3::new(0.0, 1.70, 0.0),
+                    size: Vec3::new(1.16, 0.76, 0.66),
+                    yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: base_pos,
+                    tex_top: TextureId::IronGolemBody,
+                    tex_bottom: TextureId::IronGolemBody,
+                    tex_side: TextureId::IronGolemBody,
+                    tex_front: TextureId::IronGolemBody,
+                };
+                self.draw_mob_box(&chest_box, hurt_tint, camera_pos, view_proj);
+
+                // 3. Head & Nose
+                let head_pos = base_pos + Vec3::new(0.0, 2.08, 0.12);
+                let head_yaw = yaw + mob.head_yaw_offset;
+                let head_box = MobBox {
+                    center: Vec3::new(0.0, 0.26, 0.0),
+                    size: Vec3::new(0.52, 0.56, 0.48),
+                    yaw: head_yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: head_pos,
+                    tex_top: TextureId::IronGolemBody,
+                    tex_bottom: TextureId::IronGolemBody,
+                    tex_side: TextureId::IronGolemBody,
+                    tex_front: TextureId::IronGolemHead,
+                };
+                self.draw_mob_box(&head_box, hurt_tint, camera_pos, view_proj);
+
+                let nose_box = MobBox {
+                    center: Vec3::new(0.0, 0.16, 0.28),
+                    size: Vec3::new(0.12, 0.24, 0.14),
+                    yaw: head_yaw,
+                    pitch: 0.0,
+                    roll: roll_angle,
+                    origin: head_pos,
+                    tex_top: TextureId::IronGolemBody,
+                    tex_bottom: TextureId::IronGolemBody,
+                    tex_side: TextureId::IronGolemBody,
+                    tex_front: TextureId::IronGolemBody,
+                };
+                self.draw_mob_box(&nose_box, hurt_tint, camera_pos, view_proj);
+
+                // 4. Heavy Legs
+                let leg_offsets = [
+                    (-0.25f32, leg_swing * 0.45),
+                    (0.25f32, -leg_swing * 0.45),
+                ];
+                for &(lx, swing) in &leg_offsets {
+                    let rotated_x = lx * yaw.cos();
+                    let rotated_z = -lx * yaw.sin();
+                    let leg_origin = base_pos + Vec3::new(rotated_x, 0.84, rotated_z);
+
+                    let leg_box = MobBox {
+                        center: Vec3::new(0.0, -0.42, 0.0),
+                        size: Vec3::new(0.32, 0.84, 0.32),
+                        yaw,
+                        pitch: swing,
+                        roll: roll_angle,
+                        origin: leg_origin,
+                        tex_top: TextureId::IronGolemBody,
+                        tex_bottom: TextureId::IronGolemBody,
+                        tex_side: TextureId::IronGolemBody,
+                        tex_front: TextureId::IronGolemBody,
+                    };
+                    self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
+                }
+
+                // 5. Long Heavy Arms
+                let arm_offsets = [
+                    (-0.70f32, -leg_swing * 0.5),
+                    (0.70f32, leg_swing * 0.5),
+                ];
+                for &(ax, swing) in &arm_offsets {
+                    let rotated_x = ax * yaw.cos();
+                    let rotated_z = -ax * yaw.sin();
+                    let arm_origin = base_pos + Vec3::new(rotated_x, 1.95, rotated_z);
+
+                    let arm_box = MobBox {
+                        center: Vec3::new(0.0, -0.70, 0.0),
+                        size: Vec3::new(0.28, 1.45, 0.34),
+                        yaw,
+                        pitch: swing,
+                        roll: roll_angle,
+                        origin: arm_origin,
+                        tex_top: TextureId::IronGolemBody,
+                        tex_bottom: TextureId::IronGolemBody,
+                        tex_side: TextureId::IronGolemBody,
+                        tex_front: TextureId::IronGolemBody,
+                    };
+                    self.draw_mob_box(&arm_box, hurt_tint, camera_pos, view_proj);
                 }
             }
         }

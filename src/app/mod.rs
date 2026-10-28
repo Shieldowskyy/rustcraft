@@ -112,7 +112,7 @@ pub struct RustCraftApp {
     pub create_world_rects: [(i32, i32, i32, i32); 6],
     pub settings_tab: usize,
     pub settings_tab_rects: [(i32, i32, i32, i32); 4],
-    pub settings_rects: [(i32, i32, i32, i32); 13],
+    pub settings_rects: [(i32, i32, i32, i32); 14],
     pub settings_audio_rects: [(i32, i32, i32, i32); 7],
     pub settings_controls_rects: [(i32, i32, i32, i32); 11],
     pub settings_debug_rects: [(i32, i32, i32, i32); 5],

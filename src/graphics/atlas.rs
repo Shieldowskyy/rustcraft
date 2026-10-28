@@ -1111,6 +1111,9 @@ pub enum TextureId {
     VillagerRobeBlacksmith,
     VillagerRobeCleric,
     VillagerRobeButcher,
+    IronGolemBody,
+    IronGolemHead,
+    IronGolemSpawnEgg,
     /// Custom modded texture (index 0..=63)
     Custom(u8),
 }
@@ -1606,6 +1609,9 @@ pub struct TextureAtlas {
     pub villager_robe_blacksmith: Texture,
     pub villager_robe_cleric: Texture,
     pub villager_robe_butcher: Texture,
+    pub iron_golem_body: Texture,
+    pub iron_golem_head: Texture,
+    pub iron_golem_spawn_egg: Texture,
     pub custom: Vec<Texture>,
 }
 
@@ -1892,6 +1898,75 @@ fn villager_robe_butcher() -> Texture {
     tex.texels[2 * TEX_SIZE + 7] = red;
     tex.texels[2 * TEX_SIZE + 8] = red;
     tex
+}
+
+fn iron_golem_body() -> Texture {
+    let mut tex = speckled([0.84, 0.84, 0.82], 0.06, 620);
+    let vine = [0.32, 0.60, 0.20];
+    let vine_dark = [0.22, 0.45, 0.14];
+    let seam = [0.65, 0.65, 0.63];
+    for x in 0..TEX_SIZE {
+        tex.texels[15 * TEX_SIZE + x] = seam;
+        tex.texels[0 * TEX_SIZE + x] = seam;
+    }
+    for y in 4..12 {
+        for x in 2..7 {
+            if (x * 3 + y * 7) % 5 == 0 {
+                tex.texels[y * TEX_SIZE + x] = if (x + y) % 2 == 0 { vine } else { vine_dark };
+            }
+        }
+    }
+    tex
+}
+
+fn iron_golem_head() -> Texture {
+    let mut tex = iron_golem_body();
+    let eye_red = [0.78, 0.15, 0.12];
+    let pupil = [0.35, 0.05, 0.05];
+    let brow = [0.68, 0.68, 0.66];
+    let mouth = [0.45, 0.45, 0.43];
+    for x in 3..13 {
+        tex.texels[6 * TEX_SIZE + x] = brow;
+    }
+    tex.texels[7 * TEX_SIZE + 4] = eye_red;
+    tex.texels[7 * TEX_SIZE + 5] = pupil;
+    tex.texels[7 * TEX_SIZE + 10] = pupil;
+    tex.texels[7 * TEX_SIZE + 11] = eye_red;
+    for x in 6..10 {
+        tex.texels[13 * TEX_SIZE + x] = mouth;
+    }
+    tex
+}
+
+fn iron_golem_spawn_egg() -> Texture {
+    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let base = [0.82, 0.82, 0.80];
+    let spot = [0.45, 0.45, 0.43];
+    let border = [0.35, 0.35, 0.35];
+    for y in 0..TEX_SIZE {
+        for x in 0..TEX_SIZE {
+            let dx = (x as f32 - 7.5).abs();
+            let dy = y as f32 - 8.0;
+            let egg_width = if dy < 0.0 {
+                (4.8 + dy * 0.45).max(1.0)
+            } else {
+                (4.8 - dy * 0.65).max(0.5)
+            };
+            if dx <= egg_width {
+                let is_border = dx >= egg_width - 0.9;
+                let n = rand_at(x, y, 621);
+                let col = if is_border {
+                    border
+                } else if n > 0.72 {
+                    spot
+                } else {
+                    base
+                };
+                texels[y * TEX_SIZE + x] = col;
+            }
+        }
+    }
+    Texture { texels }
 }
 
 fn bed_top() -> Texture {
@@ -2903,22 +2978,25 @@ fn wheat_seeds() -> Texture {
 }
 
 fn wheat_crop() -> Texture {
-    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let mut texels = vec![[-0.001, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
     let stem = [0.35, 0.68, 0.20];
+    let stem_light = [0.45, 0.76, 0.25];
     let ear = [0.88, 0.78, 0.32];
     let ear_dark = [0.72, 0.60, 0.20];
     for y in 2..TEX_SIZE {
         texels[y * TEX_SIZE + 7] = stem;
-        texels[y * TEX_SIZE + 8] = stem;
+        texels[y * TEX_SIZE + 8] = stem_light;
         if y >= 6 && y % 3 == 0 {
+            texels[y * TEX_SIZE + 4] = stem;
             texels[y * TEX_SIZE + 5] = stem;
             texels[y * TEX_SIZE + 6] = stem;
-            texels[y * TEX_SIZE + 9] = stem;
-            texels[y * TEX_SIZE + 10] = stem;
+            texels[y * TEX_SIZE + 9] = stem_light;
+            texels[y * TEX_SIZE + 10] = stem_light;
+            texels[y * TEX_SIZE + 11] = stem_light;
         }
     }
-    for y in 2..7 {
-        for x in 6..10 {
+    for y in 2..8 {
+        for x in 5..11 {
             texels[y * TEX_SIZE + x] = if (x + y) % 2 == 0 { ear } else { ear_dark };
         }
     }
@@ -2985,18 +3063,19 @@ fn carrot() -> Texture {
 }
 
 fn carrot_crop() -> Texture {
-    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let mut texels = vec![[-0.001, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
     let green = [0.28, 0.70, 0.18];
     let green_dark = [0.18, 0.48, 0.12];
     let orange = [0.96, 0.48, 0.08];
-    for y in 4..13 {
-        for x in 4..12 {
+    for y in 3..13 {
+        for x in 3..13 {
             if (x + y * 2) % 3 != 0 {
                 texels[y * TEX_SIZE + x] = if (x + y) % 2 == 0 { green } else { green_dark };
             }
         }
     }
     for x in 6..10 {
+        texels[13 * TEX_SIZE + x] = orange;
         texels[14 * TEX_SIZE + x] = orange;
     }
     Texture { texels }
@@ -3022,18 +3101,21 @@ fn potato() -> Texture {
 }
 
 fn potato_crop() -> Texture {
-    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let mut texels = vec![[-0.001, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
     let green = [0.30, 0.62, 0.22];
     let flower = [0.95, 0.95, 0.88];
-    for y in 5..14 {
-        for x in 4..12 {
+    let flower_core = [0.98, 0.85, 0.20];
+    for y in 4..14 {
+        for x in 3..13 {
             if (x * 3 + y * 5) % 4 != 0 {
                 texels[y * TEX_SIZE + x] = green;
             }
         }
     }
-    texels[4 * TEX_SIZE + 6] = flower;
-    texels[4 * TEX_SIZE + 9] = flower;
+    texels[3 * TEX_SIZE + 6] = flower;
+    texels[4 * TEX_SIZE + 6] = flower_core;
+    texels[3 * TEX_SIZE + 9] = flower;
+    texels[4 * TEX_SIZE + 9] = flower_core;
     Texture { texels }
 }
 
@@ -3059,7 +3141,7 @@ fn baked_potato() -> Texture {
 }
 
 fn sapling() -> Texture {
-    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let mut texels = vec![[-0.001, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
     let stem = [0.45, 0.30, 0.15];
     let leaf_hi = [0.38, 0.75, 0.25];
     let leaf_lo = [0.24, 0.55, 0.16];
@@ -3992,6 +4074,9 @@ impl TextureAtlas {
             villager_robe_blacksmith: villager_robe_blacksmith(),
             villager_robe_cleric: villager_robe_cleric(),
             villager_robe_butcher: villager_robe_butcher(),
+            iron_golem_body: iron_golem_body(),
+            iron_golem_head: iron_golem_head(),
+            iron_golem_spawn_egg: iron_golem_spawn_egg(),
             custom: crate::engine::modding::generate_mod_textures(),
         }
     }
@@ -4193,6 +4278,9 @@ impl TextureAtlas {
             TextureId::VillagerRobeBlacksmith => &self.villager_robe_blacksmith,
             TextureId::VillagerRobeCleric => &self.villager_robe_cleric,
             TextureId::VillagerRobeButcher => &self.villager_robe_butcher,
+            TextureId::IronGolemBody => &self.iron_golem_body,
+            TextureId::IronGolemHead => &self.iron_golem_head,
+            TextureId::IronGolemSpawnEgg => &self.iron_golem_spawn_egg,
             TextureId::Custom(idx) => self.custom.get(idx as usize).unwrap_or(&self.stone),
         }
     }

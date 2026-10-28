@@ -102,6 +102,7 @@
   "settings.fps_limit": "FPS LIMIT: < {} >",
   "settings.fps_unlimited": "UNLIMITED",
   "settings.underwater_fx": "UNDERWATER EFFECTS: {}",
+  "settings.force_unicode_font": "FORCE UNICODE FONT: {}",
   "settings.debug_overlay": "DEBUG OVERLAY: {}",
   "settings.vibration": "GAMEPAD VIBRATION: {}",
   "settings.damage_tilt": "DAMAGE TILT: {}",

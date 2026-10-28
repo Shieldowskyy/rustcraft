@@ -1038,16 +1038,11 @@ impl RustCraftApp {
                                                 Some(BlockId::Dirt)
                                             }
                                         } else if broken_block == BlockId::WheatCrop {
-                                            self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, BlockId::Wheat, 1));
                                             Some(BlockId::WheatSeeds)
                                         } else if broken_block == BlockId::CarrotCrop {
-                                            let count = 1 + (seed % 3) as u8;
-                                            self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, BlockId::Carrot, count));
-                                            None
+                                            Some(BlockId::Carrot)
                                         } else if broken_block == BlockId::PotatoCrop {
-                                            let count = 1 + (seed % 3) as u8;
-                                            self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, BlockId::Potato, count));
-                                            None
+                                            Some(BlockId::Potato)
                                         } else if broken_block == BlockId::RustStoneOre {
                                             let count = 4 + (seed % 2) as u8;
                                             self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, BlockId::RustStone, count));
@@ -1412,6 +1407,7 @@ impl RustCraftApp {
                                             }
                                             _ => {}
                                         }
+                                        self.world.set_block(hit.block_pos, BlockId::Air);
                                         if self.player.gamemode == GameMode::Survival {
                                             if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
                                                 stack.count -= 1;

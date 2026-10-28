@@ -114,6 +114,10 @@ pub enum SoundId {
     VillagerDeath,
     VillagerTrade,
     VillagerNo,
+    IronGolemIdle,
+    IronGolemHurt,
+    IronGolemDeath,
+    IronGolemAttack,
 
     // Aquatic & Fishing
     FishFlop,
@@ -202,6 +206,10 @@ impl SoundId {
             | SoundId::VillagerDeath
             | SoundId::VillagerTrade
             | SoundId::VillagerNo
+            | SoundId::IronGolemIdle
+            | SoundId::IronGolemHurt
+            | SoundId::IronGolemDeath
+            | SoundId::IronGolemAttack
             | SoundId::FishFlop
             | SoundId::DolphinIdle
             | SoundId::DolphinHurt

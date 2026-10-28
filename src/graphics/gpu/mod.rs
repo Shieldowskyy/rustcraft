@@ -734,6 +734,10 @@ impl VulkanContext {
                                 | TextureId::Lever
                                 | TextureId::Button
                                 | TextureId::PressurePlate
+                                | TextureId::WheatCrop
+                                | TextureId::CarrotCrop
+                                | TextureId::PotatoCrop
+                                | TextureId::Sapling
                         );
                         let dest = if is_trans {
                             &mut trans
@@ -1533,9 +1537,12 @@ impl VulkanContext {
             TextureId::VillagerRobeBlacksmith => 192,
             TextureId::VillagerRobeCleric => 193,
             TextureId::VillagerRobeButcher => 194,
+            TextureId::IronGolemBody => 195,
+            TextureId::IronGolemHead => 196,
+            TextureId::IronGolemSpawnEgg => 197,
             TextureId::Custom(idx) => {
                 let clamped = if (idx as u32) > 63 { 63 } else { idx as u32 };
-                195 + clamped
+                198 + clamped
             }
         }
     }
@@ -1737,7 +1744,10 @@ impl VulkanContext {
             192 => TextureId::VillagerRobeBlacksmith,
             193 => TextureId::VillagerRobeCleric,
             194 => TextureId::VillagerRobeButcher,
-            l if l >= 195 && l < 195 + 64 => TextureId::Custom((l - 195) as u8),
+            195 => TextureId::IronGolemBody,
+            196 => TextureId::IronGolemHead,
+            197 => TextureId::IronGolemSpawnEgg,
+            l if l >= 198 && l < 198 + 64 => TextureId::Custom((l - 198) as u8),
             _ => TextureId::CraftingTableFront,
         }
     }

@@ -166,6 +166,8 @@ pub struct GameSettings {
     pub underwater_fx: bool,
     /// In-game F3 debug text overlay enabled (default: true).
     pub debug_overlay: bool,
+    /// Force readable Unicode font across all UI instead of default chunky font.
+    pub force_unicode_font: bool,
     /// Multi-sample anti-aliasing sample count: 1 (off), 2 (2x), 4 (4x) (default: 4x on Vita, 1x on PC).
     pub msaa: u32,
     /// Frame rate cap: 25, 30, 40, 60, 75, 90, 120, 144, 165, 0 (0 = uncapped; default: 30 on Vita, 0 on PC).
@@ -237,6 +239,7 @@ impl Default for GameSettings {
             brightness: 0.50,
             underwater_fx: true,
             debug_overlay: true,
+            force_unicode_font: false,
             msaa: default_msaa,
             fps_limit: default_fps_limit,
             sprint_mode: SprintMode::Hold,
@@ -384,8 +387,10 @@ impl GameSettings {
                 let damage_tilt = bytes.get(audio_offset + 8).copied().unwrap_or(1) != 0;
                 let mouse_sensitivity = bytes.get(audio_offset + 9).map(|&b| if b == 0 { 1.0 } else { (b as f32 / 50.0).clamp(0.2, 3.0) }).unwrap_or(1.0);
                 let gamepad_sensitivity = bytes.get(audio_offset + 10).map(|&b| if b == 0 { 1.0 } else { (b as f32 / 50.0).clamp(0.2, 3.0) }).unwrap_or(1.0);
+                let force_unicode_font = bytes.get(audio_offset + 11).copied().unwrap_or(0) != 0;
 
                 crate::core::i18n::set_language(language);
+                crate::graphics::font::set_force_unicode(force_unicode_font);
 
                 return Self {
                     language,
@@ -400,6 +405,7 @@ impl GameSettings {
                     brightness,
                     underwater_fx,
                     debug_overlay,
+                    force_unicode_font,
                     msaa,
                     fps_limit,
                     sprint_mode,
@@ -425,6 +431,7 @@ impl GameSettings {
         }
         let def = Self::default();
         crate::core::i18n::set_language(def.language);
+        crate::graphics::font::set_force_unicode(def.force_unicode_font);
         def
     }
 
@@ -491,6 +498,9 @@ impl GameSettings {
         bytes.push(if self.damage_tilt { 1 } else { 0 });
         bytes.push((self.mouse_sensitivity.clamp(0.2, 3.0) * 50.0).round() as u8);
         bytes.push((self.gamepad_sensitivity.clamp(0.2, 3.0) * 50.0).round() as u8);
+        bytes.push(if self.force_unicode_font { 1 } else { 0 });
+
+        crate::graphics::font::set_force_unicode(self.force_unicode_font);
 
         std::fs::write(&path, bytes).map_err(|e| e.to_string())
     }

@@ -18,6 +18,7 @@ pub enum MobKind {
     Pufferfish,
     TropicalFish,
     Villager,
+    IronGolem,
 }
 
 impl MobKind {
@@ -47,6 +48,7 @@ impl MobKind {
             MobKind::Pufferfish => 3.0,
             MobKind::TropicalFish => 3.0,
             MobKind::Villager => 20.0,
+            MobKind::IronGolem => 100.0,
         }
     }
 
@@ -65,6 +67,7 @@ impl MobKind {
             MobKind::Pufferfish => 0.25,
             MobKind::TropicalFish => 0.18,
             MobKind::Villager => 0.32,
+            MobKind::IronGolem => 0.65,
         }
     }
 
@@ -83,13 +86,14 @@ impl MobKind {
             MobKind::Pufferfish => 0.35,
             MobKind::TropicalFish => 0.28,
             MobKind::Villager => 1.95,
+            MobKind::IronGolem => 2.70,
         }
     }
 
     #[allow(dead_code)]
     pub fn is_hostile(&self) -> bool {
         match self {
-            MobKind::Pig | MobKind::Cow | MobKind::Chicken | MobKind::Sheep | MobKind::Villager => false,
+            MobKind::Pig | MobKind::Cow | MobKind::Chicken | MobKind::Sheep | MobKind::Villager | MobKind::IronGolem => false,
             MobKind::Dolphin | MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => false,
             MobKind::Zombie | MobKind::Skeleton | MobKind::Creeper => true,
         }
@@ -105,6 +109,7 @@ impl MobKind {
                 matches!(item, BlockId::WheatSeeds | BlockId::Kelp | BlockId::Seagrass)
             }
             MobKind::Villager => matches!(item, BlockId::Emerald | BlockId::EmeraldBlock | BlockId::Bread),
+            MobKind::IronGolem => matches!(item, BlockId::IronIngot | BlockId::IronBlock),
             _ => false,
         }
     }
@@ -125,6 +130,7 @@ impl MobKind {
             MobKind::Pufferfish => "Pufferfish",
             MobKind::TropicalFish => "Tropical Fish",
             MobKind::Villager => "Villager",
+            MobKind::IronGolem => "Iron Golem",
         }
     }
 
@@ -139,6 +145,7 @@ impl MobKind {
             MobKind::Creeper => None,
             MobKind::Dolphin => Some(crate::audio::SoundId::DolphinIdle),
             MobKind::Villager => Some(crate::audio::SoundId::VillagerIdle),
+            MobKind::IronGolem => Some(crate::audio::SoundId::IronGolemIdle),
             MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => None,
         }
     }
@@ -154,6 +161,7 @@ impl MobKind {
             MobKind::Creeper => crate::audio::SoundId::CreeperHurt,
             MobKind::Dolphin => crate::audio::SoundId::DolphinHurt,
             MobKind::Villager => crate::audio::SoundId::VillagerHurt,
+            MobKind::IronGolem => crate::audio::SoundId::IronGolemHurt,
             MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => crate::audio::SoundId::FishFlop,
         }
     }
@@ -169,6 +177,7 @@ impl MobKind {
             MobKind::Creeper => crate::audio::SoundId::CreeperDeath,
             MobKind::Dolphin => crate::audio::SoundId::DolphinDeath,
             MobKind::Villager => crate::audio::SoundId::VillagerDeath,
+            MobKind::IronGolem => crate::audio::SoundId::IronGolemDeath,
             MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => crate::audio::SoundId::FishFlop,
         }
     }
@@ -313,16 +322,21 @@ impl Mob {
         }
         self.health -= damage;
         self.hurt_timer = 0.35;
-        self.panic_timer = 3.0;
+        self.panic_timer = 5.0;
 
         let kb = if knockback_dir.length_sq() > 1e-4 {
             knockback_dir.normalized()
         } else {
             Vec3::new(0.0, 1.0, 0.0)
         };
-        self.velocity.x += kb.x * 5.0;
-        self.velocity.z += kb.z * 5.0;
-        self.velocity.y = 3.8;
+        let (kb_horiz, kb_vert) = if self.kind == MobKind::IronGolem {
+            (0.4, 0.4)
+        } else {
+            (2.2, 1.6)
+        };
+        self.velocity.x += kb.x * kb_horiz;
+        self.velocity.z += kb.z * kb_horiz;
+        self.velocity.y = kb_vert;
         self.on_ground = false;
 
         if self.health <= 0.0 {
@@ -651,6 +665,26 @@ impl Mob {
             }
         }
 
+        // Animals get skittish and step away if player approaches closely without food
+        let mut skittish_avoiding = false;
+        if matches!(self.kind, MobKind::Pig | MobKind::Cow | MobKind::Chicken | MobKind::Sheep)
+            && !following_player
+            && self.panic_timer <= 0.0
+        {
+            if let Some(target) = player_pos {
+                let dx = self.pos.x - target.x;
+                let dz = self.pos.z - target.z;
+                let dy = (target.y - self.pos.y).abs();
+                let dist_sq = dx * dx + dz * dz;
+                if dist_sq < 3.8 * 3.8 && dy < 2.5 {
+                    self.target_yaw = dx.atan2(dz);
+                    self.head_yaw_offset = 0.0;
+                    self.ai_state_is_moving = true;
+                    skittish_avoiding = true;
+                }
+            }
+        }
+
         // Villagers turn to look at nearby players
         if self.kind == MobKind::Villager && !following_player && self.panic_timer <= 0.0 {
             if let Some(target) = player_pos {
@@ -665,13 +699,21 @@ impl Mob {
             }
         }
 
-        if !pursuing_player && !following_player {
+        if !pursuing_player && !following_player && !skittish_avoiding {
             self.ai_timer -= dt;
             if self.ai_timer <= 0.0 {
                 if self.panic_timer > 0.0 {
                     self.ai_state_is_moving = true;
-                    self.target_yaw += (rand_f32(rng) - 0.5) * 1.6;
-                    self.ai_timer = 0.4 + rand_f32(rng) * 0.5;
+                    if let Some(target) = player_pos {
+                        let dx = self.pos.x - target.x;
+                        let dz = self.pos.z - target.z;
+                        let base_yaw = dx.atan2(dz);
+                        let zigzag = (rand_f32(rng) - 0.5) * 0.75;
+                        self.target_yaw = base_yaw + zigzag;
+                    } else {
+                        self.target_yaw += (rand_f32(rng) - 0.5) * 1.6;
+                    }
+                    self.ai_timer = 0.3 + rand_f32(rng) * 0.35;
                 } else {
                     let roll = rand_f32(rng);
                     if roll < 0.45 {
@@ -697,9 +739,11 @@ impl Mob {
         let move_speed = if self.eat_grass_timer > 0.0 {
             0.0
         } else if self.panic_timer > 0.0 {
-            3.8
+            5.4 // Rapid sprint away from player when panicked!
         } else if pursuing_player {
             2.6
+        } else if skittish_avoiding {
+            2.4 // Quick evasive step away when approached without food
         } else if self.ai_state_is_moving {
             1.4
         } else {
@@ -940,6 +984,46 @@ impl MobManager {
             }
         }
 
+        // Iron Golem AI: defend villagers and player by attacking nearby hostile mobs
+        let mut golem_attacks: Vec<(usize, usize, f32, f32)> = Vec::new();
+        let mob_count = self.mobs.len();
+        for i in 0..mob_count {
+            if self.mobs[i].kind != MobKind::IronGolem || self.mobs[i].is_dead {
+                continue;
+            }
+            let golem_pos = self.mobs[i].pos;
+            let mut closest_enemy: Option<(usize, f32, f32, f32)> = None;
+            for j in 0..mob_count {
+                if !self.mobs[j].kind.is_hostile() || self.mobs[j].is_dead {
+                    continue;
+                }
+                let dx = self.mobs[j].pos.x - golem_pos.x;
+                let dz = self.mobs[j].pos.z - golem_pos.z;
+                let dy = (self.mobs[j].pos.y - golem_pos.y).abs();
+                let dist_sq = dx * dx + dz * dz;
+                if dist_sq < 16.0 * 16.0 && dy < 6.0 {
+                    if closest_enemy.as_ref().map_or(true, |&(_, min_d, _, _)| dist_sq < min_d) {
+                        closest_enemy = Some((j, dist_sq, dx, dz));
+                    }
+                }
+            }
+
+            if let Some((target_idx, dist_sq, dx, dz)) = closest_enemy {
+                self.mobs[i].target_yaw = dx.atan2(dz);
+                self.mobs[i].ai_state_is_moving = true;
+                if dist_sq <= 2.2 * 2.2 {
+                    golem_attacks.push((i, target_idx, dx, dz));
+                }
+            }
+        }
+
+        for (golem_idx, target_idx, dx, dz) in golem_attacks {
+            let kb_dir = Vec3::new(dx.signum() * 1.5, 4.2, dz.signum() * 1.5);
+            self.mobs[target_idx].take_damage(14.0, kb_dir);
+            self.mobs[golem_idx].pending_sound = Some(crate::audio::SoundId::IronGolemAttack);
+            self.mobs[golem_idx].walk_phase += 2.0;
+        }
+
         // Animal breeding pairs check
         let mut babies = Vec::new();
         let len = self.mobs.len();
@@ -1137,6 +1221,21 @@ impl MobManager {
                                 });
                             }
                         }
+                        MobKind::IronGolem => {
+                            let ingots = 3 + (m.id % 3) as u8; // 3-5 iron ingots
+                            self.dying_drops.push(MobDrop {
+                                pos: m.center_pos(),
+                                block: BlockId::IronIngot,
+                                count: ingots,
+                            });
+                            if m.id % 2 == 0 {
+                                self.dying_drops.push(MobDrop {
+                                    pos: m.center_pos() + Vec3::new(0.05, 0.1, 0.05),
+                                    block: BlockId::RedWool, // Poppy
+                                    count: 1,
+                                });
+                            }
+                        }
                     }
                     }
 
@@ -1313,7 +1412,9 @@ impl MobManager {
                 if let Some((sy, block_below)) = surface_y {
                     if block_below == BlockId::Grass || block_below == BlockId::Planks || block_below == BlockId::Sand {
                         let roll = rand_f32(rng);
-                        let kind = if roll < 0.20 {
+                        let kind = if block_below == BlockId::Planks {
+                            if roll < 0.30 { MobKind::IronGolem } else { MobKind::Villager }
+                        } else if roll < 0.20 {
                             MobKind::Sheep
                         } else if roll < 0.40 {
                             MobKind::Pig
@@ -1321,8 +1422,10 @@ impl MobManager {
                             MobKind::Cow
                         } else if roll < 0.80 {
                             MobKind::Chicken
-                        } else {
+                        } else if roll < 0.94 {
                             MobKind::Villager
+                        } else {
+                            MobKind::IronGolem
                         };
                         let spawn_pos = Vec3::new(target_x as f32 + 0.5, sy as f32, target_z as f32 + 0.5);
                         self.spawn_mob(kind, spawn_pos);

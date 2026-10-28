@@ -259,7 +259,9 @@ pub enum BlockId {
     EmeraldBlock,
     /// Villager spawn egg item
     VillagerSpawnEgg,
-    /// Custom modded block or item (ID 144..=255)
+    /// Iron Golem spawn egg item
+    IronGolemSpawnEgg,
+    /// Custom modded block or item (ID 145..=255)
     Custom(u8),
 }
 
@@ -409,7 +411,8 @@ impl BlockId {
             141 => BlockId::EmeraldOre,
             142 => BlockId::EmeraldBlock,
             143 => BlockId::VillagerSpawnEgg,
-            v if v >= 144 => BlockId::Custom(v),
+            144 => BlockId::IronGolemSpawnEgg,
+            v if v >= 145 => BlockId::Custom(v),
             _ => BlockId::Air,
         }
     }
@@ -560,6 +563,7 @@ impl BlockId {
             BlockId::EmeraldOre => 141,
             BlockId::EmeraldBlock => 142,
             BlockId::VillagerSpawnEgg => 143,
+            BlockId::IronGolemSpawnEgg => 144,
             BlockId::Custom(id) => id,
         }
     }
@@ -732,6 +736,7 @@ impl BlockId {
                     | BlockId::FishingRod
                     | BlockId::Emerald
                     | BlockId::VillagerSpawnEgg
+                    | BlockId::IronGolemSpawnEgg
             ),
         }
     }
@@ -846,8 +851,8 @@ impl BlockId {
                 } else if id < 140 {
                     // Kelp (128), Seagrass (129), and items (130..=139) are non-solid
                     false
-                } else if id == 140 || id == 143 {
-                    // Emerald (140) and VillagerSpawnEgg (143) are non-solid items
+                } else if id == 140 || id == 143 || id == 144 {
+                    // Emerald (140), VillagerSpawnEgg (143), and IronGolemSpawnEgg (144) are non-solid items
                     false
                 } else if id == 141 || id == 142 {
                     // EmeraldOre (141) and EmeraldBlock (142) are solid blocks
@@ -868,6 +873,7 @@ impl BlockId {
             BlockId::DolphinSpawnEgg => Some(crate::gameplay::mob::MobKind::Dolphin),
             BlockId::FishSpawnEgg => Some(crate::gameplay::mob::MobKind::Cod),
             BlockId::VillagerSpawnEgg => Some(crate::gameplay::mob::MobKind::Villager),
+            BlockId::IronGolemSpawnEgg => Some(crate::gameplay::mob::MobKind::IronGolem),
             _ => None,
         }
     }
@@ -1402,6 +1408,7 @@ impl BlockId {
             BlockId::EmeraldOre => "ruda szmaragdu",
             BlockId::EmeraldBlock => "blok szmaragdu",
             BlockId::VillagerSpawnEgg => "jajko wiesniaka",
+            BlockId::IronGolemSpawnEgg => "jajko zelaznego golema",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -1553,6 +1560,7 @@ impl BlockId {
             BlockId::EmeraldOre => "Emerald Ore",
             BlockId::EmeraldBlock => "Emerald Block",
             BlockId::VillagerSpawnEgg => "Spawn Villager",
+            BlockId::IronGolemSpawnEgg => "Spawn Iron Golem",
             BlockId::Custom(id) => crate::engine::modding::get_custom_name(id),
         }
     }
@@ -1713,6 +1721,7 @@ impl BlockId {
             BlockId::EmeraldOre => [0.35, 0.55, 0.35],
             BlockId::EmeraldBlock => [0.08, 0.85, 0.30],
             BlockId::VillagerSpawnEgg => [0.55, 0.38, 0.24],
+            BlockId::IronGolemSpawnEgg => [0.84, 0.84, 0.82],
             BlockId::Custom(id) => crate::engine::modding::get_custom_face_color(id, face),
             BlockId::Air => [0.0, 0.0, 0.0],
         }
@@ -1871,6 +1880,7 @@ impl BlockId {
             BlockId::EmeraldOre => TextureId::EmeraldOre,
             BlockId::EmeraldBlock => TextureId::EmeraldBlock,
             BlockId::VillagerSpawnEgg => TextureId::VillagerSpawnEgg,
+            BlockId::IronGolemSpawnEgg => TextureId::IronGolemSpawnEgg,
             BlockId::Custom(id) => crate::engine::modding::get_custom_texture_id(id),
             _ => TextureId::Planks,
         }
@@ -1962,24 +1972,25 @@ mod tests {
     #[test]
     fn test_new_blocks_and_tools() {
         // Roundtrip u8
-        for id in 0..=143u8 {
+        for id in 0..=144u8 {
             let block = BlockId::from_u8(id);
             assert_eq!(block.to_u8(), id);
             // Verify is_solid and is_transparent don't panic on u128 masks
             let _ = block.is_solid();
             let _ = block.is_transparent();
         }
-        let custom = BlockId::from_u8(144);
-        assert_eq!(custom, BlockId::Custom(144));
-        assert_eq!(custom.to_u8(), 144);
+        let custom = BlockId::from_u8(145);
+        assert_eq!(custom, BlockId::Custom(145));
+        assert_eq!(custom.to_u8(), 145);
 
-        // Emerald and Villager properties
+        // Emerald, Villager, and Iron Golem properties
         assert!(!BlockId::Emerald.is_placeable());
         assert!(!BlockId::Emerald.is_solid());
         assert!(BlockId::EmeraldOre.is_placeable());
         assert!(BlockId::EmeraldOre.is_solid());
         assert!(BlockId::EmeraldBlock.is_solid());
         assert_eq!(BlockId::VillagerSpawnEgg.spawn_mob_kind(), Some(crate::gameplay::mob::MobKind::Villager));
+        assert_eq!(BlockId::IronGolemSpawnEgg.spawn_mob_kind(), Some(crate::gameplay::mob::MobKind::IronGolem));
 
         // Aquatic properties
         assert!(BlockId::Kelp.is_placeable());

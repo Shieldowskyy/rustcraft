@@ -41,21 +41,21 @@ pub fn settings_audio_rects(width: usize, height: usize) -> [(i32, i32, i32, i32
     rects
 }
 
-/// Computes bounding boxes `(x, y, width, height)` for the 13 options in the Graphics settings tab.
-pub fn settings_graphics_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 13] {
+/// Computes bounding boxes `(x, y, width, height)` for the 14 options in the Graphics settings tab.
+pub fn settings_graphics_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 14] {
     let opt_w = 480;
-    let opt_h = 20;
-    let spacing = 3;
+    let opt_h = 19;
+    let spacing = 2;
     let cx = width as i32 / 2;
     let cy = height as i32 / 2;
-    let start_y = cy - 152;
+    let start_y = cy - 156;
 
-    let mut rects = [(0, 0, 0, 0); 13];
-    for i in 0..12 {
+    let mut rects = [(0, 0, 0, 0); 14];
+    for i in 0..13 {
         rects[i] = (cx - opt_w / 2, start_y + (opt_h + spacing) * i as i32, opt_w, opt_h);
     }
-    // Save & Back button at index 12 with extra margin
-    rects[12] = (cx - opt_w / 2, start_y + (opt_h + spacing) * 12 + 5, opt_w, opt_h);
+    // Save & Back button at index 13 with extra margin
+    rects[13] = (cx - opt_w / 2, start_y + (opt_h + spacing) * 13 + 5, opt_w, opt_h);
     rects
 }
 
@@ -95,8 +95,8 @@ pub fn settings_debug_rects(width: usize, height: usize) -> [(i32, i32, i32, i32
     rects
 }
 
-/// Backward-compatible alias for 13 options.
-pub fn settings_option_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 13] {
+/// Backward-compatible alias for 14 options.
+pub fn settings_option_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 14] {
     settings_graphics_rects(width, height)
 }
 
@@ -347,13 +347,14 @@ pub fn draw_settings_menu(
             t_fmt("settings.msaa", &[msaa_str]),
             t_fmt("settings.fps_limit", &[&fps_str]),
             format!("{}: {}", t("settings.underwater_fx"), if settings.underwater_fx { on_str } else { off_str }),
+            t_fmt("settings.force_unicode_font", &[if settings.force_unicode_font { on_str } else { off_str }]),
             t("settings.save_and_back").to_string(),
         ];
 
         let rects = settings_graphics_rects(width, height);
         for (i, (label, &(bx, by, bw, bh))) in options.iter().zip(rects.iter()).enumerate() {
             let is_hover = hovered_idx == Some(i);
-            draw_option_button(buffer, width, height, label, bx, by, bw, bh, is_hover, i == 12, mouse_pos);
+            draw_option_button(buffer, width, height, label, bx, by, bw, bh, is_hover, i == 13, mouse_pos);
         }
     } else if active_tab == 1 {
         // Tab 1: AUDIO

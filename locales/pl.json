@@ -99,6 +99,7 @@
   "settings.fps_limit": "LIMIT FPS: < {} >",
   "settings.fps_unlimited": "BRAK LIMITU",
   "settings.underwater_fx": "EFEKTY PODWODNE: {}",
+  "settings.force_unicode_font": "CZCIONKA UNICODE: {}",
   "settings.debug_overlay": "NAKLADKA DEBUGOWANIA: {}",
   "settings.vibration": "WIBRACJE PADA: {}",
   "settings.damage_tilt": "PRZECHYLENIE OD OBRAZEN: {}",

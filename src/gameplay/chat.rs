@@ -722,6 +722,7 @@ impl ChatState {
         let mut pufferfish = 0;
         let mut tropical_fish = 0;
         let mut villagers = 0;
+        let mut iron_golems = 0;
 
         for mob in &ctx.mob_manager.mobs {
             match mob.kind {
@@ -738,6 +739,7 @@ impl ChatState {
                 MobKind::Pufferfish => pufferfish += 1,
                 MobKind::TropicalFish => tropical_fish += 1,
                 MobKind::Villager => villagers += 1,
+                MobKind::IronGolem => iron_golems += 1,
             }
             let dist = (mob.pos - player_pos).length();
             let hostile_tag = if mob.kind.is_hostile() { " [HOSTILE]" } else { "" };
@@ -763,8 +765,8 @@ impl ChatState {
         }
 
         self.add_info(format!(
-            "Summary: Pigs: {}, Cows: {}, Chickens: {}, Sheep: {}, Zombies: {}, Skeletons: {}, Creepers: {}, Dolphins: {}, Fish: {}, Villagers: {}",
-            pigs, cows, chickens, sheep, zombies, skeletons, creepers, dolphins, cod + salmon + pufferfish + tropical_fish, villagers
+            "Summary: Pigs: {}, Cows: {}, Chickens: {}, Sheep: {}, Zombies: {}, Skeletons: {}, Creepers: {}, Dolphins: {}, Fish: {}, Villagers: {}, Iron Golems: {}",
+            pigs, cows, chickens, sheep, zombies, skeletons, creepers, dolphins, cod + salmon + pufferfish + tropical_fish, villagers, iron_golems
         ));
     }
 }

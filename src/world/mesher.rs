@@ -539,6 +539,10 @@ pub fn build_subchunk_mesh_internal(
                     emit_pressure_plate(&mut solid_tris, wx, wy, wz, block == BlockId::PressurePlatePressed, cache);
                     continue;
                 }
+                if matches!(block, BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop | BlockId::Sapling) {
+                    emit_cross(&mut solid_tris, wx, wy, wz, block.texture_id(Face::Top), cache);
+                    continue;
+                }
 
                 let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
                 let is_trans = matches!(block, BlockId::Water | BlockId::Glass);
@@ -703,6 +707,10 @@ pub fn build_chunk_mesh_from_job(job: &ChunkMeshJob) -> Vec<Triangle> {
                         }
                         if block == BlockId::PressurePlate || block == BlockId::PressurePlatePressed {
                             emit_pressure_plate(&mut sub_solid, wx, wy, wz, block == BlockId::PressurePlatePressed, &cache);
+                            continue;
+                        }
+                        if matches!(block, BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop | BlockId::Sapling) {
+                            emit_cross(&mut sub_solid, wx, wy, wz, block.texture_id(Face::Top), &cache);
                             continue;
                         }
 
@@ -1174,6 +1182,50 @@ fn emit_ladder(
         let x_pos = x + 0.95;
         quad(Vec3::new(x_pos, y, z + 1.0), Vec3::new(x_pos, y, z), Vec3::new(x_pos, y + 1.0, z), Vec3::new(x_pos, y + 1.0, z + 1.0), 0.90);
     }
+}
+
+fn emit_cross(
+    tris: &mut Vec<Triangle>,
+    wx: i32, wy: i32, wz: i32,
+    texture: TextureId,
+    cache: &ChunkNeighborCache,
+) {
+    let lx = wx - cache.base_x;
+    let lz = wz - cache.base_z;
+    let sky = cache.sample_sky_light(lx, wy, lz);
+    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.5, wz as f32 + 0.5);
+    let ao = 1.0;
+
+    let x = wx as f32;
+    let y = wy as f32;
+    let z = wz as f32;
+
+    let p0 = Vec3::new(x, y, z);
+    let p1 = Vec3::new(x + 1.0, y, z + 1.0);
+    let p2 = Vec3::new(x + 1.0, y + 1.0, z + 1.0);
+    let p3 = Vec3::new(x, y + 1.0, z);
+
+    let q0 = Vec3::new(x + 1.0, y, z);
+    let q1 = Vec3::new(x, y, z + 1.0);
+    let q2 = Vec3::new(x, y + 1.0, z + 1.0);
+    let q3 = Vec3::new(x + 1.0, y + 1.0, z);
+
+    let mut add_quad = |a: Vec3, b: Vec3, c: Vec3, d: Vec3| {
+        let va = Vertex { pos: a, uv: (0.0, 1.0), ao, sky_light: sky, block_light: block_l };
+        let vb = Vertex { pos: b, uv: (1.0, 1.0), ao, sky_light: sky, block_light: block_l };
+        let vc = Vertex { pos: c, uv: (1.0, 0.0), ao, sky_light: sky, block_light: block_l };
+        let vd = Vertex { pos: d, uv: (0.0, 0.0), ao, sky_light: sky, block_light: block_l };
+        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture });
+        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture });
+    };
+
+    // Diagonal 1 front and back
+    add_quad(p0, p1, p2, p3);
+    add_quad(p1, p0, p3, p2);
+
+    // Diagonal 2 front and back
+    add_quad(q0, q1, q2, q3);
+    add_quad(q1, q0, q3, q2);
 }
 
 fn emit_ruststone_wire(

@@ -95,6 +95,7 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::ChickenSpawnEgg,
                 BlockId::SheepSpawnEgg,
                 BlockId::VillagerSpawnEgg,
+                BlockId::IronGolemSpawnEgg,
                 BlockId::DolphinSpawnEgg,
                 BlockId::FishSpawnEgg,
                 BlockId::Kelp,
@@ -184,6 +185,7 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::ChickenSpawnEgg,
                 BlockId::SheepSpawnEgg,
                 BlockId::VillagerSpawnEgg,
+                BlockId::IronGolemSpawnEgg,
                 BlockId::DolphinSpawnEgg,
                 BlockId::FishSpawnEgg,
                 BlockId::FishingRod,
@@ -261,6 +263,7 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::ChickenSpawnEgg,
                 BlockId::SheepSpawnEgg,
                 BlockId::VillagerSpawnEgg,
+                BlockId::IronGolemSpawnEgg,
                 BlockId::DolphinSpawnEgg,
                 BlockId::FishSpawnEgg,
                 BlockId::FishingRod,
@@ -407,6 +410,7 @@ pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
                 BlockId::ChickenSpawnEgg,
                 BlockId::SheepSpawnEgg,
                 BlockId::VillagerSpawnEgg,
+                BlockId::IronGolemSpawnEgg,
                 BlockId::DolphinSpawnEgg,
                 BlockId::FishSpawnEgg,
                 BlockId::FishingRod,
@@ -2072,7 +2076,7 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
             px(buffer, 9, 13, iron_dark);
             px(buffer, 9, 12, iron_hi);
         }
-        BlockId::PigSpawnEgg | BlockId::CowSpawnEgg | BlockId::ChickenSpawnEgg | BlockId::SheepSpawnEgg | BlockId::DolphinSpawnEgg | BlockId::FishSpawnEgg | BlockId::VillagerSpawnEgg => {
+        BlockId::PigSpawnEgg | BlockId::CowSpawnEgg | BlockId::ChickenSpawnEgg | BlockId::SheepSpawnEgg | BlockId::DolphinSpawnEgg | BlockId::FishSpawnEgg | BlockId::VillagerSpawnEgg | BlockId::IronGolemSpawnEgg => {
             let (base, spot, outline) = match block {
                 BlockId::PigSpawnEgg => (
                     pack_color(0.95, 0.62, 0.68),
@@ -2109,6 +2113,11 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                     pack_color(0.78, 0.58, 0.45),
                     pack_color(0.32, 0.20, 0.12),
                 ),
+                BlockId::IronGolemSpawnEgg => (
+                    pack_color(0.86, 0.86, 0.84),
+                    pack_color(0.45, 0.45, 0.42),
+                    pack_color(0.28, 0.28, 0.28),
+                ),
                 _ => unreachable!(),
             };
 
@@ -2136,6 +2145,7 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
                                 BlockId::DolphinSpawnEgg => (lx == 6 && ly == 5) || (lx == 8 && ly == 8) || (lx == 6 && ly == 11) || (lx == 9 && ly == 11),
                                 BlockId::FishSpawnEgg => (lx == 7 && ly == 5) || (lx == 8 && ly == 7) || (lx == 6 && ly == 9) || (lx == 8 && ly == 12),
                                 BlockId::VillagerSpawnEgg => (lx == 6 && ly == 6) || (lx == 8 && ly == 8) || (lx == 6 && ly == 11) || (lx == 9 && ly == 11),
+                                BlockId::IronGolemSpawnEgg => (lx == 7 && ly == 5) || (lx == 8 && ly == 8) || (lx == 6 && ly == 10) || (lx == 9 && ly == 12),
                                 _ => false,
                             };
                             if is_spot {

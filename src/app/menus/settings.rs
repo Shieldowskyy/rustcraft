@@ -87,7 +87,7 @@ impl RustCraftApp {
         }
 
         let max_opts = match self.settings_tab {
-            0 => 13,
+            0 => 14,
             1 => 7,
             2 => 11,
             _ => 5,
@@ -236,6 +236,11 @@ impl RustCraftApp {
                             crate::log_info!("SETTINGS", "Underwater FX toggled to {}", self.settings.underwater_fx);
                         }
                         12 => {
+                            self.settings.force_unicode_font = !self.settings.force_unicode_font;
+                            crate::graphics::font::set_force_unicode(self.settings.force_unicode_font);
+                            crate::log_info!("SETTINGS", "Force unicode font toggled to {}", self.settings.force_unicode_font);
+                        }
+                        13 => {
                             if is_click {
                                 let _ = self.settings.save();
                                 crate::log_info!("SETTINGS", "Saved settings and returned to {:?}", prev);

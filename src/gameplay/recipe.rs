@@ -442,6 +442,18 @@ impl RecipeBook {
             Stone,     RustStone, Stone,
         ] => RustStoneLamp * 1));
 
+        // Iron Golem (3x3: T-shape of 4 IronBlocks -> 1 IronGolemSpawnEgg)
+        self.add(recipe!(3, 3, [
+            IronBlock, IronBlock, IronBlock,
+            _,         IronBlock, _,
+            _,         _,         _,
+        ] => IronGolemSpawnEgg * 1));
+        self.add(recipe!(3, 3, [
+            _,         _,         _,
+            IronBlock, IronBlock, IronBlock,
+            _,         IronBlock, _,
+        ] => IronGolemSpawnEgg * 1));
+
         // Lever (1x2: Stick over Stone or Planks)
         self.add(recipe!(1, 2, [
             Stick,

@@ -249,6 +249,10 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::VillagerDeath => 833,
         SoundId::VillagerTrade => 834,
         SoundId::VillagerNo => 835,
+        SoundId::IronGolemIdle => 836,
+        SoundId::IronGolemHurt => 837,
+        SoundId::IronGolemDeath => 838,
+        SoundId::IronGolemAttack => 839,
         SoundId::FishFlop => 823,
         SoundId::DolphinIdle => 824,
         SoundId::DolphinHurt => 825,
@@ -345,6 +349,10 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::VillagerDeath => synth_villager_death(&mut rng, sr, 0.65, 0.95),
         SoundId::VillagerTrade => synth_villager_trade(&mut rng, sr, 0.38, 0.90),
         SoundId::VillagerNo => synth_villager_no(&mut rng, sr, 0.32, 0.90),
+        SoundId::IronGolemIdle => synth_iron_golem_idle(&mut rng, sr, 0.40, 0.85),
+        SoundId::IronGolemHurt => synth_iron_golem_hurt(&mut rng, sr, 0.35, 0.95),
+        SoundId::IronGolemDeath => synth_iron_golem_death(&mut rng, sr, 0.80, 0.95),
+        SoundId::IronGolemAttack => synth_iron_golem_attack(&mut rng, sr, 0.30, 0.95),
         SoundId::FishFlop => synth_fish_flop(&mut rng, sr, 0.18, 0.85),
         SoundId::DolphinIdle => synth_dolphin_idle(&mut rng, sr, 0.45, 0.85),
         SoundId::DolphinHurt => synth_dolphin_hurt(&mut rng, sr, 0.28, 0.95),
@@ -2153,6 +2161,70 @@ fn synth_villager_no(_rng: &mut FastRng, sr: f32, duration: f32, volume: f32) ->
         let filtered = bp.process(raw);
         let pulse_env = (sub_t * (1.0 - sub_t) * 4.0).clamp(0.0, 1.0);
         out.push(filtered * pulse_env * volume * 1.5);
+    }
+    out
+}
+
+/// Iron Golem idle: heavy mechanical footstep / grinding metal gears.
+fn synth_iron_golem_idle(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.35)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut lp = BiquadFilter::lowpass(320.0, 1.2, sr);
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let env = (1.0 - t).powf(2.0);
+        let metal = (2.0 * PI * 180.0 * (i as f32 / sr)).sin() * 0.4
+            + (2.0 * PI * 340.0 * (i as f32 / sr)).sin() * 0.25;
+        let noise = (rng.next_f32() - 0.5) * 0.5;
+        let filtered = lp.process(noise + metal);
+        out.push(filtered * env * volume * 1.6);
+    }
+    out
+}
+
+/// Iron Golem hurt: heavy resonant metallic anvil strike / clang!
+fn synth_iron_golem_hurt(_rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.30)) as usize;
+    let mut out = Vec::with_capacity(count);
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let env = (-t * 9.0).exp();
+        let hit = (2.0 * PI * 420.0 * (i as f32 / sr)).sin() * 0.5
+            + (2.0 * PI * 840.0 * (i as f32 / sr)).sin() * 0.35
+            + (2.0 * PI * 1260.0 * (i as f32 / sr)).sin() * 0.15;
+        out.push(hit * env * volume * 1.5);
+    }
+    out
+}
+
+/// Iron Golem death: deep metallic shudder and heavy crumbling collapse.
+fn synth_iron_golem_death(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.75)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut lp = BiquadFilter::lowpass(280.0, 1.5, sr);
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let env = (1.0 - t).powf(1.5);
+        let r_freq = 90.0 + (1.0 - t) * 110.0;
+        let rumble = (2.0 * PI * r_freq * (i as f32 / sr)).sin() * 0.6;
+        let noise = (rng.next_f32() - 0.5) * 0.5;
+        let filtered = lp.process(rumble + noise);
+        out.push(filtered * env * volume * 1.8);
+    }
+    out
+}
+
+/// Iron Golem attack: massive upward swing whoosh and heavy punch impact.
+fn synth_iron_golem_attack(rng: &mut FastRng, sr: f32, duration: f32, volume: f32) -> Vec<f32> {
+    let count = (sr * duration.max(0.25)) as usize;
+    let mut out = Vec::with_capacity(count);
+    let mut lp = BiquadFilter::lowpass(550.0, 1.0, sr);
+    for i in 0..count {
+        let t = i as f32 / count as f32;
+        let env = if t < 0.25 { t / 0.25 } else { (1.0 - t) / 0.75 };
+        let whoosh = lp.process((rng.next_f32() - 0.5) * 0.8);
+        let thud = (2.0 * PI * 110.0 * (i as f32 / sr)).sin() * 0.5 * (-t * 8.0).exp();
+        out.push((whoosh + thud) * env * volume * 1.6);
     }
     out
 }
