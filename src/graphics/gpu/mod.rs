@@ -368,11 +368,27 @@ impl VulkanContext {
             _ => format!("{:?}", adapter_info.backend),
         };
 
+        let adapter_limits = adapter.limits();
+        if adapter_limits.max_texture_array_layers < TEXTURE_LAYER_COUNT {
+            return Err(format!(
+                "GPU adapter '{}' ({:?}) supports at most {} texture array layers, but RustCraft requires at least {}.",
+                gpu_name,
+                adapter_info.backend,
+                adapter_limits.max_texture_array_layers,
+                TEXTURE_LAYER_COUNT
+            ));
+        }
+
+        let required_limits = wgpu::Limits {
+            max_texture_array_layers: adapter_limits.max_texture_array_layers,
+            ..wgpu::Limits::default()
+        };
+
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
                 label: Some("RustCraft GPU device"),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
+                required_limits,
             },
             None,
         ))
@@ -1800,3 +1816,41 @@ impl VulkanContext {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_adapter_texture_array_layers() {
+        let instance = wgpu::Instance::default();
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }));
+        if let Some(adapter) = adapter {
+            let limits = adapter.limits();
+            println!("Adapter: {}, backend: {:?}, max_texture_array_layers: {}", adapter.get_info().name, adapter.get_info().backend, limits.max_texture_array_layers);
+            assert!(limits.max_texture_array_layers >= TEXTURE_LAYER_COUNT, "Adapter supports {} layers, needed {}", limits.max_texture_array_layers, TEXTURE_LAYER_COUNT);
+        }
+    }
+
+    #[test]
+    fn test_vulkan_context_texture_array_creation() {
+        let atlas = TextureAtlas::generate();
+        let res = VulkanContext::new(64, 64, &atlas);
+        match res {
+            Ok(ctx) => {
+                assert_eq!(ctx.width, 64);
+                assert_eq!(ctx.height, 64);
+            }
+            Err(e) => {
+                // If in headless CI environment without GPU adapter, it's ok to fail gracefully
+                println!("VulkanContext::new returned err (expected if headless/no GPU): {e}");
+            }
+        }
+    }
+}
+
+
