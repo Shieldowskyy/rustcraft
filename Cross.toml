@@ -1,94 +1,117 @@
-[target.aarch64-unknown-linux-gnu]
-pre-build = [
-    "dpkg --add-architecture arm64",
-    "apt-get update",
-    "apt-get install --assume-yes libudev-dev:arm64 libasound2-dev:arm64 libx11-dev:arm64",
-]
+[package]
+name = "rustcraft"
+version = "0.1.0"
+edition = "2021"
 
-[target.aarch64-unknown-linux-gnu.env]
-passthrough = [
-    "RUSTFLAGS",
-    "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig",
-    "PKG_CONFIG_ALLOW_CROSS=1",
-]
+[lib]
+name = "rustcraft"
+# Keep only "rlib" for fast local PC builds; "cdylib" and "staticlib" trigger heavy LTO linking passes
+# Re-add ["cdylib", "staticlib", "rlib"] only when building for Android, WASM, Vita, or Xbox 360
+crate-type = ["cdylib", "staticlib", "rlib"]
+path = "src/lib.rs"
 
-[target.armv7-unknown-linux-gnueabihf]
-pre-build = [
-    "dpkg --add-architecture armhf",
-    "apt-get update",
-    "apt-get install --assume-yes libudev-dev:armhf libasound2-dev:armhf libx11-dev:armhf",
-]
+[[bin]]
+name = "rustcraft"
+path = "src/main.rs"
 
-[target.armv7-unknown-linux-gnueabihf.env]
-passthrough = [
-    "RUSTFLAGS",
-    "PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig",
-    "PKG_CONFIG_ALLOW_CROSS=1",
-]
+[features]
+default = []
+profiler = []
+xbox360 = []
+autotest = []
 
-[target.arm-unknown-linux-gnueabihf]
-pre-build = [
-    "rm -f /etc/apt/preferences.d/*",
-    "dpkg --add-architecture armhf",
-    "apt-get update",
-    "apt-get install --assume-yes --no-install-recommends libudev-dev:armhf libasound2-dev:armhf libx11-dev:armhf",
-]
+[dependencies]
+bytemuck = { version = "1.16", features = ["derive"] }
+getrandom = { version = "=0.2.15", features = ["js", "custom"] }
+flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
+lewton = "0.10.2"
+opus-pure = "0.2.2"
 
-[target.arm-unknown-linux-gnueabihf.env]
-passthrough = [
-    "RUSTFLAGS",
-    "PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig",
-    "PKG_CONFIG_ALLOW_CROSS=1",
-]
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "vita")))'.dependencies]
+rayon = "1.8"
 
-[target.riscv64gc-unknown-linux-gnu]
-pre-build = [
-    "mkdir -p /usr/local/lib/pkgconfig /tmp/udev_stub",
-    "printf '#include <stddef.h>\\nvoid* udev_new(void){return NULL;}\\nvoid* udev_unref(void* u){return NULL;}\\nvoid* udev_device_new_from_syspath(void* u,const char* s){return NULL;}\\nvoid* udev_device_unref(void* d){return NULL;}\\nconst char* udev_device_get_devnode(void* d){return NULL;}\\nconst char* udev_device_get_syspath(void* d){return NULL;}\\nconst char* udev_device_get_property_value(void* d,const char* k){return NULL;}\\nconst char* udev_device_get_action(void* d){return NULL;}\\nvoid* udev_enumerate_new(void* u){return NULL;}\\nvoid* udev_enumerate_unref(void* e){return NULL;}\\nint udev_enumerate_add_match_subsystem(void* e,const char* s){return 0;}\\nint udev_enumerate_add_match_property(void* e,const char* p,const char* v){return 0;}\\nint udev_enumerate_add_match_tag(void* e,const char* t){return 0;}\\nint udev_enumerate_add_match_is_initialized(void* e){return 0;}\\nint udev_enumerate_add_match_sysname(void* e,const char* s){return 0;}\\nint udev_enumerate_scan_devices(void* e){return 0;}\\nvoid* udev_enumerate_get_list_entry(void* e){return NULL;}\\nvoid* udev_list_entry_get_next(void* l){return NULL;}\\nconst char* udev_list_entry_get_name(void* l){return NULL;}\\nvoid* udev_monitor_new_from_netlink(void* u,const char* n){return NULL;}\\nvoid* udev_monitor_unref(void* m){return NULL;}\\nint udev_monitor_enable_receiving(void* m){return 0;}\\nint udev_monitor_get_fd(void* m){return -1;}\\nvoid* udev_monitor_receive_device(void* m){return NULL;}\\nint udev_monitor_filter_add_match_subsystem_devtype(void* m,const char* s,const char* d){return 0;}\\n' > /tmp/udev_stub/udev.c",
-    "riscv64-linux-gnu-gcc -shared -fPIC /tmp/udev_stub/udev.c -o /usr/riscv64-linux-gnu/lib/libudev.so",
-    "printf 'Name: libudev\\nDescription: libudev stub\\nVersion: 245\\nLibs: -ludev\\nCflags:\\n' > /usr/local/lib/pkgconfig/libudev.pc",
-    "printf 'Name: alsa\\nDescription: alsa stub\\nVersion: 1.2.2\\nLibs:\\nCflags:\\n' > /usr/local/lib/pkgconfig/alsa.pc",
-    "printf 'Name: x11\\nDescription: x11 stub\\nVersion: 1.6.9\\nLibs:\\nCflags:\\n' > /usr/local/lib/pkgconfig/x11.pc",
-]
+[target.'cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "xbox360"), not(target_os = "xenon")))'.dependencies]
+wgpu = "0.19"
+pollster = "0.3"
 
-[target.riscv64gc-unknown-linux-gnu.env]
-passthrough = [
-    "RUSTFLAGS",
-    "PKG_CONFIG_PATH=/usr/local/lib/pkgconfig",
-    "PKG_CONFIG_ALLOW_CROSS=1",
-]
+[target.'cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon")))'.dependencies]
+minifb = "0.27"
+raw-window-handle = "0.6"
+gilrs = "0.11"
+sentry = "0.49"
 
-[target.i686-unknown-linux-gnu]
-pre-build = [
-    "dpkg --add-architecture i386",
-    "apt-get update",
-    "apt-get install --assume-yes libudev-dev:i386 libasound2-dev:i386 libx11-dev:i386",
-]
+[target.'cfg(target_os = "android")'.dependencies]
+jni-sys = "=0.3.1"
 
-[target.i686-unknown-linux-gnu.env]
-passthrough = [
-    "RUSTFLAGS",
-    "PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig",
-    "PKG_CONFIG_ALLOW_CROSS=1",
-]
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Document",
+    "Element",
+    "HtmlCanvasElement",
+    "CanvasRenderingContext2d",
+    "ImageData",
+    "KeyboardEvent",
+    "MouseEvent",
+    "WheelEvent",
+    "Performance",
+    "console",
+    "AudioContext"
+] }
 
-[target.x86_64-unknown-freebsd]
-pre-build = [
-    "mkdir -p /usr/local/libdata/pkgconfig",
-    "printf 'prefix=/usr/local\\nName: libudev\\nDescription: libudev\\nVersion: 243\\nLibs:\\nCflags:\\n' > /usr/local/libdata/pkgconfig/libudev.pc",
-]
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Graphics_Gdi"] }
 
-[target.x86_64-unknown-freebsd.env]
-passthrough = [
-    "RUSTFLAGS",
-    "PKG_CONFIG_PATH=/usr/local/libdata/pkgconfig:/usr/local/lib/pkgconfig",
-    "PKG_CONFIG_ALLOW_CROSS=1",
-]
+[target.'cfg(all(any(target_os = "linux", target_os = "freebsd"), not(target_arch = "powerpc")))'.dependencies]
+x11-dl = "2.21"
 
-[target.aarch64-linux-android]
-# Android NDK is handled directly by cross toolchain image
+# --- BUILD PROFILES ---
 
-[target.armv7-linux-androideabi]
-# Android NDK is handled directly by cross toolchain image
+# Optimize dependencies in dev mode for smooth FPS while keeping rustcraft crate compile times minimal
+[profile.dev]
+opt-level = 1               # Basic optimizations for rustcraft code to keep incremental builds fast
+incremental = true          # Cache compiled modules to avoid rebuilding the entire crate
 
+[profile.dev.package."*"]
+opt-level = 3               # Compile all third-party libraries (wgpu, flate2, opus) at full speed once
 
+# Fast release profile optimized for rapid iteration on the final lib and bin stages
+[profile.release]
+opt-level = 3               # Maximum runtime execution performance
+lto = "off"                 # Disable LTO to prevent expensive whole-program linking on every build
+codegen-units = 256         # Maximize parallel LLVM code generation across CPU threads
+incremental = true          # Enable incremental caching so only modified rustcraft modules recompile
+panic = "abort"             # Abort on panic to remove unwinding overhead
+strip = false               # Keep symbols for elf conversions and debugging tools
+
+# Keep all heavy third-party dependencies tightly optimized in release mode
+[profile.release.package."*"]
+opt-level = 3
+codegen-units = 16
+
+# Full distribution profile for final shipping builds (run with: cargo build --profile dist)
+[profile.dist]
+inherits = "release"
+lto = "thin"                # Multi-threaded ThinLTO for maximum binary performance in final builds
+codegen-units = 16          # Fewer codegen units for better cross-module optimization
+incremental = false         # Clean non-incremental optimization pass for release distribution
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[package.metadata.vita]
+title_id = "RUSTCRAFT"
+title_name = "RustCraft"
+assets = "vita/sce_sys"
+
+[package.metadata.xbox360]
+title_id = "58580864"
+title_name = "RustCraft"
+media_id = "00000000"
+version = "1.0.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("vita", "xbox360", "xenon"))'] }
