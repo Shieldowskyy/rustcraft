@@ -9,16 +9,16 @@ fn main() {
     emit_build_info();
 
     let target = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    emit_embedded_assets(&out_dir, &target);
 
     // For non-Vita platforms – empty placeholders (GXM is not used)
     if target != "vita" {
-        let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
         std::fs::write(out_dir.join("voxel.vert.gxp"), b"").unwrap();
         std::fs::write(out_dir.join("voxel.frag.gxp"), b"").unwrap();
         return;
     }
 
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let vitasdk = env::var("VITASDK").unwrap_or_else(|_| "/usr/local/vitasdk".into());
     let shader_dir = PathBuf::from("vita/shaders");
 
@@ -72,6 +72,57 @@ fn main() {
     println!("cargo:rerun-if-changed=vita/shaders/voxel.vert.cg");
     println!("cargo:rerun-if-changed=vita/shaders/voxel.frag.cg");
     println!("cargo:rerun-if-changed=vita/shaders/prebuilt/");
+}
+
+fn emit_embedded_assets(out_dir: &std::path::Path, target_os: &str) {
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let single_executable_target = matches!(target_os, "linux" | "windows" | "macos" | "freebsd")
+        || env::var_os("CARGO_FEATURE_XBOX360").is_some();
+    let mut assets = Vec::new();
+
+    if single_executable_target && target_arch != "wasm32" {
+        let project_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+        let soundtracks_dir = project_dir.join("soundtracks");
+        collect_soundtrack_assets(
+            &soundtracks_dir,
+            &soundtracks_dir,
+            &mut assets,
+        );
+    }
+
+    assets.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut generated = String::from("pub static SOUNDTRACKS: &[(&str, &[u8])] = &[\n");
+    for (relative_path, absolute_path) in assets {
+        generated.push_str(&format!(
+            "    ({:?}, include_bytes!({:?})),\n",
+            relative_path,
+            absolute_path.to_string_lossy()
+        ));
+    }
+    generated.push_str("];\n");
+    std::fs::write(out_dir.join("embedded_assets.rs"), generated).unwrap();
+}
+
+fn collect_soundtrack_assets(root: &std::path::Path, dir: &std::path::Path, assets: &mut Vec<(String, PathBuf)>) {
+    println!("cargo:rerun-if-changed={}", dir.display());
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_soundtrack_assets(root, &path, assets);
+            continue;
+        }
+
+        println!("cargo:rerun-if-changed={}", path.display());
+        let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or_default();
+        if matches!(extension.to_ascii_lowercase().as_str(), "ogg" | "opus" | "wav") {
+            let relative = path.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/");
+            assets.push((format!("soundtracks/{relative}"), path));
+        }
+    }
 }
 
 // ----------------------------------------------------------------
@@ -286,4 +337,3 @@ fn emit_build_info() {
     println!("cargo:rustc-env=RUSTCRAFT_BUILD_FLAGS={}", flags_str);
     println!("cargo:rustc-env=RUSTCRAFT_BUILD_INFO={}", full_info);
 }
-

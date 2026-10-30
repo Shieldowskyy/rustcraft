@@ -57,7 +57,7 @@ RustCraft separates core engine capabilities from gameplay logic, providing huma
 * **Zero-Overhead Localization (`src/core/i18n.rs`)**:
   In-memory translation engine (`locales/*.json`) with zero runtime file I/O dependencies, dynamic in-game language switching, and Python synchronization pipeline (`scripts/sync_locales.py`).
 * **Audio & Music Subsystem (`src/audio/`)**:
-  Zero-allocation polyphonic sound engine with a 64-voice pool, priority stealing, lock-free SPSC command ring buffer, 3D spatial audio (constant-power panning, distance attenuation, acoustic occlusion through voxels, air absorption filtering), and 100% procedural waveform synthesis (zero external audio files). Plus built-in streaming soundtrack system (`src/audio/soundtrack.rs`) supporting Ogg/Opus background music, category shuffling, volume controls, and music toast notifications. Backends for Linux (PulseAudio/ALSA), Windows, Android (AAudio), PS Vita (SceAudioOut), Xbox 360, and WebAssembly.
+  Zero-allocation polyphonic sound engine with a 64-voice pool, priority stealing, lock-free SPSC command ring buffer, 3D spatial audio (constant-power panning, distance attenuation, acoustic occlusion through voxels, air absorption filtering), and 100% procedural waveform synthesis (zero external audio files). Plus built-in streaming soundtrack system (`src/audio/soundtrack.rs`) supporting Ogg/Opus background music, category shuffling, volume controls, and music toast notifications. Standalone Linux, Windows, macOS, FreeBSD, and Xbox 360 builds embed soundtrack files; adjacent on-disk files take precedence when present. The startup logo is embedded on all platforms. Backends for Linux (PulseAudio/ALSA), Windows, Android (AAudio), PS Vita (SceAudioOut), Xbox 360, and WebAssembly.
 * **Crash Reporter & Sentry Telemetry (`src/core/crash_reporter.rs`)**:
   Integrated panic handler capturing thread registers, stack backtraces, OS/hardware telemetry, logger ring-buffer breadcrumbs, and active world state. Generates local crash reports and supports direct telemetry upload to Sentry via `--sentry-dsn <DSN>` or `SENTRY_DSN` env var.
 * **Multiplayer Networking (`src/net/`)**:
@@ -517,4 +517,3 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 
 ### Disclaimer
 RustCraft is an independent, non-commercial open-source voxel game engine and sandbox recreation developed in Rust. RustCraft is **not** an official Minecraft product and is **not** approved by, affiliated with, endorsed by, or associated with Mojang Studios or Microsoft. All trademarks, service marks, and trade names (including "Minecraft") belong to their respective owners (Mojang Synergies AB / Microsoft Corporation).
-

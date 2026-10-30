@@ -80,6 +80,7 @@ pub struct SoundtrackTrack {
     pub file_path: PathBuf,
     pub categories: Vec<SoundtrackCategory>,
     pub sample: Option<Arc<SoundSample>>,
+    pub embedded_data: Option<&'static [u8]>,
 }
 
 impl SoundtrackTrack {
@@ -95,8 +96,14 @@ impl SoundtrackTrack {
             return Ok(Arc::clone(s));
         }
 
-        let bytes = fs::read(&self.file_path)
-            .map_err(|e| format!("Could not read audio file '{}': {}", self.file_path.display(), e))?;
+        let bytes = if self.file_path.exists() {
+            fs::read(&self.file_path)
+                .map_err(|e| format!("Could not read audio file '{}': {}", self.file_path.display(), e))?
+        } else {
+            self.embedded_data
+                .ok_or_else(|| format!("Could not read audio file '{}': file not found", self.file_path.display()))?
+                .to_vec()
+        };
 
         let sample = SoundSample::from_file_bytes(&bytes)
             .map_err(|e| format!("Failed to decode audio file '{}': {}", self.file_path.display(), e))?;
@@ -494,6 +501,7 @@ impl SoundtrackManager {
 
         // Auto-discover any .ogg or .wav tracks on disk not explicitly listed in manifest
         self.scan_directory(&self.base_dir.clone());
+        self.scan_embedded_soundtracks();
 
         crate::log_info!(
             "SOUNDTRACK",
@@ -581,6 +589,7 @@ impl SoundtrackManager {
                         file_path,
                         categories,
                         sample: None,
+                        embedded_data: None,
                     });
                 }
             }
@@ -635,9 +644,43 @@ impl SoundtrackManager {
                         file_path: path,
                         categories: vec![cat],
                         sample: None,
+                        embedded_data: None,
                     });
                 }
             }
+        }
+    }
+
+    fn scan_embedded_soundtracks(&mut self) {
+        for &(asset_path, data) in crate::embedded_assets::SOUNDTRACKS {
+            let Some(relative_path) = asset_path.strip_prefix("soundtracks/") else {
+                continue;
+            };
+            let path = self.base_dir.join(relative_path);
+
+            if let Some(track) = self.tracks.iter_mut().find(|track| track.file_path == path) {
+                track.embedded_data = Some(data);
+                continue;
+            }
+
+            let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("track");
+            let parent_name = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("");
+            let category = match parent_name.to_ascii_lowercase().as_str() {
+                "creative" => SoundtrackCategory::Creative,
+                "survival" => SoundtrackCategory::Survival,
+                "menu" => SoundtrackCategory::Menu,
+                _ => SoundtrackCategory::Uncategorized,
+            };
+
+            self.tracks.push(SoundtrackTrack {
+                id: file_stem.to_string(),
+                title: Self::prettify_title(file_stem),
+                artist: "RustCraft".to_string(),
+                file_path: path,
+                categories: vec![category],
+                sample: None,
+                embedded_data: Some(data),
+            });
         }
     }
 
@@ -747,12 +790,8 @@ impl SoundtrackManager {
     pub fn preload_intro(&mut self, context: SoundtrackCategory) {
         let Some(idx) = self.choose_next_index(context) else { return };
         let path = self.tracks[idx].file_path.clone();
-        let decoded = fs::read(&path)
-            .map_err(|e| e.to_string())
-            .and_then(|bytes| SoundSample::from_file_bytes(&bytes));
-        match decoded {
-            Ok(sample) => {
-                self.tracks[idx].sample = Some(Arc::new(sample));
+        match self.tracks[idx].load_sample() {
+            Ok(_) => {
                 self.pending_intro = Some(idx);
             }
             Err(e) => {
@@ -786,7 +825,7 @@ impl SoundtrackManager {
             .tracks
             .iter()
             .enumerate()
-            .filter(|(_, t)| (t.file_path.exists() || t.sample.is_some()) && t.matches_category(context))
+            .filter(|(_, t)| (t.file_path.exists() || t.sample.is_some() || t.embedded_data.is_some()) && t.matches_category(context))
             .map(|(i, _)| i)
             .collect();
 
@@ -872,17 +911,12 @@ impl SoundtrackManager {
         }
 
         let (tx, rx) = std::sync::mpsc::channel();
-        let file_path = self.tracks[idx].file_path.clone();
+        let track = self.tracks[idx].clone();
         let _ = std::thread::Builder::new()
             .name("soundtrack-async-loader".to_string())
             .spawn(move || {
-                let res = (|| -> Result<Arc<SoundSample>, String> {
-                    let bytes = fs::read(&file_path)
-                        .map_err(|e| format!("Could not read audio file '{}': {}", file_path.display(), e))?;
-                    let sample = SoundSample::from_file_bytes(&bytes)
-                        .map_err(|e| format!("Failed to decode audio file '{}': {}", file_path.display(), e))?;
-                    Ok(Arc::new(sample))
-                })();
+                let mut track = track;
+                let res = track.load_sample();
                 let _ = tx.send(res);
             });
 
@@ -1011,6 +1045,52 @@ mod tests {
         assert!(wt.matches_category(SoundtrackCategory::Menu));
     }
 
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "freebsd"))]
+    #[test]
+    fn test_embedded_soundtracks_load_without_filesystem_assets() {
+        assert!(!crate::embedded_assets::SOUNDTRACKS.is_empty());
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "rustcraft-embedded-soundtracks-{}-{unique}",
+            std::process::id()
+        ));
+        let mut manager = SoundtrackManager::new(&temp_dir);
+        let embedded_track = manager
+            .tracks
+            .iter_mut()
+            .find(|track| track.embedded_data.is_some())
+            .expect("embedded track should be registered");
+
+        let sample = embedded_track.load_sample().expect("embedded audio should decode");
+        assert!(!sample.data.is_empty());
+        drop(manager);
+        fs::remove_dir_all(temp_dir).expect("temporary soundtrack directory should be removed");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", target_os = "freebsd"))]
+    #[test]
+    fn test_embedded_soundtrack_preloads_for_startup_menu() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "rustcraft-embedded-intro-{}-{unique}",
+            std::process::id()
+        ));
+        let mut manager = SoundtrackManager::new(&temp_dir);
+
+        manager.preload_intro(SoundtrackCategory::Menu);
+        let intro_idx = manager.pending_intro.expect("embedded music should preload for menu");
+        assert!(manager.tracks[intro_idx].sample.is_some());
+
+        drop(manager);
+        fs::remove_dir_all(temp_dir).expect("temporary soundtrack directory should be removed");
+    }
+
     #[test]
     fn test_ogg_opus_decoding_roundtrip() {
         // Create an in-memory Ogg Opus stream (Stereo 48kHz)
@@ -1120,4 +1200,3 @@ mod tests {
         }
     }
 }
-
