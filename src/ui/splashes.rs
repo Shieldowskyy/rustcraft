@@ -70,6 +70,79 @@ pub const SPLASH_TEXTS: &[&str] = &[
     "Nie ma bugow, sa niespodzianki!",
 ];
 
+/// English splash texts (same order/length as [`SPLASH_TEXTS`]).
+pub const SPLASH_TEXTS_EN: &[&str] = &[
+    "100% Pure Rust!",
+    "Stop digging straight down!",
+    "Remember your torches!",
+    "Don't look an Enderman in the eye!",
+    "Zero-cost abstractions!",
+    "Memory safety guaranteed!",
+    "Better than Bedrock!",
+    "Faster than Java!",
+    "Herobrine has been removed!",
+    "Dig diamonds, not iron!",
+    "Build a shelter before dark!",
+    "SssSSSS... Boom!",
+    "Creeper? Aww man!",
+    "Don't eat raw chicken!",
+    "Where is my pickaxe?!",
+    "Now also on PS Vita and Android!",
+    "60 FPS even on a toaster!",
+    "Hardware OpenGL acceleration!",
+    "Voxel magic!",
+    "Emeralds, the currency of the future!",
+    "Who turned off the light in the mine?",
+    "Nothing beats the smell of wood!",
+    "Bread is the key to survival!",
+    "Craft yourself some diamond armor!",
+    "Watch your hunger bar!",
+    "More FPS than pixels!",
+    "Clean code, clean voxels!",
+    "Always carry a bucket of water!",
+    "Doors protect you from zombies!",
+    "Watch your step in the Nether!",
+    "Craft while the sun shines!",
+    "Great snowy mountains await!",
+    "Darkness hides treasure... and monsters!",
+    "Make a spare chest!",
+    "Redstone is pure magic!",
+    "Golden pickaxes break too fast!",
+    "Don't trust suspicious sounds!",
+    "Buy an emerald from the villager!",
+    "Sleep in a bed to skip the night!",
+    "Don't place a bed in the Nether!",
+    "Cows give milk, sheep give wool!",
+    "Build the castle of your dreams!",
+    "A Minecraft clone, but in Rust!",
+    "Thread-safe, no data races!",
+    "The borrow checker approved this world!",
+    "Cargo run --release and off we go!",
+    "Swimming in lava is unhealthy!",
+    "Eat some baked potatoes!",
+    "Cave sounds at 3 AM!",
+    "Beware of falling gravel!",
+    "Dig deeper, diamonds are below!",
+    "A village just over the hill!",
+    "Return to base before dawn!",
+    "Press F3 for stats!",
+    "Don't forget to tame a wolf!",
+    "Optimization above all!",
+    "The crafting table is your alter ego!",
+    "Mining coal for torches?",
+    "Iron to start is essential!",
+    "No bugs, just surprises!",
+];
+
+/// Returns the splash text for `index`, localized to the active language.
+pub fn splash_text(index: usize) -> &'static str {
+    let list = match crate::core::i18n::current_language() {
+        crate::core::i18n::Language::Polish => SPLASH_TEXTS,
+        _ => SPLASH_TEXTS_EN,
+    };
+    list[index % list.len()]
+}
+
 /// Renders a dynamic, pulsing, angled yellow splash text next to the main title.
 pub fn draw_splash_text(
     buffer: &mut [u32],
