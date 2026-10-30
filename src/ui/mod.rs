@@ -13,6 +13,7 @@ pub mod settings_ui;
 pub mod minimap;
 pub mod controls_ui;
 pub mod splashes;
+pub mod dev_logo;
 
 pub use clipboard::{get_clipboard, set_clipboard};
 pub use multiplayer_menu::{draw_multiplayer_menu, multiplayer_menu_rects, MAX_LAN_SERVERS_DISPLAY, MULTIPLAYER_RECT_COUNT};

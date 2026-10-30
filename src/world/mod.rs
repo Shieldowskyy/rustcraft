@@ -2447,7 +2447,7 @@ mod tests {
 
     #[test]
     fn test_spaced_villages_and_torch_lighting() {
-        let seed: i32 = 1337;
+        let seed: u32 = 1337;
         let mut found = None;
         for rx in -2..=2 {
             for rz in -2..=2 {

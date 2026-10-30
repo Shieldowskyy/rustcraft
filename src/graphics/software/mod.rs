@@ -349,6 +349,10 @@ impl Renderer {
         crate::ui::draw_main_menu(&mut self.color_buffer, self.width, self.height, hovered, nickname, nick_hovered, is_gamepad_active, splash_text, time_sec);
     }
 
+    pub fn draw_dev_logo(&mut self, logo: &crate::ui::dev_logo::DevLogo, fade: f32) {
+        logo.draw(&mut self.color_buffer, self.width, self.height, fade);
+    }
+
     #[inline(always)]
     pub fn nickname_dialog_rects(&self) -> [(i32, i32, i32, i32); 4] {
         crate::ui::nickname_dialog_rects(self.width, self.height)

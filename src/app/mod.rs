@@ -195,6 +195,12 @@ pub struct RustCraftApp {
     pub minimap: crate::ui::minimap::MinimapState,
     pub worldmap: crate::ui::minimap::WorldMapState,
     pub splash_index: usize,
+    /// Developer logo shown at startup (None if missing / skipped).
+    pub dev_logo: Option<crate::ui::dev_logo::DevLogo>,
+    /// Elapsed seconds of the dev logo splash.
+    pub dev_logo_timer: f32,
+    /// Remaining seconds of the black fade-in over the menu after the logo.
+    pub menu_fade_timer: f32,
 }
 
 
@@ -292,7 +298,19 @@ impl RustCraftApp {
             audio.toggle_mute();
         }
 
-        let soundtrack = crate::audio::SoundtrackManager::new(crate::world::storage::soundtracks_dir());
+        let mut soundtrack = crate::audio::take_preloaded_manager().unwrap_or_else(|| {
+            let mut m = crate::audio::SoundtrackManager::new(crate::world::storage::soundtracks_dir());
+            m.preload_intro(crate::audio::SoundtrackCategory::Menu);
+            m
+        });
+        let dev_logo = if autotest_enabled || cfg!(test) { None } else { crate::ui::dev_logo::DevLogo::load() };
+        let intro_allowed = !settings.mute_audio && settings.music_volume > 0.001 && !autotest_enabled;
+        if !intro_allowed {
+            soundtrack.pending_intro = None;
+        } else if dev_logo.is_none() {
+            soundtrack.start_intro(&mut audio);
+            soundtrack.show_current_toast();
+        }
 
         let app = Self {
             width,
@@ -457,6 +475,9 @@ impl RustCraftApp {
             minimap: crate::ui::minimap::MinimapState::new(1, 0),
             worldmap: crate::ui::minimap::WorldMapState::new(start_player_pos),
             splash_index: (seed as usize) % crate::ui::splashes::SPLASH_TEXTS.len(),
+            dev_logo,
+            dev_logo_timer: 0.0,
+            menu_fade_timer: 0.0,
         };
         crate::log_info!("INIT", "RustCraftApp initialized ({}x{}, renderer: {}, seed: {})", width, height, renderer_choice, seed);
         app
@@ -579,7 +600,8 @@ impl RustCraftApp {
         let u_down = input.key_u;
         let space_down = input.key_space;
 
-        match self.state {
+        let showing_logo = self.update_and_render_dev_logo(dt, input);
+        if !showing_logo { match self.state {
             GameState::MainMenu => self.update_and_render_main_menu(input, mouse_moved, &mut out),
             GameState::MultiplayerMenu => self.update_and_render_multiplayer_menu(dt, input, &mut out),
             GameState::EditNickname(prev) => self.update_and_render_nickname_dialog(input, prev, &mut out),
@@ -603,7 +625,7 @@ impl RustCraftApp {
             GameState::VillagerTrade { mob_id, selected_trade } => self.update_and_render_villager_trade(dt, input, mob_id, selected_trade, &mut out),
             GameState::DeathScreen => self.update_and_render_death_screen(input, mouse_moved, &mut out),
             GameState::WorldMap => self.update_and_render_worldmap(dt, input, mouse_moved, &mut out),
-        }
+        } }
 
         // Context-aware soundtrack update (Creative vs Survival vs Menu)
         let soundtrack_category = match self.state {
@@ -731,6 +753,13 @@ impl RustCraftApp {
 
         if let Some(ref runner) = self.autotest {
             runner.render_overlay(self.renderer.pixel_buffer_mut(), self.width, self.height);
+        }
+
+        // Fade the menu in from black after the intro logo.
+        if self.menu_fade_timer > 0.0 {
+            self.menu_fade_timer = (self.menu_fade_timer - dt.min(0.05)).max(0.0);
+            let a = (self.menu_fade_timer / crate::ui::dev_logo::MENU_FADE_IN).clamp(0.0, 1.0);
+            crate::ui::fill_rect_alpha(self.renderer.pixel_buffer_mut(), self.width, self.height, 0, 0, self.width as i32, self.height as i32, 0, a);
         }
 
         // Draw Now-Playing soundtrack toast in bottom-right corner (with progress bar on pause menu)

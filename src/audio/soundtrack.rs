@@ -139,8 +139,8 @@ impl MusicToast {
         self.artist = artist.to_string();
         self.category_name = category.display_name().to_string();
         self.accent_color = category.accent_color();
-        self.duration = 5.0;
-        self.timer = 5.0;
+        self.duration = 7.0;
+        self.timer = 7.0;
         self.visible = true;
     }
 
@@ -179,13 +179,15 @@ impl MusicToast {
             1.0
         } else {
             let elapsed = self.duration - self.timer;
-            if elapsed < 0.4 {
-                (elapsed / 0.4).clamp(0.0, 1.0)
-            } else if self.timer < 0.6 {
-                (self.timer / 0.6).clamp(0.0, 1.0)
+            let linear = if elapsed < 1.0 {
+                (elapsed / 1.0).clamp(0.0, 1.0)
+            } else if self.timer < 1.4 {
+                (self.timer / 1.4).clamp(0.0, 1.0)
             } else {
                 1.0
-            }
+            };
+            // Smoothstep easing for a fluid fade in / out
+            linear * linear * (3.0 - 2.0 * linear)
         };
 
         let slide_offset = if force_show {
@@ -196,9 +198,21 @@ impl MusicToast {
         let bx = base_x + slide_offset;
         let by = base_y;
 
+        // Snapshot the background under the toast so the whole card (text, borders, bar) can fade smoothly.
+        let rx0 = bx.max(0) as usize;
+        let rx1 = ((bx + toast_w).max(0) as usize).min(width);
+        let ry0 = by.max(0) as usize;
+        let ry1 = ((by + toast_h).max(0) as usize).min(height);
+        let mut saved: Vec<u32> = Vec::new();
+        if alpha < 0.999 && rx1 > rx0 && ry1 > ry0 {
+            for y in ry0..ry1 {
+                saved.extend_from_slice(&buffer[y * width + rx0..y * width + rx1]);
+            }
+        }
+
         // Dark glassmorphic background
         let bg_color = pack_color(0.08, 0.10, 0.14);
-        fill_rect_alpha(buffer, width, height, bx, by, toast_w, toast_h, bg_color, alpha * 0.90);
+        fill_rect_alpha(buffer, width, height, bx, by, toast_w, toast_h, bg_color, 0.90);
 
         // Card borders
         let border_top = pack_color(0.30, 0.38, 0.50);
@@ -294,6 +308,24 @@ impl MusicToast {
                 fill_rect(buffer, width, height, bar_x + fill_w - 1, bar_y, 2, bar_h, pack_color(1.0, 1.0, 1.0));
             }
         }
+
+        // Blend the finished card with the saved background by the fade alpha.
+        if !saved.is_empty() {
+            let rw = rx1 - rx0;
+            for (row, y) in (ry0..ry1).enumerate() {
+                for i in 0..rw {
+                    let old = saved[row * rw + i];
+                    let idx = y * width + rx0 + i;
+                    let new = buffer[idx];
+                    let mix = |s: u32| -> u32 {
+                        let o = ((old >> s) & 0xFF) as f32;
+                        let n = ((new >> s) & 0xFF) as f32;
+                        (o + (n - o) * alpha).round().clamp(0.0, 255.0) as u32
+                    };
+                    buffer[idx] = (mix(16) << 16) | (mix(8) << 8) | mix(0);
+                }
+            }
+        }
     }
 }
 
@@ -312,6 +344,25 @@ pub struct SoundtrackManager {
     pub uncategorized_queue: Vec<usize>,
     pub loading_track: Option<AsyncTrackLoader>,
     pub current_duration_sec: f32,
+    /// Index of a fully decoded track waiting for `start_intro` (startup music).
+    pub pending_intro: Option<usize>,
+}
+
+static PRELOADED_MANAGER: std::sync::Mutex<Option<SoundtrackManager>> = std::sync::Mutex::new(None);
+
+/// Scans the soundtracks folder and fully decodes the first (menu) track, stashing the manager
+/// so `RustCraftApp::new` can pick it up. Call this before creating the game window.
+pub fn preload_intro_music() {
+    let mut mgr = SoundtrackManager::new(crate::world::storage::soundtracks_dir());
+    mgr.preload_intro(SoundtrackCategory::Menu);
+    if let Ok(mut slot) = PRELOADED_MANAGER.lock() {
+        *slot = Some(mgr);
+    }
+}
+
+/// Takes the manager prepared by [`preload_intro_music`], if any.
+pub fn take_preloaded_manager() -> Option<SoundtrackManager> {
+    PRELOADED_MANAGER.lock().ok().and_then(|mut s| s.take())
 }
 
 impl SoundtrackManager {
@@ -360,6 +411,7 @@ impl SoundtrackManager {
             uncategorized_queue: Vec::new(),
             loading_track: None,
             current_duration_sec: 0.0,
+            pending_intro: None,
         };
 
         manager.reload();
@@ -686,6 +738,50 @@ impl SoundtrackManager {
     /// shuffle queue so they never play in the same predictable order and don't repeat
     /// before every other uncategorized track has had a chance to play.
     pub fn play_next_matching(&mut self, context: SoundtrackCategory, audio: &mut AudioEngine) {
+        if let Some(idx) = self.choose_next_index(context) {
+            self.play_track_at_index(idx, audio);
+        }
+    }
+
+    /// Synchronously decodes the first track for `context` so it can start instantly later.
+    pub fn preload_intro(&mut self, context: SoundtrackCategory) {
+        let Some(idx) = self.choose_next_index(context) else { return };
+        let path = self.tracks[idx].file_path.clone();
+        let decoded = fs::read(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| SoundSample::from_file_bytes(&bytes));
+        match decoded {
+            Ok(sample) => {
+                self.tracks[idx].sample = Some(Arc::new(sample));
+                self.pending_intro = Some(idx);
+            }
+            Err(e) => {
+                crate::log_warn!("SOUNDTRACK", "Intro preload failed for '{}': {}", path.display(), e);
+            }
+        }
+    }
+
+    /// Starts the preloaded intro track immediately (toast stays hidden until `show_current_toast`).
+    pub fn start_intro(&mut self, audio: &mut AudioEngine) {
+        if let Some(idx) = self.pending_intro.take() {
+            if let Some(sample) = self.tracks[idx].sample.clone() {
+                self.start_playing_sample(idx, sample, audio);
+                self.toast.visible = false;
+                self.delay_timer = 2.0;
+            }
+        }
+    }
+
+    /// Shows the now-playing toast (with progress bar) for the current track.
+    pub fn show_current_toast(&mut self) {
+        if let Some(t) = self.current_track_idx.and_then(|i| self.tracks.get(i)) {
+            let cat = t.categories.first().copied().unwrap_or(SoundtrackCategory::Uncategorized);
+            let (title, artist) = (t.title.clone(), t.artist.clone());
+            self.toast.show(&title, &artist, cat);
+        }
+    }
+
+    fn choose_next_index(&mut self, context: SoundtrackCategory) -> Option<usize> {
         let mut eligible_indices: Vec<usize> = self
             .tracks
             .iter()
@@ -706,7 +802,7 @@ impl SoundtrackManager {
         }
 
         if eligible_indices.is_empty() {
-            return;
+            return None;
         }
 
         // Identify uncategorized tracks in the eligible pool
@@ -752,7 +848,7 @@ impl SoundtrackManager {
             pool[idx]
         };
 
-        self.play_track_at_index(chosen_idx, audio);
+        Some(chosen_idx)
     }
 
     /// Plays a specific track asynchronously without blocking the main game loop thread.
@@ -954,7 +1050,8 @@ mod tests {
         assert_eq!(toast.title, "Calm Horizon");
         assert_eq!(toast.category_name, "Creative");
 
-        // Render to dummy framebuffer
+        // Render to dummy framebuffer (mid-hold phase, fully faded in)
+        toast.update(2.0);
         let mut fb = vec![0u32; 800 * 600];
         toast.draw(&mut fb, 800, 600, false, Some(0.4), Some(180.0));
 

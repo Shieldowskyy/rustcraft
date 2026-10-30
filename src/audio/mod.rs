@@ -24,7 +24,7 @@ pub mod synth;
 
 pub use engine::{AudioEngine, AudioStats, AmbientContext};
 pub use sound::{SoundCategory, SoundId, SoundSample};
-pub use soundtrack::{MusicToast, SoundtrackCategory, SoundtrackManager, SoundtrackTrack};
+pub use soundtrack::{preload_intro_music, take_preloaded_manager, MusicToast, SoundtrackCategory, SoundtrackManager, SoundtrackTrack};
 pub use spatial::AudioListener;
 
 #[cfg(test)]

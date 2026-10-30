@@ -74,6 +74,9 @@ fn main() {
         std::env::remove_var("WAYLAND_DISPLAY");
     }
 
+    // Decode the first soundtrack before the window appears so it starts exactly with the intro.
+    rustcraft::audio::preload_intro_music();
+
     let mut window = Window::new(
         &format!("RustCraft - {} renderer", renderer_choice),
         WIDTH,

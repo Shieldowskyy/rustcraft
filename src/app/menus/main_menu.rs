@@ -3,6 +3,37 @@ use crate::app::{AppOutput, GameState, InputState, PreviousMenu, RustCraftApp, M
 use crate::ui::VISIBLE_SAVE_ROWS;
 
 impl RustCraftApp {
+    /// Renders the startup developer logo. Returns `true` while the splash is active
+    /// (the normal state update is skipped). Any key / click / gamepad button skips it.
+    pub(crate) fn update_and_render_dev_logo(&mut self, dt: f32, input: &InputState) -> bool {
+        let Some(logo) = self.dev_logo.as_ref() else {
+            return false;
+        };
+        if self.dev_logo_timer == 0.0 {
+            // First splash frame: start the preloaded music exactly as the intro appears.
+            self.soundtrack.start_intro(&mut self.audio);
+        }
+        // Clamp dt so startup hitches can't eat the intro.
+        self.dev_logo_timer += dt.clamp(f32::EPSILON, 0.05);
+        let skip = self.dev_logo_timer > 0.3
+            && (input.mouse_left
+                || input.key_escape
+                || input.key_enter
+                || input.key_space
+                || input.gp_south_just_pressed
+                || input.gp_start_just_pressed);
+        if skip || self.dev_logo_timer >= crate::ui::dev_logo::DEV_LOGO_DURATION {
+            self.dev_logo = None;
+            self.menu_fade_timer = crate::ui::dev_logo::MENU_FADE_IN;
+            // Progress bar / now-playing toast only appears after the intro.
+            self.soundtrack.show_current_toast();
+            return false;
+        }
+        let fade = crate::ui::dev_logo::DevLogo::fade_at(self.dev_logo_timer);
+        self.renderer.draw_dev_logo(logo, fade);
+        true
+    }
+
     pub(crate) fn update_and_render_main_menu(
         &mut self,
         input: &InputState,
@@ -112,7 +143,7 @@ impl RustCraftApp {
             }
         }
 
-        let splash_text = crate::ui::splashes::SPLASH_TEXTS[self.splash_index % crate::ui::splashes::SPLASH_TEXTS.len()];
+        let splash_text = crate::ui::splashes::splash_text(self.splash_index);
         self.renderer.draw_main_menu(
             hovered_idx,
             &self.settings.nickname,
@@ -310,7 +341,7 @@ impl RustCraftApp {
         // Render background screen based on previous menu
         match prev {
             PreviousMenu::MainMenu => {
-                let splash_text = crate::ui::splashes::SPLASH_TEXTS[self.splash_index % crate::ui::splashes::SPLASH_TEXTS.len()];
+                let splash_text = crate::ui::splashes::splash_text(self.splash_index);
                 self.renderer.draw_main_menu(None, &self.settings.nickname, false, self.is_gamepad_active, splash_text, self.total_time);
             }
             PreviousMenu::Paused => {
