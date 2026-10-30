@@ -1388,6 +1388,31 @@ impl BlockId {
         }
     }
 
+    pub fn can_harvest_with_tool(self, tool: Option<BlockId>) -> bool {
+        let required_tier = match self {
+            BlockId::Stone | BlockId::Cobblestone | BlockId::CoalOre => 0,
+            BlockId::IronOre => 1,
+            BlockId::GoldOre
+            | BlockId::DiamondOre
+            | BlockId::EmeraldOre
+            | BlockId::RustStoneOre => 2,
+            _ => return true,
+        };
+
+        let Some(tool) = tool else {
+            return false;
+        };
+        let tool_tier = match tool {
+            BlockId::WoodenPickaxe | BlockId::GoldPickaxe => 0,
+            BlockId::StonePickaxe => 1,
+            BlockId::IronPickaxe => 2,
+            BlockId::DiamondPickaxe => 3,
+            _ => return false,
+        };
+
+        tool_tier >= required_tier
+    }
+
     /// Break time in seconds (like Minecraft hardness). Creative breaks instantly.
     pub fn break_time(self) -> f32 {
         if self.is_wool() {
@@ -1464,7 +1489,11 @@ impl BlockId {
         if base == 0.0 || base.is_infinite() {
             return base;
         }
-        let mult = Self::mining_speed_multiplier(tool, self);
+        let mult = if !self.can_harvest_with_tool(tool) {
+            1.0
+        } else {
+            Self::mining_speed_multiplier(tool, self)
+        };
         base / mult
     }
 
@@ -2565,6 +2594,58 @@ mod tests {
         assert!(BlockId::StoneStairs.is_stairs());
         assert!(BlockId::Ladder.is_ladder());
         assert!(!BlockId::Ladder.is_solid());
+    }
+
+    #[test]
+    fn test_ore_mining_tool_tiers() {
+        assert!(!BlockId::Stone.can_harvest_with_tool(None));
+        assert!(!BlockId::Cobblestone.can_harvest_with_tool(None));
+        assert!(BlockId::Stone.can_harvest_with_tool(Some(BlockId::WoodenPickaxe)));
+        assert!(BlockId::Cobblestone.can_harvest_with_tool(Some(BlockId::WoodenPickaxe)));
+        assert!(
+            BlockId::Stone.break_time_with_tool(None)
+                > BlockId::Stone.break_time_with_tool(Some(BlockId::WoodenPickaxe)),
+            "stone should take longer to mine by hand than with a pickaxe"
+        );
+
+        assert!(BlockId::CoalOre.can_harvest_with_tool(Some(BlockId::WoodenPickaxe)));
+        assert!(BlockId::CoalOre.can_harvest_with_tool(Some(BlockId::GoldPickaxe)));
+        assert!(!BlockId::CoalOre.can_harvest_with_tool(None));
+
+        assert!(!BlockId::IronOre.can_harvest_with_tool(Some(BlockId::WoodenPickaxe)));
+        assert!(!BlockId::IronOre.can_harvest_with_tool(Some(BlockId::GoldPickaxe)));
+        assert!(BlockId::IronOre.can_harvest_with_tool(Some(BlockId::StonePickaxe)));
+
+        for ore in [
+            BlockId::GoldOre,
+            BlockId::DiamondOre,
+            BlockId::EmeraldOre,
+            BlockId::RustStoneOre,
+        ] {
+            assert!(
+                !ore.can_harvest_with_tool(Some(BlockId::StonePickaxe)),
+                "{ore:?} should require an iron pickaxe"
+            );
+            assert!(
+                ore.can_harvest_with_tool(Some(BlockId::IronPickaxe)),
+                "{ore:?} should be minable with an iron pickaxe"
+            );
+            assert!(
+                ore.can_harvest_with_tool(Some(BlockId::DiamondPickaxe)),
+                "{ore:?} should be minable with a diamond pickaxe"
+            );
+        }
+
+        assert!(
+            BlockId::Stone.can_harvest_with_tool(None),
+            "non-ores should keep existing mining behavior"
+        );
+
+        assert!(
+            BlockId::DiamondOre.break_time_with_tool(Some(BlockId::StonePickaxe))
+                > BlockId::DiamondOre.break_time_with_tool(Some(BlockId::IronPickaxe)),
+            "under-tier tools should mine ore more slowly"
+        );
     }
 
     #[test]

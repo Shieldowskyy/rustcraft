@@ -1057,9 +1057,15 @@ impl RustCraftApp {
                                     let rx = ((seed % 100) as f32 / 100.0 - 0.5) * 1.8;
                                     let rz = (((seed / 10) % 100) as f32 / 100.0 - 0.5) * 1.8;
                                     let drop_vel = Vec3::new(rx, 3.2, rz);
-                                    if let Some((drop_id, count)) = crate::engine::modding::get_custom_block_drop(broken_block) {
+                                    let can_harvest = broken_block.can_harvest_with_tool(held_tool);
+                                    let custom_drop = if can_harvest {
+                                        crate::engine::modding::get_custom_block_drop(broken_block)
+                                    } else {
+                                        None
+                                    };
+                                    if let Some((drop_id, count)) = custom_drop {
                                         self.items.push(ItemEntity::new(Vec3::new(bx, by, bz), drop_vel, drop_id, count));
-                                    } else if broken_block != BlockId::Glass {
+                                    } else if can_harvest && broken_block != BlockId::Glass {
                                         let drop_block = if matches!(broken_block, BlockId::Leaves | BlockId::CherryLeaves | BlockId::AutumnLeaves) {
                                             if seed % 20 == 0 {
                                                 Some(BlockId::Apple)
