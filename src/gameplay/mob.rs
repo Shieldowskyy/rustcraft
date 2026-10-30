@@ -1387,21 +1387,17 @@ impl MobManager {
         };
 
         let is_night = world.sunlight_factor() < 0.50;
-        let hostile_count = self.mobs.iter().filter(|m| m.kind.is_hostile() && !m.is_dead).count();
-        let passive_count = self.mobs.iter().filter(|m| !m.kind.is_hostile() && !m.is_dead).count();
+        let hostile_count = self
+            .mobs
+            .iter()
+            .filter(|m| m.kind.is_hostile() && !m.is_dead)
+            .count();
 
-        // Separate caps for hostile mobs and passive mobs so passive animals don't block night spawns
-        if is_night {
-            if hostile_count >= 14 {
-                return;
-            }
-        } else {
-            if passive_count >= 10 {
-                return;
-            }
-            if rand_f32(rng) > 0.40 {
-                return;
-            }
+        if hostile_count >= 14 {
+            return;
+        }
+        if !is_night && rand_f32(rng) > 0.40 {
+            return;
         }
 
         // Try several attempts to find a valid location near the player
@@ -1486,46 +1482,6 @@ impl MobManager {
                 let spawn_pos = Vec3::new(target_x as f32 + 0.5, cy as f32, target_z as f32 + 0.5);
                 self.spawn_mob(kind, spawn_pos);
                 return;
-            }
-
-            // Surface day spawn
-            if !is_night {
-                let mut surface_y = None;
-                for y in (1..63).rev() {
-                    let block = world.get_block(IVec3::new(target_x, y, target_z));
-                    if block.is_solid() && block != BlockId::Leaves && block != BlockId::SnowLeaves {
-                        let above1 = world.get_block(IVec3::new(target_x, y + 1, target_z));
-                        let above2 = world.get_block(IVec3::new(target_x, y + 2, target_z));
-                        if above1 == BlockId::Air && above2 == BlockId::Air {
-                            surface_y = Some((y + 1, block));
-                            break;
-                        }
-                    }
-                }
-
-                if let Some((sy, block_below)) = surface_y {
-                    if block_below == BlockId::Grass || block_below == BlockId::Planks || block_below == BlockId::Sand {
-                        let roll = rand_f32(rng);
-                        let kind = if block_below == BlockId::Planks {
-                            if roll < 0.30 { MobKind::IronGolem } else { MobKind::Villager }
-                        } else if roll < 0.20 {
-                            MobKind::Sheep
-                        } else if roll < 0.40 {
-                            MobKind::Pig
-                        } else if roll < 0.60 {
-                            MobKind::Cow
-                        } else if roll < 0.80 {
-                            MobKind::Chicken
-                        } else if roll < 0.94 {
-                            MobKind::Villager
-                        } else {
-                            MobKind::IronGolem
-                        };
-                        let spawn_pos = Vec3::new(target_x as f32 + 0.5, sy as f32, target_z as f32 + 0.5);
-                        self.spawn_mob(kind, spawn_pos);
-                        return;
-                    }
-                }
             }
 
             // Aquatic water spawn check
@@ -1766,5 +1722,41 @@ mod tests {
         let zombie = mob_manager.mobs.iter().find(|m| m.id == zombie_id).unwrap();
         let angle_to_player = (player_pos.x - zombie.pos.x).atan2(player_pos.z - zombie.pos.z);
         assert!((zombie.target_yaw - angle_to_player).abs() < 1e-4, "Zombie should target player in Survival mode");
+    }
+
+    #[test]
+    fn test_daytime_natural_spawns_stay_underground() {
+        use crate::world::{Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
+
+        let mut world = World::new_with_seed(1);
+        world.chunks.clear();
+        world.time_of_day = 120.0;
+        for cx in -3..=2 {
+            for cz in -3..=2 {
+                let mut chunk = Chunk {
+                    cx,
+                    cz,
+                    blocks: vec![0; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
+                    dirty: false,
+                };
+                for x in 0..CHUNK_SIZE_X {
+                    for z in 0..CHUNK_SIZE_Z {
+                        chunk.set_local(x, 20, z, BlockId::Grass);
+                    }
+                }
+                world.chunks.insert((cx, cz), chunk);
+            }
+        }
+
+        let mut manager = MobManager::new();
+        let mut rng = 12345;
+        for _ in 0..100 {
+            manager.try_natural_spawn(&world, Vec3::new(0.0, 30.0, 0.0), &mut rng);
+        }
+
+        assert!(
+            manager.mobs.is_empty(),
+            "Natural daytime spawns must not appear on the surface"
+        );
     }
 }

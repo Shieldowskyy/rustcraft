@@ -1494,7 +1494,7 @@ fn emit_face(
         } else {
             let lvl = cache.fluid_level(IVec3::new(wx, wy, wz));
             if lvl >= 8 {
-                y + 0.90
+                y + 1.0
             } else {
                 y + (lvl as f32 / 8.0) * 0.85 + 0.05
             }
@@ -1812,5 +1812,35 @@ mod tests {
                 && (t.v0.pos.z + t.v1.pos.z + t.v2.pos.z) / 3.0 < 6.0
         }).count();
         assert_eq!(face_above_kelp, 0, "No bottom water face between top water and kelp");
+    }
+
+    #[test]
+    fn test_water_surface_is_emitted_at_block_top() {
+        let mut world = World::new();
+        let mut chunk = Chunk {
+            cx: 0,
+            cz: 0,
+            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
+            dirty: false,
+        };
+        chunk.set_local(5, 10, 5, BlockId::Water);
+        world.chunks.insert((0, 0), chunk);
+
+        let mesh = build_chunk_mesh(world.chunks.get(&(0, 0)).unwrap(), &world);
+        let surface_triangles: Vec<_> = mesh
+            .iter()
+            .filter(|triangle| {
+                triangle.texture == TextureId::Water
+                    && (triangle.v0.pos.y - 11.0).abs() < 1e-4
+                    && (triangle.v1.pos.y - 11.0).abs() < 1e-4
+                    && (triangle.v2.pos.y - 11.0).abs() < 1e-4
+            })
+            .collect();
+
+        assert_eq!(
+            surface_triangles.len(),
+            2,
+            "An exposed water block should emit its top surface"
+        );
     }
 }

@@ -841,10 +841,11 @@ impl Renderer {
                         let sb = project_to_screen_ao(&clipped[i], width, height);
                         let sc = project_to_screen_ao(&clipped[i + 1], width, height);
 
-                        let area = edge(sa.x, sa.y, sb.x, sb.y, sc.x, sc.y);
-                        if area <= 0.0 {
+                        let Some((sa, sb, sc, _)) =
+                            orient_screen_triangle(sa, sb, sc, tri.texture)
+                        else {
                             continue;
-                        }
+                        };
 
                         let min_y = sa.y.min(sb.y).min(sc.y).floor() as i32;
                         let max_y = sa.y.max(sb.y).max(sc.y).ceil() as i32;
@@ -4084,6 +4085,44 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
         );
     }
 
+    pub fn draw_arrow_3d(
+        &mut self,
+        pos: Vec3,
+        arrow_right: Vec3,
+        arrow_up: Vec3,
+        arrow_forward: Vec3,
+        scale: f32,
+        view_proj: &Mat4,
+    ) {
+        self.draw_cube_3d(
+            pos,
+            arrow_right,
+            arrow_up,
+            arrow_forward,
+            [0.008 * scale, 0.15 * scale, 0.008 * scale],
+            TextureId::WoodSide,
+            view_proj,
+        );
+        self.draw_cube_3d(
+            pos + arrow_up * (0.17 * scale),
+            arrow_right,
+            arrow_up,
+            arrow_forward,
+            [0.018 * scale, 0.025 * scale, 0.018 * scale],
+            TextureId::IronOre,
+            view_proj,
+        );
+        self.draw_cube_3d(
+            pos - arrow_up * (0.12 * scale),
+            arrow_right,
+            arrow_up,
+            arrow_forward,
+            [0.032 * scale, 0.025 * scale, 0.004 * scale],
+            TextureId::ChickenFeathers,
+            view_proj,
+        );
+    }
+
     pub fn draw_hand_3d(
         &mut self,
         camera: &Camera,
@@ -4148,6 +4187,19 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
                 let feather_origin = hand_pos + forward * (0.10 + attack * 0.10) + up * (0.10 - attack * 0.08);
 
                 self.draw_feather_3d(feather_origin, feather_right, feather_up, feather_forward, 1.0, view_proj);
+            } else if block == crate::world::block::BlockId::Arrow {
+                let arrow_up = (up * 0.65 + forward * 0.76 - right * 0.08).normalized();
+                let arrow_right = (right + arrow_up * 0.08).normalized();
+                let arrow_forward = arrow_right.cross(arrow_up).normalized();
+                let arrow_pos = hand_pos + forward * 0.10 + up * 0.08;
+                self.draw_arrow_3d(
+                    arrow_pos,
+                    arrow_right,
+                    arrow_up,
+                    arrow_forward,
+                    1.0,
+                    view_proj,
+                );
             } else if block == crate::world::block::BlockId::Shield {
                 let shield_pos = hand_pos + forward * (0.10 + attack * 0.12) - right * 0.08 + up * 0.05;
                 let s_right = (right * 0.95 - forward * 0.2).normalized();
@@ -4226,6 +4278,18 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
                 let s_fwd = s_right.cross(s_up).normalized();
                 self.draw_cube_3d(shield_pos, s_right, s_up, s_fwd, [0.08, 0.12, 0.015], TextureId::Planks, view_proj);
                 self.draw_cube_3d(shield_pos + s_fwd * 0.012, s_right, s_up, s_fwd, [0.025, 0.025, 0.01], TextureId::IronOre, view_proj);
+            } else if block == crate::world::block::BlockId::Arrow {
+                let arrow_up = (up * 0.65 + forward * 0.76 + right * 0.08).normalized();
+                let arrow_right = (right - arrow_up * 0.08).normalized();
+                let arrow_forward = arrow_right.cross(arrow_up).normalized();
+                self.draw_arrow_3d(
+                    hand_pos + forward * 0.08 + up * 0.08,
+                    arrow_right,
+                    arrow_up,
+                    arrow_forward,
+                    0.9,
+                    view_proj,
+                );
             } else if block == crate::world::block::BlockId::Torch {
                 self.draw_torch_3d(hand_pos + forward * 0.08 + up * 0.08, right, up, forward, 0.9, view_proj);
             }
@@ -4814,10 +4878,9 @@ fn raster_screen_triangle_ao_tile(
     fog_color: [f32; 3],
     brightness: f32,
 ) {
-    let area = edge(a.x, a.y, b.x, b.y, c.x, c.y);
-    if area <= 0.0 {
+    let Some((a, b, c, area)) = orient_screen_triangle(a, b, c, texture) else {
         return;
-    }
+    };
 
     let min_x = a.x.min(b.x).min(c.x).floor().max(0.0) as i32;
     let max_x = a.x.max(b.x).max(c.x).ceil().min(width as f32 - 1.0) as i32;
@@ -4832,6 +4895,7 @@ fn raster_screen_triangle_ao_tile(
     let tex = textures.get(texture);
     let is_crack = texture.is_destroy_stage();
     let transparent = matches!(texture, TextureId::Water | TextureId::Glass | TextureId::EntityShadow) || is_crack;
+    let is_water = texture == TextureId::Water;
 
     let dx0 = c.x - b.x;
     let dy0 = c.y - b.y;
@@ -4869,6 +4933,7 @@ fn raster_screen_triangle_ao_tile(
                 &b,
                 &c,
                 transparent,
+                is_water,
                 is_crack,
                 hurt_tint,
                 tex,
@@ -4898,6 +4963,7 @@ fn raster_screen_triangle_ao_tile(
                 &b,
                 &c,
                 transparent,
+                is_water,
                 is_crack,
                 hurt_tint,
                 tex,
@@ -4921,6 +4987,50 @@ fn raster_screen_triangle_ao_tile(
     }
 }
 
+fn orient_screen_triangle(
+    a: ScreenVertAO,
+    b: ScreenVertAO,
+    c: ScreenVertAO,
+    texture: TextureId,
+) -> Option<(ScreenVertAO, ScreenVertAO, ScreenVertAO, f32)> {
+    let area = edge(a.x, a.y, b.x, b.y, c.x, c.y);
+    if area > 0.0 {
+        Some((a, b, c, area))
+    } else if area < 0.0 && texture == TextureId::Water {
+        Some((a, c, b, -area))
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod water_render_tests {
+    use super::*;
+
+    fn screen_vert(x: f32, y: f32) -> ScreenVertAO {
+        ScreenVertAO {
+            x,
+            y,
+            inv_w: 1.0,
+            uv_over_w: (0.0, 0.0),
+            ao_over_w: 1.0,
+            sky_light_over_w: 1.0,
+            block_light_over_w: 0.0,
+        }
+    }
+
+    #[test]
+    fn water_triangles_are_visible_from_both_sides() {
+        let a = screen_vert(0.0, 0.0);
+        let b = screen_vert(1.0, 0.0);
+        let c = screen_vert(0.0, 1.0);
+
+        assert!(orient_screen_triangle(a, b, c, TextureId::Water).is_some());
+        assert!(orient_screen_triangle(a, c, b, TextureId::Water).is_some());
+        assert!(orient_screen_triangle(a, b, c, TextureId::Glass).is_none());
+    }
+}
+
 #[inline(always)]
 fn raster_scanline_simd_4x(
     px: i32,
@@ -4936,6 +5046,7 @@ fn raster_scanline_simd_4x(
     b: &ScreenVertAO,
     c: &ScreenVertAO,
     transparent: bool,
+    is_water: bool,
     is_crack: bool,
     hurt_tint: f32,
     tex: &crate::graphics::atlas::Texture,
@@ -5048,7 +5159,7 @@ fn raster_scanline_simd_4x(
                         );
                     } else if transparent {
                         let (br, bg, bb) = unpack_color(color_buffer[idx]);
-                        let alpha = 0.48;
+                        let alpha = if is_water { 0.64 } else { 0.48 };
                         color_buffer[idx] = pack_color(
                             fr * alpha + br * (1.0 - alpha),
                             fg * alpha + bg * (1.0 - alpha),
@@ -5075,6 +5186,7 @@ fn raster_scanline_pixel(
     b: &ScreenVertAO,
     c: &ScreenVertAO,
     transparent: bool,
+    is_water: bool,
     is_crack: bool,
     hurt_tint: f32,
     tex: &crate::graphics::atlas::Texture,
@@ -5156,7 +5268,7 @@ fn raster_scanline_pixel(
                     );
                 } else if transparent {
                     let (br, bg, bb) = unpack_color(color_buffer[idx]);
-                    let alpha = 0.48;
+                    let alpha = if is_water { 0.64 } else { 0.48 };
                     color_buffer[idx] = pack_color(
                         fr * alpha + br * (1.0 - alpha),
                         fg * alpha + bg * (1.0 - alpha),
