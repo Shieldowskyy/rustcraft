@@ -55,6 +55,7 @@
   "settings.ambient_volume": "OTOCZENIE / WIATR: < {}% >",
   "settings.ui_volume": "DZWIEKI MENU / UI: < {}% >",
   "settings.mute_audio": "WYCISZ DZWIEK: {}",
+  "settings.music_toast": "TOAST Z INFORMACJA O UTWORZE: {}",
   "toast.now_playing": "TERAZ ODTWARZANE",
   "settings.profiler_server": "PROFILER WEB SERVER: {}",
   "settings.profiler_server_status": "STATUS: {}",

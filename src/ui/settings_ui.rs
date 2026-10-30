@@ -23,8 +23,8 @@ pub fn settings_tab_rects(width: usize, height: usize) -> [(i32, i32, i32, i32);
     ]
 }
 
-/// Computes bounding boxes `(x, y, width, height)` for the 7 options in the Audio settings tab.
-pub fn settings_audio_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 7] {
+/// Computes bounding boxes `(x, y, width, height)` for the 8 options in the Audio settings tab.
+pub fn settings_audio_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 8] {
     let opt_w = 480;
     let opt_h = 24;
     let spacing = 7;
@@ -32,12 +32,12 @@ pub fn settings_audio_rects(width: usize, height: usize) -> [(i32, i32, i32, i32
     let cy = height as i32 / 2;
     let start_y = cy - 135;
 
-    let mut rects = [(0, 0, 0, 0); 7];
-    for i in 0..6 {
+    let mut rects = [(0, 0, 0, 0); 8];
+    for i in 0..7 {
         rects[i] = (cx - opt_w / 2, start_y + (opt_h + spacing) * i as i32, opt_w, opt_h);
     }
-    // Save & Back button at index 6 with extra margin
-    rects[6] = (cx - opt_w / 2, start_y + (opt_h + spacing) * 6 + 6, opt_w, opt_h);
+    // Save & Back button at index 7 with extra margin
+    rects[7] = (cx - opt_w / 2, start_y + (opt_h + spacing) * 7 + 6, opt_w, opt_h);
     rects
 }
 
@@ -371,13 +371,14 @@ pub fn draw_settings_menu(
             t_fmt("settings.ambient_volume", &[&ambient_pct.to_string()]),
             t_fmt("settings.ui_volume", &[&ui_pct.to_string()]),
             t_fmt("settings.mute_audio", &[if settings.mute_audio { on_str } else { off_str }]),
+            t_fmt("settings.music_toast", &[if settings.show_music_toast { on_str } else { off_str }]),
             t("settings.save_and_back").to_string(),
         ];
 
         let rects = settings_audio_rects(width, height);
         for (i, (label, &(bx, by, bw, bh))) in options.iter().zip(rects.iter()).enumerate() {
             let is_hover = hovered_idx == Some(i);
-            draw_option_button(buffer, width, height, label, bx, by, bw, bh, is_hover, i == 6, mouse_pos);
+            draw_option_button(buffer, width, height, label, bx, by, bw, bh, is_hover, i == 7, mouse_pos);
         }
     } else if active_tab == 2 {
         // Tab 2: CONTROLS

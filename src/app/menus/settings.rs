@@ -88,7 +88,7 @@ impl RustCraftApp {
 
         let max_opts = match self.settings_tab {
             0 => 14,
-            1 => 7,
+            1 => 8,
             2 => 11,
             _ => 5,
         };
@@ -296,6 +296,10 @@ impl RustCraftApp {
                             crate::log_info!("SETTINGS", "Mute audio changed to {}", self.settings.mute_audio);
                         }
                         6 => {
+                            self.settings.show_music_toast = !self.settings.show_music_toast;
+                            crate::log_info!("SETTINGS", "Music toast changed to {}", self.settings.show_music_toast);
+                        }
+                        7 => {
                             if is_click {
                                 let _ = self.settings.save();
                                 self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);

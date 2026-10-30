@@ -439,7 +439,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn settings_audio_rects(&self) -> [(i32, i32, i32, i32); 7] {
+    pub fn settings_audio_rects(&self) -> [(i32, i32, i32, i32); 8] {
         crate::ui::settings_audio_rects(self.width, self.height)
     }
 

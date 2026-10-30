@@ -288,6 +288,8 @@ pub struct GameSettings {
     pub ui_volume: f32,
     /// Mute all game audio (default: false).
     pub mute_audio: bool,
+    /// Show a toast when a soundtrack track starts (default: true).
+    pub show_music_toast: bool,
 }
 
 impl Default for GameSettings {
@@ -336,6 +338,7 @@ impl Default for GameSettings {
             ambient_volume: 0.7,
             ui_volume: 1.0,
             mute_audio: false,
+            show_music_toast: true,
         }
     }
 }
@@ -464,6 +467,7 @@ impl GameSettings {
                 let mouse_sensitivity = bytes.get(audio_offset + 9).map(|&b| if b == 0 { 1.0 } else { (b as f32 / 50.0).clamp(0.2, 3.0) }).unwrap_or(1.0);
                 let gamepad_sensitivity = bytes.get(audio_offset + 10).map(|&b| if b == 0 { 1.0 } else { (b as f32 / 50.0).clamp(0.2, 3.0) }).unwrap_or(1.0);
                 let force_unicode_font = bytes.get(audio_offset + 11).copied().unwrap_or(0) != 0;
+                let show_music_toast = bytes.get(audio_offset + 12).copied().unwrap_or(1) != 0;
 
                 crate::core::i18n::set_language(language);
                 crate::graphics::font::set_force_unicode(force_unicode_font);
@@ -502,6 +506,7 @@ impl GameSettings {
                     ambient_volume,
                     ui_volume,
                     mute_audio,
+                    show_music_toast,
                 };
             }
         }
@@ -575,6 +580,7 @@ impl GameSettings {
         bytes.push((self.mouse_sensitivity.clamp(0.2, 3.0) * 50.0).round() as u8);
         bytes.push((self.gamepad_sensitivity.clamp(0.2, 3.0) * 50.0).round() as u8);
         bytes.push(if self.force_unicode_font { 1 } else { 0 });
+        bytes.push(if self.show_music_toast { 1 } else { 0 });
 
         crate::graphics::font::set_force_unicode(self.force_unicode_font);
 

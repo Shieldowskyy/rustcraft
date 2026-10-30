@@ -114,7 +114,7 @@ pub struct RustCraftApp {
     pub settings_tab: usize,
     pub settings_tab_rects: [(i32, i32, i32, i32); 4],
     pub settings_rects: [(i32, i32, i32, i32); 14],
-    pub settings_audio_rects: [(i32, i32, i32, i32); 7],
+    pub settings_audio_rects: [(i32, i32, i32, i32); 8],
     pub settings_controls_rects: [(i32, i32, i32, i32); 11],
     pub settings_debug_rects: [(i32, i32, i32, i32); 5],
     pub rebind_search: String,
@@ -765,7 +765,9 @@ impl RustCraftApp {
 
         // Draw Now-Playing soundtrack toast in bottom-right corner (with progress bar on pause menu)
         let is_paused = matches!(self.state, GameState::Paused);
-        self.soundtrack.draw_toast(self.renderer.pixel_buffer_mut(), self.width, self.height, is_paused, &self.audio);
+        if self.settings.show_music_toast {
+            self.soundtrack.draw_toast(self.renderer.pixel_buffer_mut(), self.width, self.height, is_paused, &self.audio);
+        }
 
         out.rumble_request = self.pending_rumble.take();
         if !input.is_mouse_captured && !matches!(self.state, GameState::Playing) {
@@ -825,5 +827,4 @@ impl crate::engine::EngineApp for RustCraftApp {
         self.pixel_buffer()
     }
 }
-
 
