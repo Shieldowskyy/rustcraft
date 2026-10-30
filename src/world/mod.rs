@@ -18,6 +18,9 @@ pub use weather::{LightningStrike, PrecipitationKind, WeatherState, WeatherType}
 use crate::core::math::{IVec3, Vec3};
 use crate::core::noise::{fractal_noise2, fractal_noise3};
 use crate::gameplay::inventory::ItemStack;
+use crate::gameplay::physics::{
+    block_intersects_player, PLAYER_HALF_WIDTH, STANDING_EYE_OFFSET, STANDING_HEIGHT,
+};
 use crate::gameplay::player::{GameMode, SavedPlayerData};
 
 pub const CHUNK_SIZE_X: i32 = 16;
@@ -1060,6 +1063,7 @@ pub struct World {
 pub struct RaycastHit {
     pub block_pos: IVec3,
     pub normal: IVec3,
+    pub distance: f32,
 }
 
 impl Default for World {
@@ -1131,6 +1135,59 @@ impl World {
             z += dz * 16;
         }
         Vec3::new(8.5, 92.0, 8.5)
+    }
+
+    fn player_position_is_clear(&self, position: Vec3) -> bool {
+        let feet_y = position.y - STANDING_EYE_OFFSET;
+        let min_x = (position.x - PLAYER_HALF_WIDTH).floor() as i32;
+        let max_x = (position.x + PLAYER_HALF_WIDTH).floor() as i32;
+        let min_y = feet_y.floor() as i32;
+        let max_y = (feet_y + STANDING_HEIGHT).floor() as i32;
+        let min_z = (position.z - PLAYER_HALF_WIDTH).floor() as i32;
+        let max_z = (position.z + PLAYER_HALF_WIDTH).floor() as i32;
+
+        for x in min_x..=max_x {
+            for y in min_y..=max_y {
+                for z in min_z..=max_z {
+                    let block_pos = IVec3::new(x, y, z);
+                    if self.get_block(block_pos).is_solid()
+                        && block_intersects_player(
+                            block_pos,
+                            position,
+                            STANDING_EYE_OFFSET,
+                            STANDING_HEIGHT,
+                        )
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        true
+    }
+
+    fn find_clear_spawn_position(&self, position: Vec3) -> Option<Vec3> {
+        if self.player_position_is_clear(position) {
+            return Some(position);
+        }
+
+        for radius in 1i32..=8 {
+            for dx in -radius..=radius {
+                for dz in -radius..=radius {
+                    if dx.abs() != radius && dz.abs() != radius {
+                        continue;
+                    }
+                    let candidate =
+                        Vec3::new(position.x + dx as f32, position.y, position.z + dz as f32);
+                    if self.player_position_is_clear(candidate) {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     pub fn new_with_seed(seed: u32) -> Self {
@@ -1227,6 +1284,26 @@ impl World {
             }
         }
         crate::log_info!("WORLD", "Pregeneration completed ({} chunks loaded in memory)", world.chunks.len());
+        if let Some(safe_spawn) = world.find_clear_spawn_position(world.player_position) {
+            if safe_spawn.x != world.player_position.x || safe_spawn.z != world.player_position.z {
+                crate::log_warn!(
+                    "WORLD",
+                    "Spawn position was obstructed; moved player to ({:.1}, {:.1}, {:.1})",
+                    safe_spawn.x,
+                    safe_spawn.y,
+                    safe_spawn.z
+                );
+                world.player_position = safe_spawn;
+            }
+        } else {
+            crate::log_warn!(
+                "WORLD",
+                "Could not find a clear spawn position near ({:.1}, {:.1}, {:.1})",
+                world.player_position.x,
+                world.player_position.y,
+                world.player_position.z
+            );
+        }
         world
     }
 
@@ -2196,8 +2273,10 @@ impl World {
     pub fn raycast(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RaycastHit> {
         let dir = dir.normalized();
         if dir.length_sq() < 1e-8 { return None; }
-        Self::traverse_voxels(origin, dir, max_dist, |pos, normal, _| {
-            self.get_block(pos).is_targetable().then_some(RaycastHit { block_pos: pos, normal })
+        Self::traverse_voxels(origin, dir, max_dist, |pos, normal, distance| {
+            self.get_block(pos)
+                .is_targetable()
+                .then_some(RaycastHit { block_pos: pos, normal, distance })
         })
     }
 
@@ -2302,6 +2381,25 @@ mod tests {
             assert!(!matches!(biome, Biome::DeepOcean | Biome::Ocean | Biome::Swamp));
             assert!(spawn.y >= 24.0);
         }
+    }
+
+    #[test]
+    fn test_obstructed_spawn_moves_to_clear_nearby_position() {
+        let mut world = World::new_with_seed(12345);
+        let spawn = world.player_position;
+        let obstruction = IVec3::new(
+            spawn.x.floor() as i32,
+            (spawn.y - STANDING_EYE_OFFSET).floor() as i32,
+            spawn.z.floor() as i32,
+        );
+        world.set_block(obstruction, BlockId::Stone);
+
+        let safe_spawn = world
+            .find_clear_spawn_position(spawn)
+            .expect("a nearby spawn position should be clear");
+
+        assert_ne!((safe_spawn.x, safe_spawn.z), (spawn.x, spawn.z));
+        assert!(world.player_position_is_clear(safe_spawn));
     }
 
     #[test]

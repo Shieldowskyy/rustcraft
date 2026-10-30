@@ -890,9 +890,16 @@ impl RustCraftApp {
                     let held_tool = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
                     let dmg = held_tool.map(|b| b.attack_damage()).unwrap_or(1.5);
                     let mut entity_hit = false;
+                    let mut entity_attacked = false;
+                    let block_hit = self.world.raycast(self.camera.position, forward, 8.0);
+                    let block_distance = block_hit.as_ref().map_or(8.0, |hit| hit.distance);
+                    let entity_reach = 4.2_f32.min((block_distance - 0.001).max(0.0));
 
-                    if interact_left_just {
-                        if let Some((target_id, hit_pos)) = self.raycast_remote_player(self.camera.position, forward, 4.2) {
+                    if let Some((target_id, hit_pos)) =
+                        self.raycast_remote_player(self.camera.position, forward, entity_reach)
+                    {
+                        entity_hit = true;
+                        if interact_left_just {
                             if let Some(client) = &mut self.net_client {
                                 client.send_attack_player(target_id, dmg);
                             }
@@ -901,8 +908,13 @@ impl RustCraftApp {
                             self.break_progress = 0.0;
                             self.request_rumble(0.65, 0.65, 120);
                             crate::log_info!("COMBAT", "Player attacked remote player ID {} dealing {:.1} damage", target_id, dmg);
-                            entity_hit = true;
-                        } else if let Some((mob_idx, _)) = self.mob_manager.raycast_mob(self.camera.position, forward, 4.2) {
+                            entity_attacked = true;
+                        }
+                    } else if let Some((mob_idx, _)) =
+                        self.mob_manager.raycast_mob(self.camera.position, forward, entity_reach)
+                    {
+                        entity_hit = true;
+                        if interact_left_just {
                             let (kind, remaining_hp) = {
                                 let mob = &mut self.mob_manager.mobs[mob_idx];
                                 let hit_pos = mob.center_pos();
@@ -914,12 +926,12 @@ impl RustCraftApp {
                             self.break_progress = 0.0;
                             self.request_rumble(0.65, 0.65, 120);
                             crate::log_info!("COMBAT", "Player attacked mob {:?} dealing {:.1} damage (remaining HP: {:.1})", kind, dmg, remaining_hp);
-                            entity_hit = true;
+                            entity_attacked = true;
                             self.process_mob_sounds();
                         }
                     }
 
-                    if entity_hit && self.player.gamemode == GameMode::Survival {
+                    if entity_attacked && self.player.gamemode == GameMode::Survival {
                         let selected = self.player.selected_hotbar_slot as usize;
                         if let Some(stack) = &mut self.player.inventory.hotbar[selected] {
                             if stack.block.is_damageable() {
@@ -936,7 +948,7 @@ impl RustCraftApp {
                         if self.player.gamemode == GameMode::Creative && self.creative_break_cooldown > 0.0 {
                             self.break_target = None;
                             self.break_progress = 0.0;
-                        } else if let Some(hit) = self.world.raycast(self.camera.position, forward, 8.0) {
+                        } else if let Some(hit) = block_hit {
                         let target = hit.block_pos;
                         let broken_block = self.world.get_block(target);
 

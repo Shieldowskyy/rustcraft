@@ -4,7 +4,7 @@ use minifb::{CursorStyle, Key, MouseButton, MouseMode, Window, WindowOptions};
 use std::time::Instant;
 
 #[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
-use rustcraft::app::{InputState, RustCraftApp, HEIGHT, WIDTH};
+use rustcraft::app::{GameState, InputState, RustCraftApp, HEIGHT, WIDTH};
 #[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
 use rustcraft::cli::{parse_log_enabled, parse_profiler_enabled, parse_renderer_choice, parse_seed};
 #[cfg(not(any(target_os = "vita", target_os = "android", target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
@@ -128,6 +128,7 @@ fn main() {
     let mut frame_count = 0u32;
     let mut last_title = String::new();
     let mut last_mouse: Option<(f32, f32)> = None;
+    let mut was_window_active = true;
 
     println!("Controls (Keyboard / Mouse):");
     println!("  Click in window - Capture mouse");
@@ -164,6 +165,18 @@ fn main() {
         let now = Instant::now();
         let dt = (now - last_time).as_secs_f32().min(0.1);
         last_time = now;
+
+        let window_active = window.is_active();
+        if was_window_active && !window_active && mouse_capture.is_captured() {
+            mouse_capture.set_captured(false);
+            window.set_cursor_visibility(true);
+            last_mouse = None;
+            if matches!(app.state, GameState::Playing) {
+                app.state = GameState::Paused;
+                rustcraft::log_info!("STATE", "Game paused after window lost focus");
+            }
+        }
+        was_window_active = window_active;
 
         let gp_events = gamepad_mgr.update(dt);
         let gp = gamepad_mgr.state;
