@@ -36,6 +36,32 @@ pub fn soundtracks_dir() -> std::path::PathBuf {
             return app_dir;
         }
     }
+    fn has_audio(dir: &std::path::Path) -> bool {
+        let Ok(entries) = std::fs::read_dir(dir) else { return false };
+        entries.flatten().any(|e| {
+            let p = e.path();
+            if p.is_dir() {
+                has_audio(&p)
+            } else {
+                matches!(
+                    p.extension().and_then(|x| x.to_str()).map(|x| x.to_ascii_lowercase()).as_deref(),
+                    Some("ogg") | Some("opus") | Some("wav")
+                )
+            }
+        })
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let dir = parent.join("soundtracks");
+            if has_audio(&dir) {
+                return dir;
+            }
+        }
+    }
+    let cwd_dir = std::path::PathBuf::from("soundtracks");
+    if has_audio(&cwd_dir) {
+        return cwd_dir;
+    }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             let dir = parent.join("soundtracks");
@@ -44,7 +70,7 @@ pub fn soundtracks_dir() -> std::path::PathBuf {
             }
         }
     }
-    std::path::PathBuf::from("soundtracks")
+    cwd_dir
 }
 
 /// Returns the directory path where world save files are stored.
