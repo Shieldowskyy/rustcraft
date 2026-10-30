@@ -208,7 +208,8 @@ pub struct RustCraftApp {
 impl RustCraftApp {
     pub fn new(width: usize, height: usize, renderer_choice: &str, seed: u32) -> Self {
         crate::log_info!("APP", "[Step 1/5] Loading game configuration, mods and language...");
-        let settings = GameSettings::load();
+        let mut settings = GameSettings::load();
+        settings.apply_ram_limit();
         crate::core::i18n::set_language(settings.language);
 
         let mut recipe_book = RecipeBook::new();

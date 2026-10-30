@@ -1,6 +1,6 @@
 //! Command-line argument parsing and random seed generation for RustCraft.
 
-const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan|opengl] [--seed NUMBER] [--profiler] [--autotest] [-log] [--server] [--port PORT] [--connect ADDR] [--sentry-dsn DSN] [--no-sentry] [--crash-test]";
+const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan|opengl] [--seed NUMBER] [--profiler] [--autotest] [-log] [--server] [--port PORT] [--connect ADDR] [--sentry-dsn DSN] [--no-sentry] [--crash-test] [--max-ram SIZE] [--hard-ram-limit]";
 
 /// Parses command-line arguments to determine the desired rendering backend.
 ///
@@ -45,6 +45,8 @@ pub fn parse_renderer_choice_from_args(args: &[String]) -> &'static str {
             "--sentry-dsn" => index += 1,
             "--no-sentry" | "--disable-sentry" => {},
             "--crash-test" | "--test-panic" => {},
+            "--max-ram" | "--max-memory" => index += 1,
+            "--hard-ram-limit" => {},
             "--help" | "-h" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -173,6 +175,40 @@ pub fn parse_sentry_disabled() -> bool {
 /// Parses whether a test panic was requested via `--crash-test` or `--test-panic`.
 pub fn parse_crash_test() -> bool {
     std::env::args().any(|arg| arg == "--crash-test" || arg == "--test-panic")
+}
+
+/// Whether `--hard-ram-limit` was given: enforce `--max-ram` as an OS-level process limit.
+pub fn parse_hard_ram_limit() -> bool {
+    std::env::args().any(|arg| arg == "--hard-ram-limit")
+}
+
+/// Parses a RAM size like `2048`, `512M`, `2G` into megabytes.
+pub fn parse_ram_size_mb(value: &str) -> Option<u64> {
+    let v = value.trim().to_ascii_lowercase();
+    let (num, mult) = if let Some(n) = v.strip_suffix("gb").or_else(|| v.strip_suffix('g')) {
+        (n, 1024.0)
+    } else if let Some(n) = v.strip_suffix("mb").or_else(|| v.strip_suffix('m')) {
+        (n, 1.0)
+    } else {
+        (v.as_str(), 1.0)
+    };
+    let mb = (num.trim().parse::<f64>().ok()? * mult) as u64;
+    if mb >= 128 { Some(mb) } else { None }
+}
+
+/// Parses `--max-ram <SIZE>` (e.g. `2G`, `1536M`, `2048`; plain numbers are MB).
+/// Returns `None` when unlimited. Exits with an error on invalid values.
+pub fn parse_max_ram_mb() -> Option<u64> {
+    let args: Vec<String> = std::env::args().collect();
+    for i in 1..args.len() {
+        if args[i] == "--max-ram" || args[i] == "--max-memory" {
+            return Some(args.get(i + 1).and_then(|v| parse_ram_size_mb(v)).unwrap_or_else(|| {
+                eprintln!("--max-ram needs a size of at least 128M, e.g. --max-ram 2G");
+                std::process::exit(2);
+            }));
+        }
+    }
+    None
 }
 
 #[cfg(test)]

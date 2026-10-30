@@ -2,6 +2,82 @@
 
 use std::path::PathBuf;
 use crate::core::i18n::Language;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Configured RAM budget in MB from `--max-ram` (0 = unlimited).
+static MAX_RAM_MB: AtomicU64 = AtomicU64::new(0);
+
+/// Sets the RAM budget in MB (`None` = unlimited).
+pub fn set_max_ram_mb(mb: Option<u64>) {
+    MAX_RAM_MB.store(mb.unwrap_or(0), Ordering::Relaxed);
+}
+
+/// Returns the RAM budget in MB, if limited.
+pub fn max_ram_mb() -> Option<u64> {
+    match MAX_RAM_MB.load(Ordering::Relaxed) { 0 => None, v => Some(v) }
+}
+
+/// Largest render distance (in chunks) that fits the RAM budget.
+/// Assumes ~300 MB base overhead and ~1 MB per loaded chunk column.
+pub fn max_render_distance() -> i32 {
+    match max_ram_mb() {
+        None => 16,
+        Some(mb) => {
+            let chunks = mb.saturating_sub(300) as f64;
+            (((chunks.sqrt() - 1.0) / 2.0).floor() as i32).clamp(2, 16)
+        }
+    }
+}
+
+/// Enforces a hard RAM limit on the process (Linux: `RLIMIT_DATA`, which counts
+/// heap and anonymous mappings but not GPU driver address-space reservations).
+/// Allocations beyond the limit fail, so the process aborts instead of growing.
+#[cfg(target_os = "linux")]
+pub fn apply_hard_ram_limit(mb: u64) -> Result<(), String> {
+    #[repr(C)]
+    struct RLimit { cur: u64, max: u64 }
+    extern "C" { fn setrlimit(resource: i32, rlim: *const RLimit) -> i32; }
+    const RLIMIT_DATA: i32 = 2;
+    let bytes = mb.saturating_mul(1024 * 1024);
+    let lim = RLimit { cur: bytes, max: bytes };
+    if unsafe { setrlimit(RLIMIT_DATA, &lim) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error().to_string())
+    }
+}
+
+/// Enforces a hard RAM limit via a Windows Job Object (`ProcessMemoryLimit`).
+#[cfg(windows)]
+pub fn apply_hard_ram_limit(mb: u64) -> Result<(), String> {
+    use windows_sys::Win32::System::JobObjects::*;
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    unsafe {
+        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if job.is_null() {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_PROCESS_MEMORY;
+        info.ProcessMemoryLimit = (mb.saturating_mul(1024 * 1024)) as usize;
+        let ok = SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const core::ffi::c_void,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        );
+        if ok == 0 || AssignProcessToJobObject(job, GetCurrentProcess()) == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+    }
+    Ok(())
+}
+
+/// Hard RAM limits are only implemented on Linux and Windows.
+#[cfg(not(any(target_os = "linux", windows)))]
+pub fn apply_hard_ram_limit(_mb: u64) -> Result<(), String> {
+    Err("hard RAM limit is not supported on this platform".to_string())
+}
 
 /// Leaf transparency distance and visual accuracy presets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -604,16 +680,27 @@ impl GameSettings {
     }
 
     pub fn cycle_render_distance(&mut self, forward: bool) {
-        const CHOICES: [i32; 7] = [2, 4, 6, 8, 10, 12, 16];
-        let idx = CHOICES.iter().position(|&d| d == self.render_distance).unwrap_or(2);
+        const ALL: [i32; 7] = [2, 4, 6, 8, 10, 12, 16];
+        let max = max_render_distance();
+        let choices: Vec<i32> = ALL.iter().copied().filter(|&d| d <= max).collect();
+        let idx = choices.iter().position(|&d| d == self.render_distance).unwrap_or(0);
         let next_idx = if forward {
-            (idx + 1) % CHOICES.len()
+            (idx + 1) % choices.len()
         } else if idx == 0 {
-            CHOICES.len() - 1
+            choices.len() - 1
         } else {
             idx - 1
         };
-        self.render_distance = CHOICES[next_idx];
+        self.render_distance = choices[next_idx];
+    }
+
+    /// Lowers settings that exceed the `--max-ram` budget.
+    pub fn apply_ram_limit(&mut self) {
+        let max = max_render_distance();
+        if self.render_distance > max {
+            crate::log_info!("SETTINGS", "Render distance {} -> {} (RAM limit)", self.render_distance, max);
+            self.render_distance = max;
+        }
     }
 
     pub fn cycle_leaf_quality(&mut self, forward: bool) {

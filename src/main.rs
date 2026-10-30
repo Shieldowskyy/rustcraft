@@ -34,6 +34,20 @@ fn main() {
 fn main() {
     let log_enabled = parse_log_enabled();
     init_logger(log_enabled);
+    let max_ram = rustcraft::cli::parse_max_ram_mb();
+    rustcraft::core::settings::set_max_ram_mb(max_ram);
+    if rustcraft::cli::parse_hard_ram_limit() {
+        match max_ram {
+            None => {
+                eprintln!("--hard-ram-limit requires --max-ram SIZE");
+                std::process::exit(2);
+            }
+            Some(mb) => match rustcraft::core::settings::apply_hard_ram_limit(mb) {
+                Ok(()) => { rustcraft::log_info!("APP", "Hard RAM limit enforced: {} MB", mb); }
+                Err(e) => eprintln!("Warning: could not enforce hard RAM limit: {e}"),
+            },
+        }
+    }
 
     let sentry_dsn = rustcraft::cli::parse_sentry_dsn();
     let sentry_enabled = !rustcraft::cli::parse_sentry_disabled();
