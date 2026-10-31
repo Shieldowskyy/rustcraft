@@ -621,6 +621,8 @@ impl RustCraftApp {
                             }
                         }
 
+                        let (reverb_wet, reverb_decay_seconds) =
+                            self.world.calculate_acoustic_reverb(self.camera.position);
                         self.cached_ambient_ctx = crate::audio::AmbientContext {
                             is_underground,
                             sky_exposed,
@@ -631,6 +633,8 @@ impl RustCraftApp {
                             is_desert,
                             sand_pos,
                             rain_intensity: self.world.weather.rain_strength,
+                            reverb_wet,
+                            reverb_decay_seconds,
                         };
                     }
 

@@ -42,6 +42,10 @@ pub enum AudioCommand {
         category: SoundCategory,
         volume: f32,
     },
+    SetReverb {
+        wet: f32,
+        decay_seconds: f32,
+    },
     StopAll {
         fade_out_seconds: f32,
     },

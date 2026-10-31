@@ -76,10 +76,10 @@ The codebase is organized into isolated, single-responsibility modules to maximi
 
 ### `src/audio/` (Audio Engine, 3D Spatial Audio & Synthesis)
 * **`engine.rs`**: `AudioEngine` lifecycle, channel orchestration, volume scaling (Master, SFX, Music, Footsteps, Ambience), and background audio thread coordination.
-* **`mixer.rs`**: High-performance, zero-allocation polyphonic mixer featuring a 64-voice pool with priority stealing and graceful voice release ramps.
+* **`mixer.rs`**: High-performance polyphonic mixer featuring a 64-voice pool, priority stealing, graceful voice release, and stereo room reverb with a persistent decay tail.
 * **`synth.rs`**: 100% procedural waveform synthesis requiring zero external audio assets. Generates realistic sound synthesis for block digging and breaking (custom acoustic profiles for wood, stone, dirt, sand, glass, gravel), block placement, footsteps with terrain-matched cadence, jump, landing thuds, player damage, explosions, chest open/close, water splash/swimming, UI clicks, rain ambiance, distant thunder rumbles, lightning strikes, villager voices (idle murmur, trade, hurt, yes, no), and Iron Golem sounds (hit, walk, attack).
 * **`soundtrack.rs`**: Built-in background soundtrack engine. Decodes and streams custom OGG / Opus audio tracks with non-repeating shuffle, category tagging (Creative, Nether, Ocean, Ambient), volume attenuation, and in-game music toast notifications (`MusicToast`) displayed upon track changes.
-* **`spatial.rs`**: 3D spatial audio simulation — constant-power panning, distance attenuation, real-time voxel raycast acoustic occlusion (muffling through solid obstacles), and atmospheric air absorption low-pass filtering.
+* **`spatial.rs`**: 3D spatial audio simulation — constant-power panning, distance attenuation, real-time voxel raycast acoustic occlusion (muffling through solid obstacles), and atmospheric air absorption low-pass filtering. The ambient probe estimates room enclosure, surface reflectivity, and reverb decay from nearby blocks.
 * **`ring_buffer.rs`**: Lock-free single-producer single-consumer (SPSC) command ring buffer ensuring non-blocking audio dispatch from the main simulation thread.
 * **`sound.rs`**: `SoundInstance`, `SoundId`, and procedural sound trigger definitions.
 * **`backend/`**: Modular cross-platform audio drivers:

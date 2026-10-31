@@ -2319,6 +2319,77 @@ impl World {
         occlusion_accum.min(1.0)
     }
 
+    /// Estimates room reverb from nearby solid surfaces and their acoustic materials.
+    /// Returns the wet mix and approximate RT60 in seconds.
+    pub fn calculate_acoustic_reverb(&self, listener: Vec3) -> (f32, f32) {
+        const MAX_DISTANCE: i32 = 12;
+        const DIRECTIONS: [(f32, f32, f32); 10] = [
+            (1.0, 0.0, 0.0),
+            (-1.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0),
+            (0.0, 0.0, -1.0),
+            (0.707, 0.0, 0.707),
+            (-0.707, 0.0, 0.707),
+            (0.707, 0.0, -0.707),
+            (-0.707, 0.0, -0.707),
+            (0.0, 1.0, 0.0),
+            (0.0, -1.0, 0.0),
+        ];
+
+        let mut wall_count = 0;
+        let mut distance_sum = 0.0;
+        let mut reflection_sum = 0.0;
+
+        for (dx, dy, dz) in DIRECTIONS {
+            for distance in 1..=MAX_DISTANCE {
+                let pos = IVec3::new(
+                    (listener.x + dx * distance as f32).floor() as i32,
+                    (listener.y + dy * distance as f32).floor() as i32,
+                    (listener.z + dz * distance as f32).floor() as i32,
+                );
+                let block = self.get_block(pos);
+                if !block.is_solid() {
+                    continue;
+                }
+
+                let reflection = if block.is_leaves() {
+                    0.45
+                } else if block.is_wood()
+                    || matches!(
+                        block,
+                        BlockId::Planks
+                            | BlockId::CraftingTable
+                            | BlockId::Chest
+                            | BlockId::Door
+                            | BlockId::WoodenSlab
+                            | BlockId::WoodenStairs
+                    )
+                {
+                    0.68
+                } else if block == BlockId::Glass {
+                    0.9
+                } else {
+                    0.88
+                };
+                wall_count += 1;
+                distance_sum += distance as f32;
+                reflection_sum += reflection;
+                break;
+            }
+        }
+
+        if wall_count == 0 {
+            return (0.0, 0.35);
+        }
+
+        let enclosure = wall_count as f32 / DIRECTIONS.len() as f32;
+        let room_scale = (distance_sum / wall_count as f32 / MAX_DISTANCE as f32).clamp(0.0, 1.0);
+        let surface_reflection = reflection_sum / wall_count as f32;
+        let wet = (enclosure * surface_reflection * (0.22 + 0.42 * room_scale)).clamp(0.0, 0.55);
+        let decay_seconds = (0.35 + room_scale * 2.7).clamp(0.35, 3.5);
+        (wet, decay_seconds)
+    }
+
     pub fn box_collides(&self, min: Vec3, max: Vec3) -> bool {
         let eps = 1e-4;
         let (x0, x1) = (min.x.floor() as i32, (max.x - eps).floor() as i32);
@@ -2371,6 +2442,51 @@ mod tests {
         assert_eq!(chunk.get_local(15, 63, 15), BlockId::IronOre);
         assert_eq!(chunk.get_local(-1, 0, 0), BlockId::Air);
         assert_eq!(chunk.get_local(16, 0, 0), BlockId::Air);
+    }
+
+    #[test]
+    fn test_acoustic_reverb_tracks_enclosure_and_surface_material() {
+        let mut world = World::new_with_seed(1);
+        world.chunks.clear();
+        world.chunks.insert(
+            (0, 0),
+            Chunk {
+                cx: 0,
+                cz: 0,
+                blocks: vec![
+                    BlockId::Air.to_u8();
+                    (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize
+                ],
+                dirty: false,
+            },
+        );
+        let listener = Vec3::new(8.5, 32.5, 8.5);
+        let open_air = world.calculate_acoustic_reverb(listener);
+        assert_eq!(open_air.0, 0.0);
+
+        for x in 4..=12 {
+            for z in 4..=12 {
+                for y in 28..=36 {
+                    if x == 4 || x == 12 || z == 4 || z == 12 || y == 28 || y == 36 {
+                        world.set_block(IVec3::new(x, y, z), BlockId::Stone);
+                    }
+                }
+            }
+        }
+        let stone_room = world.calculate_acoustic_reverb(listener);
+        assert!(stone_room.0 > open_air.0);
+
+        for x in 4..=12 {
+            for z in 4..=12 {
+                for y in 28..=36 {
+                    if x == 4 || x == 12 || z == 4 || z == 12 || y == 28 || y == 36 {
+                        world.set_block(IVec3::new(x, y, z), BlockId::Planks);
+                    }
+                }
+            }
+        }
+        let wooden_room = world.calculate_acoustic_reverb(listener);
+        assert!(wooden_room.0 < stone_room.0);
     }
 
     #[test]

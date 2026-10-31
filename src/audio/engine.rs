@@ -49,6 +49,10 @@ pub struct AmbientContext {
     pub sand_pos: Option<Vec3>,
     /// Weather rain intensity in [0.0, 1.0].
     pub rain_intensity: f32,
+    /// Reverb mix determined by the size and materials of nearby surfaces.
+    pub reverb_wet: f32,
+    /// Approximate room reverberation time in seconds.
+    pub reverb_decay_seconds: f32,
 }
 
 impl Default for AmbientContext {
@@ -63,6 +67,8 @@ impl Default for AmbientContext {
             is_desert: false,
             sand_pos: None,
             rain_intensity: 0.0,
+            reverb_wet: 0.0,
+            reverb_decay_seconds: 0.35,
         }
     }
 }
@@ -95,6 +101,8 @@ pub struct AudioEngine {
     ambient_sand_timer: f32,
     ambient_rain_timer: f32,
     rng_seed: u32,
+    reverb_wet: f32,
+    reverb_decay_seconds: f32,
 
     // Volumes
     master_vol: f32,
@@ -312,6 +320,9 @@ impl AudioEngine {
                                     AudioCommand::SetCategoryVolume { category, volume } => {
                                         mixer.set_category_volume(category, volume);
                                     }
+                                    AudioCommand::SetReverb { wet, decay_seconds } => {
+                                        mixer.set_reverb(wet, decay_seconds);
+                                    }
                                     AudioCommand::StopAll { fade_out_seconds } => {
                                         mixer.stop_all(fade_out_seconds);
                                     }
@@ -319,8 +330,7 @@ impl AudioEngine {
                             }
                         }
 
-                        let active_voices = mixer.active_voice_count();
-                        if active_voices > 0 {
+                        if mixer.has_pending_audio() {
                             // Render batch of stereo audio frames
                             mixer.mix_interleaved_stereo(&mut scratch_buffer);
                             audio_backend.write_samples(&scratch_buffer);
@@ -385,6 +395,8 @@ impl AudioEngine {
             ambient_sand_timer: 6.5,
             ambient_rain_timer: 0.5,
             rng_seed: 0x9E3779B9,
+            reverb_wet: 0.0,
+            reverb_decay_seconds: 0.35,
             master_vol: 0.8,
             sfx_vol: 1.0,
             music_vol: 0.5,
@@ -533,6 +545,9 @@ impl AudioEngine {
                 AudioCommand::SetCategoryVolume { category, volume } => {
                     mixer.set_category_volume(category, volume);
                 }
+                AudioCommand::SetReverb { wet, decay_seconds } => {
+                    mixer.set_reverb(wet, decay_seconds);
+                }
                 AudioCommand::StopAll { fade_out_seconds } => {
                     mixer.stop_all(fade_out_seconds);
                 }
@@ -553,6 +568,19 @@ impl AudioEngine {
     ) {
         if self.is_muted {
             return;
+        }
+
+        let target_wet = ambient_ctx.reverb_wet.clamp(0.0, 0.55);
+        let target_decay = ambient_ctx.reverb_decay_seconds.clamp(0.35, 3.5);
+        if (target_wet - self.reverb_wet).abs() >= 0.015
+            || (target_decay - self.reverb_decay_seconds).abs() >= 0.1
+        {
+            self.reverb_wet = target_wet;
+            self.reverb_decay_seconds = target_decay;
+            self.dispatch_cmd(AudioCommand::SetReverb {
+                wet: target_wet,
+                decay_seconds: target_decay,
+            });
         }
 
         // Footstep cadence

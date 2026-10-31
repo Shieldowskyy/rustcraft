@@ -6,6 +6,40 @@ use crate::audio::sound::{SoundCategory, SoundSample};
 
 /// Maximum polyphonic hardware voice channels allocated upfront.
 pub const MAX_VOICES: usize = 64;
+const REVERB_COMB_DELAYS: [f32; 8] = [
+    0.0297, 0.0371, 0.0411, 0.0437, 0.0311, 0.0353, 0.0399, 0.0441,
+];
+const REVERB_ALLPASS_DELAYS: [f32; 4] = [0.0051, 0.0073, 0.0061, 0.0083];
+const REVERB_MAX_MIX_FRAMES: usize = 1024;
+
+struct ReverbDelay {
+    buffer: Vec<f32>,
+    cursor: usize,
+}
+
+impl ReverbDelay {
+    fn new(sample_rate: u32, delay_seconds: f32) -> Self {
+        let delay_samples = ((sample_rate as f32 * delay_seconds).round() as usize).max(1);
+        Self {
+            buffer: vec![0.0; delay_samples],
+            cursor: 0,
+        }
+    }
+
+    #[inline]
+    fn read(&self) -> f32 {
+        self.buffer[self.cursor]
+    }
+
+    #[inline]
+    fn write_and_advance(&mut self, sample: f32) {
+        self.buffer[self.cursor] = sample;
+        self.cursor += 1;
+        if self.cursor == self.buffer.len() {
+            self.cursor = 0;
+        }
+    }
+}
 
 /// A single active or idle playback voice in the polyphonic mixer pool.
 #[derive(Clone)]
@@ -59,6 +93,15 @@ pub struct AudioMixer {
     category_volumes: [f32; 5],
     output_sample_rate: u32,
     age_counter: u64,
+    reverb_combs: [ReverbDelay; 8],
+    reverb_allpasses: [ReverbDelay; 4],
+    reverb_send_left: Vec<f32>,
+    reverb_send_right: Vec<f32>,
+    reverb_wet: f32,
+    target_reverb_wet: f32,
+    reverb_decay_seconds: f32,
+    target_reverb_decay_seconds: f32,
+    reverb_tail_samples: u32,
 }
 
 impl AudioMixer {
@@ -84,12 +127,33 @@ impl AudioMixer {
             channels: 1,
         };
 
+        let output_sample_rate = output_sample_rate.max(8000);
         Self {
             voices: [INIT_VOICE; MAX_VOICES],
             category_volumes: [1.0, 1.0, 1.0, 1.0, 1.0], // Master, Sfx, Music, Ambient, Ui
-            output_sample_rate: output_sample_rate.max(8000),
+            output_sample_rate,
             age_counter: 0,
+            reverb_combs: std::array::from_fn(|i| {
+                ReverbDelay::new(output_sample_rate, REVERB_COMB_DELAYS[i])
+            }),
+            reverb_allpasses: std::array::from_fn(|i| {
+                ReverbDelay::new(output_sample_rate, REVERB_ALLPASS_DELAYS[i])
+            }),
+            reverb_send_left: vec![0.0; REVERB_MAX_MIX_FRAMES],
+            reverb_send_right: vec![0.0; REVERB_MAX_MIX_FRAMES],
+            reverb_wet: 0.0,
+            target_reverb_wet: 0.0,
+            reverb_decay_seconds: 0.35,
+            target_reverb_decay_seconds: 0.35,
+            reverb_tail_samples: 0,
         }
+    }
+
+    /// Sets the room reverb send and approximate decay time.
+    #[inline]
+    pub fn set_reverb(&mut self, wet: f32, decay_seconds: f32) {
+        self.target_reverb_wet = wet.clamp(0.0, 0.55);
+        self.target_reverb_decay_seconds = decay_seconds.clamp(0.35, 3.5);
     }
 
     /// Sets the volume multiplier for a specific category [0.0, 1.0].
@@ -249,6 +313,12 @@ impl AudioMixer {
         self.voices.iter().filter(|v| v.active).count()
     }
 
+    /// Returns true while voices or a reverb tail still need to be rendered.
+    #[inline]
+    pub fn has_pending_audio(&self) -> bool {
+        self.active_voice_count() > 0 || self.reverb_tail_samples > 0
+    }
+
     /// Renders and mixes polyphonic audio frames into an interleaved stereo float buffer.
     ///
     /// Performance highlights:
@@ -276,9 +346,24 @@ impl AudioMixer {
             }
         }
 
-        if active_count == 0 {
+        if active_count == 0 && self.reverb_tail_samples == 0 {
             return;
         }
+
+        if self.reverb_send_left.len() < frame_count {
+            self.reverb_send_left.resize(frame_count, 0.0);
+            self.reverb_send_right.resize(frame_count, 0.0);
+        }
+        self.reverb_send_left[..frame_count].fill(0.0);
+        self.reverb_send_right[..frame_count].fill(0.0);
+
+        let smoothing = 1.0 - (-1.0 / (0.08 * self.output_sample_rate as f32)).exp();
+        self.reverb_decay_seconds +=
+            (self.target_reverb_decay_seconds - self.reverb_decay_seconds) * smoothing;
+        let feedback: [f32; 8] = std::array::from_fn(|i| {
+            10.0_f32.powf(-3.0 * REVERB_COMB_DELAYS[i] / self.reverb_decay_seconds)
+        });
+        let mut has_reverb_input = false;
 
         for &v_idx in &active_indices[..active_count] {
             let v = &mut self.voices[v_idx];
@@ -373,8 +458,15 @@ impl AudioMixer {
                 let eff_l = left_gain * cat_vol * fade_mult;
                 let eff_r = right_gain * cat_vol * fade_mult;
 
-                output[frame * 2] += s_l * eff_l;
-                output[frame * 2 + 1] += s_r * eff_r;
+                let mixed_l = s_l * eff_l;
+                let mixed_r = s_r * eff_r;
+                output[frame * 2] += mixed_l;
+                output[frame * 2 + 1] += mixed_r;
+                if matches!(v.category, SoundCategory::Sfx | SoundCategory::Ambient) {
+                    self.reverb_send_left[frame] += mixed_l;
+                    self.reverb_send_right[frame] += mixed_r;
+                    has_reverb_input |= mixed_l.abs() + mixed_r.abs() > 0.00001;
+                }
 
                 cursor += step;
                 frame += 1;
@@ -387,6 +479,54 @@ impl AudioMixer {
             v.left_gain = left_gain;
             v.right_gain = right_gain;
         }
+
+        if has_reverb_input && (self.target_reverb_wet > 0.0001 || self.reverb_wet > 0.0001) {
+            self.reverb_tail_samples = self
+                .reverb_tail_samples
+                .max((self.reverb_decay_seconds * self.output_sample_rate as f32) as u32);
+        }
+
+        let mut wet = self.reverb_wet;
+        for frame in 0..frame_count {
+            wet += (self.target_reverb_wet - wet) * smoothing;
+            let send_l = self.reverb_send_left[frame];
+            let send_r = self.reverb_send_right[frame];
+            let mut reverb_l = 0.0;
+            let mut reverb_r = 0.0;
+
+            for i in 0..4 {
+                let comb_l = &mut self.reverb_combs[i];
+                let delayed_l = comb_l.read();
+                comb_l.write_and_advance(send_l + delayed_l * feedback[i]);
+                reverb_l += delayed_l;
+
+                let comb_r = &mut self.reverb_combs[i + 4];
+                let delayed_r = comb_r.read();
+                comb_r.write_and_advance(send_r + delayed_r * feedback[i + 4]);
+                reverb_r += delayed_r;
+            }
+
+            reverb_l *= 0.25;
+            reverb_r *= 0.25;
+            for i in 0..2 {
+                let allpass_l = &mut self.reverb_allpasses[i];
+                let delayed_l = allpass_l.read();
+                let output_l = delayed_l - 0.5 * reverb_l;
+                allpass_l.write_and_advance(reverb_l + 0.5 * output_l);
+                reverb_l = output_l;
+
+                let allpass_r = &mut self.reverb_allpasses[i + 2];
+                let delayed_r = allpass_r.read();
+                let output_r = delayed_r - 0.5 * reverb_r;
+                allpass_r.write_and_advance(reverb_r + 0.5 * output_r);
+                reverb_r = output_r;
+            }
+
+            output[frame * 2] += reverb_l * wet;
+            output[frame * 2 + 1] += reverb_r * wet;
+        }
+        self.reverb_wet = wet;
+        self.reverb_tail_samples = self.reverb_tail_samples.saturating_sub(frame_count as u32);
 
         // Apply clean soft limiting / anti-clipping
         for sample in output.iter_mut() {
@@ -407,5 +547,34 @@ fn fast_soft_clip(x: f32) -> f32 {
         -(0.8 + (0.2 * d) / (0.2 + d))
     } else {
         x
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reverb_keeps_effect_tail_but_does_not_wet_ui_sounds() {
+        let impulse = SoundSample::new(vec![1.0], 48000, 1);
+        let mut mixer = AudioMixer::new(48000);
+        mixer.set_reverb(0.5, 1.0);
+        mixer.play_sample(&impulse, SoundCategory::Sfx, 1.0, 1.0, 1.0, 1.0, 1.0, false);
+
+        let mut output = [0.0; 2048];
+        mixer.mix_interleaved_stereo(&mut output);
+        assert!(mixer.has_pending_audio(), "Reverb tail should keep the mixer active");
+
+        mixer.mix_interleaved_stereo(&mut output);
+        assert!(
+            output.iter().any(|sample| sample.abs() > 0.0001),
+            "The effect should produce audible reflections after its dry sample ends"
+        );
+
+        let mut ui_mixer = AudioMixer::new(48000);
+        ui_mixer.set_reverb(0.5, 1.0);
+        ui_mixer.play_sample(&impulse, SoundCategory::Ui, 1.0, 1.0, 1.0, 1.0, 1.0, false);
+        ui_mixer.mix_interleaved_stereo(&mut output);
+        assert!(!ui_mixer.has_pending_audio(), "UI sounds should remain dry");
     }
 }
