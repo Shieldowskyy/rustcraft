@@ -907,12 +907,12 @@ pub fn draw_capture_prompt(buffer: &mut [u32], width: usize, height: usize, nati
     draw_text_shadowed(buffer, width, height, line2, cx - w2 / 2, cy + 20, scale2, 1);
 }
 
-pub fn pause_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 5] {
+pub fn pause_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 6] {
     let btn_w = 280;
     let btn_h = 34;
     let spacing = 8;
     let cx = width as i32 / 2;
-    let start_y = height as i32 / 2 - 95;
+    let start_y = height as i32 / 2 - 110;
 
     [
         (cx - btn_w / 2, start_y, btn_w, btn_h),
@@ -920,10 +920,21 @@ pub fn pause_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, 
         (cx - btn_w / 2, start_y + (btn_h + spacing) * 2, btn_w, btn_h),
         (cx - btn_w / 2, start_y + (btn_h + spacing) * 3, btn_w, btn_h),
         (cx - btn_w / 2, start_y + (btn_h + spacing) * 4, btn_w, btn_h),
+        (cx - btn_w / 2, start_y + (btn_h + spacing) * 5, btn_w, btn_h),
     ]
 }
 
-pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode: bool, hovered_idx: Option<usize>, is_gamepad_active: bool) {
+pub fn draw_pause_menu(
+    buffer: &mut [u32],
+    width: usize,
+    height: usize,
+    fly_mode: bool,
+    hovered_idx: Option<usize>,
+    is_gamepad_active: bool,
+    can_host: bool,
+    is_hosting: bool,
+    status: Option<&str>,
+) {
     fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.0, 0.0, 0.0), 0.72);
 
     let cx = width as i32 / 2;
@@ -957,19 +968,27 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
         }
     };
 
-    let b3 = if is_gamepad_active {
+    let b3 = if is_hosting {
+        crate::core::i18n::t("pause.stop_host").to_string()
+    } else if can_host {
+        crate::core::i18n::t("pause.host").to_string()
+    } else {
+        crate::core::i18n::t("pause.host_unavailable").to_string()
+    };
+
+    let b4 = if is_gamepad_active {
         format!("{} [SELECT / Y]", crate::core::i18n::t("pause.main_menu"))
     } else {
         format!("{} (M)", crate::core::i18n::t("pause.main_menu"))
     };
 
-    let b4 = if is_gamepad_active {
+    let b5 = if is_gamepad_active {
         format!("{} [B]", crate::core::i18n::t("pause.quit"))
     } else {
         format!("{} (Q)", crate::core::i18n::t("pause.quit"))
     };
 
-    let buttons = [b0, b1, b2, b3, b4];
+    let buttons = [b0, b1, b2, b3, b4, b5];
 
     let rects = pause_menu_button_rects(width, height);
 
@@ -1008,6 +1027,21 @@ pub fn draw_pause_menu(buffer: &mut [u32], width: usize, height: usize, fly_mode
             draw_text_colored_shadowed(buffer, width, height, label, tx, ty, scale, 1, pack_color(1.0, 1.0, 0.3));
         } else {
             draw_text_shadowed(buffer, width, height, label, tx, ty, scale, 1);
+        }
+
+        if let Some(status) = status {
+            let label = font::measure_text(status, 1, 1);
+            draw_text_colored_shadowed(
+                buffer,
+                width,
+                height,
+                status,
+                cx - label / 2,
+                rects[5].1 + rects[5].3 + 8,
+                1,
+                1,
+                pack_color(0.55, 0.9, 1.0),
+            );
         }
     }
 
@@ -1437,4 +1471,3 @@ mod tests {
         assert!(r < 128, "Snowy tundra filter should reduce red: r = {}", r);
     }
 }
-

@@ -469,7 +469,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn pause_menu_button_rects(&self) -> [(i32, i32, i32, i32); 5] {
+    pub fn pause_menu_button_rects(&self) -> [(i32, i32, i32, i32); 6] {
         crate::ui::pause_menu_button_rects(self.width, self.height)
     }
 
@@ -600,8 +600,26 @@ impl Renderer {
         );
     }
 
-    pub fn draw_pause_menu(&mut self, fly_mode: bool, hovered: Option<usize>, is_gamepad_active: bool) {
-        crate::ui::draw_pause_menu(&mut self.color_buffer, self.width, self.height, fly_mode, hovered, is_gamepad_active);
+    pub fn draw_pause_menu(
+        &mut self,
+        fly_mode: bool,
+        hovered: Option<usize>,
+        is_gamepad_active: bool,
+        can_host: bool,
+        is_hosting: bool,
+        status: Option<&str>,
+    ) {
+        crate::ui::draw_pause_menu(
+            &mut self.color_buffer,
+            self.width,
+            self.height,
+            fly_mode,
+            hovered,
+            is_gamepad_active,
+            can_host,
+            is_hosting,
+            status,
+        );
     }
 
     pub fn draw_capture_prompt(&mut self, native: bool) {

@@ -46,7 +46,7 @@ impl RustCraftApp {
                     for ev in events {
                         match ev {
                             crate::net::NetworkEvent::BlockChanged { x, y, z, block } => {
-                                self.world.set_block(IVec3::new(x, y, z), BlockId::from_u8(block));
+                                self.world.set_network_block(IVec3::new(x, y, z), BlockId::from_u8(block));
                             }
                             crate::net::NetworkEvent::ChatMessage { sender, text, is_system: _ } => {
                                 self.chat.add_message(format!("<{}> {}", sender, text), crate::ui::pack_color(1.0, 1.0, 1.0));
@@ -92,6 +92,7 @@ impl RustCraftApp {
                         crate::log_info!("NETWORK", "Disconnected from server: {}", reason);
                         self.is_multiplayer = false;
                         self.net_client = None;
+                        self.stop_host_multiplayer();
                         self.state = GameState::MainMenu;
                         out.request_release_mouse = true;
                     }

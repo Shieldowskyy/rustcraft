@@ -1676,6 +1676,7 @@ impl World {
         if (pos.y as u32) >= CHUNK_SIZE_Y as u32 {
             return;
         }
+
         let (cx, cz, lx, lz) = World::world_to_chunk(pos.x, pos.z);
         if let Some(chunk) = self.chunks.get_mut(&(cx, cz)) {
             chunk.set_local(lx, pos.y, lz, block);
@@ -1700,6 +1701,20 @@ impl World {
             if lz == 0 { self.mark_dirty(cx, cz - 1); }
             if lz == CHUNK_SIZE_Z - 1 { self.mark_dirty(cx, cz + 1); }
         }
+    }
+
+    /// Applies a server-provided block, generating its chunk if it is not loaded yet.
+    pub fn set_network_block(&mut self, pos: IVec3, block: BlockId) {
+        if (pos.y as u32) >= CHUNK_SIZE_Y as u32 {
+            return;
+        }
+        let (cx, cz, _, _) = Self::world_to_chunk(pos.x, pos.z);
+        if !self.chunks.contains_key(&(cx, cz)) {
+            let chunk = Chunk::generate(cx, cz, self.seed);
+            self.index_chunk_lights(&chunk);
+            self.chunks.insert((cx, cz), chunk);
+        }
+        self.set_block(pos, block);
     }
 
     pub fn prime_tnt(&mut self, pos: IVec3) {

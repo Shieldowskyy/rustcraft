@@ -108,6 +108,10 @@ pub struct RustCraftApp {
     pub main_menu_nick_hovered: bool,
     pub net_client: Option<crate::net::NetworkClient>,
     pub is_multiplayer: bool,
+    pub is_hosting_multiplayer: bool,
+    pub multiplayer_invite: Option<String>,
+    pub embedded_server: Option<crate::net::EmbeddedServer>,
+    pub relay_host: Option<crate::net::ReverseTunnelHost>,
     pub save_card_rects: [(i32, i32, i32, i32); VISIBLE_SAVE_ROWS],
     pub save_btn_rects: [(i32, i32, i32, i32); 4],
     pub create_world_rects: [(i32, i32, i32, i32); 6],
@@ -126,7 +130,7 @@ pub struct RustCraftApp {
     pub last_mouse_pos: Option<(f32, f32)>,
     pub pending_rumble: Option<RumbleRequest>,
     pub profiler_server: Option<crate::core::profiler_server::ProfilerServer>,
-    pub pause_menu_rects: [(i32, i32, i32, i32); 5],
+    pub pause_menu_rects: [(i32, i32, i32, i32); 6],
     pub death_screen_rects: [(i32, i32, i32, i32); 2],
     pub create_world_name: String,
     pub create_world_seed: String,
@@ -393,6 +397,10 @@ impl RustCraftApp {
             main_menu_nick_hovered: false,
             net_client: None,
             is_multiplayer: false,
+            is_hosting_multiplayer: false,
+            multiplayer_invite: None,
+            embedded_server: None,
+            relay_host: None,
             save_card_rects,
             save_btn_rects,
             create_world_rects,
@@ -827,4 +835,3 @@ impl crate::engine::EngineApp for RustCraftApp {
         self.pixel_buffer()
     }
 }
-

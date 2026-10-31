@@ -16,7 +16,7 @@ RustCraft features a multithreaded CPU software rasterizer (tiled rasterization,
 
 | Platform / Architecture | Target Triple | Primary Renderer | Build Script / Command |
 |---|---|---|---|
-| **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./compile_linux.sh` |
+| **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./compile_linux.sh` (Ubuntu 22.04 recommended for portable builds) |
 | **Linux (32-bit x86 / i686)** | `i686-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./build_linux_x86_32.sh` |
 | **Linux (ARM64 / AArch64)** | `aarch64-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./build_linux_arm64.sh` |
 | **Linux (ARMv7 32-bit HF)** | `armv7-unknown-linux-gnueabihf` | Software CPU (Rayon) / Vulkan | `./build_linux_armv7.sh` |
@@ -61,9 +61,26 @@ RustCraft separates core engine capabilities from gameplay logic, providing huma
 * **Crash Reporter & Sentry Telemetry (`src/core/crash_reporter.rs`)**:
   Integrated panic handler capturing thread registers, stack backtraces, OS/hardware telemetry, logger ring-buffer breadcrumbs, and active world state. Generates local crash reports and supports direct telemetry upload to Sentry via `--sentry-dsn <DSN>` or `SENTRY_DSN` env var.
 * **Multiplayer Networking (`src/net/`)**:
-  Client-server voxel synchronization protocol over UDP, entity interpolation, chat messaging, and automatic LAN server discovery.
+  Client-server voxel synchronization protocol over TCP, entity interpolation, chat messaging, automatic LAN discovery, and an optional self-hosted CG-NAT relay.
 * **CLI Argument Parser (`src/cli.rs`)**:
-  Parses `--renderer software|vulkan`, `--seed <NUMBER>`, `--profiler`, `--autotest`, `-log`, `--server`, `--port <PORT>`, `--connect <ADDR>`, `--sentry-dsn <DSN>`, `--no-sentry`, `--crash-test`, and `--help` flags with cryptographically-strong random seed generation via `getrandom`.
+  Parses `--renderer software|vulkan`, `--seed <NUMBER>`, `--profiler`, `--autotest`, `-log`, `--server`, `--relay-server`, `--relay-port <PORT>`, `--port <PORT>`, `--connect <ADDR>`, `--sentry-dsn <DSN>`, `--no-sentry`, `--crash-test`, and `--help` flags with cryptographically-strong random seed generation via `getrandom`.
+
+---
+
+## Multiplayer over CG-NAT
+
+The in-game **Host this world online** action starts a server for the current save and creates an outbound connection to a RustCraft relay. This lets invited players join without opening a port on the host's router. Guests enter the generated `relay://host:port/code` invite in the multiplayer address field.
+
+The relay is a small TCP forwarder and does not store world data. Build and run it on a public VPS:
+
+```bash
+cargo build --release
+./target/release/rustcraft --relay-server --relay-port 26657
+```
+
+Allow inbound TCP port `26657` in the VPS firewall. On desktop, copy `relay.properties.example` to `relay.properties` and set `relay-address` to the VPS hostname and port, or set `RUSTCRAFT_RELAY_ADDR`. For Android builds, embed the address with `RUSTCRAFT_RELAY_ADDR=relay.example.com:26657 ./build_android.sh`; alternatively place `relay.properties` in the app's internal files directory. The relay address is included in each invite, so guests do not need a separate relay configuration.
+
+**Security:** Game traffic through the relay is end-to-end encrypted with ChaCha20-Poly1305. The invitation includes a separate random secret that is never sent to the relay; the relay sees only the room ID and routing metadata. Keep the invite private. Direct connections that do not use `relay://` retain the existing unencrypted TCP behavior.
 
 ---
 
@@ -98,6 +115,13 @@ RustCraft separates core engine capabilities from gameplay logic, providing huma
 # Or run directly via Cargo:
 cargo run --release
 ```
+
+Linux x86_64 release builds use the generic x86-64 CPU baseline rather than
+the build computer's CPU features. For compatibility with older distributions,
+build on Ubuntu 22.04 or use the Linux x86_64 artifact from CI. The executable
+still uses the host's glibc and desktop graphics/audio/udev libraries; it is
+not a fully static binary. Sentry HTTPS uses Rustls, avoiding a runtime
+dependency on OpenSSL shared libraries.
 
 To run with the hardware-accelerated Vulkan renderer:
 ```bash
@@ -425,7 +449,8 @@ rustcraft/
 │   ├── net/                    # Multiplayer networking & LAN discovery
 │   │   ├── protocol.rs         # Binary packet serialization & voxel delta sync
 │   │   ├── client.rs           # Multiplayer network client & prediction
-│   │   ├── server.rs           # Dedicated server simulation & player state
+│   │   ├── server.rs           # Dedicated and embedded server state
+│   │   ├── relay.rs            # Self-hosted reverse TCP relay
 │   │   └── discovery.rs        # UDP LAN server discovery & broadcast
 │   ├── engine/                 # Modular engine subsystems
 │   │   ├── mod.rs              # EngineApp trait & subsystem re-exports

@@ -20,7 +20,7 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
 | **Soundtrack / Music** | `src/audio/soundtrack.rs` | Streaming background music player (OGG/Opus) with category shuffle and UI toast notifications. |
 | **Audio Platform Backend** | `src/audio/backend/` | Implement `AudioBackend` trait with ring buffer / hardware output stream. |
 | **Crash Reporter & Sentry** | `src/core/crash_reporter.rs`, `src/cli.rs` | Global panic hook, dumps system state/breadcrumbs, optional Sentry upload. |
-| **Multiplayer / Networking** | `src/net/` (`protocol.rs`, `server.rs`, `client.rs`) | UDP packet serialization, entity sync, mod exchange, LAN broadcast discovery. |
+| **Multiplayer / Networking** | `src/net/` (`protocol.rs`, `server.rs`, `client.rs`, `relay.rs`) | TCP packet serialization, entity sync, mod exchange, LAN discovery, and reverse relay hosting. |
 | **New Graphics Backend** | `src/graphics/traits.rs`, `src/graphics/gpu/` | Implement `RenderBackend` trait. |
 | **Platform / OS Input Hook** | `src/platform/` (`android.rs`, `xbox360.rs`, `mouse_capture.rs`) | Keep OS-specific code guarded by `#[cfg(target_os = ...)]`. |
 
@@ -160,4 +160,3 @@ When facing crashes or bugs, use this quick reference to solve issues without wa
   WGPU_BACKEND=gl cargo run --release
   WGPU_BACKEND=vulkan cargo run --release
   ```
-

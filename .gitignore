@@ -27,5 +27,6 @@ __pycache__/
 *.pyc
 *.log
 logs/
+relay.properties
 crash-reports/
 RustCraft-Xbox360.zip

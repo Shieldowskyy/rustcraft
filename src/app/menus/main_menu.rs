@@ -345,7 +345,14 @@ impl RustCraftApp {
                 self.renderer.draw_main_menu(None, &self.settings.nickname, false, self.is_gamepad_active, splash_text, self.total_time);
             }
             PreviousMenu::Paused => {
-                self.renderer.draw_pause_menu(self.fly_mode, None, self.is_gamepad_active);
+                self.renderer.draw_pause_menu(
+                    self.fly_mode,
+                    None,
+                    self.is_gamepad_active,
+                    !self.is_multiplayer || self.is_hosting_multiplayer,
+                    self.is_hosting_multiplayer,
+                    self.multiplayer_status.as_deref(),
+                );
             }
             PreviousMenu::Settings => {
                 let server_ip = self.profiler_server.as_ref().map(|s| s.ip_address.as_str()).unwrap_or("127.0.0.1");

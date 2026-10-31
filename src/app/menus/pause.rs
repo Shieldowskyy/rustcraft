@@ -84,7 +84,7 @@ impl RustCraftApp {
 
         if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
             let next = match self.pause_hovered_btn {
-                Some(0) | None => 4,
+                Some(0) | None => 5,
                 Some(i) => i - 1,
             };
             self.pause_hovered_btn = Some(next);
@@ -92,7 +92,7 @@ impl RustCraftApp {
         }
         if input.gp_dpad_down_just_pressed || (down_arrow_down && !self.prev_down_arrow_down) {
             let next = match self.pause_hovered_btn {
-                Some(4) | None => 0,
+                Some(5) | None => 0,
                 Some(i) => i + 1,
             };
             self.pause_hovered_btn = Some(next);
@@ -125,12 +125,38 @@ impl RustCraftApp {
                     crate::log_info!("PLAYER", "Flight mode toggled to: {}", self.fly_mode);
                 }
                 3 => {
+                    if self.is_hosting_multiplayer {
+                        if let Some(client) = &mut self.net_client {
+                            client.disconnect();
+                        }
+                        self.stop_host_multiplayer();
+                        self.is_multiplayer = false;
+                        self.multiplayer_status = Some("Hosting stopped".to_string());
+                    } else if !self.is_multiplayer {
+                        match self.start_host_multiplayer() {
+                            Ok(()) => {
+                                crate::log_info!("NETWORK", "Started hosting the current world");
+                            }
+                            Err(error) => {
+                                self.multiplayer_status = Some(error.clone());
+                                crate::log_error!("NETWORK", "Could not host current world: {}", error);
+                            }
+                        }
+                    }
+                }
+                4 => {
                     if self.is_multiplayer {
                         if let Some(client) = &mut self.net_client {
                             client.disconnect();
                         }
-                        self.net_client = None;
+                        let was_hosting = self.is_hosting_multiplayer;
+                        self.stop_host_multiplayer();
                         self.is_multiplayer = false;
+                        if was_hosting {
+                            let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
+                            crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
+                            self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
+                        }
                     } else {
                         let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                         crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
@@ -140,13 +166,18 @@ impl RustCraftApp {
                     out.request_release_mouse = true;
                     crate::log_info!("STATE", "Returned to Main Menu from pause menu");
                 }
-                4 => {
+                5 => {
                     if self.is_multiplayer {
                         if let Some(client) = &mut self.net_client {
                             client.disconnect();
                         }
-                        self.net_client = None;
+                        let was_hosting = self.is_hosting_multiplayer;
+                        self.stop_host_multiplayer();
                         self.is_multiplayer = false;
+                        if was_hosting {
+                            let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
+                            crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
+                        }
                     } else {
                         let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
                         crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
@@ -169,12 +200,26 @@ impl RustCraftApp {
             crate::log_info!("PLAYER", "Flight mode toggled to: {}", self.fly_mode);
         }
         if q_down && !self.prev_q_down {
+            if self.is_hosting_multiplayer {
+                if let Some(client) = &mut self.net_client {
+                    client.disconnect();
+                }
+                self.stop_host_multiplayer();
+                self.is_multiplayer = false;
+            }
             let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
             crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
             out.quit_requested = true;
             crate::log_info!("STATE", "Saved and quitting game via shortcut");
         }
         if m_down && !self.prev_m_down {
+            if self.is_hosting_multiplayer {
+                if let Some(client) = &mut self.net_client {
+                    client.disconnect();
+                }
+                self.stop_host_multiplayer();
+                self.is_multiplayer = false;
+            }
             let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
             crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
             self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
@@ -193,7 +238,14 @@ impl RustCraftApp {
         {
             self.renderer.color_buffer.fill(0x0C0C10);
         }
-        self.renderer.draw_pause_menu(self.fly_mode, hovered_idx, self.is_gamepad_active);
+        self.renderer.draw_pause_menu(
+            self.fly_mode,
+            hovered_idx,
+            self.is_gamepad_active,
+            !self.is_multiplayer || self.is_hosting_multiplayer,
+            self.is_hosting_multiplayer,
+            self.multiplayer_status.as_deref(),
+        );
 
         if let Some(ref server) = self.profiler_server {
             let mut cur_profiler = FrameProfiler::default();

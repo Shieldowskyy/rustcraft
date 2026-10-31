@@ -60,7 +60,7 @@ The codebase is organized into isolated, single-responsibility modules to maximi
 * **`profiler_server.rs`**: Embedded zero-dependency micro HTTP server. Hosts a live JSON API (`/api/profiler`) and HTML dashboard for real-time frame telemetry (`ProfilerSnapshot`): granular micro-timings for terrain render, transparent pass, clouds, sky, entity render, 3D hand, UI, physics tick, mob AI, world gen, mesh building. Configurable TCP port.
 
 ### `src/cli.rs` (Command-Line Interface)
-* Parses `--renderer software|vulkan`, `--seed <NUMBER>`, `--profiler`, `--autotest`, `-log`, `--server`, `--port <PORT>`, `--connect <ADDR>`, `--sentry-dsn <DSN>`, `--no-sentry`, `--crash-test`, and `--help` flags.
+* Parses `--renderer software|vulkan`, `--seed <NUMBER>`, `--profiler`, `--autotest`, `-log`, `--server`, `--relay-server`, `--relay-port <PORT>`, `--port <PORT>`, `--connect <ADDR>`, `--sentry-dsn <DSN>`, `--no-sentry`, `--crash-test`, and `--help` flags.
 * `generate_random_seed()`: Cryptographically strong 32-bit seed via `getrandom`, falling back to subsecond clock entropy.
 
 ### `src/platform/` (Platform & OS Abstractions)
@@ -93,7 +93,8 @@ The codebase is organized into isolated, single-responsibility modules to maximi
 
 ### `src/net/` (Multiplayer Networking)
 * **`protocol.rs`**: Compact binary packet serialization over UDP for player positions, yaw/pitch models, voxel updates, combat hits, chat, mod definition exchange (`ServerPacket::ModSync`), and player health.
-* **`server.rs`**: Dedicated authoritative multiplayer server, chunk broadcasting, world state simulation, and player synchronization.
+* **`server.rs`**: Dedicated and in-game authoritative multiplayer servers, world state synchronization, and player synchronization.
+* **`relay.rs`**: Room-based reverse TCP relay for hosts behind NAT; guest game streams are paired with outbound host connections.
 * **`client.rs`**: Multiplayer network client with client-side prediction, delta reconciliation, and server packet ingestion.
 * **`discovery.rs`**: Zero-configuration LAN server discovery using UDP broadcast beacons.
 

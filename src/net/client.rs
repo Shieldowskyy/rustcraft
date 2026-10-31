@@ -81,14 +81,21 @@ pub struct NetworkClient {
 
 impl NetworkClient {
     pub fn connect(server_addr_str: &str, nickname: &str) -> Result<Self, String> {
-        let addr = server_addr_str
-            .to_socket_addrs()
-            .map_err(|e| format!("Invalid server address '{}': {}", server_addr_str, e))?
-            .next()
-            .ok_or_else(|| format!("Could not resolve address '{}'", server_addr_str))?;
+        let stream = if let Some(invite) = server_addr_str.strip_prefix("relay://") {
+            let (relay_addr, room_code) = invite
+                .rsplit_once('/')
+                .ok_or_else(|| "Relay address must be relay://host:port/invitation-code".to_string())?;
+            crate::net::connect_relay_guest(relay_addr, room_code)?
+        } else {
+            let addr = server_addr_str
+                .to_socket_addrs()
+                .map_err(|e| format!("Invalid server address '{}': {}", server_addr_str, e))?
+                .next()
+                .ok_or_else(|| format!("Could not resolve address '{}'", server_addr_str))?;
 
-        let stream = TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(4))
-            .map_err(|e| format!("Failed to connect to {}: {}", addr, e))?;
+            TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(4))
+                .map_err(|e| format!("Failed to connect to {}: {}", addr, e))?
+        };
 
         let _ = stream.set_nonblocking(true);
         let _ = stream.set_nodelay(true);

@@ -1,6 +1,6 @@
 //! Command-line argument parsing and random seed generation for RustCraft.
 
-const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan|opengl] [--seed NUMBER] [--profiler] [--autotest] [-log] [--server] [--port PORT] [--connect ADDR] [--sentry-dsn DSN] [--no-sentry] [--crash-test] [--max-ram SIZE] [--hard-ram-limit]";
+const USAGE: &str = "Usage: rustcraft [--renderer software|vulkan|opengl] [--seed NUMBER] [--profiler] [--autotest] [-log] [--server] [--relay-server] [--relay-port PORT] [--port PORT] [--connect ADDR] [--sentry-dsn DSN] [--no-sentry] [--crash-test] [--max-ram SIZE] [--hard-ram-limit]";
 
 /// Parses command-line arguments to determine the desired rendering backend.
 ///
@@ -40,6 +40,8 @@ pub fn parse_renderer_choice_from_args(args: &[String]) -> &'static str {
             "--autotest" => {},
             "-log" | "--log" => {},
             "--server" => {},
+            "--relay-server" => {},
+            "--relay-port" => index += 1,
             "--port" => index += 1,
             "--connect" => index += 1,
             "--sentry-dsn" => index += 1,
@@ -85,6 +87,26 @@ pub fn parse_log_enabled() -> bool {
 /// Parses whether the `--server` CLI flag was specified to run a dedicated multiplayer server.
 pub fn parse_server_mode() -> bool {
     std::env::args().any(|arg| arg == "--server")
+}
+
+/// Parses whether to run the public TCP relay service.
+pub fn parse_relay_server_mode() -> bool {
+    std::env::args().any(|arg| arg == "--relay-server")
+}
+
+/// Parses the optional `--relay-port <PORT>` flag, defaulting to 26657.
+pub fn parse_relay_server_port() -> u16 {
+    let args: Vec<String> = std::env::args().collect();
+    for i in 1..args.len() {
+        if args[i] == "--relay-port" {
+            if let Some(val) = args.get(i + 1) {
+                if let Ok(port) = val.parse::<u16>() {
+                    return port;
+                }
+            }
+        }
+    }
+    26657
 }
 
 /// Parses the optional `--port <PORT>` CLI flag for the dedicated multiplayer server,

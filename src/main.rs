@@ -62,6 +62,16 @@ fn main() {
         panic!("RustCraft intentional crash test via --crash-test CLI flag");
     }
 
+    if rustcraft::cli::parse_relay_server_mode() {
+        let port = rustcraft::cli::parse_relay_server_port();
+        let bind_addr = format!("0.0.0.0:{port}");
+        if let Err(error) = rustcraft::net::run_relay_server(&bind_addr) {
+            eprintln!("Failed to start RustCraft relay: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     if rustcraft::cli::parse_server_mode() {
         let port = rustcraft::cli::parse_server_port();
         let seed = parse_seed();
@@ -108,7 +118,11 @@ fn main() {
     app.profiler_enabled = profiler_enabled;
 
     if let Some(connect_addr) = rustcraft::cli::parse_connect_addr() {
-        rustcraft::log_info!("MAIN", "Auto-connecting to multiplayer server: {}", connect_addr);
+        rustcraft::log_info!(
+            "MAIN",
+            "Auto-connecting to multiplayer server: {}",
+            rustcraft::net::redact_invite_address(&connect_addr)
+        );
         app.connect_to_server(&connect_addr);
     }
     let mut gamepad_mgr = GamepadManager::new();

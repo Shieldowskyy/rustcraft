@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{self, channel, Receiver};
 use std::sync::Arc;
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::net::protocol::*;
@@ -208,7 +209,11 @@ pub fn bind_server_listener(preferred_port: u16) -> Result<(TcpListener, u16), S
         match TcpListener::bind(("0.0.0.0", port)) {
             Ok(listener) => {
                 let _ = listener.set_nonblocking(true);
-                return Ok((listener, port));
+                let bound_port = listener
+                    .local_addr()
+                    .map_err(|e| format!("Could not determine bound server port: {e}"))?
+                    .port();
+                return Ok((listener, bound_port));
             }
             Err(err) => {
                 if port == preferred_port {
@@ -221,8 +226,74 @@ pub fn bind_server_listener(preferred_port: u16) -> Result<(TcpListener, u16), S
     Err(format!("Could not bind to any port in range {}-{}", preferred_port, max_port))
 }
 
+#[derive(Clone)]
+pub struct EmbeddedServerState {
+    pub seed: u32,
+    pub time_of_day: f32,
+    pub spawn_pos: (f32, f32, f32),
+    pub blocks: Vec<(i32, i32, i32, u8)>,
+}
+
+pub struct EmbeddedServer {
+    pub port: u16,
+    running: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl EmbeddedServer {
+    pub fn start(preferred_port: u16, state: EmbeddedServerState) -> Result<Self, String> {
+        let running = Arc::new(AtomicBool::new(true));
+        let thread_running = Arc::clone(&running);
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+        let thread = thread::Builder::new()
+            .name("rustcraft-embedded-server".to_string())
+            .spawn(move || {
+                run_server(preferred_port, state.seed, Some(state), true, thread_running, Some(ready_tx));
+            })
+            .map_err(|e| format!("Could not start the multiplayer server: {e}"))?;
+
+        match ready_rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(Ok(port)) => Ok(Self {
+                port,
+                running,
+                thread: Some(thread),
+            }),
+            Ok(Err(error)) => {
+                let _ = thread.join();
+                Err(error)
+            }
+            Err(error) => {
+                running.store(false, Ordering::Release);
+                let _ = thread.join();
+                Err(format!("Multiplayer server did not start: {error}"))
+            }
+        }
+    }
+}
+
+impl Drop for EmbeddedServer {
+    fn drop(&mut self) {
+        self.running.store(false, Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
 /// Dedicated server entrypoint, invoked when rustcraft is started with `--server`.
 pub fn run_dedicated_server(preferred_port: u16, seed: u32) {
+    let running = Arc::new(AtomicBool::new(true));
+    run_server(preferred_port, seed, None, false, running, None);
+}
+
+fn run_server(
+    preferred_port: u16,
+    seed: u32,
+    embedded_state: Option<EmbeddedServerState>,
+    embedded: bool,
+    running: Arc<AtomicBool>,
+    ready: Option<mpsc::SyncSender<Result<u16, String>>>,
+) {
     let mut config = ServerConfig::load_or_create("server.properties");
     if preferred_port != DEFAULT_SERVER_PORT {
         config.server_port = preferred_port;
@@ -230,10 +301,16 @@ pub fn run_dedicated_server(preferred_port: u16, seed: u32) {
     if seed != 0 {
         config.level_seed = seed;
     }
+    if let Some(state) = embedded_state.as_ref() {
+        config.level_seed = state.seed;
+        config.spawn_pos = state.spawn_pos;
+    }
 
-    let logs_dir = std::env::var("RUSTCRAFT_LOGS_DIR").unwrap_or_else(|_| config.logs_dir.clone());
-    let max_log_size_bytes = config.max_log_size_mb * 1024 * 1024;
-    let _ = crate::net::server_log::init_server_logger_with_max_size(&logs_dir, max_log_size_bytes);
+    if !embedded {
+        let logs_dir = std::env::var("RUSTCRAFT_LOGS_DIR").unwrap_or_else(|_| config.logs_dir.clone());
+        let max_log_size_bytes = config.max_log_size_mb * 1024 * 1024;
+        let _ = crate::net::server_log::init_server_logger_with_max_size(&logs_dir, max_log_size_bytes);
+    }
 
     println!("============================================================");
     println!("           RustCraft Dedicated Multiplayer Server           ");
@@ -243,9 +320,19 @@ pub fn run_dedicated_server(preferred_port: u16, seed: u32) {
         Ok(res) => res,
         Err(err) => {
             eprintln!("[SERVER] FATAL: {}", err);
+            if let Some(ready) = ready {
+                let _ = ready.send(Err(err));
+                return;
+            }
             std::process::exit(1);
         }
     };
+
+    if let Some(ready) = ready {
+        if ready.send(Ok(port)).is_err() {
+            return;
+        }
+    }
 
     println!("[SERVER] Successfully bound to 0.0.0.0:{}", port);
     println!("[SERVER] World Seed: {}", config.level_seed);
@@ -258,29 +345,36 @@ pub fn run_dedicated_server(preferred_port: u16, seed: u32) {
 
     // Spawn terminal input reader thread
     let (cmd_tx, cmd_rx): (std::sync::mpsc::Sender<String>, Receiver<String>) = channel();
-    let running = Arc::new(AtomicBool::new(true));
-    let r_clone = running.clone();
-
-    std::thread::spawn(move || {
-        let stdin = std::io::stdin();
-        let mut line = String::new();
-        while r_clone.load(Ordering::Relaxed) {
-            line.clear();
-            if stdin.read_line(&mut line).is_ok() {
-                let trimmed = line.trim().to_string();
-                if !trimmed.is_empty() {
-                    let _ = cmd_tx.send(trimmed);
+    if !embedded {
+        let r_clone = Arc::clone(&running);
+        std::thread::spawn(move || {
+            let stdin = std::io::stdin();
+            let mut line = String::new();
+            while r_clone.load(Ordering::Relaxed) {
+                line.clear();
+                if stdin.read_line(&mut line).is_ok() {
+                    let trimmed = line.trim().to_string();
+                    if !trimmed.is_empty() {
+                        let _ = cmd_tx.send(trimmed);
+                    }
+                } else {
+                    break;
                 }
-            } else {
-                break;
             }
-        }
-    });
+        });
+    } else {
+        drop(cmd_tx);
+    }
 
     let mut clients: HashMap<u32, ConnectedClient> = HashMap::new();
     let mut next_client_id: u32 = 1;
-    let mut modified_blocks: HashMap<(i32, i32, i32), u8> = HashMap::new();
-    let mut time_of_day: f32 = 120.0;
+    let mut modified_blocks: HashMap<(i32, i32, i32), u8> = embedded_state
+        .as_ref()
+        .map(|state| state.blocks.iter().map(|&(x, y, z, block)| ((x, y, z), block)).collect())
+        .unwrap_or_default();
+    let mut time_of_day = embedded_state
+        .as_ref()
+        .map_or(120.0, |state| state.time_of_day);
     let spawn_pos = config.spawn_pos;
 
     let mut recipe_book = crate::gameplay::recipe::RecipeBook::new();
@@ -634,7 +728,9 @@ pub fn run_dedicated_server(preferred_port: u16, seed: u32) {
         });
     }
     println!("[SERVER] Goodbye!");
-    crate::net::server_log::shutdown_server_logger();
+    if !embedded {
+        crate::net::server_log::shutdown_server_logger();
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1014,6 +1110,51 @@ fn handle_in_game_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn embedded_server_uses_world_snapshot_and_stops_cleanly() {
+        let server = EmbeddedServer::start(
+            0,
+            EmbeddedServerState {
+                seed: 98765,
+                time_of_day: 42.0,
+                spawn_pos: (3.5, 65.0, -2.5),
+                blocks: vec![(3, 10, -2, crate::world::BlockId::Stone.to_u8())],
+            },
+        )
+        .unwrap();
+        let mut client = crate::net::NetworkClient::connect(
+            &format!("127.0.0.1:{}", server.port),
+            "Host",
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut connected = None;
+        while Instant::now() < deadline {
+            for event in client.update(0.05) {
+                if let crate::net::NetworkEvent::Connected {
+                    seed,
+                    time_of_day,
+                    modified_blocks,
+                    ..
+                } = event
+                {
+                    connected = Some((seed, time_of_day, modified_blocks));
+                }
+            }
+            if connected.is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let (seed, time_of_day, modified_blocks) = connected.expect("host client should log in");
+        assert_eq!(seed, 98765);
+        assert_eq!(time_of_day, 42.0);
+        assert_eq!(modified_blocks, vec![(3, 10, -2, crate::world::BlockId::Stone.to_u8())]);
+        client.disconnect();
+        drop(server);
+    }
 
     #[test]
     fn test_server_config_defaults_and_parse() {

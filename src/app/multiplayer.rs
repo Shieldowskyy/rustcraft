@@ -2,7 +2,8 @@ use crate::core::math::{IVec3, Vec3};
 use crate::gameplay::physics::ray_aabb_intersect;
 use crate::gameplay::player::GameMode;
 use crate::world::block::BlockId;
-use crate::world::World;
+use crate::world::{Chunk, World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use super::{AppOutput, GameState, InputState, RustCraftApp};
 
 impl RustCraftApp {
@@ -115,7 +116,7 @@ impl RustCraftApp {
                         self.settings.nickname.push(ch);
                     }
                 } else {
-                    if self.multiplayer_server_addr.len() < 48 && (ch.is_ascii() && !ch.is_whitespace()) {
+                    if self.multiplayer_server_addr.len() < 256 && (ch.is_ascii() && !ch.is_whitespace()) {
                         self.multiplayer_server_addr.push(ch);
                     }
                 }
@@ -146,10 +147,12 @@ impl RustCraftApp {
             _ => unreachable!(),
         };
         if start_time.elapsed() > std::time::Duration::from_secs(6) {
+            let was_hosting = self.is_hosting_multiplayer;
             self.multiplayer_status = Some("Connection timed out (no response from server)".to_string());
             self.multiplayer_is_connecting = false;
             self.net_client = None;
-            self.state = GameState::MultiplayerMenu;
+            self.stop_host_multiplayer();
+            self.state = if was_hosting { GameState::Paused } else { GameState::MultiplayerMenu };
             crate::log_warn!("NETWORK", "Connection to {} timed out", server_addr);
         } else if let Some(client) = &mut self.net_client {
             let events = client.update(dt);
@@ -191,26 +194,35 @@ impl RustCraftApp {
                     "Connected! Assigned Player ID: {}, World Seed: {}, Spawn: ({:.1}, {:.1}, {:.1})",
                     player_id, seed, spawn_x, spawn_y, spawn_z
                 );
-                self.seed = seed;
-                self.world = World::new_with_seed(seed);
-                self.world.player_position = Vec3::new(spawn_x, spawn_y, spawn_z);
-                self.camera.position = Vec3::new(spawn_x, spawn_y, spawn_z);
-                self.world.time_of_day = time_of_day;
-                for (bx, by, bz, blk) in modified_blocks {
-                    self.world.set_block(IVec3::new(bx, by, bz), BlockId::from_u8(blk));
+                if self.is_hosting_multiplayer {
+                    self.world.time_of_day = time_of_day;
+                } else {
+                    self.seed = seed;
+                    self.world = World::new_with_seed(seed);
+                    self.world.player_position = Vec3::new(spawn_x, spawn_y, spawn_z);
+                    self.camera.position = Vec3::new(spawn_x, spawn_y, spawn_z);
+                    self.world.time_of_day = time_of_day;
+                    for (bx, by, bz, blk) in modified_blocks {
+                        self.world.set_network_block(IVec3::new(bx, by, bz), BlockId::from_u8(blk));
+                    }
+                    self.player.reset(GameMode::Survival);
                 }
-                self.player.reset(GameMode::Survival);
                 self.is_multiplayer = true;
                 self.multiplayer_is_connecting = false;
-                self.multiplayer_status = None;
+                self.multiplayer_status = self.multiplayer_invite.as_ref().map(|invite| format!("Invite: {invite}"));
                 self.chat.add_message(format!("[Server] Connected to multiplayer server as {}", self.settings.nickname), crate::ui::pack_color(1.0, 1.0, 0.4));
+                if let Some(invite) = &self.multiplayer_invite {
+                    self.chat.add_message(format!("[Relay] Share this invite: {invite}"), crate::ui::pack_color(0.35, 0.9, 1.0));
+                }
                 self.state = GameState::Playing;
                 out.request_capture_mouse = true;
             } else if let Some(err) = disconnected_err {
+                let was_hosting = self.is_hosting_multiplayer;
                 self.multiplayer_status = Some(err);
                 self.multiplayer_is_connecting = false;
                 self.net_client = None;
-                self.state = GameState::MultiplayerMenu;
+                self.stop_host_multiplayer();
+                self.state = if was_hosting { GameState::Paused } else { GameState::MultiplayerMenu };
             }
         }
 
@@ -230,18 +242,19 @@ impl RustCraftApp {
     pub fn start_multiplayer_connect(&mut self) {
         self.multiplayer_status = Some("Connecting to server...".to_string());
         self.multiplayer_is_connecting = true;
+        let display_addr = crate::net::redact_invite_address(&self.multiplayer_server_addr);
         match crate::net::NetworkClient::connect(&self.multiplayer_server_addr, &self.settings.nickname) {
             Ok(client) => {
                 let _ = self.settings.save();
                 self.net_client = Some(client);
                 self.state = GameState::MultiplayerConnecting {
-                    server_addr: self.multiplayer_server_addr.clone(),
+                    server_addr: display_addr.clone(),
                     start_time: std::time::Instant::now(),
                 };
                 crate::log_info!(
                     "NETWORK",
                     "Connecting to {} as '{}'...",
-                    self.multiplayer_server_addr,
+                    display_addr,
                     self.settings.nickname
                 );
             }
@@ -261,6 +274,54 @@ impl RustCraftApp {
     pub fn connect_to_server(&mut self, addr: &str) {
         self.multiplayer_server_addr = addr.to_string();
         self.start_multiplayer_connect();
+    }
+
+    pub fn start_host_multiplayer(&mut self) -> Result<(), String> {
+        if self.is_multiplayer || self.embedded_server.is_some() {
+            return Err("This world is already in a multiplayer session".to_string());
+        }
+        let relay_addr = configured_relay_address()?;
+        let room_code = crate::net::generate_room_code()?;
+        let spawn = self.camera.position;
+        let server = crate::net::EmbeddedServer::start(
+            crate::net::DEFAULT_SERVER_PORT,
+            crate::net::EmbeddedServerState {
+                seed: self.world.seed,
+                time_of_day: self.world.time_of_day,
+                spawn_pos: (spawn.x, spawn.y, spawn.z),
+                blocks: snapshot_world_changes(&self.world),
+            },
+        )?;
+        let local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server.port);
+        let relay = crate::net::ReverseTunnelHost::connect(
+            &relay_addr,
+            room_code.clone(),
+            local_addr,
+        )?;
+        let invite = crate::net::invite_address(&relay_addr, &room_code)?;
+        let server_addr = format!("127.0.0.1:{}", server.port);
+        let client = crate::net::NetworkClient::connect(&server_addr, &self.settings.nickname)?;
+
+        self.net_client = Some(client);
+        self.embedded_server = Some(server);
+        self.relay_host = Some(relay);
+        self.multiplayer_invite = Some(invite);
+        self.is_hosting_multiplayer = true;
+        self.multiplayer_status = Some("Starting hosted multiplayer session...".to_string());
+        self.multiplayer_is_connecting = true;
+        self.state = GameState::MultiplayerConnecting {
+            server_addr,
+            start_time: std::time::Instant::now(),
+        };
+        Ok(())
+    }
+
+    pub(crate) fn stop_host_multiplayer(&mut self) {
+        self.net_client = None;
+        self.relay_host = None;
+        self.embedded_server = None;
+        self.is_hosting_multiplayer = false;
+        self.multiplayer_invite = None;
     }
 
     /// Automatically synchronizes and downloads server mods (Source engine style).
@@ -288,6 +349,7 @@ impl RustCraftApp {
                     crate::log_error!("MODS", "Failed to save downloaded mod '{}': {}", m.mod_id, err);
                     continue;
                 }
+
                 crate::log_info!("MODS", "Saved downloaded server mod '{}' to '{}'", m.mod_id, manifest_path.display());
             }
 
@@ -305,6 +367,7 @@ impl RustCraftApp {
                     crate::log_warn!("MODS", "Failed to register synchronized mod '{}': {}", m.mod_id, err);
                 }
             }
+
         }
 
         if installed_count > 0 {
@@ -342,4 +405,63 @@ impl RustCraftApp {
 
         closest_hit.map(|(id, t)| (id, origin + dir * t))
     }
+}
+
+fn configured_relay_address() -> Result<String, String> {
+    if let Ok(address) = std::env::var("RUSTCRAFT_RELAY_ADDR") {
+        if !address.trim().is_empty() {
+            return Ok(address.trim().to_string());
+        }
+    }
+    if let Some(address) = option_env!("RUSTCRAFT_RELAY_ADDR") {
+        if !address.trim().is_empty() {
+            return Ok(address.trim().to_string());
+        }
+    }
+    #[cfg(target_os = "android")]
+    let config_path = crate::world::storage::app_files_dir().join("relay.properties");
+    #[cfg(not(target_os = "android"))]
+    let config_path = std::path::PathBuf::from("relay.properties");
+
+    match std::fs::read_to_string(&config_path) {
+        Ok(contents) => contents
+            .lines()
+            .find_map(|line| {
+                let line = line.trim();
+                (!line.is_empty() && !line.starts_with('#'))
+                    .then(|| line.strip_prefix("relay-address="))
+                    .flatten()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            })
+            .ok_or_else(|| relay_address_configuration_error(&config_path)),
+        Err(_) => Err(relay_address_configuration_error(&config_path)),
+    }
+}
+
+fn relay_address_configuration_error(config_path: &std::path::Path) -> String {
+    format!(
+        "Set RUSTCRAFT_RELAY_ADDR at runtime or build time, or add relay-address=host:26657 to {}",
+        config_path.display()
+    )
+}
+
+fn snapshot_world_changes(world: &World) -> Vec<(i32, i32, i32, u8)> {
+    let mut changes = Vec::new();
+    for (&(cx, cz), chunk) in &world.chunks {
+        let generated = Chunk::generate(cx, cz, world.seed);
+        for y in 0..CHUNK_SIZE_Y {
+            for z in 0..CHUNK_SIZE_Z {
+                for x in 0..CHUNK_SIZE_X {
+                    let index = Chunk::index(x, y, z);
+                    let block = chunk.blocks[index];
+                    if block != generated.blocks[index] {
+                        changes.push((cx * CHUNK_SIZE_X + x, y, cz * CHUNK_SIZE_Z + z, block));
+                    }
+                }
+            }
+        }
+    }
+    changes
 }

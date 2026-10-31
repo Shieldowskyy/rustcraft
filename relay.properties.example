@@ -1,0 +1,2 @@
+# Copy this file to relay.properties and set the public hostname/IP of your relay.
+relay-address=relay.example.com:26657
