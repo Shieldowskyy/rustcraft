@@ -2310,7 +2310,9 @@ impl RustCraftApp {
                 self.material_timer += dt;
                 if self.material_timer >= 0.25 {
                     self.material_timer = 0.0;
-                    self.world.simulate_materials(self.camera.position);
+                    let fluid_authority = self.net_client.as_ref()
+                        .map_or(true, |c| !c.is_connected || c.local_id == c.mob_authority_id);
+                    self.world.simulate_materials(self.camera.position, fluid_authority);
                     self.world.tick_farming(self.camera.position, &mut self.mob_manager.rng_state);
                 }
 

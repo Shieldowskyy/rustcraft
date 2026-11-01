@@ -2396,7 +2396,8 @@ impl World {
         }
     }
 
-    pub fn simulate_materials(&mut self, player_pos: Vec3) {
+    /// `authoritative` is false on remote clients, which only receive fluid changes from the host.
+    pub fn simulate_materials(&mut self, player_pos: Vec3, authoritative: bool) {
         self.sim_tick = self.sim_tick.wrapping_add(1);
         let (px, py, pz) = (player_pos.x.floor() as i32, player_pos.y.floor() as i32, player_pos.z.floor() as i32);
         let (min_y, max_y) = ((py - 12).max(1), (py + 8).min(CHUNK_SIZE_Y - 1));
@@ -2427,7 +2428,7 @@ impl World {
                         continue;
                     }
 
-                    if !matches!(block, BlockId::Water | BlockId::Lava) || (block == BlockId::Lava && !sim_lava) {
+                    if !authoritative || !matches!(block, BlockId::Water | BlockId::Lava) || (block == BlockId::Lava && !sim_lava) {
                         continue;
                     }
 
@@ -2471,14 +2472,13 @@ impl World {
         for (pos, stone) in solidifications { self.set_block(pos, stone); }
         for (pos, block, level) in fluid_spawns {
             if self.get_block(pos) == BlockId::Air {
-                // Flow is simulated locally on every peer; levels aren't networked.
-                self.set_block_inner(pos, block, false);
+                self.set_block(pos, block);
                 self.set_fluid_level(pos, level);
             }
         }
         for pos in fluid_despawns {
             if matches!(self.get_block(pos), BlockId::Water | BlockId::Lava) && self.fluid_level(pos) < 8 {
-                self.set_block_inner(pos, BlockId::Air, false);
+                self.set_block(pos, BlockId::Air);
             }
         }
 
@@ -2800,7 +2800,7 @@ mod tests {
             world.set_fluid_level(source, 4);
 
             for _ in 0..ticks {
-                world.simulate_materials(Vec3::new(8.5, 48.0, 8.5));
+                world.simulate_materials(Vec3::new(8.5, 48.0, 8.5), true);
             }
 
             let below = IVec3::new(source.x, source.y - 1, source.z);
