@@ -407,7 +407,11 @@ impl RustCraftApp {
                     self.player.head_underwater = false;
                     self.drown_damage_timer = 0.0;
                     let spawn_pos = if let Some(sp) = self.player.spawn_point {
-                        Vec3::new(sp.x as f32 + 0.5, sp.y as f32 + 1.0, sp.z as f32 + 0.5)
+                        Vec3::new(
+                            sp.x as f32 + 0.5,
+                            sp.y as f32 + 1.0 + crate::gameplay::physics::STANDING_EYE_OFFSET,
+                            sp.z as f32 + 0.5,
+                        )
                     } else {
                         self.world.player_position
                     };
