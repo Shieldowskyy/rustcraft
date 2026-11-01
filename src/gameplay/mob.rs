@@ -1064,6 +1064,13 @@ impl Mob {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub struct MobPlayerContext {
+    pub position: Vec3,
+    pub held_item: Option<BlockId>,
+    pub is_creative: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct MobDrop {
     pub pos: Vec3,
     pub block: BlockId,
@@ -1074,6 +1081,7 @@ pub struct MobManager {
     pub mobs: Vec<Mob>,
     next_mob_id: u32,
     spawn_timer: f32,
+    spawn_center_cursor: usize,
     pub rng_state: u32,
     pub dying_poofs: Vec<Vec3>,
     pub dying_drops: Vec<MobDrop>,
@@ -1090,6 +1098,7 @@ impl MobManager {
             mobs: Vec::new(),
             next_mob_id: 1,
             spawn_timer: 1.0,
+            spawn_center_cursor: 0,
             rng_state: 987654321,
             dying_poofs: Vec::new(),
             dying_drops: Vec::new(),
@@ -1167,6 +1176,33 @@ impl MobManager {
     }
 
     pub fn update(&mut self, dt: f32, world: &World, player_pos: Vec3, player_held: Option<BlockId>, is_creative: bool) {
+        self.update_for_players(
+            dt,
+            world,
+            &[MobPlayerContext {
+                position: player_pos,
+                held_item: player_held,
+                is_creative,
+            }],
+        );
+    }
+
+    pub fn update_for_players(
+        &mut self,
+        dt: f32,
+        world: &World,
+        players: &[MobPlayerContext],
+    ) {
+        let fallback_player = MobPlayerContext {
+            position: Vec3::zero(),
+            held_item: None,
+            is_creative: false,
+        };
+        let players = if players.is_empty() {
+            std::slice::from_ref(&fallback_player)
+        } else {
+            players
+        };
         let mut rng = self.rng_state;
         self.breeding_hearts.clear();
         self.love_hearts.clear();
@@ -1178,6 +1214,28 @@ impl MobManager {
         let mut zombie_attacks = Vec::new();
 
         for (mob_index, mob) in self.mobs.iter_mut().enumerate() {
+            let distance_sq = |player: &&MobPlayerContext| {
+                let dx = player.position.x - mob.pos.x;
+                let dy = player.position.y - mob.pos.y;
+                let dz = player.position.z - mob.pos.z;
+                dx * dx + dy * dy + dz * dz
+            };
+            let nearest_player = players
+                .iter()
+                .filter(|player| !mob.kind.is_hostile() || !player.is_creative)
+                .min_by(|a, b| distance_sq(a).total_cmp(&distance_sq(b)))
+                .or_else(|| {
+                    players
+                        .iter()
+                        .min_by(|a, b| distance_sq(a).total_cmp(&distance_sq(b)))
+                });
+            let target_player = nearest_player
+                .copied()
+                .unwrap_or(fallback_player);
+            let player_pos = target_player.position;
+            let player_held = target_player.held_item;
+            let is_creative = target_player.is_creative;
+
             if mob.kind == MobKind::IronGolem {
                 mob.player_anger_timer = (mob.player_anger_timer - dt).max(0.0);
             }
@@ -1286,9 +1344,15 @@ impl MobManager {
                 }
             }
 
-            let dist_sq = (mob.pos.x - player_pos.x) * (mob.pos.x - player_pos.x)
-                + (mob.pos.z - player_pos.z) * (mob.pos.z - player_pos.z);
-            if dist_sq > 75.0 * 75.0 && !mob.is_dead {
+            let nearest_player_dist_sq = players
+                .iter()
+                .map(|player| {
+                    let dx = mob.pos.x - player.position.x;
+                    let dz = mob.pos.z - player.position.z;
+                    dx * dx + dz * dz
+                })
+                .fold(f32::INFINITY, f32::min);
+            if nearest_player_dist_sq > 75.0 * 75.0 && !mob.is_dead {
                 mob.despawn_pending = true;
             }
         }
@@ -1606,7 +1670,9 @@ impl MobManager {
         if self.spawn_timer <= 0.0 {
             let is_night = world.sunlight_factor() < 0.50;
             self.spawn_timer = if is_night { 2.0 } else { 4.0 };
-            self.try_natural_spawn(world, player_pos, &mut rng);
+            let spawn_player = players[self.spawn_center_cursor % players.len()];
+            self.spawn_center_cursor = self.spawn_center_cursor.wrapping_add(1);
+            self.try_natural_spawn(world, spawn_player.position, &mut rng);
         }
 
         self.rng_state = rng;
@@ -1662,7 +1728,11 @@ impl MobManager {
         let hostile_count = self
             .mobs
             .iter()
-            .filter(|m| m.kind.is_hostile() && !m.is_dead)
+            .filter(|m| {
+                let dx = m.pos.x - player_pos.x;
+                let dz = m.pos.z - player_pos.z;
+                m.kind.is_hostile() && !m.is_dead && dx * dx + dz * dz <= 75.0 * 75.0
+            })
             .count();
 
         if hostile_count >= 14 {
@@ -1776,7 +1846,17 @@ impl MobManager {
             }
 
             if let Some((bot, top)) = water_column {
-                let aquatic_count = self.mobs.iter().filter(|m| m.kind.is_aquatic() && !m.is_dead).count();
+                let aquatic_count = self
+                    .mobs
+                    .iter()
+                    .filter(|mob| {
+                        let dx = mob.pos.x - player_pos.x;
+                        let dz = mob.pos.z - player_pos.z;
+                        mob.kind.is_aquatic()
+                            && !mob.is_dead
+                            && dx * dx + dz * dz <= 75.0 * 75.0
+                    })
+                    .count();
                 if aquatic_count < 14 {
                     let spawn_y = bot as f32 + 0.5 + rand_f32(rng) * ((top - bot) as f32 - 0.5);
                     let roll = rand_f32(rng);
@@ -2030,6 +2110,41 @@ mod tests {
         let zombie = mob_manager.mobs.iter().find(|m| m.id == zombie_id).unwrap();
         let angle_to_player = (player_pos.x - zombie.pos.x).atan2(player_pos.z - zombie.pos.z);
         assert!((zombie.target_yaw - angle_to_player).abs() < 1e-4, "Zombie should target player in Survival mode");
+    }
+
+    #[test]
+    fn distant_player_keeps_nearby_mobs_simulated_and_targeted() {
+        let mut manager = MobManager::new();
+        let world = crate::world::World::new_with_seed(1);
+        let mob_id = manager.spawn_mob(MobKind::Zombie, Vec3::new(100.0, 60.0, 100.0));
+        manager.update_for_players(
+            0.05,
+            &world,
+            &[
+                MobPlayerContext {
+                    position: Vec3::new(0.0, 60.0, 0.0),
+                    held_item: None,
+                    is_creative: false,
+                },
+                MobPlayerContext {
+                    position: Vec3::new(100.0, 60.0, 100.5),
+                    held_item: None,
+                    is_creative: true,
+                },
+                MobPlayerContext {
+                    position: Vec3::new(102.0, 60.0, 100.0),
+                    held_item: None,
+                    is_creative: false,
+                },
+            ],
+        );
+
+        let zombie = manager.mobs.iter().find(|mob| mob.id == mob_id).unwrap();
+        assert!(!zombie.despawn_pending, "mob near the distant player must not despawn");
+        assert!(
+            (zombie.target_yaw - std::f32::consts::FRAC_PI_2).abs() < 1e-4,
+            "hostile mob should target the nearest player"
+        );
     }
 
     #[test]

@@ -2262,7 +2262,41 @@ impl RustCraftApp {
                 let world_time_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
                 self.world.advance_time(dt);
                 let world_update_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
-                self.world.update(self.camera.position, self.settings.render_distance);
+                let local_mob_player = crate::gameplay::mob::MobPlayerContext {
+                    position: self.camera.position,
+                    held_item: self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize]
+                        .map(|stack| stack.block),
+                    is_creative: self.player.gamemode == GameMode::Creative,
+                };
+                let mut mob_players = vec![local_mob_player];
+                let mut remote_mob_centers = Vec::new();
+                if let Some(client) = self.net_client.as_ref() {
+                    if client.is_connected && client.local_id == client.mob_authority_id {
+                        let mut remote_positions: Vec<_> = client
+                            .remote_players
+                            .values()
+                            .map(|remote| remote.target_pos)
+                            .collect();
+                        remote_positions.sort_by(|a, b| {
+                            a.x.total_cmp(&b.x)
+                                .then_with(|| a.z.total_cmp(&b.z))
+                                .then_with(|| a.y.total_cmp(&b.y))
+                        });
+                        for position in remote_positions {
+                            mob_players.push(crate::gameplay::mob::MobPlayerContext {
+                                position,
+                                held_item: None,
+                                is_creative: false,
+                            });
+                            remote_mob_centers.push(position);
+                        }
+                    }
+                }
+                self.world.update_with_simulation_centers(
+                    self.camera.position,
+                    self.settings.render_distance,
+                    &remote_mob_centers,
+                );
                 let world_io_dur = world_update_start.map(|t| t.elapsed()).unwrap_or_default();
 
                 let hand_speed = if self.fly_mode {
@@ -2293,13 +2327,12 @@ impl RustCraftApp {
                 }
 
                 let mobs_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
-                let held_item = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
                 let is_creative = self.player.gamemode == GameMode::Creative;
                 let simulates_mobs = self.net_client.as_ref().map_or(true, |client| {
                     !client.is_connected || client.local_id == client.mob_authority_id
                 });
                 if simulates_mobs {
-                    self.mob_manager.update(dt, &self.world, self.camera.position, held_item, is_creative);
+                    self.mob_manager.update_for_players(dt, &self.world, &mob_players);
                 }
                 let mut discovered_mob = false;
                 for mob in &self.mob_manager.mobs {

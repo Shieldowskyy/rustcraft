@@ -1118,8 +1118,7 @@ pub struct World {
     #[cfg(not(target_arch = "wasm32"))]
     chunk_res_rx: Option<std::sync::Mutex<std::sync::mpsc::Receiver<Chunk>>>,
     pending_chunks: HashSet<(i32, i32)>,
-    last_stream_chunk: Option<(i32, i32)>,
-    last_stream_dist: Option<i32>,
+    last_stream_regions: Vec<(i32, i32, i32, i32)>,
 }
 
 pub struct RaycastHit {
@@ -1334,8 +1333,7 @@ impl World {
             #[cfg(not(target_arch = "wasm32"))]
             chunk_res_rx,
             pending_chunks: HashSet::new(),
-            last_stream_chunk: None,
-            last_stream_dist: None,
+            last_stream_regions: Vec::new(),
         };
 
         for dz in -radius..=radius {
@@ -2191,9 +2189,42 @@ impl World {
     }
 
     pub fn update(&mut self, player_pos: Vec3, view_distance: i32) {
+        self.update_with_simulation_centers(player_pos, view_distance, &[]);
+    }
+
+    pub fn update_with_simulation_centers(
+        &mut self,
+        player_pos: Vec3,
+        view_distance: i32,
+        simulation_centers: &[Vec3],
+    ) {
         let view_distance = view_distance.clamp(2, 16);
-        let (pcx, pcz) = ((player_pos.x.floor() as i32) >> 4, (player_pos.z.floor() as i32) >> 4);
-        let unload_dist_sq = (view_distance + 3) * (view_distance + 3);
+        let mut regions = Vec::with_capacity(simulation_centers.len() + 1);
+        let mut add_region = |pos: Vec3, load_radius: i32, retain_radius: i32| {
+            regions.push((
+                (pos.x.floor() as i32) >> 4,
+                (pos.z.floor() as i32) >> 4,
+                load_radius,
+                retain_radius,
+            ));
+        };
+        add_region(player_pos, view_distance, view_distance + 3);
+        for &center in simulation_centers {
+            add_region(center, 6, 7);
+        }
+        drop(add_region);
+        regions.sort_unstable();
+        regions.dedup();
+
+        let is_within_region = |cx: i32, cz: i32, retain: bool| {
+            regions.iter().any(|&(center_x, center_z, load_radius, retain_radius)| {
+                let radius = if retain { retain_radius } else { load_radius };
+                let dx = cx - center_x;
+                let dz = cz - center_z;
+                dx * dx + dz * dz <= radius * radius
+            })
+        };
+        let stream_key: Vec<_> = regions.clone();
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -2206,7 +2237,7 @@ impl World {
             for chunk in received_chunks {
                 let (cx, cz) = (chunk.cx, chunk.cz);
                 self.pending_chunks.remove(&(cx, cz));
-                if (cx - pcx) * (cx - pcx) + (cz - pcz) * (cz - pcz) <= unload_dist_sq {
+                if is_within_region(cx, cz, true) {
                     let mut chunk = chunk;
                     self.apply_block_overrides(&mut chunk);
                     self.index_chunk_lights(&chunk);
@@ -2217,26 +2248,38 @@ impl World {
             }
         }
 
-        if self.last_stream_chunk == Some((pcx, pcz)) && self.last_stream_dist == Some(view_distance) && self.pending_chunks.is_empty() {
+        if self.last_stream_regions == stream_key && self.pending_chunks.is_empty() {
             return;
         }
 
-        let mut missing_chunks = Vec::new();
-        let view_dist_sq = view_distance * view_distance;
-        for dz in -view_distance..=view_distance {
-            for dx in -view_distance..=view_distance {
-                if dx * dx + dz * dz <= view_dist_sq {
-                    let key = (pcx + dx, pcz + dz);
-                    if !self.chunks.contains_key(&key) && !self.pending_chunks.contains(&key) {
-                        missing_chunks.push(key);
+        let mut missing_chunks = HashSet::new();
+        for &(center_x, center_z, radius, _) in &regions {
+            let view_dist_sq = radius * radius;
+            for dz in -radius..=radius {
+                for dx in -radius..=radius {
+                    if dx * dx + dz * dz <= view_dist_sq {
+                        let key = (center_x + dx, center_z + dz);
+                        if !self.chunks.contains_key(&key) && !self.pending_chunks.contains(&key) {
+                            missing_chunks.insert(key);
+                        }
                     }
                 }
             }
         }
 
-        if !missing_chunks.is_empty() {
-            crate::log_debug!("CHUNK", "Requesting generation for {} missing chunks around player chunk ({}, {}) [view_dist={}]", missing_chunks.len(), pcx, pcz, view_distance);
-            missing_chunks.sort_unstable_by_key(|&(cx, cz)| (cx - pcx) * (cx - pcx) + (cz - pcz) * (cz - pcz));
+        let has_missing_chunks = !missing_chunks.is_empty();
+        if has_missing_chunks {
+            let mut missing_chunks: Vec<_> = missing_chunks.into_iter().collect();
+            crate::log_debug!("CHUNK", "Requesting generation for {} missing chunks across {} player regions", missing_chunks.len(), regions.len());
+            missing_chunks.sort_unstable_by_key(|&(cx, cz)| {
+                regions
+                    .iter()
+                    .map(|&(center_x, center_z, _, _)| {
+                        (cx - center_x) * (cx - center_x) + (cz - center_z) * (cz - center_z)
+                    })
+                    .min()
+                    .unwrap_or(i32::MAX)
+            });
 
             #[cfg(all(not(target_arch = "wasm32"), not(feature = "xbox360")))]
             if let Some(tx) = &self.chunk_req_tx {
@@ -2256,12 +2299,17 @@ impl World {
             }
         }
 
-        self.last_stream_chunk = self.pending_chunks.is_empty().then_some((pcx, pcz));
-        if self.pending_chunks.is_empty() { self.last_stream_dist = Some(view_distance); }
+        self.last_stream_regions = if self.pending_chunks.is_empty() && !has_missing_chunks {
+            stream_key
+        } else {
+            Vec::new()
+        };
 
         let count_before = self.chunks.len();
-        self.chunks.retain(|&(cx, cz), _| (cx - pcx) * (cx - pcx) + (cz - pcz) * (cz - pcz) <= unload_dist_sq);
-        self.pending_chunks.retain(|&(cx, cz)| (cx - pcx) * (cx - pcx) + (cz - pcz) * (cz - pcz) <= unload_dist_sq);
+        self.chunks
+            .retain(|&(cx, cz), _| is_within_region(cx, cz, true));
+        self.pending_chunks
+            .retain(|&(cx, cz)| is_within_region(cx, cz, true));
         if self.chunks.len() < count_before {
             crate::log_debug!("CHUNK", "Unloaded {} distant chunks (remaining active: {})", count_before - self.chunks.len(), self.chunks.len());
         }
@@ -2282,8 +2330,7 @@ impl World {
         self.pending_chunks.retain(|&(cx, cz)| (cx - pcx) * (cx - pcx) + (cz - pcz) * (cz - pcz) <= unload_dist_sq);
         for chunk in self.chunks.values_mut() { chunk.dirty = true; }
 
-        self.last_stream_chunk = None;
-        self.last_stream_dist = None;
+        self.last_stream_regions.clear();
         crate::log_info!("CHUNK", "Purged distant chunks: {} -> {} active (view distance: {} chunks)", before_count, self.chunks.len(), view_distance);
     }
 
@@ -2634,6 +2681,22 @@ mod tests {
         assert_eq!(chunk.get_local(15, 63, 15), BlockId::IronOre);
         assert_eq!(chunk.get_local(-1, 0, 0), BlockId::Air);
         assert_eq!(chunk.get_local(16, 0, 0), BlockId::Air);
+    }
+
+    #[test]
+    fn simulation_chunk_streaming_includes_distant_players() {
+        let mut world = World::new_with_seed(1);
+        let local = Vec3::new(8.0, 60.0, 8.0);
+        let remote = Vec3::new(328.0, 60.0, -184.0);
+
+        world.update_with_simulation_centers(local, 2, &[remote]);
+
+        let remote_chunk = (20, -12);
+        assert!(
+            world.chunks.contains_key(&remote_chunk)
+                || world.pending_chunks.contains(&remote_chunk),
+            "chunk around remote player should be generated or queued for mob simulation"
+        );
     }
 
     #[test]
