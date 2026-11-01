@@ -81,12 +81,14 @@ pub struct AchievementProgress {
     visited_biomes: u64,
     discovered_mobs: u16,
     discovered_blocks: [u8; 32],
+    collected_items: [u8; 32],
 }
 
 impl AchievementProgress {
     const MAGIC: &'static [u8; 4] = b"RCA1";
     pub const LEGACY_ENCODED_LEN: usize = 24;
-    pub const ENCODED_LEN: usize = 58;
+    pub const DISCOVERIES_ENCODED_LEN: usize = 58;
+    pub const ENCODED_LEN: usize = 90;
 
     pub fn is_unlocked(&self, id: AchievementId) -> bool {
         self.unlocked & (1 << id as u8) != 0
@@ -120,6 +122,22 @@ impl AchievementProgress {
         let flag = 1 << (id % 8);
         let was_new = self.discovered_blocks[id / 8] & flag == 0;
         self.discovered_blocks[id / 8] |= flag;
+        was_new
+    }
+
+    pub fn has_collected_item(&self, block: BlockId) -> bool {
+        let id = block.to_u8() as usize;
+        id != 0 && self.collected_items[id / 8] & (1 << (id % 8)) != 0
+    }
+
+    pub fn record_item_collected(&mut self, block: BlockId) -> bool {
+        let id = block.to_u8() as usize;
+        if id == 0 {
+            return false;
+        }
+        let flag = 1 << (id % 8);
+        let was_new = self.collected_items[id / 8] & flag == 0;
+        self.collected_items[id / 8] |= flag;
         was_new
     }
 
@@ -228,11 +246,14 @@ impl AchievementProgress {
         bytes[16..24].copy_from_slice(&self.visited_biomes.to_le_bytes());
         bytes[24..26].copy_from_slice(&self.discovered_mobs.to_le_bytes());
         bytes[26..58].copy_from_slice(&self.discovered_blocks);
+        bytes[58..90].copy_from_slice(&self.collected_items);
         bytes
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, String> {
-        if (bytes.len() != Self::ENCODED_LEN && bytes.len() != Self::LEGACY_ENCODED_LEN)
+        if (bytes.len() != Self::ENCODED_LEN
+            && bytes.len() != Self::DISCOVERIES_ENCODED_LEN
+            && bytes.len() != Self::LEGACY_ENCODED_LEN)
             || &bytes[..4] != Self::MAGIC
         {
             return Err("Invalid achievement progress file".to_string());
@@ -248,7 +269,7 @@ impl AchievementProgress {
         if visited_biomes >> 37 != 0 {
             return Err("Achievement progress contains unknown biome flags".to_string());
         }
-        let discovered_mobs = if bytes.len() == Self::ENCODED_LEN {
+        let discovered_mobs = if bytes.len() >= Self::DISCOVERIES_ENCODED_LEN {
             u16_at(24)
         } else {
             0
@@ -257,10 +278,17 @@ impl AchievementProgress {
             return Err("Achievement progress contains unknown creature flags".to_string());
         }
         let mut discovered_blocks = [0; 32];
-        if bytes.len() == Self::ENCODED_LEN {
+        if bytes.len() >= Self::DISCOVERIES_ENCODED_LEN {
             discovered_blocks.copy_from_slice(&bytes[26..58]);
             if discovered_blocks[0] & 1 != 0 {
                 return Err("Achievement progress contains an invalid air discovery".to_string());
+            }
+        }
+        let mut collected_items = [0; 32];
+        if bytes.len() == Self::ENCODED_LEN {
+            collected_items.copy_from_slice(&bytes[58..90]);
+            if collected_items[0] & 1 != 0 {
+                return Err("Achievement progress contains an invalid air collection".to_string());
             }
         }
         Ok(Self {
@@ -273,6 +301,7 @@ impl AchievementProgress {
             visited_biomes,
             discovered_mobs,
             discovered_blocks,
+            collected_items,
         })
     }
 }
@@ -385,6 +414,9 @@ mod tests {
         assert!(progress.record_block_discovered(BlockId::Obsidian));
         assert!(!progress.record_block_discovered(BlockId::Obsidian));
         assert!(!progress.record_block_discovered(BlockId::Apple));
+        assert!(progress.record_item_collected(BlockId::CoalOre));
+        assert!(!progress.record_item_collected(BlockId::CoalOre));
+        assert!(!progress.record_item_collected(BlockId::Air));
 
         let decoded = AchievementProgress::decode(&progress.encode()).unwrap();
         assert_eq!(decoded, progress);
@@ -392,6 +424,14 @@ mod tests {
         assert!(decoded.has_seen_mob(MobKind::Spider));
         assert!(decoded.has_discovered_block(BlockId::Obsidian));
         assert_eq!(decoded.discovered_block_count(), 1);
+        assert!(decoded.has_collected_item(BlockId::CoalOre));
+        assert!(!decoded.has_collected_item(BlockId::Air));
+
+        let discoveries_only = AchievementProgress::decode(
+            &progress.encode()[..AchievementProgress::DISCOVERIES_ENCODED_LEN],
+        )
+        .unwrap();
+        assert!(!discoveries_only.has_collected_item(BlockId::CoalOre));
     }
 
     #[test]

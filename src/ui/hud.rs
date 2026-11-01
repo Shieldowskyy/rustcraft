@@ -983,12 +983,12 @@ pub fn draw_pause_menu(
         format!("{} (M)", crate::core::i18n::t("pause.main_menu"))
     };
 
-    let b5 = if is_gamepad_active {
+    let b5 = crate::core::i18n::t("pause.achievements").to_string();
+    let b6 = if is_gamepad_active {
         format!("{} [B]", crate::core::i18n::t("pause.quit"))
     } else {
         format!("{} (Q)", crate::core::i18n::t("pause.quit"))
     };
-    let b6 = crate::core::i18n::t("pause.achievements").to_string();
 
     let buttons = [b0, b1, b2, b3, b4, b5, b6];
 
@@ -1047,7 +1047,7 @@ pub fn draw_pause_menu(
             }
             Some(3) => "Save current game world and return to save select menu [A]",
             Some(4) => "Save world progress and quit application [A] or [B]",
-            Some(6) => "Review milestones and the paths between them [A]",
+            Some(5) => "Review milestones and the paths between them [A]",
             _ => "Navigate with D-PAD / Left Stick, select with [A], back with [B]",
         }
     } else {
@@ -1063,7 +1063,7 @@ pub fn draw_pause_menu(
             }
             Some(3) => "Save current game world and return to save select menu (M)",
             Some(4) => "Save world progress and quit application (Q)",
-            Some(6) => "Review milestones and the paths between them (ENTER)",
+            Some(5) => "Review milestones and the paths between them (ENTER)",
             _ => "Navigate with mouse, arrow keys, or gamepad stick",
         }
     });

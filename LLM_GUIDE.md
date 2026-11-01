@@ -13,6 +13,7 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
 | **Dynamic Weather** | `src/world/weather.rs` | Manage weather states (Clear, Rain, Thunderstorm), precipitation by biome temperature (rain/snow), storm audio, lightning flash, and `/weather` commands. |
 | **Villages & Trading** | `src/world/mod.rs`, `src/gameplay/trading.rs` | Village layout generator, professions, trade offerings, emerald currency, and trading window in `src/ui/container_ui.rs`. |
 | **Field Guide** | `src/gameplay/achievements.rs`, `src/gameplay/mob.rs`, `src/ui/achievements.rs`, `src/world/storage.rs` | Track milestone branches, encountered creatures, discovered blocks, localized toasts, and per-slot progress files. |
+| **Recipe Book** | `src/gameplay/recipe.rs`, `src/app/containers.rs`, `src/ui/inventory_ui.rs` | At crafting tables, browse recipes unlocked by collecting every ingredient type and load available recipes into the 3x3 grid. |
 | **New Texture / Atlas Layer** | `src/graphics/atlas.rs`, `src/graphics/gpu/mod.rs` | Add variant to `TextureId`, procedural rasterizer in `atlas.rs`, bidirectional layer mapping in `gpu/mod.rs`, and adjust `TEXTURE_LAYER_COUNT`. |
 | **New UI Screen / Element** | `src/ui/` (`hud.rs`, `menu.rs`, `inventory_ui.rs`, `container_ui.rs`, `minimap.rs`) | Use functions in `src/ui/draw.rs` (`fill_rect_alpha`, `draw_text_shadowed`). |
 | **Player / Physics / Movement** | `src/gameplay/physics.rs`, `player.rs` | Physics uses AABB sweeps. Maintain step-up, crouching checks, and fluid buoyancy. |

@@ -78,7 +78,7 @@ cargo build --release
 ./target/release/rustcraft --relay-server --relay-port 26657
 ```
 
-Allow inbound TCP port `26657` in the VPS firewall. On desktop, copy `relay.properties.example` to `relay.properties` and set `relay-address` to the VPS hostname and port, or set `RUSTCRAFT_RELAY_ADDR`. For Android builds, embed the address with `RUSTCRAFT_RELAY_ADDR=relay.example.com:26657 ./scripts/build_android.sh`; alternatively place `relay.properties` in the app's internal files directory. The relay address is included in each invite, so guests do not need a separate relay configuration.
+Allow inbound TCP port `26657` in the VPS firewall. The game defaults to `relay.rustcraft.dsh.yt:26657`. On desktop, copy `relay.properties.example` to `relay.properties` and set `relay-address` to override it, or set `RUSTCRAFT_RELAY_ADDR`. For Android builds, optionally embed another address with `RUSTCRAFT_RELAY_ADDR=relay.example.com:26657 ./scripts/build_android.sh`; alternatively place `relay.properties` in the app's internal files directory. The relay address is included in each invite, so guests do not need a separate relay configuration.
 
 To host, load a world, open Pause, and choose **Host Online**. RustCraft reports startup and connection errors with an on-screen toast; once connected, the invite is copied where the platform supports clipboard access and is also posted in chat. To join, open **Multiplayer**, paste the invite into **Server Address or Invite** with `Ctrl+V`, then choose **Join Server**. On desktop, `Ctrl+C` in the pause menu copies the active host invite again.
 

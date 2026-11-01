@@ -71,6 +71,13 @@ impl Recipe {
             result: ItemStack::new(result, count),
         }
     }
+
+    pub fn is_unlocked_by(&self, mut has_collected_item: impl FnMut(BlockId) -> bool) -> bool {
+        self.pattern
+            .iter()
+            .flatten()
+            .all(|&ingredient| has_collected_item(ingredient))
+    }
 }
 
 pub struct RecipeBook {
@@ -94,6 +101,21 @@ impl RecipeBook {
     /// Read-only access to all registered recipes.
     pub fn recipes(&self) -> &[Recipe] {
         &self.recipes
+    }
+
+    pub fn unlocked_recipe_indices(
+        &self,
+        progress: &crate::gameplay::achievements::AchievementProgress,
+    ) -> Vec<usize> {
+        self.recipes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, recipe)| {
+                recipe
+                    .is_unlocked_by(|item| progress.has_collected_item(item))
+                    .then_some(index)
+            })
+            .collect()
     }
 
     fn register_default_recipes(&mut self) {
@@ -759,6 +781,29 @@ impl RecipeBook {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gameplay::achievements::AchievementProgress;
+
+    #[test]
+    fn recipes_unlock_after_collecting_each_ingredient_type() {
+        let book = RecipeBook::new();
+        let mut progress = AchievementProgress::default();
+        assert!(!book
+            .unlocked_recipe_indices(&progress)
+            .contains(&0));
+
+        progress.record_block_discovered(BlockId::Wood);
+        assert!(!book
+            .unlocked_recipe_indices(&progress)
+            .contains(&0));
+
+        progress.record_item_collected(BlockId::Wood);
+        let unlocked = book.unlocked_recipe_indices(&progress);
+        assert!(unlocked.contains(&0));
+        assert!(!unlocked.contains(&1));
+
+        progress.record_item_collected(BlockId::Planks);
+        assert!(book.unlocked_recipe_indices(&progress).contains(&1));
+    }
 
     #[test]
     fn test_planks_crafting_2x2() {
@@ -1335,4 +1380,3 @@ mod tests {
         );
     }
 }
-

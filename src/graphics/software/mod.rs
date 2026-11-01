@@ -584,6 +584,10 @@ impl Renderer {
         hovered_slot: Option<crate::ui::InventorySlotTarget>,
         crafting_table_open: bool,
         recipes: &crate::gameplay::RecipeBook,
+        unlocked_recipe_indices: &[usize],
+        recipe_book_open: bool,
+        recipe_book_scroll: usize,
+        recipe_book_status: Option<&str>,
         mouse_pos: Option<(f32, f32)>,
         is_gamepad_active: bool,
     ) {
@@ -595,6 +599,10 @@ impl Renderer {
             hovered_slot,
             crafting_table_open,
             recipes,
+            unlocked_recipe_indices,
+            recipe_book_open,
+            recipe_book_scroll,
+            recipe_book_status,
             mouse_pos,
             is_gamepad_active,
         );

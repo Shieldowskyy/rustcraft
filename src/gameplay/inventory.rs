@@ -178,6 +178,17 @@ impl Inventory {
         false
     }
 
+    pub fn count_item(&self, block: BlockId) -> u16 {
+        self.hotbar
+            .iter()
+            .chain(self.main.iter())
+            .chain(std::iter::once(&self.offhand))
+            .filter_map(|slot| *slot)
+            .filter(|stack| stack.block == block)
+            .map(|stack| stack.count as u16)
+            .sum()
+    }
+
     pub fn handle_slot_left_click(slot: &mut Option<ItemStack>, held: &mut Option<ItemStack>) {
         match (slot.as_mut(), held.as_mut()) {
             (None, None) => {}
@@ -378,6 +389,17 @@ mod tests {
         assert_eq!(inv.hotbar[0], Some(ItemStack::new(BlockId::Wood, 2)));
         assert_eq!(inv.hotbar[1], Some(ItemStack::new(BlockId::Stick, 5)));
         assert_eq!(inv.hotbar[2], Some(ItemStack::new(BlockId::IronPickaxe, 1)));
+    }
+
+    #[test]
+    fn count_item_includes_hotbar_main_and_offhand() {
+        let mut inventory = Inventory::new();
+        inventory.hotbar[0] = Some(ItemStack::new(BlockId::Wood, 2));
+        inventory.main[0] = Some(ItemStack::new(BlockId::Wood, 3));
+        inventory.offhand = Some(ItemStack::new(BlockId::Wood, 1));
+
+        assert_eq!(inventory.count_item(BlockId::Wood), 6);
+        assert_eq!(inventory.count_item(BlockId::Stone), 0);
     }
 
     #[test]

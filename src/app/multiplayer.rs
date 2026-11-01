@@ -6,6 +6,8 @@ use crate::world::{Chunk, World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use super::{AppOutput, GameState, InputState, RustCraftApp};
 
+const DEFAULT_RELAY_ADDRESS: &str = "relay.rustcraft.dsh.yt:26657";
+
 impl RustCraftApp {
     pub(crate) fn update_and_render_multiplayer_menu(
         &mut self,
@@ -487,7 +489,7 @@ fn configured_relay_address() -> Result<String, String> {
     #[cfg(not(target_os = "android"))]
     let config_path = std::path::PathBuf::from("relay.properties");
 
-    match std::fs::read_to_string(&config_path) {
+    let configured_address = match std::fs::read_to_string(&config_path) {
         Ok(contents) => contents
             .lines()
             .find_map(|line| {
@@ -498,17 +500,17 @@ fn configured_relay_address() -> Result<String, String> {
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
                     .map(str::to_string)
-            })
-            .ok_or_else(|| relay_address_configuration_error(&config_path)),
-        Err(_) => Err(relay_address_configuration_error(&config_path)),
-    }
-}
-
-fn relay_address_configuration_error(config_path: &std::path::Path) -> String {
-    format!(
-        "Set RUSTCRAFT_RELAY_ADDR at runtime or build time, or add relay-address=host:26657 to {}",
-        config_path.display()
-    )
+            }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(format!(
+                "Could not read relay configuration {}: {}",
+                config_path.display(),
+                error
+            ));
+        }
+    };
+    Ok(configured_address.unwrap_or_else(|| DEFAULT_RELAY_ADDRESS.to_string()))
 }
 
 fn snapshot_world_changes(world: &World) -> Vec<(i32, i32, i32, u8)> {

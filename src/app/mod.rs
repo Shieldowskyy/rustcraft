@@ -45,6 +45,9 @@ pub struct RustCraftApp {
     pub fishing_bobber: Option<FishingBobber>,
     pub recipe_book: RecipeBook,
     pub crafting_table_open: bool,
+    pub recipe_book_open: bool,
+    pub recipe_book_scroll: usize,
+    pub recipe_book_status: Option<&'static str>,
     pub settings: GameSettings,
     pub state: GameState,
     pub save_slot: u8,
@@ -338,6 +341,9 @@ impl RustCraftApp {
             fishing_bobber: None,
             recipe_book,
             crafting_table_open: false,
+            recipe_book_open: false,
+            recipe_book_scroll: 0,
+            recipe_book_status: None,
             settings,
             state: initial_state,
             autotest,
@@ -884,6 +890,34 @@ impl RustCraftApp {
 
     pub(crate) fn record_discovered_block(&mut self, block: BlockId) {
         if self.achievements.record_block_discovered(block) {
+            self.persist_achievement_progress();
+        }
+    }
+
+    pub(crate) fn record_collected_item(&mut self, block: BlockId) {
+        if self.achievements.record_item_collected(block) {
+            self.persist_achievement_progress();
+        }
+    }
+
+    pub(crate) fn record_inventory_items_collected(&mut self) {
+        let inventory = &self.player.inventory;
+        let blocks: Vec<BlockId> = inventory
+            .hotbar
+            .iter()
+            .chain(inventory.main.iter())
+            .chain(inventory.crafting_2x2.iter())
+            .chain(inventory.crafting_3x3.iter())
+            .chain(inventory.armor.iter())
+            .chain(std::iter::once(&inventory.offhand))
+            .chain(std::iter::once(&inventory.held_item))
+            .filter_map(|slot| slot.map(|stack| stack.block))
+            .collect();
+        let mut changed = false;
+        for block in blocks {
+            changed |= self.achievements.record_item_collected(block);
+        }
+        if changed {
             self.persist_achievement_progress();
         }
     }

@@ -1716,6 +1716,12 @@ impl RustCraftApp {
                             crate::log_info!("WORLD", "Pressed button at ({}, {}, {})", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
                         } else if targeted_block == BlockId::CraftingTable && !is_crouching {
                             self.crafting_table_open = true;
+                            self.recipe_book_open = false;
+                            self.recipe_book_scroll = 0;
+                            self.recipe_book_status = None;
+                            if self.player.gamemode != crate::gameplay::player::GameMode::Creative {
+                                self.record_inventory_items_collected();
+                            }
                             self.state = GameState::Inventory;
                             self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
                             out.request_release_mouse = true;
@@ -2082,6 +2088,7 @@ impl RustCraftApp {
                         if picked_up > 0 {
                             self.audio.play_sound(crate::audio::SoundId::ItemPop, 0.7, 1.0);
                             crate::log_info!("INVENTORY", "Player picked up {}x {:?}", picked_up, self.items[i].block);
+                            self.record_collected_item(self.items[i].block);
                         }
                         if remaining == 0 {
                             self.items.remove(i);

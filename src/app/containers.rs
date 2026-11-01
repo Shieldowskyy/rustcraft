@@ -25,7 +25,19 @@ impl RustCraftApp {
 
         self.world.update_furnaces(dt);
 
-        if self.player.gamemode == GameMode::Creative && self.player.creative_tab < crate::ui::CREATIVE_TABS.len() - 1 {
+        let unlocked_recipe_indices = self.recipe_book.unlocked_recipe_indices(&self.achievements);
+        if self.crafting_table_open
+            && self.player.gamemode != GameMode::Creative
+            && self.recipe_book_open
+            && input.scroll_delta != 0.0
+        {
+            let max_scroll = unlocked_recipe_indices.len().saturating_sub(5);
+            if input.scroll_delta < 0.0 {
+                self.recipe_book_scroll = (self.recipe_book_scroll + 1).min(max_scroll);
+            } else {
+                self.recipe_book_scroll = self.recipe_book_scroll.saturating_sub(1);
+            }
+        } else if self.player.gamemode == GameMode::Creative && self.player.creative_tab < crate::ui::CREATIVE_TABS.len() - 1 {
             let blocks = crate::ui::inventory_ui::creative_tab_blocks(self.player.creative_tab);
             let total_rows = (blocks.len() + 8) / 9;
             let max_scroll = total_rows.saturating_sub(4);
@@ -52,6 +64,8 @@ impl RustCraftApp {
                 self.player.inventory.held_item = None;
             }
             self.crafting_table_open = false;
+            self.recipe_book_open = false;
+            self.recipe_book_status = None;
             self.state = GameState::Playing;
             self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
             out.request_capture_mouse = true;
@@ -59,13 +73,28 @@ impl RustCraftApp {
         }
 
         let layout = InventoryLayout::new(self.renderer.width, self.renderer.height, self.crafting_table_open);
-        let inv_hovered_target = if self.is_gamepad_active && !mouse_moved {
+        let mut inv_hovered_target = if self.is_gamepad_active && !mouse_moved {
             None
         } else {
             mouse_pos.and_then(|(mx, my)| {
                 layout.find_slot_at(mx as i32, my as i32, &self.player)
             })
         };
+        if self.crafting_table_open && self.player.gamemode != GameMode::Creative
+            && (!self.is_gamepad_active || mouse_moved)
+        {
+            if let Some((mx, my)) = mouse_pos {
+                if let Some(target) = layout.find_recipe_book_target_at(
+                    mx as i32,
+                    my as i32,
+                    self.recipe_book_open,
+                    &unlocked_recipe_indices,
+                    self.recipe_book_scroll,
+                ) {
+                    inv_hovered_target = Some(target);
+                }
+            }
+        }
 
         // Number keys 1-9 (indices 1..9) and 0 (index 0) to assign/swap into hotbar slots
         for i in 0..10 {
@@ -189,6 +218,60 @@ impl RustCraftApp {
                         let max_scroll = total_rows.saturating_sub(4);
                         self.player.creative_scroll = (self.player.creative_scroll + 1).min(max_scroll);
                     }
+                    InventorySlotTarget::RecipeBookToggle => {
+                        self.recipe_book_open = !self.recipe_book_open;
+                        self.recipe_book_status = None;
+                        self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                    }
+                    InventorySlotTarget::RecipeEntry(recipe_index) => {
+                        self.recipe_book_status = None;
+                        if let Some(recipe) = self.recipe_book.recipes().get(recipe_index).cloned() {
+                            let grid_is_empty = self.player.inventory.crafting_3x3.iter().all(Option::is_none)
+                                && self.player.inventory.held_item.is_none();
+                            if !grid_is_empty {
+                                self.recipe_book_status = Some("Clear grid and hand first");
+                            } else if recipe.width == 0
+                                || recipe.height == 0
+                                || recipe.width > 3
+                                || recipe.height > 3
+                                || recipe.pattern.len() != recipe.width * recipe.height
+                            {
+                                crate::log_error!("CRAFTING", "Recipe {} does not fit the 3x3 table", recipe_index);
+                                self.recipe_book_status = Some("Recipe does not fit");
+                            } else {
+                                let ingredients_available = recipe.pattern.iter().flatten().all(|&ingredient| {
+                                    let required = recipe.pattern.iter().filter(|slot| **slot == Some(ingredient)).count() as u16;
+                                    self.player.inventory.count_item(ingredient) >= required
+                                });
+                                if !ingredients_available {
+                                    self.recipe_book_status = Some("Missing ingredients");
+                                } else {
+                                    let mut consumed_all = true;
+                                    for ingredient in recipe.pattern.iter().flatten() {
+                                        if !self.player.inventory.consume_item(*ingredient) {
+                                            crate::log_error!("CRAFTING", "Could not consume verified recipe ingredient {:?}", ingredient);
+                                            consumed_all = false;
+                                            break;
+                                        }
+                                    }
+                                    if consumed_all {
+                                        for (index, ingredient) in recipe.pattern.iter().enumerate() {
+                                            let row = index / recipe.width;
+                                            let col = index % recipe.width;
+                                            self.player.inventory.crafting_3x3[row * 3 + col] =
+                                                ingredient.map(|block| ItemStack::new(block, 1));
+                                        }
+                                        self.recipe_book_open = false;
+                                    } else {
+                                        self.recipe_book_status = Some("Could not load recipe");
+                                    }
+                                }
+                            }
+                        } else {
+                            crate::log_error!("CRAFTING", "Recipe book referenced missing recipe {}", recipe_index);
+                            self.recipe_book_status = Some("Recipe unavailable");
+                        }
+                    }
                     InventorySlotTarget::Creative(id) => {
                         let block = BlockId::from_u8(id);
                         if input.key_shift {
@@ -274,6 +357,7 @@ impl RustCraftApp {
                                 crate::log_info!("CRAFTING", "Crafted {}x {:?}", res.count, res.block);
                                 let unlocked = self.achievements.record_crafted(res.count);
                                 self.process_achievement_unlocks(unlocked);
+                                self.record_collected_item(res.block);
                                 if let Some(h) = &mut self.player.inventory.held_item {
                                     h.count += res.count;
                                 } else {
@@ -305,6 +389,10 @@ impl RustCraftApp {
             inv_hovered_target,
             self.crafting_table_open,
             &self.recipe_book,
+            &unlocked_recipe_indices,
+            self.recipe_book_open,
+            self.recipe_book_scroll,
+            self.recipe_book_status,
             mouse_pos,
             self.is_gamepad_active,
         );

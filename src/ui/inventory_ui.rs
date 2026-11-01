@@ -17,6 +17,8 @@ pub enum InventorySlotTarget {
     CreativeTab(usize),
     CreativeScrollUp,
     CreativeScrollDown,
+    RecipeBookToggle,
+    RecipeEntry(usize),
     Trash,
 }
 
@@ -800,6 +802,40 @@ impl InventoryLayout {
 
         None
     }
+
+    pub fn find_recipe_book_target_at(
+        &self,
+        px: i32,
+        py: i32,
+        recipe_book_open: bool,
+        unlocked_recipe_indices: &[usize],
+        recipe_book_scroll: usize,
+    ) -> Option<InventorySlotTarget> {
+        if !self.crafting_table_open {
+            return None;
+        }
+
+        let button_x = self.start_x + 190;
+        let button_y = self.start_y + 36;
+        if px >= button_x && px < button_x + 88 && py >= button_y && py < button_y + 20 {
+            return Some(InventorySlotTarget::RecipeBookToggle);
+        }
+
+        if !recipe_book_open {
+            return None;
+        }
+
+        let list_x = self.start_x + 302;
+        let list_y = self.start_y + 51;
+        let first = recipe_book_scroll.min(unlocked_recipe_indices.len());
+        for (row, &recipe_index) in unlocked_recipe_indices.iter().skip(first).take(5).enumerate() {
+            let y = list_y + row as i32 * 15;
+            if px >= list_x + 3 && px < list_x + 147 && py >= y && py < y + 15 {
+                return Some(InventorySlotTarget::RecipeEntry(recipe_index));
+            }
+        }
+        None
+    }
 }
 
 /// Renders an animated Minecraft-style Steve player model inside the inventory character preview window.
@@ -1053,6 +1089,10 @@ pub fn draw_inventory_screen(
     hovered_slot: Option<InventorySlotTarget>,
     crafting_table_open: bool,
     recipes: &RecipeBook,
+    unlocked_recipe_indices: &[usize],
+    recipe_book_open: bool,
+    recipe_book_scroll: usize,
+    recipe_book_status: Option<&str>,
     mouse_pos: Option<(f32, f32)>,
     is_gamepad_active: bool,
 ) {
@@ -1414,6 +1454,29 @@ pub fn draw_inventory_screen(
             fill_rect(buffer, width, height, craft_box_x + craft_box_w - 2, craft_box_y, 2, craft_box_h, pack_color(0.26, 0.26, 0.30));
 
             draw_text_colored_shadowed(buffer, width, height, "3x3 Grid", start_x + 40, start_y + 20, 1, 1, pack_color(0.8, 0.8, 0.8));
+            let recipe_button_x = start_x + 190;
+            let recipe_button_y = start_y + 36;
+            let recipe_button_hovered = hovered_slot == Some(InventorySlotTarget::RecipeBookToggle);
+            let recipe_button_color = if recipe_book_open {
+                pack_color(0.46, 0.32, 0.10)
+            } else if recipe_button_hovered {
+                pack_color(0.28, 0.28, 0.33)
+            } else {
+                pack_color(0.18, 0.18, 0.22)
+            };
+            fill_rect(buffer, width, height, recipe_button_x, recipe_button_y, 88, 20, recipe_button_color);
+            fill_rect(buffer, width, height, recipe_button_x, recipe_button_y, 88, 1, pack_color(0.44, 0.44, 0.49));
+            draw_text_colored_shadowed(
+                buffer,
+                width,
+                height,
+                "RECIPE BOOK",
+                recipe_button_x + 6,
+                recipe_button_y + 6,
+                1,
+                1,
+                pack_color(1.0, 0.88, 0.25),
+            );
             // 3x3 input slots
             let craft_x = start_x + 40;
             let craft_y = start_y + 35;
@@ -1475,6 +1538,61 @@ pub fn draw_inventory_screen(
                 draw_text_colored_shadowed(buffer, width, height, "BURNING!", char_box_x + 75, char_box_y + 70, 1, 1, pack_color(1.0, 0.5, 0.1));
             } else {
                 draw_text_colored_shadowed(buffer, width, height, "STATUS: OK", char_box_x + 75, char_box_y + 70, 1, 1, pack_color(0.4, 0.85, 0.4));
+            }
+
+            if recipe_book_open {
+                fill_rect_alpha(buffer, width, height, char_box_x + 2, char_box_y + 2, char_box_w - 4, char_box_h - 4, pack_color(0.08, 0.08, 0.10), 0.99);
+                draw_text_colored_shadowed(buffer, width, height, "RECIPE BOOK", char_box_x + 8, char_box_y + 7, 1, 1, pack_color(1.0, 0.88, 0.25));
+                let first = recipe_book_scroll.min(unlocked_recipe_indices.len());
+                for (row, &recipe_index) in unlocked_recipe_indices.iter().skip(first).take(5).enumerate() {
+                    let y = char_box_y + 21 + row as i32 * 15;
+                    let is_hovered = hovered_slot == Some(InventorySlotTarget::RecipeEntry(recipe_index));
+                    if is_hovered {
+                        fill_rect(buffer, width, height, char_box_x + 4, y, char_box_w - 8, 14, pack_color(0.26, 0.24, 0.17));
+                    }
+                    if let Some(recipe) = recipes.recipes().get(recipe_index) {
+                        draw_item_icon(buffer, width, height, recipe.result.block, char_box_x + 6, y, 13);
+                        let name = recipe.result.block.display_name().to_uppercase();
+                        let visible_name: String = name.chars().take(13).collect();
+                        draw_text_colored_shadowed(
+                            buffer,
+                            width,
+                            height,
+                            &visible_name,
+                            char_box_x + 25,
+                            y + 4,
+                            1,
+                            1,
+                            pack_color(0.9, 0.9, 0.92),
+                        );
+                    }
+                }
+                if unlocked_recipe_indices.is_empty() {
+                    draw_text_colored_shadowed(
+                        buffer,
+                        width,
+                        height,
+                        "Collect ingredients",
+                        char_box_x + 6,
+                        char_box_y + 33,
+                        1,
+                        1,
+                        pack_color(0.68, 0.68, 0.72),
+                    );
+                } else {
+                    let status = recipe_book_status.unwrap_or("[WHEEL] SCROLL");
+                    draw_text_colored_shadowed(
+                        buffer,
+                        width,
+                        height,
+                        status,
+                        char_box_x + 6,
+                        char_box_y + 96,
+                        1,
+                        1,
+                        pack_color(0.72, 0.72, 0.76),
+                    );
+                }
             }
         } else {
             // Player character info area
@@ -1629,6 +1747,14 @@ pub fn draw_inventory_screen(
             }
             InventorySlotTarget::CreativeScrollDown => {
                 hovered_item_name = Some(("Scroll Down (Mouse Wheel Down)".to_string(), 1));
+            }
+            InventorySlotTarget::RecipeBookToggle => {
+                hovered_item_name = Some(("Open recipe book".to_string(), 1));
+            }
+            InventorySlotTarget::RecipeEntry(index) => {
+                if let Some(recipe) = recipes.recipes().get(index) {
+                    hovered_item_name = Some((recipe.result.block.display_name().to_string(), recipe.result.count));
+                }
             }
             InventorySlotTarget::Trash => {
                 let trash_tip = if is_gamepad_active {
@@ -3585,6 +3711,10 @@ mod tests {
             None,
             false,
             &recipes,
+            &[],
+            false,
+            0,
+            None,
             Some((320.0, 240.0)),
             false,
         );
@@ -3593,5 +3723,40 @@ mod tests {
         let colored_pixels = buffer.iter().filter(|&&p| p != 0).count();
         assert!(colored_pixels > 1000);
     }
-}
 
+    #[test]
+    fn recipe_book_targets_only_exist_at_crafting_table() {
+        let layout = InventoryLayout::new(640, 480, true);
+        let recipes = [2, 7, 9];
+        assert_eq!(
+            layout.find_recipe_book_target_at(
+                layout.start_x + 195,
+                layout.start_y + 40,
+                false,
+                &recipes,
+                0,
+            ),
+            Some(InventorySlotTarget::RecipeBookToggle)
+        );
+        assert_eq!(
+            layout.find_recipe_book_target_at(
+                layout.start_x + 305,
+                layout.start_y + 53,
+                true,
+                &recipes,
+                1,
+            ),
+            Some(InventorySlotTarget::RecipeEntry(7))
+        );
+        assert_eq!(
+            InventoryLayout::new(640, 480, false).find_recipe_book_target_at(
+                layout.start_x + 195,
+                layout.start_y + 40,
+                true,
+                &recipes,
+                0,
+            ),
+            None
+        );
+    }
+}

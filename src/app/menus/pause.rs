@@ -170,6 +170,10 @@ impl RustCraftApp {
                     crate::log_info!("STATE", "Returned to Main Menu from pause menu");
                 }
                 5 => {
+                    self.state = GameState::AchievementTree;
+                    crate::log_info!("MENU", "Opened achievement tree");
+                }
+                6 => {
                     if self.is_multiplayer {
                         if let Some(client) = &mut self.net_client {
                             client.disconnect();
@@ -187,10 +191,6 @@ impl RustCraftApp {
                     }
                     out.quit_requested = true;
                     crate::log_info!("STATE", "Saved and quitting game from pause menu");
-                }
-                6 => {
-                    self.state = GameState::AchievementTree;
-                    crate::log_info!("MENU", "Opened achievement tree");
                 }
                 _ => {}
             }
