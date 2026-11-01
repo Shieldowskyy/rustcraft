@@ -233,6 +233,7 @@ pub struct Mob {
     pub trades: Vec<crate::gameplay::trading::TradeOffer>,
     pub attack_cooldown: f32,
     pub home_pos: Option<Vec3>,
+    pub player_anger_timer: f32,
 }
 
 impl Mob {
@@ -307,6 +308,7 @@ impl Mob {
             trades,
             attack_cooldown: 0.0,
             home_pos: (kind == MobKind::Villager).then_some(pos),
+            player_anger_timer: 0.0,
         }
     }
 
@@ -661,7 +663,9 @@ impl Mob {
         }
 
         let mut pursuing_player = false;
-        if self.kind.is_hostile() {
+        if self.kind.is_hostile()
+            || (self.kind == MobKind::IronGolem && self.player_anger_timer > 0.0)
+        {
             if let Some(target) = player_pos {
                 let dx = target.x - self.pos.x;
                 let dz = target.z - self.pos.z;
@@ -1041,10 +1045,16 @@ impl MobManager {
         self.love_hearts.clear();
 
         for mob in &mut self.mobs {
+            if mob.kind == MobKind::IronGolem {
+                mob.player_anger_timer = (mob.player_anger_timer - dt).max(0.0);
+                mob.attack_cooldown = (mob.attack_cooldown - dt).max(0.0);
+            }
             let was_exploding = mob.kind == MobKind::Reaper && mob.fuse >= 1.5;
             let target_pos = if is_creative {
                 if mob.kind.is_hostile() {
                     None
+                } else if mob.kind == MobKind::IronGolem && mob.player_anger_timer > 0.0 {
+                    Some(player_pos)
                 } else if player_held.map(|h| mob.kind.is_tempting_item(h)) == Some(true) {
                     Some(player_pos)
                 } else {
@@ -1440,6 +1450,20 @@ impl MobManager {
         self.rng_state = rng;
     }
 
+    pub fn anger_golems_at_villager_attack(&mut self, villager_pos: Vec3) {
+        for golem in &mut self.mobs {
+            if golem.kind != MobKind::IronGolem || golem.is_dead {
+                continue;
+            }
+            let dx = golem.pos.x - villager_pos.x;
+            let dz = golem.pos.z - villager_pos.z;
+            let dy = (golem.pos.y - villager_pos.y).abs();
+            if dx * dx + dz * dz <= 16.0 * 16.0 && dy <= 8.0 {
+                golem.player_anger_timer = 30.0;
+            }
+        }
+    }
+
     pub fn apply_explosion(&mut self, explosion_pos: Vec3, radius: f32, max_damage: f32) {
         for mob in &mut self.mobs {
             if mob.is_dead {
@@ -1808,6 +1832,25 @@ mod tests {
         let zombie = mob_manager.mobs.iter().find(|m| m.id == zombie_id).unwrap();
         let angle_to_player = (player_pos.x - zombie.pos.x).atan2(player_pos.z - zombie.pos.z);
         assert!((zombie.target_yaw - angle_to_player).abs() < 1e-4, "Zombie should target player in Survival mode");
+    }
+
+    #[test]
+    fn test_golems_anger_and_pursue_player_who_attacked_villager() {
+        let mut manager = MobManager::new();
+        let world = World::new_with_seed(1);
+        let villager_pos = Vec3::new(0.0, 60.0, 0.0);
+        let golem_id = manager.spawn_mob(MobKind::IronGolem, Vec3::new(2.0, 60.0, 0.0));
+        let distant_golem_id = manager.spawn_mob(MobKind::IronGolem, Vec3::new(30.0, 60.0, 0.0));
+
+        manager.anger_golems_at_villager_attack(villager_pos);
+        manager.update(0.05, &world, Vec3::new(10.0, 60.0, 0.0), None, false);
+
+        let golem = manager.mobs.iter().find(|mob| mob.id == golem_id).unwrap();
+        assert!(golem.player_anger_timer > 0.0);
+        assert!((golem.target_yaw - std::f32::consts::FRAC_PI_2).abs() < 0.01);
+
+        let distant_golem = manager.mobs.iter().find(|mob| mob.id == distant_golem_id).unwrap();
+        assert_eq!(distant_golem.player_anger_timer, 0.0);
     }
 
     #[test]

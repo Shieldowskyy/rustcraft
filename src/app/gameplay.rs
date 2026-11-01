@@ -920,13 +920,16 @@ impl RustCraftApp {
                     {
                         entity_hit = true;
                         if interact_left_just {
-                            let (kind, remaining_hp) = {
+                            let (kind, remaining_hp, mob_pos) = {
                                 let mob = &mut self.mob_manager.mobs[mob_idx];
                                 let hit_pos = mob.center_pos();
                                 mob.take_damage(dmg, forward);
                                 self.particles.spawn_mob_hit(hit_pos);
-                                (mob.kind, mob.health)
+                                (mob.kind, mob.health, mob.pos)
                             };
+                            if kind == crate::gameplay::mob::MobKind::Villager {
+                                self.mob_manager.anger_golems_at_villager_attack(mob_pos);
+                            }
                             self.break_target = None;
                             self.break_progress = 0.0;
                             self.request_rumble(0.65, 0.65, 120);
@@ -1938,10 +1941,25 @@ impl RustCraftApp {
                         }
 
                         // Hostile mob attack (reapers do not melee, they explode; ignored in creative mode)
-                        if !is_creative && mob.kind.is_hostile() && mob.kind != crate::gameplay::mob::MobKind::Reaper && dist_sq < 1.4 * 1.4 && (mob.pos.y - self.camera.position.y).abs() < 1.8 {
+                        let is_angry_golem = mob.kind == crate::gameplay::mob::MobKind::IronGolem
+                            && mob.player_anger_timer > 0.0
+                            && mob.attack_cooldown <= 0.0;
+                        let is_hostile_melee = mob.kind.is_hostile()
+                            && mob.kind != crate::gameplay::mob::MobKind::Reaper;
+                        let attack_range = if is_angry_golem { 2.2 } else { 1.4 };
+                        if !is_creative
+                            && (is_hostile_melee || is_angry_golem)
+                            && dist_sq < attack_range * attack_range
+                            && (mob.pos.y - self.camera.position.y).abs() < 1.8
+                        {
+                            if is_angry_golem {
+                                mob.attack_cooldown = 1.0;
+                                self.audio.play_sound(crate::audio::SoundId::IronGolemAttack, 1.0, 1.0);
+                            }
                             let to_mob = (mob.pos - self.camera.position).normalized();
                             let is_front = to_mob.dot(self.camera.forward()) > 0.35;
-                            let (took_damage, blocked, item_broke) = self.player.take_physical_damage(2.0, is_front);
+                            let damage = if is_angry_golem { 7.0 } else { 2.0 };
+                            let (took_damage, blocked, item_broke) = self.player.take_physical_damage(damage, is_front);
                             if item_broke {
                                 self.audio.play_sound(crate::audio::SoundId::ToolBreak, 1.0, 1.0);
                             }
@@ -1953,6 +1971,11 @@ impl RustCraftApp {
                                 self.damage_tilt_timer = 0.15;
                                 crate::log_info!("COMBAT", "Player blocked attack from {:?} with shield!", mob.kind);
                             } else if took_damage {
+                                if is_angry_golem {
+                                    self.horiz_velocity.x -= to_mob.x * 5.0;
+                                    self.horiz_velocity.z -= to_mob.z * 5.0;
+                                    self.vertical_velocity = self.vertical_velocity.max(3.0);
+                                }
                                 self.damage_tilt_timer = 0.4;
                                 self.damage_tilt_dir = if mob.pos.x > self.camera.position.x { -1.0 } else { 1.0 };
                                 if self.settings.vibration {
@@ -2081,9 +2104,15 @@ impl RustCraftApp {
                                 }
                             }
                             if let Some(midx) = hit_mob {
-                                let mob = &mut self.mob_manager.mobs[midx];
-                                let kb = arrow.velocity.normalized() * 5.0;
-                                mob.take_damage(arrow.damage, Vec3::new(kb.x, 2.5, kb.z));
+                                let (kind, mob_pos) = {
+                                    let mob = &mut self.mob_manager.mobs[midx];
+                                    let kb = arrow.velocity.normalized() * 5.0;
+                                    mob.take_damage(arrow.damage, Vec3::new(kb.x, 2.5, kb.z));
+                                    (mob.kind, mob.pos)
+                                };
+                                if kind == crate::gameplay::mob::MobKind::Villager {
+                                    self.mob_manager.anger_golems_at_villager_attack(mob_pos);
+                                }
                                 self.audio.play_sound(crate::audio::SoundId::BowHit, 1.0, 1.0);
                                 self.particles.spawn_mob_hit(arrow.position);
                                 remove_arrow = true;
