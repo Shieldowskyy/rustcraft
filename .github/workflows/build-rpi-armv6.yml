@@ -40,8 +40,8 @@ jobs:
 
       - name: Build and Strip Raspberry Pi ARMv6 Binary
         run: |
-          chmod +x build_rpi_armv6.sh
-          ./build_rpi_armv6.sh
+          chmod +x scripts/build_rpi_armv6.sh
+          ./scripts/build_rpi_armv6.sh
 
       - name: Upload Raspberry Pi ARMv6 Binary
         uses: actions/upload-artifact@v4

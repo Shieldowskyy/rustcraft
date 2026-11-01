@@ -23,6 +23,10 @@ impl RustCraftApp {
         let q_down = input.key_q;
         let enter_down = input.key_enter;
         let backspace_down = input.key_backspace;
+        let ctrl_down = input.key_ctrl;
+        let a_down = input.key_a;
+        let c_down = input.key_c;
+        let v_down = input.key_v;
 
         // Poll LAN server discovery announcements and probe pings
         self.lan_discovery.update();
@@ -109,14 +113,51 @@ impl RustCraftApp {
                 self.multiplayer_server_addr.pop();
             }
         }
-        for &ch in &input.typed_chars {
-            if !ch.is_control() {
+        if ctrl_down && a_down && !self.prev_a_down {
+            if self.multiplayer_focus == 0 {
+                self.settings.nickname.clear();
+            } else {
+                self.multiplayer_server_addr.clear();
+            }
+        }
+        if ctrl_down && c_down && !self.prev_c_down {
+            let copied = if self.multiplayer_focus == 0 {
+                self.settings.nickname.as_str()
+            } else {
+                self.multiplayer_server_addr.as_str()
+            };
+            crate::ui::clipboard::set_clipboard(copied);
+        }
+        if ctrl_down && v_down && !self.prev_v_down {
+            let pasted = crate::ui::clipboard::get_clipboard();
+            if self.multiplayer_focus == 0 {
+                self.settings.nickname = pasted
+                    .chars()
+                    .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+                    .take(24)
+                    .collect();
+            } else {
+                self.multiplayer_server_addr = pasted
+                    .chars()
+                    .filter(|ch| !ch.is_control() && !ch.is_whitespace())
+                    .take(256)
+                    .collect();
+            }
+        }
+        if !ctrl_down {
+            for &ch in &input.typed_chars {
+                if ch.is_control() {
+                    continue;
+                }
                 if self.multiplayer_focus == 0 {
                     if self.settings.nickname.len() < 24 && (ch.is_alphanumeric() || ch == '_' || ch == '-') {
                         self.settings.nickname.push(ch);
                     }
                 } else {
-                    if self.multiplayer_server_addr.len() < 256 && (ch.is_ascii() && !ch.is_whitespace()) {
+                    if self.multiplayer_server_addr.len() < 256
+                        && ch.is_ascii()
+                        && !ch.is_whitespace()
+                    {
                         self.multiplayer_server_addr.push(ch);
                     }
                 }
@@ -148,10 +189,12 @@ impl RustCraftApp {
         };
         if start_time.elapsed() > std::time::Duration::from_secs(6) {
             let was_hosting = self.is_hosting_multiplayer;
-            self.multiplayer_status = Some("Connection timed out (no response from server)".to_string());
+            let error = "Connection timed out (no response from server)";
+            self.multiplayer_status = Some(error.to_string());
             self.multiplayer_is_connecting = false;
             self.net_client = None;
             self.stop_host_multiplayer();
+            self.show_multiplayer_toast(error, true);
             self.state = if was_hosting { GameState::Paused } else { GameState::MultiplayerMenu };
             crate::log_warn!("NETWORK", "Connection to {} timed out", server_addr);
         } else if let Some(client) = &mut self.net_client {
@@ -209,7 +252,17 @@ impl RustCraftApp {
                 }
                 self.is_multiplayer = true;
                 self.multiplayer_is_connecting = false;
-                self.multiplayer_status = self.multiplayer_invite.as_ref().map(|invite| format!("Invite: {invite}"));
+                let was_hosting = self.is_hosting_multiplayer;
+                if was_hosting {
+                    if let Some(invite) = &self.multiplayer_invite {
+                        crate::ui::clipboard::set_clipboard(invite);
+                    }
+                    self.multiplayer_status = Some(crate::core::i18n::t("multiplayer.hosting_status").to_string());
+                    self.show_multiplayer_toast(crate::core::i18n::t("multiplayer.host_ready_toast"), false);
+                } else {
+                    self.multiplayer_status = Some(crate::core::i18n::t("multiplayer.joined_toast").to_string());
+                    self.show_multiplayer_toast(crate::core::i18n::t("multiplayer.joined_toast"), false);
+                }
                 self.chat.add_message(format!("[Server] Connected to multiplayer server as {}", self.settings.nickname), crate::ui::pack_color(1.0, 1.0, 0.4));
                 if let Some(invite) = &self.multiplayer_invite {
                     self.chat.add_message(format!("[Relay] Share this invite: {invite}"), crate::ui::pack_color(0.35, 0.9, 1.0));
@@ -218,10 +271,11 @@ impl RustCraftApp {
                 out.request_capture_mouse = true;
             } else if let Some(err) = disconnected_err {
                 let was_hosting = self.is_hosting_multiplayer;
-                self.multiplayer_status = Some(err);
+                self.multiplayer_status = Some(err.clone());
                 self.multiplayer_is_connecting = false;
                 self.net_client = None;
                 self.stop_host_multiplayer();
+                self.show_multiplayer_toast(err, true);
                 self.state = if was_hosting { GameState::Paused } else { GameState::MultiplayerMenu };
             }
         }
@@ -259,15 +313,21 @@ impl RustCraftApp {
                 );
             }
             Err(err) => {
-                self.multiplayer_status = Some(err);
+                self.multiplayer_status = Some(err.clone());
                 self.multiplayer_is_connecting = false;
+                self.show_multiplayer_toast(err, true);
                 crate::log_warn!(
                     "NETWORK",
                     "Connection failed: {}",
                     self.multiplayer_status.as_ref().unwrap()
                 );
             }
+
         }
+    }
+
+    pub(crate) fn show_multiplayer_toast(&mut self, message: impl Into<String>, is_error: bool) {
+        self.multiplayer_toast = Some((message.into(), 6.0, is_error));
     }
 
     /// Sets the multiplayer server address and initiates connection immediately.
@@ -306,8 +366,12 @@ impl RustCraftApp {
         self.embedded_server = Some(server);
         self.relay_host = Some(relay);
         self.multiplayer_invite = Some(invite);
+        if let Some(invite) = &self.multiplayer_invite {
+            crate::ui::clipboard::set_clipboard(invite);
+        }
         self.is_hosting_multiplayer = true;
         self.multiplayer_status = Some("Starting hosted multiplayer session...".to_string());
+        self.show_multiplayer_toast(crate::core::i18n::t("multiplayer.host_start_toast"), false);
         self.multiplayer_is_connecting = true;
         self.state = GameState::MultiplayerConnecting {
             server_addr,

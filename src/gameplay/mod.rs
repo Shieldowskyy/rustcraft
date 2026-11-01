@@ -4,6 +4,7 @@ pub mod inventory;
 pub mod item;
 pub mod mob;
 pub mod particles;
+pub mod achievements;
 pub mod physics;
 pub mod player;
 pub mod recipe;

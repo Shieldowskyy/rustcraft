@@ -34,8 +34,8 @@ jobs:
 
       - name: Build RustCraft VPK
         run: |
-          chmod +x build_vita.sh
-          ./build_vita.sh
+          chmod +x scripts/build_vita.sh
+          ./scripts/build_vita.sh
 
       - name: Upload PS Vita VPK Artifact
         uses: actions/upload-artifact@v4

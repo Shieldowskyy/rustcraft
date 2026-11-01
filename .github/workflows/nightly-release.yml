@@ -32,8 +32,8 @@ jobs:
           targets: x86_64-unknown-linux-gnu
       - name: Build and Package
         run: |
-          chmod +x compile_linux.sh
-          ./compile_linux.sh
+          chmod +x scripts/compile_linux.sh
+          ./scripts/compile_linux.sh
           mkdir -p dist
           tar -czf dist/rustcraft-linux-x86_64.tar.gz -C target/release rustcraft
       - uses: actions/upload-artifact@v4
@@ -60,8 +60,8 @@ jobs:
           curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
       - name: Build with Cross
         run: |
-          chmod +x build_linux_arm64.sh
-          ./build_linux_arm64.sh
+          chmod +x scripts/build_linux_arm64.sh
+          ./scripts/build_linux_arm64.sh
           mkdir -p dist
           tar -czf dist/rustcraft-linux-arm64.tar.gz -C target/aarch64-unknown-linux-gnu/release rustcraft
       - uses: actions/upload-artifact@v4
@@ -88,8 +88,8 @@ jobs:
           curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
       - name: Build with Cross
         run: |
-          chmod +x build_linux_armv7.sh
-          ./build_linux_armv7.sh
+          chmod +x scripts/build_linux_armv7.sh
+          ./scripts/build_linux_armv7.sh
           mkdir -p dist
           tar -czf dist/rustcraft-linux-armv7.tar.gz -C target/armv7-unknown-linux-gnueabihf/release rustcraft
       - uses: actions/upload-artifact@v4
@@ -116,8 +116,8 @@ jobs:
           curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
       - name: Build with Cross
         run: |
-          chmod +x build_rpi_armv6.sh
-          ./build_rpi_armv6.sh
+          chmod +x scripts/build_rpi_armv6.sh
+          ./scripts/build_rpi_armv6.sh
           mkdir -p dist
           tar -czf dist/rustcraft-rpi-armv6.tar.gz -C target/arm-unknown-linux-gnueabihf/release rustcraft
       - uses: actions/upload-artifact@v4
@@ -144,8 +144,8 @@ jobs:
           curl -fsSL https://github.com/cross-rs/cross/releases/latest/download/cross-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin
       - name: Build with Cross
         run: |
-          chmod +x build_linux_riscv64.sh
-          ./build_linux_riscv64.sh
+          chmod +x scripts/build_linux_riscv64.sh
+          ./scripts/build_linux_riscv64.sh
           mkdir -p dist
           tar -czf dist/rustcraft-linux-riscv64.tar.gz -C target/riscv64gc-unknown-linux-gnu/release rustcraft
       - uses: actions/upload-artifact@v4
@@ -170,8 +170,8 @@ jobs:
           targets: i686-unknown-linux-gnu
       - name: Build and Package (Linux i686)
         run: |
-          chmod +x build_linux_x86_32.sh
-          ./build_linux_x86_32.sh
+          chmod +x scripts/build_linux_x86_32.sh
+          ./scripts/build_linux_x86_32.sh
           mkdir -p dist
           tar -czf dist/rustcraft-linux-i686.tar.gz -C target/i686-unknown-linux-gnu/release rustcraft
       - uses: actions/upload-artifact@v4
@@ -194,8 +194,8 @@ jobs:
             [ -f /usr/local/bin/pkg-config ] || ln -sf /usr/local/bin/pkgconf /usr/local/bin/pkg-config
           run: |
             export PATH="/usr/local/bin:${HOME}/.cargo/bin:${PATH:-/usr/bin:/bin}"
-            chmod +x build_freebsd.sh
-            ./build_freebsd.sh
+            chmod +x scripts/build_freebsd.sh
+            ./scripts/build_freebsd.sh
             mkdir -p dist
             tar -czf dist/rustcraft-freebsd-x86_64.tar.gz -C target/release rustcraft
       - uses: actions/upload-artifact@v4
@@ -287,8 +287,8 @@ jobs:
           curl -fsSL https://github.com/vitasdk/vdpm/releases/latest/download/bootstrap-vitasdk.sh | bash
       - name: Build VPK
         run: |
-          chmod +x build_vita.sh
-          ./build_vita.sh
+          chmod +x scripts/build_vita.sh
+          ./scripts/build_vita.sh
       - uses: actions/upload-artifact@v4
         with:
           name: psvita-pkg
@@ -308,8 +308,8 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: Build WASM
         run: |
-          chmod +x build_web.sh
-          ./build_web.sh
+          chmod +x scripts/build_web.sh
+          ./scripts/build_web.sh
           mkdir -p dist
           cd web && zip -r ../dist/rustcraft-web-wasm.zip * && cd ..
       - uses: actions/upload-artifact@v4
@@ -329,8 +329,8 @@ jobs:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
       - name: Build macOS Universal App
         run: |
-          chmod +x build_macos.sh
-          ./build_macos.sh universal
+          chmod +x scripts/build_macos.sh
+          ./scripts/build_macos.sh universal
       - uses: actions/upload-artifact@v4
         with:
           name: macos-pkg

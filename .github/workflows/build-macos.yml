@@ -30,8 +30,8 @@ jobs:
 
       - name: Build macOS Universal Binary & App Bundle
         run: |
-          chmod +x build_macos.sh
-          ./build_macos.sh universal
+          chmod +x scripts/build_macos.sh
+          ./scripts/build_macos.sh universal
 
       - name: Upload macOS App Bundle Artifact
         uses: actions/upload-artifact@v4

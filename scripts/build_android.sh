@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 # ============================================================================
 # Build script for RustCraft on Android (ARM64 / aarch64)
 # Produces both librustcraft.so and a signed, installable RustCraft.apk

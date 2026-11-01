@@ -47,8 +47,8 @@ jobs:
 
       - name: Build and Optimize Linux Binary
         run: |
-          chmod +x compile_linux.sh
-          ./compile_linux.sh
+          chmod +x scripts/compile_linux.sh
+          ./scripts/compile_linux.sh
 
       - name: Upload Linux x86_64 Binary
         uses: actions/upload-artifact@v4

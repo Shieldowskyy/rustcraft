@@ -16,21 +16,21 @@ RustCraft features a multithreaded CPU software rasterizer (tiled rasterization,
 
 | Platform / Architecture | Target Triple | Primary Renderer | Build Script / Command |
 |---|---|---|---|
-| **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./compile_linux.sh` (Ubuntu 22.04 recommended for portable builds) |
-| **Linux (32-bit x86 / i686)** | `i686-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./build_linux_x86_32.sh` |
-| **Linux (ARM64 / AArch64)** | `aarch64-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./build_linux_arm64.sh` |
-| **Linux (ARMv7 32-bit HF)** | `armv7-unknown-linux-gnueabihf` | Software CPU (Rayon) / Vulkan | `./build_linux_armv7.sh` |
-| **Linux (RISC-V 64-bit)** | `riscv64gc-unknown-linux-gnu` | Software CPU (Rayon) | `./build_linux_riscv64.sh` |
-| **Raspberry Pi Zero W (ARMv6)** | `arm-unknown-linux-gnueabihf` | Software CPU (Tuned for ARM11) | `./build_rpi_armv6.sh` |
-| **FreeBSD (x86_64)** | `x86_64-unknown-freebsd` | Software CPU / X11 | `./build_freebsd.sh` |
-| **Windows (x86_64)** | `x86_64-pc-windows-gnu` | Software CPU / Vulkan | `./compile-windows.sh` |
-| **Windows (32-bit x86 / i686)** | `i686-pc-windows-gnu` | Software CPU / Vulkan | `./build_windows_32.sh` |
-| **Windows (ARM64 / AArch64)** | `aarch64-pc-windows-msvc` | Software CPU / Vulkan | `./build_windows_arm64.sh` |
-| **Android (ARM64 / ARMv7 / x86_64)** | `aarch64-linux-android` | ANativeWindow (Software / Rayon) | `./build_android.sh` |
-| **Microsoft Xbox 360 (Homebrew XEX2)** | `powerpc-unknown-linux-gnu` / Xenon | Direct VRAM Framebuffer (720p HD) | `./build_xbox360.sh` |
-| **WebAssembly** | `wasm32-unknown-unknown` | Single-threaded Software CPU | `./build_web.sh` |
-| **PlayStation Vita** | `armv7-sony-vita-newlibeabihf` | Bare-Metal GXM GPU (SGX543MP4) | `./build_vita.sh` |
-| **macOS (Apple Silicon & Intel)** | `aarch64` / `x86_64-apple-darwin` | Software CPU / Metal (WGPU) | `./build_macos.sh` |
+| **Linux (x86_64)** | `x86_64-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./scripts/compile_linux.sh` (Ubuntu 22.04 recommended for portable builds) |
+| **Linux (32-bit x86 / i686)** | `i686-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./scripts/build_linux_x86_32.sh` |
+| **Linux (ARM64 / AArch64)** | `aarch64-unknown-linux-gnu` | Software CPU (Rayon) / Vulkan | `./scripts/build_linux_arm64.sh` |
+| **Linux (ARMv7 32-bit HF)** | `armv7-unknown-linux-gnueabihf` | Software CPU (Rayon) / Vulkan | `./scripts/build_linux_armv7.sh` |
+| **Linux (RISC-V 64-bit)** | `riscv64gc-unknown-linux-gnu` | Software CPU (Rayon) | `./scripts/build_linux_riscv64.sh` |
+| **Raspberry Pi Zero W (ARMv6)** | `arm-unknown-linux-gnueabihf` | Software CPU (Tuned for ARM11) | `./scripts/build_rpi_armv6.sh` |
+| **FreeBSD (x86_64)** | `x86_64-unknown-freebsd` | Software CPU / X11 | `./scripts/build_freebsd.sh` |
+| **Windows (x86_64)** | `x86_64-pc-windows-gnu` | Software CPU / Vulkan | `./scripts/compile-windows.sh` |
+| **Windows (32-bit x86 / i686)** | `i686-pc-windows-gnu` | Software CPU / Vulkan | `./scripts/build_windows_32.sh` |
+| **Windows (ARM64 / AArch64)** | `aarch64-pc-windows-msvc` | Software CPU / Vulkan | `./scripts/build_windows_arm64.sh` |
+| **Android (ARM64 / ARMv7 / x86_64)** | `aarch64-linux-android` | ANativeWindow (Software / Rayon) | `./scripts/build_android.sh` |
+| **Microsoft Xbox 360 (Homebrew XEX2)** | `powerpc-unknown-linux-gnu` / Xenon | Direct VRAM Framebuffer (720p HD) | `./scripts/build_xbox360.sh` |
+| **WebAssembly** | `wasm32-unknown-unknown` | Single-threaded Software CPU | `./scripts/build_web.sh` |
+| **PlayStation Vita** | `armv7-sony-vita-newlibeabihf` | Bare-Metal GXM GPU (SGX543MP4) | `./scripts/build_vita.sh` |
+| **macOS (Apple Silicon & Intel)** | `aarch64` / `x86_64-apple-darwin` | Software CPU / Metal (WGPU) | `./scripts/build_macos.sh` |
 
 ---
 
@@ -78,7 +78,9 @@ cargo build --release
 ./target/release/rustcraft --relay-server --relay-port 26657
 ```
 
-Allow inbound TCP port `26657` in the VPS firewall. On desktop, copy `relay.properties.example` to `relay.properties` and set `relay-address` to the VPS hostname and port, or set `RUSTCRAFT_RELAY_ADDR`. For Android builds, embed the address with `RUSTCRAFT_RELAY_ADDR=relay.example.com:26657 ./build_android.sh`; alternatively place `relay.properties` in the app's internal files directory. The relay address is included in each invite, so guests do not need a separate relay configuration.
+Allow inbound TCP port `26657` in the VPS firewall. On desktop, copy `relay.properties.example` to `relay.properties` and set `relay-address` to the VPS hostname and port, or set `RUSTCRAFT_RELAY_ADDR`. For Android builds, embed the address with `RUSTCRAFT_RELAY_ADDR=relay.example.com:26657 ./scripts/build_android.sh`; alternatively place `relay.properties` in the app's internal files directory. The relay address is included in each invite, so guests do not need a separate relay configuration.
+
+To host, load a world, open Pause, and choose **Host Online**. RustCraft reports startup and connection errors with an on-screen toast; once connected, the invite is copied where the platform supports clipboard access and is also posted in chat. To join, open **Multiplayer**, paste the invite into **Server Address or Invite** with `Ctrl+V`, then choose **Join Server**. On desktop, `Ctrl+C` in the pause menu copies the active host invite again.
 
 **Security:** Game traffic through the relay is end-to-end encrypted with ChaCha20-Poly1305. The invitation includes a separate random secret that is never sent to the relay; the relay sees only the room ID and routing metadata. Keep the invite private. Direct connections that do not use `relay://` retain the existing unencrypted TCP behavior.
 
@@ -110,7 +112,7 @@ Allow inbound TCP port `26657` in the VPS firewall. On desktop, copy `relay.prop
 ### Linux (x86_64)
 ```bash
 # Optimized release build with symbol stripping and UPX compression
-./compile_linux.sh
+./scripts/compile_linux.sh
 
 # Or run directly via Cargo:
 cargo run --release
@@ -137,69 +139,99 @@ cargo run --release -- --profiler
 
 ### Linux (32-bit x86 / i686)
 ```bash
-./build_linux_x86_32.sh
+./scripts/build_linux_x86_32.sh
 # Output: target/i686-unknown-linux-gnu/release/rustcraft
 ```
 
 ### Linux ARM64 (Raspberry Pi 3/4/5 64-bit, Orange Pi, Servers)
 ```bash
-./build_linux_arm64.sh
+./scripts/build_linux_arm64.sh
 # Output: target/aarch64-unknown-linux-gnu/release/rustcraft
 ```
 
+### Headless Linux ARM64 server + relay
+```bash
+./scripts/build_linux_arm64_server.sh
+# Output: dist/rustcraft-server-linux-arm64.tar.gz
+```
+
+For other Rust targets, use the generic server builder. Omit the target triple
+to build for the current host:
+
+```bash
+./scripts/build_server.sh x86_64-pc-windows-gnu
+# Output: dist/rustcraft-server-x86_64-pc-windows-gnu.tar.gz
+```
+
+Cross targets require `cross` with Docker/Podman, or a target linker and
+libraries configured for Cargo. Each package contains only the server
+executable and `server.properties`, not the game client or bundled soundtracks.
+Extract it on the target machine and run one service per process:
+
+```bash
+tar -xzf rustcraft-server-linux-arm64.tar.gz
+./rustcraft-server --relay-server --relay-port 8080
+# Or, in a separate process/machine, run a dedicated game server:
+./rustcraft-server --server --port 26656 --seed 133742
+```
+
+Open the selected TCP port in the host firewall. The dedicated game server
+loads and writes `server.properties` in its working directory. The executable
+requires the target system's compatible system libraries.
+
 ### Linux ARMv7 (Raspberry Pi 2/3 32-bit, BeagleBone, Retro Handhelds)
 ```bash
-./build_linux_armv7.sh
+./scripts/build_linux_armv7.sh
 # Output: target/armv7-unknown-linux-gnueabihf/release/rustcraft
 ```
 
 ### Linux RISC-V (64-bit GC / VisionFive 2, StarFive, Allwinner D1 64-bit)
 ```bash
-./build_linux_riscv64.sh
+./scripts/build_linux_riscv64.sh
 # Output: target/riscv64gc-unknown-linux-gnu/release/rustcraft
 ```
 
 ### Raspberry Pi Zero W / Zero / 1 (ARMv6)
 ```bash
-./build_rpi_armv6.sh
+./scripts/build_rpi_armv6.sh
 # Cross-compiles for ARMv6KZ (arm1176jzf-s) with VFPv2 hardware float support
 # Output: target/arm-unknown-linux-gnueabihf/release/rustcraft
 ```
 
 ### FreeBSD (x86_64)
 ```bash
-./build_freebsd.sh
+./scripts/build_freebsd.sh
 # Output: target/x86_64-unknown-freebsd/release/rustcraft
 ```
 
 ### Windows (x86_64)
 ```bash
-./compile-windows.sh
+./scripts/compile-windows.sh
 # Output: target/x86_64-pc-windows-gnu/release/rustcraft.exe
 ```
 
 ### Windows (32-bit x86 / i686)
 ```bash
-./build_windows_32.sh
+./scripts/build_windows_32.sh
 # Output: target/i686-pc-windows-gnu/release/rustcraft.exe
 ```
 
 ### Windows ARM64 (Surface Pro ARM, Snapdragon X Elite, WoA)
 ```bash
-./build_windows_arm64.sh
+./scripts/build_windows_arm64.sh
 # Output: target/aarch64-pc-windows-msvc/release/rustcraft.exe
 ```
 
 ### PlayStation Vita
 ```bash
-./build_vita.sh
+./scripts/build_vita.sh
 # Output: RustCraft.vpk
 ```
 Install `RustCraft.vpk` on your console using VitaShell (via USB or FTP to `ux0:`), or test locally with the [Vita3K emulator](https://vita3k.org/).
 
 ### WebAssembly / HTML5
 ```bash
-./build_web.sh
+./scripts/build_web.sh
 cd web && python3 -m http.server 8080
 # Open http://localhost:8080 in your browser
 ```
@@ -207,24 +239,24 @@ cd web && python3 -m http.server 8080
 ### macOS (Apple Silicon & Intel)
 ```bash
 # Build for host macOS architecture (Apple Silicon M1/M2/M3/M4 or Intel):
-./build_macos.sh
+./scripts/build_macos.sh
 
 # Or build Universal 2 binary (arm64 + x86_64) packaged as .app bundle:
-./build_macos.sh universal
+./scripts/build_macos.sh universal
 
 # Output: dist/RustCraft.app and dist/rustcraft-macos-*.tar.gz
 ```
 
 ### Microsoft Xbox 360 (Homebrew XEX2 / XeLL)
 ```bash
-./build_xbox360.sh
+./scripts/build_xbox360.sh
 # Output: RustCraft-Xbox360.zip and target/xbox360/RustCraft/default.xex
 ```
 Extract `RustCraft-Xbox360.zip` to a FAT32 USB drive (`USB:\RustCraft\default.xex`) and launch via XeXMenu, Aurora Dashboard, or DashLaunch on any exploited Xbox 360 console (RGH / JTAG), or boot `rustcraft.elf` directly via XeLL Reloaded.
 
 ### Android (ARM64 / ARMv7 / x86_64)
 ```bash
-./build_android.sh
+./scripts/build_android.sh
 # Output: RustCraft.apk
 ```
 Install on your Android device or emulator via `adb install -r RustCraft.apk`. Features touch controls, soft keyboard IME, low-latency native AAudio synthesis, and analog gamepad support.
@@ -408,19 +440,21 @@ rustcraft/
 ├── Cargo.toml                  # Project dependencies & feature flags
 ├── ARCHITECTURE.md             # Comprehensive engine architecture guide
 ├── build.rs                    # Vita shader compilation & cross-platform build config
-├── compile_linux.sh            # Linux x86_64 release & strip script
-├── build_linux_x86_32.sh       # Linux 32-bit (i686) build script
-├── compile-windows.sh          # MinGW cross-compilation script (x86_64)
-├── build_windows_32.sh         # Windows 32-bit (i686) build script
-├── build_windows_arm64.sh      # Windows ARM64 (AArch64) build script
-├── build_linux_arm64.sh        # Linux ARM64 (Raspberry Pi 4/5) build script
-├── build_linux_armv7.sh        # Linux ARMv7 (Raspberry Pi 2/3 32-bit) build script
-├── build_linux_riscv64.sh      # Linux RISC-V 64-bit build script
-├── build_rpi_armv6.sh          # Raspberry Pi Zero W (ARMv6) build script
-├── build_freebsd.sh            # FreeBSD x86_64 build script
-├── build_vita.sh               # PS Vita VPK packaging script
-├── build_web.sh                # WebAssembly build script
-├── build_macos.sh              # macOS (Apple Silicon & Intel) build & .app bundle script
+├── scripts/compile_linux.sh            # Linux x86_64 release & strip script
+├── scripts/build_server.sh              # Headless server package for a Rust target
+├── scripts/build_linux_arm64_server.sh  # ARM64 server package compatibility entry point
+├── scripts/build_linux_x86_32.sh       # Linux 32-bit (i686) build script
+├── scripts/compile-windows.sh          # MinGW cross-compilation script (x86_64)
+├── scripts/build_windows_32.sh         # Windows 32-bit (i686) build script
+├── scripts/build_windows_arm64.sh      # Windows ARM64 (AArch64) build script
+├── scripts/build_linux_arm64.sh        # Linux ARM64 (Raspberry Pi 4/5) build script
+├── scripts/build_linux_armv7.sh        # Linux ARMv7 (Raspberry Pi 2/3 32-bit) build script
+├── scripts/build_linux_riscv64.sh      # Linux RISC-V 64-bit build script
+├── scripts/build_rpi_armv6.sh          # Raspberry Pi Zero W (ARMv6) build script
+├── scripts/build_freebsd.sh            # FreeBSD x86_64 build script
+├── scripts/build_vita.sh               # PS Vita VPK packaging script
+├── scripts/build_web.sh                # WebAssembly build script
+├── scripts/build_macos.sh              # macOS (Apple Silicon & Intel) build & .app bundle script
 ├── locales/                    # Embedded i18n JSON dictionaries
 │   ├── en.json
 │   └── pl.json

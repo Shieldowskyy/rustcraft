@@ -187,6 +187,34 @@ pub fn thumbnail_path(slot: u8) -> String {
         .into_owned()
 }
 
+/// Returns the path to achievement progress associated with a world save slot.
+pub fn achievement_progress_path(slot: u8) -> std::path::PathBuf {
+    saves_dir().join(format!("rustcraft_world_{slot:02}.ach"))
+}
+
+/// Loads achievement progress for a save slot, treating a missing file as a new record.
+pub fn load_achievement_progress(
+    slot: u8,
+) -> Result<crate::gameplay::achievements::AchievementProgress, String> {
+    let path = achievement_progress_path(slot);
+    match std::fs::read(path) {
+        Ok(bytes) => crate::gameplay::achievements::AchievementProgress::decode(&bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(crate::gameplay::achievements::AchievementProgress::default())
+        }
+        Err(error) => Err(format!("Could not read achievement progress: {error}")),
+    }
+}
+
+/// Writes achievement progress for a save slot.
+pub fn save_achievement_progress(
+    slot: u8,
+    progress: &crate::gameplay::achievements::AchievementProgress,
+) -> Result<(), String> {
+    std::fs::write(achievement_progress_path(slot), progress.encode())
+        .map_err(|error| format!("Could not save achievement progress: {error}"))
+}
+
 /// Width and height of generated world save thumbnails in pixels.
 pub const THUMB_SIZE: usize = 56;
 
@@ -379,17 +407,24 @@ pub fn get_save_metadata(slot: u8) -> SaveMetadata {
 
 /// Deletes a save file and its associated thumbnail preview from disk.
 pub fn delete_save(slot: u8) -> Result<(), String> {
-    let _ = std::fs::remove_file(thumbnail_path(slot));
     let path = save_path(slot);
     let p = std::path::Path::new(&path);
     if p.exists() {
         std::fs::remove_file(p).map_err(|e| e.to_string())?;
         crate::log_info!("SAVE", "Deleted save file in slot {} ({})", slot, path);
-        Ok(())
     } else {
         crate::log_info!("SAVE", "No existing save file in slot {} ({}) to delete", slot, path);
-        Ok(())
     }
+    let _ = std::fs::remove_file(thumbnail_path(slot));
+    match std::fs::remove_file(achievement_progress_path(slot)) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            crate::log_error!("SAVE", "Could not delete achievement progress: {}", error);
+            return Err(format!("Could not delete achievement progress: {error}"));
+        }
+    }
+    Ok(())
 }
 
 /// Saves the active world state (player position, game mode, modified chunks, and thumbnail) to `slot`.

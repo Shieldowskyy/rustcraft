@@ -2,7 +2,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/scripts/cross_build.sh"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+source "$SCRIPT_DIR/cross_build.sh"
 
 # ============================================================================
 # Build script for RustCraft on Linux ARMv7 (32-bit Hard Float)

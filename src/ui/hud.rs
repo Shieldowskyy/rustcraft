@@ -907,12 +907,12 @@ pub fn draw_capture_prompt(buffer: &mut [u32], width: usize, height: usize, nati
     draw_text_shadowed(buffer, width, height, line2, cx - w2 / 2, cy + 20, scale2, 1);
 }
 
-pub fn pause_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 6] {
+pub fn pause_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 7] {
     let btn_w = 280;
-    let btn_h = 34;
-    let spacing = 8;
+    let btn_h = 30;
+    let spacing = 6;
     let cx = width as i32 / 2;
-    let start_y = height as i32 / 2 - 110;
+    let start_y = height as i32 / 2 - 125;
 
     [
         (cx - btn_w / 2, start_y, btn_w, btn_h),
@@ -921,6 +921,7 @@ pub fn pause_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, 
         (cx - btn_w / 2, start_y + (btn_h + spacing) * 3, btn_w, btn_h),
         (cx - btn_w / 2, start_y + (btn_h + spacing) * 4, btn_w, btn_h),
         (cx - btn_w / 2, start_y + (btn_h + spacing) * 5, btn_w, btn_h),
+        (cx - btn_w / 2, start_y + (btn_h + spacing) * 6, btn_w, btn_h),
     ]
 }
 
@@ -987,8 +988,9 @@ pub fn draw_pause_menu(
     } else {
         format!("{} (Q)", crate::core::i18n::t("pause.quit"))
     };
+    let b6 = crate::core::i18n::t("pause.achievements").to_string();
 
-    let buttons = [b0, b1, b2, b3, b4, b5];
+    let buttons = [b0, b1, b2, b3, b4, b5, b6];
 
     let rects = pause_menu_button_rects(width, height);
 
@@ -1029,24 +1031,10 @@ pub fn draw_pause_menu(
             draw_text_shadowed(buffer, width, height, label, tx, ty, scale, 1);
         }
 
-        if let Some(status) = status {
-            let label = font::measure_text(status, 1, 1);
-            draw_text_colored_shadowed(
-                buffer,
-                width,
-                height,
-                status,
-                cx - label / 2,
-                rects[5].1 + rects[5].3 + 8,
-                1,
-                1,
-                pack_color(0.55, 0.9, 1.0),
-            );
-        }
     }
 
     // Dynamic contextual tooltip for selected pause menu button
-    let tooltip = if is_gamepad_active {
+    let tooltip = status.unwrap_or_else(|| if is_gamepad_active {
         match hovered_idx {
             Some(0) => "Resume gameplay and return to world [START] or [A]",
             Some(1) => "Adjust video, sound, controls, and debug options [A]",
@@ -1059,6 +1047,7 @@ pub fn draw_pause_menu(
             }
             Some(3) => "Save current game world and return to save select menu [A]",
             Some(4) => "Save world progress and quit application [A] or [B]",
+            Some(6) => "Review milestones and the paths between them [A]",
             _ => "Navigate with D-PAD / Left Stick, select with [A], back with [B]",
         }
     } else {
@@ -1074,9 +1063,10 @@ pub fn draw_pause_menu(
             }
             Some(3) => "Save current game world and return to save select menu (M)",
             Some(4) => "Save world progress and quit application (Q)",
+            Some(6) => "Review milestones and the paths between them (ENTER)",
             _ => "Navigate with mouse, arrow keys, or gamepad stick",
         }
-    };
+    });
 
     let tip_w = 460.min(width as i32 - 40);
     let tip_h = 24;
@@ -1089,15 +1079,19 @@ pub fn draw_pause_menu(
     fill_rect(buffer, width, height, tip_x, tip_y, 1, tip_h, pack_color(0.35, 0.45, 0.65));
     fill_rect(buffer, width, height, tip_x + tip_w - 1, tip_y, 1, tip_h, pack_color(0.35, 0.45, 0.65));
 
-    let tip_text_w = font::measure_text(tooltip, 1, 1);
+    let max_tooltip_chars = (tip_w.saturating_sub(20) / 6).max(1) as usize;
+    let tooltip_text: String = tooltip.chars().take(max_tooltip_chars).collect();
+    let tip_text_w = font::measure_text(&tooltip_text, 1, 1);
     let tip_text_x = tip_x + (tip_w - tip_text_w) / 2;
     let tip_text_y = tip_y + (tip_h - font::GLYPH_H as i32) / 2;
-    let tip_color = if hovered_idx.is_some() {
+    let tip_color = if status.is_some() {
+        pack_color(0.55, 0.9, 1.0)
+    } else if hovered_idx.is_some() {
         pack_color(0.95, 0.90, 0.40)
     } else {
         pack_color(0.65, 0.70, 0.80)
     };
-    draw_text_colored_shadowed(buffer, width, height, tooltip, tip_text_x, tip_text_y, 1, 1, tip_color);
+    draw_text_colored_shadowed(buffer, width, height, &tooltip_text, tip_text_x, tip_text_y, 1, 1, tip_color);
 
     // Controls reference cards
     let card_w = 260;
@@ -1200,6 +1194,53 @@ pub fn draw_pause_menu(
     let build_info = crate::core::build_info::get_build_info();
     let bw = font::measure_text(build_info, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, build_info, (width as i32 - bw) / 2, height as i32 - 14, 1, 1, pack_color(0.50, 0.55, 0.65));
+}
+
+pub fn draw_multiplayer_toast(
+    buffer: &mut [u32],
+    width: usize,
+    height: usize,
+    message: &str,
+    is_error: bool,
+) {
+    let max_text_width = width.saturating_sub(40) as i32;
+    let max_chars = (max_text_width / 6).max(1) as usize;
+    let text: String = message.chars().take(max_chars).collect();
+    let text_width = font::measure_text(&text, 1, 1);
+    let box_width = (text_width + 24).min(max_text_width);
+    let box_height = 28;
+    let x = (width as i32 - box_width) / 2;
+    let y = height as i32 - 72;
+    let accent = if is_error {
+        pack_color(0.92, 0.30, 0.28)
+    } else {
+        pack_color(0.25, 0.78, 0.50)
+    };
+
+    fill_rect_alpha(
+        buffer,
+        width,
+        height,
+        x,
+        y,
+        box_width,
+        box_height,
+        pack_color(0.04, 0.05, 0.07),
+        0.92,
+    );
+    fill_rect(buffer, width, height, x, y, box_width, 2, accent);
+    fill_rect(buffer, width, height, x, y, 3, box_height, accent);
+    draw_text_colored_shadowed(
+        buffer,
+        width,
+        height,
+        &text,
+        x + 12,
+        y + 9,
+        1,
+        1,
+        pack_color(0.96, 0.98, 1.0),
+    );
 }
 
 pub fn draw_damage_flash(buffer: &mut [u32], width: usize, height: usize, intensity: f32) {

@@ -469,7 +469,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn pause_menu_button_rects(&self) -> [(i32, i32, i32, i32); 6] {
+    pub fn pause_menu_button_rects(&self) -> [(i32, i32, i32, i32); 7] {
         crate::ui::pause_menu_button_rects(self.width, self.height)
     }
 

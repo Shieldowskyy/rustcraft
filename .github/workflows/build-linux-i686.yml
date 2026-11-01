@@ -39,8 +39,8 @@ jobs:
 
       - name: Build and Strip Linux 32-bit Binary
         run: |
-          chmod +x build_linux_x86_32.sh
-          ./build_linux_x86_32.sh
+          chmod +x scripts/build_linux_x86_32.sh
+          ./scripts/build_linux_x86_32.sh
 
       - name: Upload Linux 32-bit Binary
         uses: actions/upload-artifact@v4

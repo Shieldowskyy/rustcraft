@@ -7,7 +7,7 @@ impl RustCraftApp {
     pub fn build_profiler_snapshot(&self, cur_profiler: &FrameProfiler) -> crate::core::profiler_server::ProfilerSnapshot {
         let bpos = self.camera.position.floor_to_ivec();
         let biome = self.world.biome_name_at(bpos.x, bpos.z).to_string();
-        let is_paused = matches!(self.state, GameState::Paused);
+        let is_paused = matches!(self.state, GameState::Paused | GameState::AchievementTree);
         let game_state_str = match &self.state {
             GameState::MainMenu => "Main Menu",
             GameState::SaveSelect => "Save Select",
@@ -16,6 +16,7 @@ impl RustCraftApp {
             GameState::EditNickname(_) => "Change Nickname",
             GameState::Playing => "Playing",
             GameState::Paused => "Paused",
+            GameState::AchievementTree => "Achievement Tree",
             GameState::Inventory => "Inventory",
             GameState::Chest { .. } => "Chest",
             GameState::Furnace { .. } => "Furnace",

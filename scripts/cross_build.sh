@@ -102,7 +102,7 @@ cross_build() {
         echo "    Fix (recommended): build natively on macOS with Xcode Command Line Tools:"
         echo "      xcode-select --install"
         echo "      rustup target add $target"
-        echo "      ./build_macos.sh"
+        echo "      ./scripts/build_macos.sh"
         echo "    Alternative (Linux cross-compilation):"
         echo "      - Install osxcross (https://github.com/tpoechtrager/osxcross) and set target linker"
         echo "      - Or configure a custom macOS cross-image in Cross.toml"

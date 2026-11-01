@@ -40,12 +40,24 @@ jobs:
 
       - name: Build and Strip Linux ARM64 Binary
         run: |
-          chmod +x build_linux_arm64.sh
-          ./build_linux_arm64.sh
+          chmod +x scripts/build_linux_arm64.sh
+          ./scripts/build_linux_arm64.sh
+
+      - name: Build headless Linux ARM64 server package
+        run: |
+          chmod +x scripts/build_linux_arm64_server.sh
+          ./scripts/build_linux_arm64_server.sh
 
       - name: Upload Linux ARM64 Binary
         uses: actions/upload-artifact@v4
         with:
           name: RustCraft-Linux-ARM64
           path: target/aarch64-unknown-linux-gnu/release/rustcraft
+          if-no-files-found: error
+
+      - name: Upload headless Linux ARM64 server package
+        uses: actions/upload-artifact@v4
+        with:
+          name: RustCraft-Server-Linux-ARM64
+          path: dist/rustcraft-server-linux-arm64.tar.gz
           if-no-files-found: error

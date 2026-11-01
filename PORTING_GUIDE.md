@@ -13,7 +13,7 @@ This guide provides architectural instructions for porting RustCraft to other op
 * **Gamepad**: `gilrs` via `src/platform/gamepad.rs`.
 * **Build**:
   ```bash
-  ./compile_linux.sh   # release + strip + UPX compression
+  ./scripts/compile_linux.sh   # release + strip + UPX compression
   # or:
   cargo build --release
   ```
@@ -51,7 +51,7 @@ This guide provides architectural instructions for porting RustCraft to other op
 * **Frontend**: `web/index.html`, `web/app.js`, `web/style.css` — modern CSS UI with Pointer Lock and gamepad support.
 * **Build**:
   ```bash
-  ./build_web.sh
+  ./scripts/build_web.sh
   ```
 
 ### PlayStation Vita — Implemented
@@ -81,7 +81,7 @@ This guide provides architectural instructions for porting RustCraft to other op
 * **Storage**: Save files stored at `ux0:data/RustCraft/rustcraft_world_NN.bin` via `SceIo`.
 * **Build**:
   ```bash
-  ./build_vita.sh
+  ./scripts/build_vita.sh
   # Output: RustCraft.vpk — install via VitaShell
   ```
   Prerequisites: VitaSDK at `/usr/local/vitasdk`, Rust target `armv7-sony-vita-newlibeabihf`,
@@ -108,7 +108,7 @@ This guide provides architectural instructions for porting RustCraft to other op
   * Adaptive voxel block icon and AndroidManifest configured for gaming.
 * **Build**:
   ```bash
-  ./build_android.sh
+  ./scripts/build_android.sh
   # Output: RustCraft.apk — install via adb install -r RustCraft.apk
   ```
   Prerequisites: Android SDK & NDK, OpenJDK/Java (`javac`).
@@ -146,7 +146,7 @@ This guide provides architectural instructions for porting RustCraft to other op
   * ELF output (`rustcraft.elf`) for direct XeLL Reloaded bootloader launching.
 * **Build**:
   ```bash
-  ./build_xbox360.sh
+  ./scripts/build_xbox360.sh
   # Output: target/xbox360/RustCraft/default.xex and RustCraft-Xbox360.zip
   ```
   Prerequisites: Python 3, `zip`.

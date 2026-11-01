@@ -14,7 +14,7 @@ use crate::gameplay::physics::{
 };
 use crate::gameplay::player::GameMode;
 use crate::world::block::{BlockId, Face};
-use crate::world::storage::{get_save_metadata, save_current_world, save_path};
+use crate::world::storage::{get_save_metadata, save_path};
 use super::{AppOutput, CameraPerspective, GameState, InputState, RumbleRequest, RustCraftApp};
 
 impl RustCraftApp {
@@ -185,15 +185,12 @@ impl RustCraftApp {
 
                 if !self.chat.is_open && self.controls.is_just_pressed(Action::Save) {
                     let path = save_path(self.save_slot);
-                    match save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref()) {
+                    match self.save_world_progress() {
                         Ok(()) => {
                             println!("Saved world to {path}");
                             crate::log_info!("SAVE", "World successfully saved to slot {} ({})", self.save_slot, path);
                         }
-                        Err(error) => {
-                            eprintln!("{error}");
-                            crate::log_error!("SAVE", "Failed to save world: {}", error);
-                        }
+                        Err(error) => eprintln!("{error}"),
                     }
                     self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                 }
@@ -566,6 +563,8 @@ impl RustCraftApp {
                     // Smoothly interpolate postprocess screen color filter towards current biome tint
                     let p_block = self.camera.position.floor_to_ivec();
                     let (current_biome, _) = crate::world::get_biome_at(p_block.x, p_block.z, self.world.seed);
+                    let unlocked = self.achievements.visit_biome(current_biome);
+                    self.process_achievement_unlocks(unlocked);
                     let target_tint = current_biome.color_filter();
                     let lerp_speed = 1.8;
                     let factor = (1.0 - (-lerp_speed * dt).exp()).clamp(0.0, 1.0);
@@ -897,6 +896,9 @@ impl RustCraftApp {
                     let mut entity_hit = false;
                     let mut entity_attacked = false;
                     let block_hit = self.world.raycast(self.camera.position, forward, 8.0);
+                    if let Some(hit) = &block_hit {
+                        self.record_discovered_block(self.world.get_block(hit.block_pos));
+                    }
                     let block_distance = block_hit.as_ref().map_or(8.0, |hit| hit.distance);
                     let entity_reach = 4.2_f32.min((block_distance - 0.001).max(0.0));
 
@@ -920,13 +922,18 @@ impl RustCraftApp {
                     {
                         entity_hit = true;
                         if interact_left_just {
-                            let (kind, remaining_hp, mob_pos) = {
+                            let (kind, remaining_hp, mob_pos, was_alive) = {
                                 let mob = &mut self.mob_manager.mobs[mob_idx];
+                                let was_alive = !mob.is_dead;
                                 let hit_pos = mob.center_pos();
                                 mob.take_damage(dmg, forward);
                                 self.particles.spawn_mob_hit(hit_pos);
-                                (mob.kind, mob.health, mob.pos)
+                                (mob.kind, mob.health, mob.pos, was_alive)
                             };
+                            if was_alive && remaining_hp <= 0.0 {
+                                let unlocked = self.achievements.record_defeated_mob();
+                                self.process_achievement_unlocks(unlocked);
+                            }
                             if kind == crate::gameplay::mob::MobKind::Villager {
                                 self.mob_manager.anger_golems_at_villager_attack(mob_pos);
                             }
@@ -1032,6 +1039,9 @@ impl RustCraftApp {
                                     BlockId::Air
                                 };
                                 self.world.set_block(target, replace_block);
+                                self.record_discovered_block(broken_block);
+                                let unlocked = self.achievements.record_mined(broken_block);
+                                self.process_achievement_unlocks(unlocked);
                                 if let Some(mate) = bed_mate {
                                     self.world.set_block(mate, BlockId::Air);
                                     if let Some(client) = &mut self.net_client {
@@ -1800,6 +1810,8 @@ impl RustCraftApp {
                                     {
                                         self.world.set_block(place_pos, BlockId::Bed);
                                         self.world.set_block(head_pos, BlockId::Bed);
+                                        let unlocked = self.achievements.record_placed();
+                                        self.process_achievement_unlocks(unlocked);
                                         let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
                                         self.play_world_sound_varied(crate::audio::SoundId::PlaceWood, sound_pos, 0.85);
                                         self.request_rumble(0.2, 0.1, 45);
@@ -1822,6 +1834,8 @@ impl RustCraftApp {
                                     {
                                         self.world.set_block(place_pos, BlockId::Door);
                                         self.world.set_block(top_pos, BlockId::Door);
+                                        let unlocked = self.achievements.record_placed();
+                                        self.process_achievement_unlocks(unlocked);
                                         let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
                                         self.play_world_sound_varied(crate::audio::SoundId::PlaceWood, sound_pos, 0.85);
                                         self.request_rumble(0.2, 0.1, 45);
@@ -1839,6 +1853,8 @@ impl RustCraftApp {
                                     }
                                 } else if !block_intersects_player(place_pos, self.camera.position, self.current_eye_offset, self.current_player_height) {
                                     self.world.set_block(place_pos, place_id);
+                                    let unlocked = self.achievements.record_placed();
+                                    self.process_achievement_unlocks(unlocked);
                                     let place_sound = crate::audio::SoundId::from_block_place(place_id);
                                     let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
                                     self.play_world_sound_varied(place_sound, sound_pos, 0.85);
@@ -1911,6 +1927,15 @@ impl RustCraftApp {
                 let held_item = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
                 let is_creative = self.player.gamemode == GameMode::Creative;
                 self.mob_manager.update(dt, &self.world, self.camera.position, held_item, is_creative);
+                let mut discovered_mob = false;
+                for mob in &self.mob_manager.mobs {
+                    if !mob.is_dead && (mob.pos - self.camera.position).length_sq() <= 24.0 * 24.0 {
+                        discovered_mob |= self.achievements.record_mob_seen(mob.kind);
+                    }
+                }
+                if discovered_mob {
+                    self.persist_achievement_progress();
+                }
                 for (b_pos, b_id) in self.mob_manager.pending_block_changes.drain(..) {
                     self.world.set_block(b_pos, b_id);
                 }

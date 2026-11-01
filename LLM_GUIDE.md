@@ -12,6 +12,7 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
 | **New Mob Type** | `src/gameplay/mob.rs` | Add variant to `MobKind` (14 types: Pig, Cow, Chicken, Sheep, Zombie, Skeleton, Reaper, Dolphin, Cod, Salmon, Pufferfish, TropicalFish, Villager, IronGolem), define bounding boxes & AI tick, add draw calls in `software/mod.rs` and `platform/vita_gxm.rs`. |
 | **Dynamic Weather** | `src/world/weather.rs` | Manage weather states (Clear, Rain, Thunderstorm), precipitation by biome temperature (rain/snow), storm audio, lightning flash, and `/weather` commands. |
 | **Villages & Trading** | `src/world/mod.rs`, `src/gameplay/trading.rs` | Village layout generator, professions, trade offerings, emerald currency, and trading window in `src/ui/container_ui.rs`. |
+| **Field Guide** | `src/gameplay/achievements.rs`, `src/gameplay/mob.rs`, `src/ui/achievements.rs`, `src/world/storage.rs` | Track milestone branches, encountered creatures, discovered blocks, localized toasts, and per-slot progress files. |
 | **New Texture / Atlas Layer** | `src/graphics/atlas.rs`, `src/graphics/gpu/mod.rs` | Add variant to `TextureId`, procedural rasterizer in `atlas.rs`, bidirectional layer mapping in `gpu/mod.rs`, and adjust `TEXTURE_LAYER_COUNT`. |
 | **New UI Screen / Element** | `src/ui/` (`hud.rs`, `menu.rs`, `inventory_ui.rs`, `container_ui.rs`, `minimap.rs`) | Use functions in `src/ui/draw.rs` (`fill_rect_alpha`, `draw_text_shadowed`). |
 | **Player / Physics / Movement** | `src/gameplay/physics.rs`, `player.rs` | Physics uses AABB sweeps. Maintain step-up, crouching checks, and fluid buoyancy. |
@@ -75,6 +76,11 @@ Whenever you add a new texture (for a block, item, mob, armor, or UI element):
 2. Open `src/graphics/software/mod.rs` and `src/platform/vita_gxm.rs`:
    - In `Renderer::draw_mob()`, match on the new `MobKind` and define the 3D box hierarchy (head, body, limbs) with corresponding rotations and texture IDs.
 3. If new mob textures are required, follow the "How to Add a New Texture & Update Texture Array Layers" section above.
+
+### How to Extend the Field Guide
+1. Add achievement prerequisites in `src/gameplay/achievements.rs`, and keep `MobKind::ALL`/its localized creature names in sync in `src/gameplay/mob.rs` and both locale files.
+2. Record discoveries from successful gameplay events and add both English and Polish strings.
+3. Update the guide layout in `src/ui/achievements.rs` when changing its sections. Per-world progress is stored beside each save in an `.ach` file.
 
 ### How to Work with Crash Reporter & Sentry
 1. **Breadcrumbs**: Use `crate::core::logger::record_breadcrumb(category, message)` before risky operations.

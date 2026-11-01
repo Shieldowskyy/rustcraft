@@ -4,6 +4,7 @@ use crate::world::block::BlockId;
 use crate::world::World;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(u8)]
 pub enum MobKind {
     Pig,
     Cow,
@@ -23,6 +24,44 @@ pub enum MobKind {
 }
 
 impl MobKind {
+    pub const ALL: [Self; 15] = [
+        Self::Pig,
+        Self::Cow,
+        Self::Chicken,
+        Self::Sheep,
+        Self::Zombie,
+        Self::Skeleton,
+        Self::Reaper,
+        Self::Dolphin,
+        Self::Cod,
+        Self::Salmon,
+        Self::Pufferfish,
+        Self::TropicalFish,
+        Self::Villager,
+        Self::IronGolem,
+        Self::Spider,
+    ];
+
+    pub fn catalog_name_key(&self) -> &'static str {
+        match self {
+            Self::Pig => "creature.pig",
+            Self::Cow => "creature.cow",
+            Self::Chicken => "creature.chicken",
+            Self::Sheep => "creature.sheep",
+            Self::Zombie => "creature.zombie",
+            Self::Skeleton => "creature.skeleton",
+            Self::Reaper => "creature.reaper",
+            Self::Dolphin => "creature.dolphin",
+            Self::Cod => "creature.cod",
+            Self::Salmon => "creature.salmon",
+            Self::Pufferfish => "creature.pufferfish",
+            Self::TropicalFish => "creature.tropical_fish",
+            Self::Villager => "creature.villager",
+            Self::IronGolem => "creature.iron_golem",
+            Self::Spider => "creature.spider",
+        }
+    }
+
     pub fn is_aquatic(&self) -> bool {
         matches!(
             self,

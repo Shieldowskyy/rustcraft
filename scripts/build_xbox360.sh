@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 # ============================================================================
 # Build script for RustCraft on Microsoft Xbox 360 (Homebrew / XEX2 / XeLL)
 # Produces default.xex, rustcraft.elf, and installable RustCraft-Xbox360.zip
@@ -25,7 +29,7 @@ for arg in "$@"; do
             echo "⚡ Performance profiler enabled."
             ;;
         --help|-h)
-            echo "Usage: ./build_xbox360.sh [--profiler]"
+            echo "Usage: ./scripts/build_xbox360.sh [--profiler]"
             echo "  --profiler    Enable F3 telemetry profiler on Xbox 360"
             exit 0
             ;;
@@ -76,7 +80,7 @@ echo "✓ Native PowerPC Xenon executable generated: $PRIMARY_PAYLOAD"
 # 3. Generate XEX2 Package (default.xex) & XeLL ELF (rustcraft.elf & xenon.elf)
 # ----------------------------------------------------------------------------
 echo "Generating Xbox 360 XEX2 executable (default.xex) with valid PE32 container..."
-python3 scripts/make_xex.py "$PRIMARY_PAYLOAD" \
+python3 "$SCRIPT_DIR/make_xex.py" "$PRIMARY_PAYLOAD" \
     -o "$OUT_DIR/default.xex" \
     --title-id "$TITLE_ID" \
     --title-name "$TITLE_NAME"

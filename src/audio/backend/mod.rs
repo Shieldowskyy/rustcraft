@@ -5,6 +5,7 @@ pub mod desktop;
 pub mod wasm;
 pub mod vita;
 pub mod xbox360;
+#[cfg(target_os = "android")]
 pub mod android;
 
 /// Abstract hardware audio playback backend.

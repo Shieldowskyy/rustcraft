@@ -134,7 +134,7 @@ pub fn draw_multiplayer_menu(
     draw_text_colored_shadowed(buffer, width, height, rand_label, rx + (rw - rtw) / 2, ry + 11, 1, 1, pack_color(1.0, 0.95, 0.70));
 
     // 2. Server Address Label
-    let addr_label = crate::core::i18n::t("multiplayer.server_label");
+    let addr_label = crate::core::i18n::t("multiplayer.server_invite_label");
     draw_text_colored_shadowed(buffer, width, height, addr_label, rects[2].0, rects[2].1 - 18, 1, 1, pack_color(0.75, 0.82, 0.92));
 
     // 2: Server Address input box
@@ -148,12 +148,29 @@ pub fn draw_multiplayer_menu(
     fill_rect(buffer, width, height, sx, sy + sh - 2, sw, 2, s_border);
     fill_rect(buffer, width, height, sx + sw - 2, sy, 2, sh, s_border);
 
+    let max_visible_chars = ((sw - 20) / 12).max(1) as usize;
+    let mut visible_addr: String = server_addr.chars().take(max_visible_chars).collect();
+    if server_addr.chars().count() > max_visible_chars {
+        visible_addr.pop();
+        visible_addr.push_str("...");
+    }
     let display_addr = if s_focus {
-        format!("{}_", server_addr)
+        format!("{}_", visible_addr)
     } else {
-        server_addr.to_string()
+        visible_addr
     };
     draw_text_colored_shadowed(buffer, width, height, &display_addr, sx + 10, sy + 9, 2, 1, pack_color(0.90, 0.95, 1.0));
+    draw_text_colored_shadowed(
+        buffer,
+        width,
+        height,
+        crate::core::i18n::t("multiplayer.address_hint"),
+        sx,
+        sy + sh + 2,
+        1,
+        1,
+        pack_color(0.55, 0.72, 0.88),
+    );
 
     // Section 3: LAN Local Servers Header
     let lan_title = crate::core::i18n::t("multiplayer.lan_title");

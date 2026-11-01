@@ -10,7 +10,9 @@ set -e
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/scripts/cross_build.sh"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+source "$SCRIPT_DIR/cross_build.sh"
 
 export PATH="$HOME/.cargo/bin:/usr/local/bin:/opt/homebrew/bin:${PATH:-/usr/bin:/bin}"
 
@@ -144,19 +146,19 @@ create_app_bundle() {
 EOF
 
     # Copy controls.json if present
-    if [ -f "$SCRIPT_DIR/controls.json" ]; then
-        cp -f "$SCRIPT_DIR/controls.json" "$res_dir/"
+    if [ -f "$PROJECT_ROOT/controls.json" ]; then
+        cp -f "$PROJECT_ROOT/controls.json" "$res_dir/"
     fi
 }
 
-mkdir -p "$SCRIPT_DIR/dist"
+mkdir -p "$PROJECT_ROOT/dist"
 
 if [ "$IS_UNIVERSAL" -eq 1 ]; then
     echo "=== Building Universal 2 macOS Binary (aarch64 + x86_64) ==="
     build_single_target "aarch64-apple-darwin"
     build_single_target "x86_64-apple-darwin"
 
-    UNIVERSAL_DIR="$SCRIPT_DIR/target/universal-apple-darwin/release"
+    UNIVERSAL_DIR="$PROJECT_ROOT/target/universal-apple-darwin/release"
     UNIVERSAL_BIN="${UNIVERSAL_DIR}/${BINARY_NAME}"
     mkdir -p "$UNIVERSAL_DIR"
 
@@ -168,19 +170,19 @@ if [ "$IS_UNIVERSAL" -eq 1 ]; then
     if command -v "$LIPO_TOOL" &> /dev/null; then
         echo "==> Creating Universal binary with $LIPO_TOOL..."
         "$LIPO_TOOL" -create \
-            "target/aarch64-apple-darwin/release/${BINARY_NAME}" \
-            "target/x86_64-apple-darwin/release/${BINARY_NAME}" \
+            "$PROJECT_ROOT/target/aarch64-apple-darwin/release/${BINARY_NAME}" \
+            "$PROJECT_ROOT/target/x86_64-apple-darwin/release/${BINARY_NAME}" \
             -output "$UNIVERSAL_BIN"
     else
         echo "==> Note: 'lipo' not found on this system. Both aarch64 and x86_64 binaries were built separately."
-        UNIVERSAL_BIN="target/aarch64-apple-darwin/release/${BINARY_NAME}"
+        UNIVERSAL_BIN="$PROJECT_ROOT/target/aarch64-apple-darwin/release/${BINARY_NAME}"
     fi
 
     FINAL_BIN="$UNIVERSAL_BIN"
     OUT_NAME="rustcraft-macos-universal"
 else
     build_single_target "$TARGET"
-    FINAL_BIN="target/${TARGET}/release/${BINARY_NAME}"
+    FINAL_BIN="$PROJECT_ROOT/target/${TARGET}/release/${BINARY_NAME}"
     OUT_NAME="rustcraft-macos-${TARGET}"
 fi
 
@@ -191,15 +193,15 @@ du -h "$FINAL_BIN" | awk '{print $1}'
 echo "--------------------------------------------------"
 
 # Create App bundle in dist
-APP_BUNDLE="$SCRIPT_DIR/dist/RustCraft.app"
+APP_BUNDLE="$PROJECT_ROOT/dist/RustCraft.app"
 create_app_bundle "$FINAL_BIN" "$APP_BUNDLE"
 
 # Package archive for distribution
-DIST_ARCHIVE="$SCRIPT_DIR/dist/${OUT_NAME}.tar.gz"
-tar -czf "$DIST_ARCHIVE" -C "$SCRIPT_DIR/dist" "RustCraft.app"
+DIST_ARCHIVE="$PROJECT_ROOT/dist/${OUT_NAME}.tar.gz"
+tar -czf "$DIST_ARCHIVE" -C "$PROJECT_ROOT/dist" "RustCraft.app"
 echo "==> Distribution App bundle packaged at: $DIST_ARCHIVE"
 if command -v zip &> /dev/null; then
-    (cd "$SCRIPT_DIR/dist" && zip -q -r "${OUT_NAME}.zip" "RustCraft.app")
-    echo "==> Distribution ZIP archive at: $SCRIPT_DIR/dist/${OUT_NAME}.zip"
+    (cd "$PROJECT_ROOT/dist" && zip -q -r "${OUT_NAME}.zip" "RustCraft.app")
+    echo "==> Distribution ZIP archive at: $PROJECT_ROOT/dist/${OUT_NAME}.zip"
 fi
 echo "Done! macOS build completed successfully."

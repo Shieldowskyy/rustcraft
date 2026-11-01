@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 # ============================================================================
 # Build script for RustCraft on Sony PlayStation Vita (.vpk)
 # ============================================================================
@@ -53,7 +57,7 @@ for arg in "$@"; do
             echo "⚡ Performance profiler enabled by default in Vita build."
             ;;
         --help|-h)
-            echo "Usage: ./build_vita.sh [--profiler]"
+            echo "Usage: ./scripts/build_vita.sh [--profiler]"
             echo "  --profiler    Enable advanced Minecraft-style F3 profiler & telemetry by default on Vita"
             exit 0
             ;;

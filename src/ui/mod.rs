@@ -14,6 +14,7 @@ pub mod minimap;
 pub mod controls_ui;
 pub mod splashes;
 pub mod dev_logo;
+pub mod achievements;
 
 pub use clipboard::{get_clipboard, set_clipboard};
 pub use multiplayer_menu::{draw_multiplayer_menu, multiplayer_menu_rects, MAX_LAN_SERVERS_DISPLAY, MULTIPLAYER_RECT_COUNT};
@@ -28,7 +29,7 @@ pub use draw::{
 pub use hud::{
     apply_biome_color_filter, death_screen_button_rects, draw_advanced_debug_overlay, draw_break_progress, draw_bubble,
     draw_capture_prompt, draw_crosshair, draw_damage_flash, draw_death_screen, draw_debug_panel,
-    draw_armor_icon, draw_heart_icon, draw_hotbar, draw_hunger_icon, draw_lava_overlay, draw_burning_fire_overlay, draw_low_health_vignette, draw_pause_menu,
+    draw_armor_icon, draw_heart_icon, draw_hotbar, draw_hunger_icon, draw_lava_overlay, draw_burning_fire_overlay, draw_low_health_vignette, draw_pause_menu, draw_multiplayer_toast,
     draw_pie_chart, draw_underwater_overlay, pause_menu_button_rects, ArmorIconState, BubbleState, HeartIconState, HungerIconState,
 };
 pub use inventory_ui::{draw_inventory_screen, draw_item_icon, CREATIVE_TABS, InventoryLayout, InventorySlotTarget};
@@ -41,10 +42,13 @@ pub use settings_ui::{
 pub use controls_ui::{
     draw_controls_rebind_menu, filter_actions, ControlsRebindLayout, RebindSlot,
 };
+pub use achievements::{
+    block_catalog_entry_count, block_catalog_page_size, draw_achievement_toast,
+    draw_field_guide, field_guide_tab_at,
+};
 pub use minimap::{
     draw_minimap, draw_waypoint_manager, draw_worldmap, draw_world_waypoint_markers, load_waypoints,
     save_waypoints, waypoint_dialog_buttons, waypoint_manager_buttons, waypoint_row_buttons,
     worldmap_context_menu_rects, worldmap_top_bar_buttons, MinimapMode, MinimapState, Waypoint,
     WorldMapContextMenu, WorldMapState, WAYPOINT_COLORS,
 };
-

@@ -29,8 +29,8 @@ jobs:
             [ -f /usr/local/bin/pkg-config ] || ln -sf /usr/local/bin/pkgconf /usr/local/bin/pkg-config
           run: |
             export PATH="/usr/local/bin:${HOME}/.cargo/bin:${PATH:-/usr/bin:/bin}"
-            chmod +x build_freebsd.sh
-            ./build_freebsd.sh
+            chmod +x scripts/build_freebsd.sh
+            ./scripts/build_freebsd.sh
 
       - name: Upload FreeBSD Binary
         uses: actions/upload-artifact@v4

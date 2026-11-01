@@ -272,6 +272,8 @@ impl RustCraftApp {
                             };
                             if can_take {
                                 crate::log_info!("CRAFTING", "Crafted {}x {:?}", res.count, res.block);
+                                let unlocked = self.achievements.record_crafted(res.count);
+                                self.process_achievement_unlocks(unlocked);
                                 if let Some(h) = &mut self.player.inventory.held_item {
                                     h.count += res.count;
                                 } else {

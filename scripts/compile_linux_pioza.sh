@@ -2,8 +2,10 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUTPUT_DIR="$SCRIPT_DIR/target/pioza/linux"
-BINARY_PATH="$SCRIPT_DIR/target/release/rustcraft"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+OUTPUT_DIR="$PROJECT_ROOT/target/pioza/linux"
+BINARY_PATH="$PROJECT_ROOT/target/release/rustcraft"
 ZIP_PATH="$OUTPUT_DIR/Linux.zip"
 
 if ! command -v zip >/dev/null 2>&1; then

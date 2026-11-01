@@ -101,7 +101,7 @@ The codebase is organized into isolated, single-responsibility modules to maximi
 ### `src/world/` (Voxel World, Meshing, Weather & Storage)
 * **`block.rs`**: `BlockId` enum with **163 unique vanilla block/item types** (0..=162, plus modded types `BlockId::Custom(163..=255)`) — Air, terrain blocks (Grass, Dirt, Stone, Cobblestone, MossyCobblestone, Sand, Snow, Ice, Mud, Bedrock, Sandstone, SmoothStone, Bricks, Obsidian, Bookshelf), foliage (Leaves, SnowLeaves, CherryLeaves, AutumnLeaves, Cactus, Kelp, Seagrass, Sapling), fluids (Water, Lava), agriculture (Farmland, FarmlandWet, WheatSeeds, WheatCrop, Wheat, Bread, Carrot, CarrotCrop, Potato, PotatoCrop, BakedPotato, BoneMeal), 16 wool variants (White, Orange, Magenta, Light Blue, Yellow, Lime, Pink, Gray, Light Gray, Cyan, Purple, Blue, Brown, Green, Red, Black), RustStone mechanisms (RustStoneOre, RustStone wire, RustStoneBlock, RustStoneLamp/Lit, Lever/On, Button/Pressed, PressurePlate/Pressed), ores & minerals (CoalOre, IronOre, GoldOre, DiamondOre, Diamond, EmeraldOre, Emerald, EmeraldBlock, IronOunce, GoldOunce, IronIngot, GoldIngot, CoalBlock, IronBlock, GoldBlock, DiamondBlock, Clay, ClayBall, Brick, Gravel, Flint), stairs and slabs (Wood, Stone, Cobblestone, Sandstone, Brick), tools (5 tiers: Wooden/Stone/Iron/Gold/Diamond Pickaxe/Axe/Shovel/Sword/Hoe; Shears; FishingRod), items & food (Stick, Torch, Apple, Raw/Cooked Porkchop, Beef, Chicken, Cod, Salmon; Pufferfish, TropicalFish, DriedKelp, Feather, Bone, Gunpowder, Bed), spawn eggs (Pig, Cow, Chicken, Sheep, Dolphin, Fish, Villager, IronGolem), and functional blocks (CraftingTable, Door/DoorOpen, Glass, Tnt, Chest, Furnace/FurnaceLit, Planks). Block properties include solid, transparent, fluid, luminance, break time, face texture mappings.
 * **`weather.rs`**: Dynamic weather simulation engine (`WeatherManager`). Manages transitions between `Clear`, `Rain`, and `Thunderstorm` states. Adapts precipitation to local biome temperature (temperate rainfall vs. high-altitude/cold-biome snowfall). Drives procedural atmospheric sky/cloud darkening, manages procedural rain ambiance and thunder synthesis, and spawns random lightning bolt strikes that illuminate the terrain with a flash overlay and strike ground voxels.
-* **`mesher.rs`**: Chunk mesh builder (`build_chunk_mesh`). Extracts exposed faces, computes smooth Ambient Occlusion (AO) per vertex (0..3 corners), produces packed `Triangle` and `Vertex` buffers. Supports sub-chunk meshing (`build_subchunk_mesh`, `NUM_SUBCHUNKS`, `SUBCHUNK_SIZE`) and async background meshing (`AsyncMesher`, `ChunkMeshJob`). Exports mesh data compatible with the GXM GPU vertex format.
+* **`mesher.rs`**: Chunk mesh builder (`scripts/build_chunk_mesh`). Extracts exposed faces, computes smooth Ambient Occlusion (AO) per vertex (0..3 corners), produces packed `Triangle` and `Vertex` buffers. Supports sub-chunk meshing (`scripts/build_subchunk_mesh`, `NUM_SUBCHUNKS`, `SUBCHUNK_SIZE`) and async background meshing (`AsyncMesher`, `ChunkMeshJob`). Exports mesh data compatible with the GXM GPU vertex format.
 * **`storage.rs`**: Save and load world chunks and player position to disk with binary serialization. Supports custom paths for Android internal storage and Xbox 360 USB/HDD.
 * **`tile_entity.rs`**: Tile entity data and simulation:
   * `ChestData`: 27-slot item storage with `add_item` stacking logic. `generate_house_loot(seed, pos)` fills cabin and village chests with deterministic starter loot.
@@ -193,7 +193,7 @@ build.rs  ──psp2cgc──►  vita/shaders/*.gxp   (compiled Cg shaders)
               └─ fallback: vita/shaders/prebuilt/*.gxp  (if no VitaSDK)
 ```
 Package output: `RustCraft.vpk` (installable on Vita via VitaShell).
-Build script: `build_vita.sh` (cross-compiles for `armv7-sony-vita-newlibeabihf`, runs `vita-elf-create` + `vita-make-fself`).
+Build script: `scripts/build_vita.sh` (cross-compiles for `armv7-sony-vita-newlibeabihf`, runs `vita-elf-create` + `vita-make-fself`).
 
 ### Input Mapping (Vita)
 | Vita Control | Action |
@@ -249,20 +249,20 @@ Active biome is displayed in the debug panel via `World::biome_name_at(wx, wz)`.
 
 | Platform / Architecture | Target Triple | Renderer | Build Script / Command |
 |---|---|---|---|
-| Linux (x86_64) | `x86_64-unknown-linux-gnu` | Software CPU / Vulkan | `./compile_linux.sh` |
-| Linux (32-bit x86 / i686) | `i686-unknown-linux-gnu` | Software CPU / Vulkan | `./build_linux_x86_32.sh` |
-| Linux ARM64 (RPi 4/5) | `aarch64-unknown-linux-gnu` | Software CPU / Vulkan | `./build_linux_arm64.sh` |
-| Linux ARMv7 (RPi 2/3 32-bit) | `armv7-unknown-linux-gnueabihf` | Software CPU / Vulkan | `./build_linux_armv7.sh` |
-| Linux RISC-V 64-bit | `riscv64gc-unknown-linux-gnu` | Software CPU (Rayon) | `./build_linux_riscv64.sh` |
-| Raspberry Pi Zero W (ARMv6) | `arm-unknown-linux-gnueabihf` | Software CPU (Tuned for ARM11) | `./build_rpi_armv6.sh` |
-| FreeBSD (x86_64) | `x86_64-unknown-freebsd` | Software CPU / X11 | `./build_freebsd.sh` |
-| Windows (x86_64) | `x86_64-pc-windows-gnu` | Software CPU / Vulkan | `./compile-windows.sh` |
-| Windows (32-bit x86 / i686) | `i686-pc-windows-gnu` | Software CPU / Vulkan | `./build_windows_32.sh` |
-| Windows (ARM64 / AArch64) | `aarch64-pc-windows-msvc` | Software CPU / Vulkan | `./build_windows_arm64.sh` |
-| Android (ARM64 / ARMv7 / x86_64) | `aarch64-linux-android` | ANativeWindow (Software / Rayon) | `./build_android.sh` |
-| Microsoft Xbox 360 (Homebrew XEX2) | `powerpc-unknown-linux-gnu` / Xenon | Direct VRAM Framebuffer (720p HD) | `./build_xbox360.sh` |
-| WebAssembly | `wasm32-unknown-unknown` | Software CPU (Single-threaded) | `./build_web.sh` |
-| PlayStation Vita | `armv7-sony-vita-newlibeabihf` | Bare-Metal GXM GPU (SGX543MP4) | `./build_vita.sh` |
+| Linux (x86_64) | `x86_64-unknown-linux-gnu` | Software CPU / Vulkan | `./scripts/compile_linux.sh` |
+| Linux (32-bit x86 / i686) | `i686-unknown-linux-gnu` | Software CPU / Vulkan | `./scripts/build_linux_x86_32.sh` |
+| Linux ARM64 (RPi 4/5) | `aarch64-unknown-linux-gnu` | Software CPU / Vulkan | `./scripts/build_linux_arm64.sh` |
+| Linux ARMv7 (RPi 2/3 32-bit) | `armv7-unknown-linux-gnueabihf` | Software CPU / Vulkan | `./scripts/build_linux_armv7.sh` |
+| Linux RISC-V 64-bit | `riscv64gc-unknown-linux-gnu` | Software CPU (Rayon) | `./scripts/build_linux_riscv64.sh` |
+| Raspberry Pi Zero W (ARMv6) | `arm-unknown-linux-gnueabihf` | Software CPU (Tuned for ARM11) | `./scripts/build_rpi_armv6.sh` |
+| FreeBSD (x86_64) | `x86_64-unknown-freebsd` | Software CPU / X11 | `./scripts/build_freebsd.sh` |
+| Windows (x86_64) | `x86_64-pc-windows-gnu` | Software CPU / Vulkan | `./scripts/compile-windows.sh` |
+| Windows (32-bit x86 / i686) | `i686-pc-windows-gnu` | Software CPU / Vulkan | `./scripts/build_windows_32.sh` |
+| Windows (ARM64 / AArch64) | `aarch64-pc-windows-msvc` | Software CPU / Vulkan | `./scripts/build_windows_arm64.sh` |
+| Android (ARM64 / ARMv7 / x86_64) | `aarch64-linux-android` | ANativeWindow (Software / Rayon) | `./scripts/build_android.sh` |
+| Microsoft Xbox 360 (Homebrew XEX2) | `powerpc-unknown-linux-gnu` / Xenon | Direct VRAM Framebuffer (720p HD) | `./scripts/build_xbox360.sh` |
+| WebAssembly | `wasm32-unknown-unknown` | Software CPU (Single-threaded) | `./scripts/build_web.sh` |
+| PlayStation Vita | `armv7-sony-vita-newlibeabihf` | Bare-Metal GXM GPU (SGX543MP4) | `./scripts/build_vita.sh` |
 | macOS | `x86_64-apple-darwin` / `aarch64` | Software CPU / Metal (WGPU) | `cargo run --release` |
 
 ---

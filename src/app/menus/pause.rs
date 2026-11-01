@@ -9,7 +9,7 @@ use crate::graphics::camera::Camera;
 use crate::core::controls::Action;
 use crate::core::math::Vec3;
 use crate::core::profiler::FrameProfiler;
-use crate::world::storage::{get_save_metadata, save_current_world};
+use crate::world::storage::get_save_metadata;
 
 impl RustCraftApp {
     #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
@@ -20,6 +20,7 @@ impl RustCraftApp {
         if let Some(result) = result {
             match result {
                 WorldLoadResult::Success(loaded_world, loaded_pos) => {
+                    self.load_achievements_for_slot(self.save_slot);
                     self.player.gamemode = loaded_world.gamemode;
                     if let Some(ref saved) = loaded_world.saved_player {
                         self.player.apply_saved_state(saved);
@@ -84,7 +85,7 @@ impl RustCraftApp {
 
         if input.gp_dpad_up_just_pressed || (up_arrow_down && !self.prev_up_arrow_down) {
             let next = match self.pause_hovered_btn {
-                Some(0) | None => 5,
+                Some(0) | None => 6,
                 Some(i) => i - 1,
             };
             self.pause_hovered_btn = Some(next);
@@ -92,7 +93,7 @@ impl RustCraftApp {
         }
         if input.gp_dpad_down_just_pressed || (down_arrow_down && !self.prev_down_arrow_down) {
             let next = match self.pause_hovered_btn {
-                Some(5) | None => 0,
+                Some(6) | None => 0,
                 Some(i) => i + 1,
             };
             self.pause_hovered_btn = Some(next);
@@ -132,6 +133,7 @@ impl RustCraftApp {
                         self.stop_host_multiplayer();
                         self.is_multiplayer = false;
                         self.multiplayer_status = Some("Hosting stopped".to_string());
+                        self.show_multiplayer_toast(crate::core::i18n::t("multiplayer.host_stopped_toast"), false);
                     } else if !self.is_multiplayer {
                         match self.start_host_multiplayer() {
                             Ok(()) => {
@@ -139,6 +141,7 @@ impl RustCraftApp {
                             }
                             Err(error) => {
                                 self.multiplayer_status = Some(error.clone());
+                                self.show_multiplayer_toast(error.clone(), true);
                                 crate::log_error!("NETWORK", "Could not host current world: {}", error);
                             }
                         }
@@ -153,12 +156,12 @@ impl RustCraftApp {
                         self.stop_host_multiplayer();
                         self.is_multiplayer = false;
                         if was_hosting {
-                            let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
+                            let _ = self.save_world_progress();
                             crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
                             self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                         }
                     } else {
-                        let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
+                        let _ = self.save_world_progress();
                         crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
                         self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                     }
@@ -175,15 +178,19 @@ impl RustCraftApp {
                         self.stop_host_multiplayer();
                         self.is_multiplayer = false;
                         if was_hosting {
-                            let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
+                            let _ = self.save_world_progress();
                             crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
                         }
                     } else {
-                        let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
+                        let _ = self.save_world_progress();
                         crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
                     }
                     out.quit_requested = true;
                     crate::log_info!("STATE", "Saved and quitting game from pause menu");
+                }
+                6 => {
+                    self.state = GameState::AchievementTree;
+                    crate::log_info!("MENU", "Opened achievement tree");
                 }
                 _ => {}
             }
@@ -199,6 +206,16 @@ impl RustCraftApp {
             self.fly_mode = !self.fly_mode;
             crate::log_info!("PLAYER", "Flight mode toggled to: {}", self.fly_mode);
         }
+        if self.is_hosting_multiplayer
+            && input.key_ctrl
+            && input.key_c
+            && !self.prev_c_down
+        {
+            if let Some(invite) = &self.multiplayer_invite {
+                crate::ui::clipboard::set_clipboard(invite);
+                self.show_multiplayer_toast(crate::core::i18n::t("multiplayer.host_copy_toast"), false);
+            }
+        }
         if q_down && !self.prev_q_down {
             if self.is_hosting_multiplayer {
                 if let Some(client) = &mut self.net_client {
@@ -207,7 +224,7 @@ impl RustCraftApp {
                 self.stop_host_multiplayer();
                 self.is_multiplayer = false;
             }
-            let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
+            let _ = self.save_world_progress();
             crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
             out.quit_requested = true;
             crate::log_info!("STATE", "Saved and quitting game via shortcut");
@@ -220,7 +237,7 @@ impl RustCraftApp {
                 self.stop_host_multiplayer();
                 self.is_multiplayer = false;
             }
-            let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
+            let _ = self.save_world_progress();
             crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
             self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
             self.state = GameState::MainMenu;
@@ -253,6 +270,74 @@ impl RustCraftApp {
             let snap = self.build_profiler_snapshot(&cur_profiler);
             server.update_snapshot(snap);
         }
+    }
+
+    pub(crate) fn update_and_render_achievement_tree(
+        &mut self,
+        input: &InputState,
+        _out: &mut AppOutput,
+    ) {
+        if input.key_escape
+            || self.controls.is_just_pressed(Action::Pause)
+            || input.gp_east_just_pressed
+        {
+            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+            self.state = GameState::Paused;
+        }
+
+        let previous_tab = self.field_guide_tab;
+        if input.key_left && !self.prev_left_arrow_down || input.gp_dpad_left_just_pressed {
+            self.field_guide_tab = (self.field_guide_tab + 2) % 3;
+        } else if input.key_right && !self.prev_right_arrow_down
+            || input.gp_dpad_right_just_pressed
+        {
+            self.field_guide_tab = (self.field_guide_tab + 1) % 3;
+        }
+        if input.mouse_left && !self.prev_left_down {
+            if let Some(tab) = crate::ui::field_guide_tab_at(self.width, input.mouse_pos) {
+                self.field_guide_tab = tab;
+            }
+        }
+        if self.field_guide_tab != previous_tab {
+            self.field_guide_scroll = 0;
+        } else if self.field_guide_tab == 2
+            && (input.scroll_delta != 0.0
+                || input.key_up && !self.prev_up_arrow_down
+                || input.key_down && !self.prev_down_arrow_down
+                || input.gp_dpad_up_just_pressed
+                || input.gp_dpad_down_just_pressed)
+        {
+            let page_size = crate::ui::block_catalog_page_size(self.width, self.height);
+            let max_scroll =
+                crate::ui::block_catalog_entry_count().saturating_sub(page_size);
+            let scroll_up = input.scroll_delta > 0.0
+                || input.key_up && !self.prev_up_arrow_down
+                || input.gp_dpad_up_just_pressed;
+            self.field_guide_scroll = if scroll_up {
+                self.field_guide_scroll.saturating_sub(page_size)
+            } else {
+                (self.field_guide_scroll + page_size).min(max_scroll)
+            };
+        }
+
+        self.renderer.fog_enabled = self.settings.fog;
+        #[cfg(not(target_os = "vita"))]
+        {
+            self.renderer.render_frame(&mut self.world, &self.camera);
+            self.renderer.apply_biome_color_filter(self.biome_filter_tint);
+        }
+        #[cfg(target_os = "vita")]
+        {
+            self.renderer.color_buffer.fill(0x0C0C10);
+        }
+        crate::ui::draw_field_guide(
+            self.renderer.pixel_buffer_mut(),
+            self.width,
+            self.height,
+            &self.achievements,
+            self.field_guide_tab,
+            self.field_guide_scroll,
+        );
     }
 
     pub(crate) fn update_and_render_death_screen(
@@ -343,7 +428,7 @@ impl RustCraftApp {
                 1 => {
                     self.player.reset(self.player.gamemode);
                     self.camera.position = self.world.player_position;
-                    let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
+                    let _ = self.save_world_progress();
                     crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
                     self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                     crate::log_info!("STATE", "Player chose Title Screen from Death Screen, game saved");
@@ -358,7 +443,7 @@ impl RustCraftApp {
             self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
             self.player.reset(self.player.gamemode);
             self.camera.position = self.world.player_position;
-            let _ = save_current_world(&mut self.world, &self.camera, &self.player, self.save_slot, self.last_clean_thumbnail.as_deref());
+            let _ = self.save_world_progress();
             crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);
             self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
             crate::log_info!("STATE", "Quit to Main Menu from Death Screen via shortcut, game saved");

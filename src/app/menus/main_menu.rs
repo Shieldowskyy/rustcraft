@@ -113,6 +113,7 @@ impl RustCraftApp {
             self.state = GameState::MultiplayerMenu;
             self.multiplayer_status = None;
             self.multiplayer_is_connecting = false;
+            self.multiplayer_focus = 1;
             self.selected_lan_server = None;
             self.lan_discovery.refresh();
             crate::log_info!("MENU", "Opened Multiplayer menu from Main Menu");

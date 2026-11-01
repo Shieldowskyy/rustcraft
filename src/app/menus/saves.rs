@@ -182,6 +182,7 @@ impl RustCraftApp {
                             self.world = loaded_world;
                             self.camera = Camera::new(pos);
                             self.mob_manager = MobManager::new();
+                            self.load_achievements_for_slot(self.save_slot);
                             self.minimap.waypoints = crate::ui::minimap::load_waypoints(self.save_slot, self.world.seed);
                             self.state = GameState::Playing;
                         }
@@ -190,6 +191,7 @@ impl RustCraftApp {
                             self.player.reset(self.world.gamemode);
                             self.camera = Camera::new(self.world.player_position);
                             self.mob_manager = MobManager::new();
+                            self.reset_achievements_for_slot(self.save_slot);
                             self.minimap.waypoints = crate::ui::minimap::load_waypoints(self.save_slot, self.world.seed);
                             self.state = GameState::Playing;
                         }
@@ -472,6 +474,7 @@ impl RustCraftApp {
             self.save_slot = self.create_world_slot;
             self.seed = seed;
             self.player.reset(gamemode);
+            self.reset_achievements_for_slot(self.save_slot);
             crate::log_info!("MENU", "Creating new world '{}' (seed: {}, mode: {:?}) in slot {}", name, seed, gamemode, self.save_slot);
 
             #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]

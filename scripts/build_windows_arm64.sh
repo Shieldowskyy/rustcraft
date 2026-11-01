@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 # ============================================================================
 # Build script for RustCraft on Windows ARM64 (Snapdragon X Elite, Surface Pro ARM, WoA)
 # Target: aarch64-pc-windows-msvc / aarch64-pc-windows-gnullvm
@@ -35,7 +39,7 @@ if ! [[ "$(uname -s)" =~ (MINGW|MSYS|CYGWIN|Windows_NT) ]] && [ "$TARGET" = "aar
         echo "==> Note: Cross-compiling for Windows MSVC (aarch64-pc-windows-msvc) from Linux"
         echo "    requires 'cargo-xwin' (for MSVC CRT & Windows SDK headers)."
         echo "    Install via: cargo install cargo-xwin"
-        echo "    Or cross-compile via LLVM: RUST_TARGET=aarch64-pc-windows-gnullvm ./build_windows_arm64.sh"
+        echo "    Or cross-compile via LLVM: RUST_TARGET=aarch64-pc-windows-gnullvm ./scripts/build_windows_arm64.sh"
         cargo build --release --target "$TARGET"
     fi
 else
