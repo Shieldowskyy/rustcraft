@@ -142,6 +142,15 @@ pub struct TouchTracker {
     pub btn_cam_just: bool,
     pub selected_hotbar: Option<u8>,
 
+    pub key_jump: bool,
+    pub key_sneak: bool,
+    pub key_mine: bool,
+    pub key_place_held: bool,
+    pub key_move_forward: bool,
+    pub key_move_backward: bool,
+    pub key_move_left: bool,
+    pub key_move_right: bool,
+
     // Movement vector from virtual joystick
     pub move_forward: bool,
     pub move_backward: bool,
@@ -149,6 +158,7 @@ pub struct TouchTracker {
     pub move_right: bool,
     pub stick_x: f32,
     pub stick_y: f32,
+    pub stick_sprinting: bool,
 
     // Physical gamepad analog axes
     pub gp_axis_lx: f32,
@@ -189,12 +199,21 @@ impl Default for TouchTracker {
             btn_fly_just: false,
             btn_cam_just: false,
             selected_hotbar: None,
+            key_jump: false,
+            key_sneak: false,
+            key_mine: false,
+            key_place_held: false,
+            key_move_forward: false,
+            key_move_backward: false,
+            key_move_left: false,
+            key_move_right: false,
             move_forward: false,
             move_backward: false,
             move_left: false,
             move_right: false,
             stick_x: 0.0,
             stick_y: 0.0,
+            stick_sprinting: false,
             gp_axis_lx: 0.0,
             gp_axis_ly: 0.0,
             gp_axis_rx: 0.0,
@@ -217,19 +236,7 @@ impl TouchTracker {
 
     /// Evaluates continuous hold state (e.g. hold-to-mine when touching the screen without dragging)
     pub fn update_step(&mut self) {
-        let mut start_mining = false;
-        for role in self.roles.values() {
-            if let TouchRole::CameraLook { start_time, is_dragging, .. } = role {
-                // If the player holds their finger on the world view for >= 220ms without dragging, start mining!
-                if !*is_dragging && start_time.elapsed().as_secs_f32() >= 0.22 {
-                    start_mining = true;
-                    break;
-                }
-            }
-        }
-        if start_mining {
-            self.btn_mine = true;
-        }
+        self.refresh_held_buttons();
     }
 
     pub fn handle_touch_event(
@@ -317,7 +324,10 @@ impl TouchTracker {
                     }
                 }
             }
-            AMOTION_EVENT_ACTION_UP | AMOTION_EVENT_ACTION_POINTER_UP | AMOTION_EVENT_ACTION_CANCEL => {
+            AMOTION_EVENT_ACTION_CANCEL => {
+                self.cancel_touches();
+            }
+            AMOTION_EVENT_ACTION_UP | AMOTION_EVENT_ACTION_POINTER_UP => {
                 self.touches.remove(&pointer_id);
                 if in_menu && self.touches.len() <= 1 {
                     self.menu_right_click_held = false;
@@ -334,8 +344,8 @@ impl TouchTracker {
                             self.btn_mine = false;
                         }
                     }
-                    self.apply_role_release(role);
                 }
+                self.refresh_held_buttons();
 
                 if self.touches.is_empty() {
                     self.primary_touch_pos = None;
@@ -344,6 +354,7 @@ impl TouchTracker {
                 } else if let Some((_, &(fx, fy))) = self.touches.iter().next() {
                     self.primary_touch_pos = Some((fx, fy));
                 }
+                self.refresh_joystick();
             }
             _ => {}
         }
@@ -363,9 +374,7 @@ impl TouchTracker {
             self.move_backward = norm_dy > 0.25;
             self.move_left = norm_dx < -0.25;
             self.move_right = norm_dx > 0.25;
-            if norm_dy < -0.85 {
-                self.btn_sprint = true;
-            }
+            self.stick_sprinting = norm_dy < -0.85;
         } else {
             self.reset_movement();
         }
@@ -480,14 +489,41 @@ impl TouchTracker {
         }
     }
 
-    fn apply_role_release(&mut self, role: TouchRole) {
-        match role {
-            TouchRole::JumpButton => self.btn_jump = false,
-            TouchRole::SneakButton => self.btn_sneak = false,
-            TouchRole::MineButton => self.btn_mine = false,
-            TouchRole::PlaceButton => self.btn_place_held = false,
-            TouchRole::MovementJoystick { .. } => self.reset_movement(),
-            _ => {}
+    fn refresh_held_buttons(&mut self) {
+        self.btn_jump = self.key_jump
+            || self.roles.values().any(|role| *role == TouchRole::JumpButton);
+        self.btn_sneak = self.key_sneak
+            || self.roles.values().any(|role| *role == TouchRole::SneakButton);
+        self.btn_place_held = self.key_place_held
+            || self.roles.values().any(|role| *role == TouchRole::PlaceButton);
+        self.btn_mine = self.key_mine
+            || self.roles.values().any(|role| *role == TouchRole::MineButton)
+            || self.roles.values().any(|role| {
+                matches!(
+                    role,
+                    TouchRole::CameraLook {
+                        start_time,
+                        is_dragging: false,
+                        ..
+                    } if start_time.elapsed().as_secs_f32() >= 0.22
+                )
+            });
+    }
+
+    fn refresh_joystick(&mut self) {
+        let joystick = self.roles.iter().find_map(|(&pointer_id, role)| {
+            if let TouchRole::MovementJoystick { origin_x, origin_y } = role {
+                self.touches
+                    .get(&pointer_id)
+                    .map(|&(x, y)| (x - *origin_x, y - *origin_y))
+            } else {
+                None
+            }
+        });
+        if let Some((dx, dy)) = joystick {
+            self.update_joystick(dx, dy);
+        } else {
+            self.reset_movement();
         }
     }
 
@@ -498,6 +534,38 @@ impl TouchTracker {
         self.move_right = false;
         self.stick_x = 0.0;
         self.stick_y = 0.0;
+        self.stick_sprinting = false;
+        self.refresh_held_buttons();
+    }
+
+    fn cancel_touches(&mut self) {
+        self.touches.clear();
+        self.roles.clear();
+        self.primary_touch_pos = None;
+        self.primary_touch_down = false;
+        self.mouse_dx = 0.0;
+        self.mouse_dy = 0.0;
+        self.btn_jump = false;
+        self.btn_sneak = false;
+        self.btn_mine = false;
+        self.btn_place_held = false;
+        self.tap_place_pulse = false;
+        self.offhand_swap_just = false;
+        self.menu_right_click_held = false;
+        self.btn_menu_just = false;
+        self.btn_inv_just = false;
+        self.btn_chat_just = false;
+        self.btn_fly_just = false;
+        self.btn_cam_just = false;
+        self.selected_hotbar = None;
+        self.move_forward = false;
+        self.move_backward = false;
+        self.move_left = false;
+        self.move_right = false;
+        self.stick_x = 0.0;
+        self.stick_y = 0.0;
+        self.stick_sprinting = false;
+        self.refresh_held_buttons();
     }
 
     /// Renders sleek, semi-transparent touch overlay controls directly onto the color buffer.
@@ -834,10 +902,14 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
         stick_y = ctx.touch_tracker.gp_axis_ly;
     }
 
-    let move_fwd = ctx.touch_tracker.move_forward || stick_y < -0.25;
-    let move_back = ctx.touch_tracker.move_backward || stick_y > 0.25;
-    let move_l = ctx.touch_tracker.move_left || stick_x < -0.25;
-    let move_r = ctx.touch_tracker.move_right || stick_x > 0.25;
+    let move_fwd = ctx.touch_tracker.key_move_forward
+        || ctx.touch_tracker.move_forward
+        || stick_y < -0.25;
+    let move_back = ctx.touch_tracker.key_move_backward
+        || ctx.touch_tracker.move_backward
+        || stick_y > 0.25;
+    let move_l = ctx.touch_tracker.key_move_left || ctx.touch_tracker.move_left || stick_x < -0.25;
+    let move_r = ctx.touch_tracker.key_move_right || ctx.touch_tracker.move_right || stick_x > 0.25;
 
     // Physical gamepad right stick camera rotation
     if ctx.touch_tracker.gp_axis_rx.abs() > 0.15 {
@@ -882,7 +954,7 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeStep
         key_d: move_r,
         key_space: ctx.touch_tracker.btn_jump,
         key_shift: ctx.touch_tracker.btn_sneak,
-        key_ctrl: ctx.touch_tracker.btn_sprint,
+        key_ctrl: ctx.touch_tracker.btn_sprint || ctx.touch_tracker.stick_sprinting,
         key_escape: ctx.touch_tracker.btn_menu_just,
         key_f: ctx.touch_tracker.btn_fly_just,
         key_e: ctx.touch_tracker.btn_inv_just,
@@ -1144,19 +1216,19 @@ pub unsafe extern "system" fn Java_com_rustcraft_game_RustCraftNative_nativeKeyE
         if let Some(ctx) = lock.as_mut() {
             let down = is_down != JNI_FALSE;
             match key_code {
-                KEYCODE_W | KEYCODE_DPAD_UP => ctx.touch_tracker.move_forward = down,
-                KEYCODE_S | KEYCODE_DPAD_DOWN => ctx.touch_tracker.move_backward = down,
-                KEYCODE_A | KEYCODE_DPAD_LEFT => ctx.touch_tracker.move_left = down,
-                KEYCODE_D | KEYCODE_DPAD_RIGHT => ctx.touch_tracker.move_right = down,
-                KEYCODE_SPACE | KEYCODE_BUTTON_A => ctx.touch_tracker.btn_jump = down,
-                KEYCODE_BUTTON_B => ctx.touch_tracker.btn_sneak = down,
+                KEYCODE_W | KEYCODE_DPAD_UP => ctx.touch_tracker.key_move_forward = down,
+                KEYCODE_S | KEYCODE_DPAD_DOWN => ctx.touch_tracker.key_move_backward = down,
+                KEYCODE_A | KEYCODE_DPAD_LEFT => ctx.touch_tracker.key_move_left = down,
+                KEYCODE_D | KEYCODE_DPAD_RIGHT => ctx.touch_tracker.key_move_right = down,
+                KEYCODE_SPACE | KEYCODE_BUTTON_A => ctx.touch_tracker.key_jump = down,
+                KEYCODE_BUTTON_B => ctx.touch_tracker.key_sneak = down,
                 KEYCODE_BUTTON_X => {
                     if down {
                         ctx.touch_tracker.btn_sprint = !ctx.touch_tracker.btn_sprint;
                     }
                 }
-                KEYCODE_BUTTON_R1 => ctx.touch_tracker.btn_mine = down,
-                KEYCODE_BUTTON_L1 => ctx.touch_tracker.btn_place_held = down,
+                KEYCODE_BUTTON_R1 => ctx.touch_tracker.key_mine = down,
+                KEYCODE_BUTTON_L1 => ctx.touch_tracker.key_place_held = down,
                 KEYCODE_ENTER | KEYCODE_NUMPAD_ENTER => {
                     if down {
                         ctx.touch_tracker.key_enter_just = true;
