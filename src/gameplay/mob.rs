@@ -364,6 +364,16 @@ impl Mob {
         )
     }
 
+    pub fn intersects_block(&self, block_pos: IVec3) -> bool {
+        let (min, max) = self.aabb();
+        min.x < block_pos.x as f32 + 1.0
+            && max.x > block_pos.x as f32
+            && min.y < block_pos.y as f32 + 1.0
+            && max.y > block_pos.y as f32
+            && min.z < block_pos.z as f32 + 1.0
+            && max.z > block_pos.z as f32
+    }
+
     /// Center of mass / torso for particle effects and targeting
     pub fn center_pos(&self) -> Vec3 {
         Vec3::new(self.pos.x, self.pos.y + self.kind.height() * 0.5, self.pos.z)

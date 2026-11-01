@@ -7,6 +7,7 @@ use crate::core::math::Mat4;
 use crate::core::profiler::{FrameProfiler, MemoryBreakdown};
 use crate::gameplay::inventory::ItemStack;
 use crate::gameplay::item::ItemEntity;
+use crate::gameplay::mob::Mob;
 use crate::gameplay::physics::{
     block_intersects_player, move_player_with_collision, player_touches_ladder,
     CROUCH_EYE_OFFSET, CROUCH_HEIGHT, FLY_SPEED, GRAVITY, JUMP_SPEED, PLAYER_HALF_WIDTH,
@@ -20,6 +21,11 @@ use super::{AppOutput, CameraPerspective, GameState, InputState, RumbleRequest, 
 
 fn can_place_block_in(existing: BlockId) -> bool {
     matches!(existing, BlockId::Air | BlockId::Water)
+}
+
+fn block_intersects_live_mob(place_pos: IVec3, mobs: &[Mob]) -> bool {
+    mobs.iter()
+        .any(|mob| !mob.is_dead && mob.intersects_block(place_pos))
 }
 
 impl RustCraftApp {
@@ -2172,6 +2178,8 @@ impl RustCraftApp {
                                         && head_support.is_solid()
                                         && !block_intersects_player(place_pos, self.camera.position, self.current_eye_offset, self.current_player_height)
                                         && !block_intersects_player(head_pos, self.camera.position, self.current_eye_offset, self.current_player_height)
+                                        && !block_intersects_live_mob(place_pos, &self.mob_manager.mobs)
+                                        && !block_intersects_live_mob(head_pos, &self.mob_manager.mobs)
                                     {
                                         self.world.set_block(place_pos, BlockId::Bed);
                                         self.world.set_block(head_pos, BlockId::Bed);
@@ -2191,6 +2199,8 @@ impl RustCraftApp {
                                     let top_pos = place_pos + IVec3::new(0, 1, 0);
                                     if !block_intersects_player(place_pos, self.camera.position, self.current_eye_offset, self.current_player_height)
                                         && !block_intersects_player(top_pos, self.camera.position, self.current_eye_offset, self.current_player_height)
+                                        && !block_intersects_live_mob(place_pos, &self.mob_manager.mobs)
+                                        && !block_intersects_live_mob(top_pos, &self.mob_manager.mobs)
                                         && self.world.get_block(top_pos) == BlockId::Air
                                     {
                                         self.world.set_block(place_pos, BlockId::Door);
@@ -2208,7 +2218,9 @@ impl RustCraftApp {
                                             }
                                         }
                                     }
-                                } else if !block_intersects_player(place_pos, self.camera.position, self.current_eye_offset, self.current_player_height) {
+                                } else if !block_intersects_player(place_pos, self.camera.position, self.current_eye_offset, self.current_player_height)
+                                    && !block_intersects_live_mob(place_pos, &self.mob_manager.mobs)
+                                {
                                     self.world.set_block(place_pos, place_id);
                                     let unlocked = self.achievements.record_placed();
                                     self.process_achievement_unlocks(unlocked);
@@ -3196,6 +3208,23 @@ mod tests {
         assert!(super::can_place_block_in(crate::world::BlockId::Water));
         assert!(!super::can_place_block_in(crate::world::BlockId::Stone));
         assert!(!super::can_place_block_in(crate::world::BlockId::Lava));
+    }
+
+    #[test]
+    fn block_placement_is_blocked_by_live_mobs_but_not_dead_ones() {
+        use crate::gameplay::mob::{Mob, MobKind};
+
+        let place_pos = IVec3::new(4, 10, 4);
+        let mob = Mob::new(1, MobKind::Pig, Vec3::new(4.5, 10.0, 4.5));
+        assert!(super::block_intersects_live_mob(place_pos, std::slice::from_ref(&mob)));
+        assert!(!super::block_intersects_live_mob(
+            IVec3::new(6, 10, 4),
+            std::slice::from_ref(&mob)
+        ));
+
+        let mut dead_mob = mob;
+        dead_mob.is_dead = true;
+        assert!(!super::block_intersects_live_mob(place_pos, &[dead_mob]));
     }
 
     #[test]
