@@ -2350,7 +2350,7 @@ impl World {
                     }
 
                     if below.y >= 0 && below_block == BlockId::Air {
-                        fluid_spawns.push((below, block, 8));
+                        fluid_spawns.push((below, block, level));
                     } else if block == BlockId::Water && below_block == BlockId::Lava {
                         solidifications.push((below, BlockId::Stone));
                     } else {
@@ -2663,6 +2663,37 @@ mod tests {
 
         world.set_block(head, BlockId::Air);
         assert_eq!(world.bed_pair_at(foot), None);
+    }
+
+    #[test]
+    fn falling_fluid_preserves_its_spread_level() {
+        for (fluid, ticks) in [(BlockId::Water, 1), (BlockId::Lava, 3)] {
+            let mut world = World::new_with_seed(1);
+            world.chunks.clear();
+            world.chunks.insert(
+                (0, 0),
+                Chunk {
+                    cx: 0,
+                    cz: 0,
+                    blocks: vec![
+                        BlockId::Air.to_u8();
+                        (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize
+                    ],
+                    dirty: false,
+                },
+            );
+            let source = IVec3::new(8, 48, 8);
+            world.set_block(source, fluid);
+            world.set_fluid_level(source, 4);
+
+            for _ in 0..ticks {
+                world.simulate_materials(Vec3::new(8.5, 48.0, 8.5));
+            }
+
+            let below = IVec3::new(source.x, source.y - 1, source.z);
+            assert_eq!(world.get_block(below), fluid);
+            assert_eq!(world.fluid_level(below), 4);
+        }
     }
 
     #[test]
