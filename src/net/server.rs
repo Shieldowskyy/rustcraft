@@ -1098,6 +1098,10 @@ fn run_server(
                 }
                 if mob_authority_id == Some(id) {
                     mob_authority_id = None;
+                    if embedded {
+                        // The host is the server; no authority migration to guests.
+                        running.store(false, Ordering::Release);
+                    }
                 }
                 println!("[SERVER] Player '{}' (ID {}) disconnected: {}", client.nickname, id, reason);
                 if was_authenticated {
