@@ -279,6 +279,7 @@ impl RustCraftApp {
                     events.extend(client.update(dt));
                     let mut should_disconnect = None;
                     let mut pending_mods = Vec::new();
+                    let mut spawned_authoritative_mob = false;
                     for ev in events {
                         match ev {
                             crate::net::NetworkEvent::BlockChanged { x, y, z, block } => {
@@ -348,6 +349,7 @@ impl RustCraftApp {
                                         crate::gameplay::mob::MobKind::ALL.get(kind as usize)
                                     {
                                         self.mob_manager.spawn_mob(*kind, pos);
+                                        spawned_authoritative_mob = true;
                                     } else {
                                         crate::log_warn!(
                                             "NETWORK",
@@ -372,7 +374,11 @@ impl RustCraftApp {
                             _ => {}
                         }
                     }
-                    client.send_mob_snapshot(&self.mob_manager);
+                    if spawned_authoritative_mob {
+                        client.send_mob_snapshot_now(&self.mob_manager);
+                    } else {
+                        client.send_mob_snapshot(&self.mob_manager);
+                    }
                     if let Some(snapshot) = outgoing_world_snapshot {
                         client.send_world_snapshot(snapshot);
                     }

@@ -1869,6 +1869,16 @@ mod tests {
         .unwrap();
         let address = format!("127.0.0.1:{}", server.port);
         let mut authority = crate::net::NetworkClient::connect(&address, "SpawnAuthority").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline
+            && (!authority.is_connected || authority.mob_authority_id != authority.local_id)
+        {
+            authority.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(authority.is_connected);
+        assert_eq!(authority.mob_authority_id, authority.local_id);
+
         let mut guest = crate::net::NetworkClient::connect(&address, "SpawnGuest").unwrap();
         let deadline = Instant::now() + Duration::from_secs(3);
         while Instant::now() < deadline
@@ -1887,20 +1897,34 @@ mod tests {
         guest.send_spawn_mob(crate::gameplay::mob::MobKind::Zombie, spawn_pos);
         let deadline = Instant::now() + Duration::from_secs(3);
         let mut received = false;
-        while Instant::now() < deadline && !received {
-            received |= authority.update(0.05).into_iter().any(|event| {
+        let mut replicated = false;
+        let mut mob_manager = crate::gameplay::mob::MobManager::new();
+        while Instant::now() < deadline && !replicated {
+            for event in authority.update(0.05) {
+                if let crate::net::NetworkEvent::MobSpawn { kind, pos } = event {
+                    if kind == crate::gameplay::mob::MobKind::Zombie as u8 && pos == spawn_pos {
+                        mob_manager.spawn_mob(crate::gameplay::mob::MobKind::Zombie, pos);
+                        received = true;
+                        authority.send_mob_snapshot_now(&mob_manager);
+                    }
+                }
+            }
+            replicated |= guest.update(0.05).into_iter().any(|event| {
                 matches!(
                     event,
-                    crate::net::NetworkEvent::MobSpawn {
-                        kind,
-                        pos,
-                    } if kind == crate::gameplay::mob::MobKind::Zombie as u8 && pos == spawn_pos
+                    crate::net::NetworkEvent::MobSnapshot { mobs }
+                        if mobs.iter().any(|mob| {
+                            mob.kind == crate::gameplay::mob::MobKind::Zombie as u8
+                                && mob.x == spawn_pos.x
+                                && mob.y == spawn_pos.y
+                                && mob.z == spawn_pos.z
+                        })
                 )
             });
-            guest.update(0.05);
             thread::sleep(Duration::from_millis(10));
         }
         assert!(received, "mob authority should receive the client's spawn request");
+        assert!(replicated, "other clients should receive the authoritative mob snapshot");
 
         authority.disconnect();
         guest.disconnect();

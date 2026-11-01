@@ -289,9 +289,21 @@ impl NetworkClient {
     }
 
     pub fn send_mob_snapshot(&mut self, mob_manager: &crate::gameplay::mob::MobManager) {
+        self.send_mob_snapshot_with_force(mob_manager, false);
+    }
+
+    pub fn send_mob_snapshot_now(&mut self, mob_manager: &crate::gameplay::mob::MobManager) {
+        self.send_mob_snapshot_with_force(mob_manager, true);
+    }
+
+    fn send_mob_snapshot_with_force(
+        &mut self,
+        mob_manager: &crate::gameplay::mob::MobManager,
+        force: bool,
+    ) {
         if !self.is_connected
             || self.local_id != self.mob_authority_id
-            || self.last_mob_snapshot_sent.elapsed() < std::time::Duration::from_millis(100)
+            || (!force && self.last_mob_snapshot_sent.elapsed() < std::time::Duration::from_millis(100))
         {
             return;
         }
