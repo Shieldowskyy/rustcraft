@@ -1013,7 +1013,7 @@ fn handle_in_game_command(
             if let Some(client) = clients.get_mut(&sender_id) {
                 let _ = client.send_packet(&ServerPacket::ChatMessage {
                     sender: "Server".to_string(),
-                    text: "Available commands: /help, /list, /time <day|night>, /seed, /spawn, /tell <player> <msg>".to_string(),
+                    text: "Available commands: /help, /list, /time <day|night>, /seed, /spawn, /tp <player>, /tell <player> <msg>".to_string(),
                     is_system: true,
                 });
             }
@@ -1052,6 +1052,42 @@ fn handle_in_game_command(
                 let _ = client.send_packet(&ServerPacket::ChatMessage {
                     sender: "Server".to_string(),
                     text: "Teleported to spawn point".to_string(),
+                    is_system: true,
+                });
+            }
+        }
+        "tp" | "teleport" => {
+            if parts.len() != 2 {
+                if let Some(client) = clients.get_mut(&sender_id) {
+                    let _ = client.send_packet(&ServerPacket::ChatMessage {
+                        sender: "Server".to_string(),
+                        text: "Usage: /tp <player>".to_string(),
+                        is_system: true,
+                    });
+                }
+                return;
+            }
+
+            let target = clients
+                .values()
+                .find(|client| client.nickname.eq_ignore_ascii_case(parts[1]))
+                .map(|client| (client.x, client.y, client.z, client.nickname.clone()));
+            if let Some((x, y, z, target_name)) = target {
+                if let Some(client) = clients.get_mut(&sender_id) {
+                    client.x = x;
+                    client.y = y;
+                    client.z = z;
+                    let _ = client.send_packet(&ServerPacket::Teleport { x, y, z });
+                    let _ = client.send_packet(&ServerPacket::ChatMessage {
+                        sender: "Server".to_string(),
+                        text: format!("Teleported to {}", target_name),
+                        is_system: true,
+                    });
+                }
+            } else if let Some(client) = clients.get_mut(&sender_id) {
+                let _ = client.send_packet(&ServerPacket::ChatMessage {
+                    sender: "Server".to_string(),
+                    text: format!("Player '{}' not found", parts[1]),
                     is_system: true,
                 });
             }
@@ -1192,6 +1228,62 @@ mod tests {
         assert_eq!(time_of_day, 42.0);
         assert_eq!(modified_blocks, vec![(3, 10, -2, crate::world::BlockId::Stone.to_u8())]);
         client.disconnect();
+        drop(server);
+    }
+
+    #[test]
+    fn in_game_teleport_command_moves_player_to_named_target() {
+        let server = EmbeddedServer::start(
+            0,
+            EmbeddedServerState {
+                seed: 1,
+                time_of_day: 120.0,
+                spawn_pos: (8.5, 65.0, 8.5),
+                blocks: Vec::new(),
+            },
+        )
+        .unwrap();
+        let mut host = crate::net::NetworkClient::connect(
+            &format!("127.0.0.1:{}", server.port),
+            "Host",
+        )
+        .unwrap();
+        let mut guest = crate::net::NetworkClient::connect(
+            &format!("127.0.0.1:{}", server.port),
+            "Guest",
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && (!host.is_connected || !guest.is_connected) {
+            host.update(0.05);
+            guest.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(host.is_connected && guest.is_connected);
+
+        host.send_position(
+            crate::core::math::Vec3::new(31.0, 72.0, -8.0),
+            0.0,
+            0.0,
+            false,
+            false,
+        );
+        thread::sleep(Duration::from_millis(100));
+        guest.send_chat("/tp Host");
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut teleport = None;
+        while Instant::now() < deadline && teleport.is_none() {
+            for event in guest.update(0.05) {
+                if let crate::net::NetworkEvent::Teleport { x, y, z } = event {
+                    teleport = Some((x, y, z));
+                }
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(teleport, Some((31.0, 72.0, -8.0)));
+        host.disconnect();
+        guest.disconnect();
         drop(server);
     }
 

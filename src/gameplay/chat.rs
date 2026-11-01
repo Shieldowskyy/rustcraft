@@ -69,6 +69,10 @@ pub struct ChatState {
     was_down: bool,
     was_enter: bool,
     was_escape: bool,
+    was_tab: bool,
+    tab_candidates: Vec<String>,
+    tab_candidate_index: usize,
+    last_tab_completion: Option<(usize, String)>,
     pub ignore_slash_until_release: bool,
 }
 
@@ -121,6 +125,10 @@ impl ChatState {
             was_down: false,
             was_enter: false,
             was_escape: false,
+            was_tab: false,
+            tab_candidates: Vec::new(),
+            tab_candidate_index: 0,
+            last_tab_completion: None,
             ignore_slash_until_release: false,
         }
     }
@@ -133,6 +141,9 @@ impl ChatState {
         self.cursor_blink = 0.0;
         self.saved_draft.clear();
         self.ignore_slash_until_release = initial_text.starts_with('/');
+        self.was_tab = false;
+        self.tab_candidates.clear();
+        self.last_tab_completion = None;
         self.selection_anchor = None;
         self.selection_focus = None;
         self.input_selection = None;
@@ -147,6 +158,9 @@ impl ChatState {
         self.cursor_pos = 0;
         self.history_idx = None;
         self.ignore_slash_until_release = false;
+        self.was_tab = false;
+        self.tab_candidates.clear();
+        self.last_tab_completion = None;
         self.selection_anchor = None;
         self.selection_focus = None;
         self.input_selection = None;
@@ -193,10 +207,17 @@ impl ChatState {
     }
 
     /// Handles keyboard input when chat panel is open.
-    pub fn handle_input(&mut self, input: &crate::app::InputState) -> Option<ChatAction> {
+    pub fn handle_input(
+        &mut self,
+        input: &crate::app::InputState,
+        player_names: &[String],
+    ) -> Option<ChatAction> {
         if !self.is_open {
             return None;
         }
+
+        let tab_pressed = input.key_tab && !self.was_tab;
+        self.was_tab = input.key_tab;
 
         // 1. Enter key -> submit message / command
         let enter_pressed = input.key_enter && !self.was_enter;
@@ -222,6 +243,10 @@ impl ChatState {
         if esc_pressed {
             self.close();
             return Some(ChatAction::Close);
+        }
+
+        if tab_pressed {
+            self.complete_player_name(player_names);
         }
 
         let control_down = input.key_ctrl
@@ -377,6 +402,50 @@ impl ChatState {
         }
 
         None
+    }
+
+    fn complete_player_name(&mut self, player_names: &[String]) {
+        let start = self.input_text[..self.cursor_pos]
+            .char_indices()
+            .rev()
+            .find(|(_, ch)| ch.is_whitespace())
+            .map_or(0, |(index, ch)| index + ch.len_utf8());
+        let end = self.input_text[self.cursor_pos..]
+            .char_indices()
+            .find(|(_, ch)| ch.is_whitespace())
+            .map_or(self.input_text.len(), |(index, _)| self.cursor_pos + index);
+        let token = self.input_text[start..end].to_string();
+
+        let candidate_index = if let Some((last_start, last_name)) = &self.last_tab_completion {
+            if *last_start == start && token == *last_name && !self.tab_candidates.is_empty() {
+                self.tab_candidate_index % self.tab_candidates.len()
+            } else {
+                self.tab_candidates = player_names
+                    .iter()
+                    .filter(|name| name.to_ascii_lowercase().starts_with(&token.to_ascii_lowercase()))
+                    .cloned()
+                    .collect();
+                0
+            }
+        } else {
+            self.tab_candidates = player_names
+                .iter()
+                .filter(|name| name.to_ascii_lowercase().starts_with(&token.to_ascii_lowercase()))
+                .cloned()
+                .collect();
+            0
+        };
+
+        if let Some(name) = self.tab_candidates.get(candidate_index).cloned() {
+            self.input_text.replace_range(start..end, &name);
+            self.cursor_pos = start + name.len();
+            self.last_tab_completion = Some((start, name));
+            self.tab_candidate_index = (candidate_index + 1) % self.tab_candidates.len();
+        } else {
+            self.last_tab_completion = None;
+            self.tab_candidates.clear();
+            self.tab_candidate_index = 0;
+        }
     }
 
     pub fn update_text_selection(
@@ -926,7 +995,7 @@ impl ChatState {
                 self.add_info("/gamemode <survival|creative> - Change game mode");
                 self.add_info("/time set <day|noon|night|midnight|number> - Set time");
                 self.add_info("/give <item> [count] - Add items to inventory");
-                self.add_info("/tp <x> <y> <z> - Teleport player");
+                self.add_info("/tp <x> <y> <z> or /tp <player> - Teleport");
                 self.add_info(
                     "/spawn <pig|cow|chicken|zombie|skeleton|reaper> [count] - Spawn mob",
                 );
@@ -1145,7 +1214,7 @@ impl ChatState {
                         self.add_error("Invalid coordinates. Example: /tp 0 70 0 or /tp ~ ~10 ~");
                     }
                 } else {
-                    self.add_error("Usage: /tp <x> <y> <z>");
+                    self.add_error("Usage: /tp <x> <y> <z> or /tp <player>");
                 }
             }
 
@@ -1500,6 +1569,19 @@ mod tests {
     }
 
     #[test]
+    fn tab_completes_and_cycles_matching_player_names() {
+        let mut chat = ChatState::new();
+        chat.open("/tp Al");
+        let names = vec!["Alex".to_string(), "Alice".to_string(), "Bob".to_string()];
+
+        chat.complete_player_name(&names);
+        assert_eq!(chat.input_text, "/tp Alex");
+
+        chat.complete_player_name(&names);
+        assert_eq!(chat.input_text, "/tp Alice");
+    }
+
+    #[test]
     fn mouse_selection_copies_text_across_chat_lines() {
         let mut chat = ChatState::new();
         chat.add_message("first", pack_color(1.0, 1.0, 1.0));
@@ -1532,7 +1614,7 @@ mod tests {
             ..Default::default()
         };
 
-        chat.handle_input(&input);
+        chat.handle_input(&input, &[]);
         assert_eq!(chat.selected_copy_text().as_deref(), Some("draft"));
 
         chat.paste_clipboard_text("replacement");
@@ -1579,7 +1661,7 @@ mod tests {
             key_ctrl: true,
             key_c: true,
             ..Default::default()
-        });
+        }, &[]);
 
         assert_eq!(crate::ui::clipboard::internal_clipboard_text(), "selected");
     }

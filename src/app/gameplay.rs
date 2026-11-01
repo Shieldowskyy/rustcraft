@@ -144,7 +144,15 @@ impl RustCraftApp {
                         crate::log_debug!("CHAT", "Opened chat prompt");
                     }
                 } else {
-                    if let Some(action) = self.chat.handle_input(input) {
+                    let mut player_names: Vec<String> = self
+                        .net_client
+                        .as_ref()
+                        .map(|client| client.player_list.iter().map(|player| player.nickname.clone()).collect())
+                        .unwrap_or_default();
+                    if !player_names.iter().any(|name| name == &self.settings.nickname) {
+                        player_names.push(self.settings.nickname.clone());
+                    }
+                    if let Some(action) = self.chat.handle_input(input, &player_names) {
                         match action {
                             crate::gameplay::chat::ChatAction::Close => {
                                 out.request_capture_mouse = true;
@@ -152,21 +160,28 @@ impl RustCraftApp {
                             }
                             crate::gameplay::chat::ChatAction::Execute(text) => {
                                 out.request_capture_mouse = true;
-                                let mut chunks_reloaded = false;
-                                let mut ctx = crate::gameplay::chat::CommandContext {
-                                    player: &mut self.player,
-                                    camera: &mut self.camera,
-                                    world: &mut self.world,
-                                    mob_manager: &mut self.mob_manager,
-                                    items: &mut self.items,
-                                    particles: &mut self.particles,
-                                    is_flying: &mut self.fly_mode,
-                                    fly_velocity: &mut self.fly_velocity,
-                                    horiz_velocity: &mut self.horiz_velocity,
-                                    reload_chunks_requested: &mut chunks_reloaded,
-                                };
-                                if text.starts_with('/') {
+                                let command_parts: Vec<&str> = text.split_whitespace().collect();
+                                let tp_to_player = command_parts.len() == 2
+                                    && matches!(command_parts[0].to_ascii_lowercase().as_str(), "/tp" | "/teleport");
+                                if tp_to_player && self.net_client.is_some() {
+                                    if let Some(client) = &mut self.net_client {
+                                        client.send_chat(&text);
+                                    }
+                                } else if text.starts_with('/') {
                                     crate::log_info!("COMMAND", "Executing: {}", text);
+                                    let mut chunks_reloaded = false;
+                                    let mut ctx = crate::gameplay::chat::CommandContext {
+                                        player: &mut self.player,
+                                        camera: &mut self.camera,
+                                        world: &mut self.world,
+                                        mob_manager: &mut self.mob_manager,
+                                        items: &mut self.items,
+                                        particles: &mut self.particles,
+                                        is_flying: &mut self.fly_mode,
+                                        fly_velocity: &mut self.fly_velocity,
+                                        horiz_velocity: &mut self.horiz_velocity,
+                                        reload_chunks_requested: &mut chunks_reloaded,
+                                    };
                                     self.chat.execute_command(&text, &mut ctx);
                                     if chunks_reloaded {
                                         self.renderer.clear_mesh_cache();
@@ -2574,7 +2589,7 @@ impl RustCraftApp {
                 );
                 self.chat.draw(&mut self.renderer.color_buffer, self.width, self.height);
 
-                if input.key_tab {
+                if input.key_tab && !self.chat.is_open {
                     let p_list = if let Some(client) = &self.net_client {
                         &client.player_list[..]
                     } else {
