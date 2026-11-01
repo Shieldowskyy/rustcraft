@@ -59,6 +59,37 @@ pub struct ChestData {
     pub items: [Option<ItemStack>; 27],
 }
 
+fn generate_chest_loot<const N: usize>(
+    seed: u32,
+    pos: IVec3,
+    loot_table: &[(BlockId, u8, u8); N],
+) -> ChestData {
+    let mut chest = ChestData::new();
+    let mut rng = (seed as u64)
+        ^ (pos.x as u32 as u64).wrapping_mul(0x9E37_79B1_85EB_CA87)
+        ^ (pos.y as u32 as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
+        ^ (pos.z as u32 as u64).wrapping_mul(0x1656_67B1_9E37_79F9);
+    let mut next_rand = || {
+        rng = rng
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (rng >> 32) as u32
+    };
+    let mut selected = [false; N];
+
+    for _ in 0..8.min(N) {
+        let mut index = next_rand() as usize % N;
+        while selected[index] {
+            index = (index + 1) % N;
+        }
+        selected[index] = true;
+        let (block, min_count, max_count) = loot_table[index];
+        let count = min_count + (next_rand() % (u32::from(max_count - min_count) + 1)) as u8;
+        chest.add_item(block, count);
+    }
+    chest
+}
+
 impl ChestData {
     pub fn new() -> Self {
         Self {
@@ -68,76 +99,52 @@ impl ChestData {
 
     /// Generates randomized starter/dungeon loot for cabin chests.
     pub fn generate_house_loot(seed: u32, pos: IVec3) -> Self {
-        let mut chest = Self::new();
-        let mut rng = (seed as u64)
-            ^ ((pos.x as u64) << 32)
-            ^ ((pos.y as u64) << 16)
-            ^ (pos.z as u64);
-        
-        let mut next_rand = || {
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            (rng >> 32) as u32
-        };
-
-        // Always add some food, fuel, materials and tools
-        chest.items[0] = Some(ItemStack::new(BlockId::Apple, 3 + (next_rand() % 5) as u8));
-        chest.items[1] = Some(ItemStack::new(BlockId::CookedPorkchop, 2 + (next_rand() % 4) as u8));
-        chest.items[4] = Some(ItemStack::new(BlockId::IronIngot, 2 + (next_rand() % 4) as u8));
-        chest.items[9] = Some(ItemStack::new(BlockId::CoalOre, 4 + (next_rand() % 8) as u8));
-        chest.items[10] = Some(ItemStack::new(BlockId::Torch, 4 + (next_rand() % 6) as u8));
-        chest.items[13] = Some(ItemStack::new(BlockId::Stick, 6 + (next_rand() % 10) as u8));
-        if next_rand() % 2 == 0 {
-            chest.items[14] = Some(ItemStack::new(BlockId::Emerald, 1 + (next_rand() % 3) as u8));
-        }
-        chest.items[18] = Some(ItemStack::new(BlockId::Planks, 8 + (next_rand() % 16) as u8));
-        if next_rand() % 2 == 0 {
-            chest.items[22] = Some(ItemStack::new(BlockId::StonePickaxe, 1));
-        } else {
-            chest.items[22] = Some(ItemStack::new(BlockId::StoneAxe, 1));
-        }
-
-        chest
+        generate_chest_loot(
+            seed,
+            pos,
+            &[
+                (BlockId::Apple, 2, 6),
+                (BlockId::CookedPorkchop, 1, 4),
+                (BlockId::RawBeef, 1, 3),
+                (BlockId::Bread, 1, 5),
+                (BlockId::IronIngot, 1, 5),
+                (BlockId::CoalOre, 2, 8),
+                (BlockId::Torch, 2, 8),
+                (BlockId::Stick, 3, 12),
+                (BlockId::Emerald, 1, 3),
+                (BlockId::Planks, 4, 16),
+                (BlockId::StonePickaxe, 1, 1),
+                (BlockId::StoneAxe, 1, 1),
+                (BlockId::StoneSword, 1, 1),
+                (BlockId::WoodenPickaxe, 1, 1),
+                (BlockId::Carrot, 1, 5),
+                (BlockId::Potato, 1, 5),
+            ],
+        )
     }
 
     /// Generates village blacksmith forge loot (Emeralds, Iron, Obsidian/Stone, Bread, Tools).
     pub fn generate_blacksmith_loot(seed: u32, pos: IVec3) -> Self {
-        let mut chest = Self::new();
-        let mut rng = (seed as u64)
-            ^ ((pos.x as u64) << 32)
-            ^ ((pos.y as u64) << 16)
-            ^ (pos.z as u64);
-
-        let mut next_rand = || {
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            (rng >> 32) as u32
-        };
-
-        // Emeralds (1 - 6)
-        chest.items[2] = Some(ItemStack::new(BlockId::Emerald, 1 + (next_rand() % 6) as u8));
-        // Iron Ingots (2 - 7)
-        chest.items[4] = Some(ItemStack::new(BlockId::IronIngot, 2 + (next_rand() % 6) as u8));
-        // Bread (1 - 4)
-        chest.items[7] = Some(ItemStack::new(BlockId::Bread, 1 + (next_rand() % 4) as u8));
-        // Gold Ingot or Apple
-        if next_rand() % 2 == 0 {
-            chest.items[11] = Some(ItemStack::new(BlockId::GoldIngot, 1 + (next_rand() % 3) as u8));
-        } else {
-            chest.items[11] = Some(ItemStack::new(BlockId::Apple, 2 + (next_rand() % 3) as u8));
-        }
-        // Blacksmith Tool
-        match next_rand() % 3 {
-            0 => {
-                chest.items[20] = Some(ItemStack::new(BlockId::IronPickaxe, 1));
-            }
-            1 => {
-                chest.items[20] = Some(ItemStack::new(BlockId::IronSword, 1));
-            }
-            _ => {
-                chest.items[20] = Some(ItemStack::new(BlockId::IronAxe, 1));
-            }
-        }
-
-        chest
+        generate_chest_loot(
+            seed,
+            pos,
+            &[
+                (BlockId::Emerald, 1, 6),
+                (BlockId::IronIngot, 2, 7),
+                (BlockId::Bread, 1, 4),
+                (BlockId::GoldIngot, 1, 3),
+                (BlockId::Apple, 2, 5),
+                (BlockId::Obsidian, 1, 4),
+                (BlockId::Stone, 3, 12),
+                (BlockId::IronPickaxe, 1, 1),
+                (BlockId::IronSword, 1, 1),
+                (BlockId::IronAxe, 1, 1),
+                (BlockId::Diamond, 1, 2),
+                (BlockId::CoalOre, 2, 8),
+                (BlockId::Torch, 2, 8),
+                (BlockId::CookedBeef, 1, 4),
+            ],
+        )
     }
 
     /// Adds items to the chest, stacking where possible. Returns remaining unplaced count.
@@ -332,6 +339,24 @@ mod tests {
 
         let rem = chest.add_item(BlockId::Torch, 10);
         assert_eq!(rem, 0); // Stacked or placed into free slot
+    }
+
+    #[test]
+    fn chest_loot_varies_by_position_and_is_deterministic() {
+        let pos_a = IVec3::new(10, 64, 10);
+        let pos_b = IVec3::new(11, 64, 10);
+        let house_a = ChestData::generate_house_loot(12345, pos_a);
+        let house_b = ChestData::generate_house_loot(12345, pos_b);
+        assert_eq!(house_a, ChestData::generate_house_loot(12345, pos_a));
+        assert_ne!(house_a, house_b);
+
+        let blacksmith_a = ChestData::generate_blacksmith_loot(12345, pos_a);
+        let blacksmith_b = ChestData::generate_blacksmith_loot(12345, pos_b);
+        assert_eq!(
+            blacksmith_a,
+            ChestData::generate_blacksmith_loot(12345, pos_a)
+        );
+        assert_ne!(blacksmith_a, blacksmith_b);
     }
 
     #[test]
