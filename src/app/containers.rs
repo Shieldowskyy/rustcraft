@@ -57,6 +57,7 @@ impl RustCraftApp {
 
         if self.controls.is_just_pressed(Action::Inventory)
             || self.controls.is_just_pressed(Action::Pause)
+            || (input.key_escape && !self.prev_escape_down)
             || input.gp_east_just_pressed
         {
             self.player.inventory.return_crafting_items();
@@ -421,6 +422,7 @@ impl RustCraftApp {
 
         if self.controls.is_just_pressed(Action::Inventory)
             || self.controls.is_just_pressed(Action::Pause)
+            || (input.key_escape && !self.prev_escape_down)
             || input.gp_east_just_pressed
         {
             if self.player.gamemode == GameMode::Creative {
@@ -559,6 +561,7 @@ impl RustCraftApp {
 
         if self.controls.is_just_pressed(Action::Inventory)
             || self.controls.is_just_pressed(Action::Pause)
+            || (input.key_escape && !self.prev_escape_down)
             || input.gp_east_just_pressed
         {
             if self.player.gamemode == GameMode::Creative {
@@ -783,6 +786,7 @@ impl RustCraftApp {
         // Close trading window
         if self.controls.is_just_pressed(Action::Inventory)
             || self.controls.is_just_pressed(Action::Pause)
+            || (input.key_escape && !self.prev_escape_down)
             || input.gp_east_just_pressed
         {
             self.state = GameState::Playing;

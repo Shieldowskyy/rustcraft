@@ -41,7 +41,8 @@ impl RustCraftApp {
                         );
                         client.last_move_sent = std::time::Instant::now();
                     }
-                    let events = client.update(dt);
+                    let mut events = std::mem::take(&mut self.pending_network_events);
+                    events.extend(client.update(dt));
                     let mut should_disconnect = None;
                     let mut pending_mods = Vec::new();
                     for ev in events {

@@ -117,6 +117,7 @@ pub struct RustCraftApp {
     pub selected_lan_server: Option<usize>,
     pub main_menu_nick_hovered: bool,
     pub net_client: Option<crate::net::NetworkClient>,
+    pub(crate) pending_network_events: Vec<crate::net::NetworkEvent>,
     pub is_multiplayer: bool,
     pub is_hosting_multiplayer: bool,
     pub death_message_sent: bool,
@@ -416,6 +417,7 @@ impl RustCraftApp {
             selected_lan_server: None,
             main_menu_nick_hovered: false,
             net_client: None,
+            pending_network_events: Vec::new(),
             is_multiplayer: false,
             is_hosting_multiplayer: false,
             death_message_sent: false,
@@ -672,6 +674,14 @@ impl RustCraftApp {
             GameState::DeathScreen => self.update_and_render_death_screen(input, mouse_moved, &mut out),
             GameState::WorldMap => self.update_and_render_worldmap(dt, input, mouse_moved, &mut out),
         } }
+
+        if !matches!(self.state, GameState::Playing | GameState::MultiplayerConnecting { .. }) {
+            if let Some(client) = &mut self.net_client {
+                if client.is_connected {
+                    self.pending_network_events.extend(client.update(dt));
+                }
+            }
+        }
 
         // Context-aware soundtrack update (Creative vs Survival vs Menu)
         let soundtrack_category = match self.state {
