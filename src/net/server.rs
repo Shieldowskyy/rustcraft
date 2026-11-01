@@ -1429,6 +1429,19 @@ fn handle_console_command(
     }
 }
 
+fn parse_time_value(value: &str) -> Option<f32> {
+    match value.to_ascii_lowercase().as_str() {
+        "day" | "1000" => Some(120.0),
+        "noon" | "6000" => Some(240.0),
+        "night" | "13000" => Some(360.0),
+        "midnight" | "18000" => Some(0.0),
+        ticks => {
+            let ticks = ticks.parse::<f32>().ok()?;
+            ticks.is_finite().then(|| ticks.rem_euclid(24_000.0) / 24_000.0 * 480.0)
+        }
+    }
+}
+
 fn handle_in_game_command(
     cmd_line: &str,
     sender_id: u32,
@@ -1450,7 +1463,7 @@ fn handle_in_game_command(
             if let Some(client) = clients.get_mut(&sender_id) {
                 let _ = client.send_packet(&ServerPacket::ChatMessage {
                     sender: "Server".to_string(),
-                    text: "Available commands: /help, /list, /time <day|night>, /seed, /spawn, /tp <player>, /tell <player> <msg>, /kick <player> [reason] (host only)".to_string(),
+                    text: "Available commands: /help, /list, /time set <day|noon|night|midnight|number>, /seed, /spawn, /tp <player>, /tell <player> <msg>, /kick <player> [reason] (host only)".to_string(),
                     is_system: true,
                 });
             }
@@ -1579,40 +1592,36 @@ fn handle_in_game_command(
             }
         }
         "time" => {
-            if parts.len() >= 2 {
-                match parts[1].to_lowercase().as_str() {
-                    "day" => {
-                        *time_of_day = 120.0;
-                        broadcast_packets.push(ServerPacket::TimeSync { time_of_day: *time_of_day });
-                        broadcast_packets.push(ServerPacket::ChatMessage {
-                            sender: "Server".to_string(),
-                            text: format!("{} set the time to day", sender_nick),
-                            is_system: true,
-                        });
-                    }
-                    "night" => {
-                        *time_of_day = 0.0;
-                        broadcast_packets.push(ServerPacket::TimeSync { time_of_day: *time_of_day });
-                        broadcast_packets.push(ServerPacket::ChatMessage {
-                            sender: "Server".to_string(),
-                            text: format!("{} set the time to night", sender_nick),
-                            is_system: true,
-                        });
-                    }
-                    _ => {
-                        if let Some(client) = clients.get_mut(&sender_id) {
-                            let _ = client.send_packet(&ServerPacket::ChatMessage {
-                                sender: "Server".to_string(),
-                                text: "Usage: /time <day|night>".to_string(),
-                                is_system: true,
-                            });
-                        }
-                    }
+            let args = &parts[1..];
+            if args.first().is_some_and(|arg| arg.eq_ignore_ascii_case("query")) {
+                if let Some(client) = clients.get_mut(&sender_id) {
+                    let ticks = (*time_of_day / 480.0 * 24_000.0).round() as u32;
+                    let _ = client.send_packet(&ServerPacket::ChatMessage {
+                        sender: "Server".to_string(),
+                        text: format!("The time is {} ticks", ticks),
+                        is_system: true,
+                    });
                 }
+                return;
+            }
+
+            let value = match args {
+                [value] if !value.eq_ignore_ascii_case("set") => Some(*value),
+                [set, value] if set.eq_ignore_ascii_case("set") => Some(*value),
+                _ => None,
+            };
+            if let Some(value) = value.and_then(parse_time_value) {
+                *time_of_day = value;
+                broadcast_packets.push(ServerPacket::TimeSync { time_of_day: value });
+                broadcast_packets.push(ServerPacket::ChatMessage {
+                    sender: "Server".to_string(),
+                    text: format!("{} set the time to {:.0} ticks", sender_nick, value / 480.0 * 24_000.0),
+                    is_system: true,
+                });
             } else if let Some(client) = clients.get_mut(&sender_id) {
                 let _ = client.send_packet(&ServerPacket::ChatMessage {
                     sender: "Server".to_string(),
-                    text: format!("Current time of day: {:.1}s", *time_of_day),
+                    text: "Usage: /time set <day|noon|night|midnight|number>".to_string(),
                     is_system: true,
                 });
             }
@@ -1633,6 +1642,7 @@ fn handle_in_game_command(
                         break;
                     }
                 }
+
                 if let Some(client) = clients.get_mut(&sender_id) {
                     if found {
                         let _ = client.send_packet(&ServerPacket::ChatMessage {
@@ -1812,6 +1822,60 @@ mod tests {
         authority.disconnect();
         attacker.disconnect();
         drop(server);
+    }
+
+    #[test]
+    fn in_game_time_set_command_syncs_all_clients() {
+        let server = EmbeddedServer::start(
+            0,
+            EmbeddedServerState {
+                seed: 1,
+                time_of_day: 42.0,
+                spawn_pos: (8.5, 48.0, 8.5),
+                blocks: Vec::new(),
+                mobs: Vec::new(),
+            },
+        )
+        .unwrap();
+        let address = format!("127.0.0.1:{}", server.port);
+        let mut host = crate::net::NetworkClient::connect(&address, "TimeHost").unwrap();
+        let mut guest = crate::net::NetworkClient::connect(&address, "TimeGuest").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && (!host.is_connected || !guest.is_connected) {
+            host.update(0.05);
+            guest.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(host.is_connected && guest.is_connected);
+
+        guest.send_chat("/time set day");
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut host_synced = false;
+        let mut guest_synced = false;
+        while Instant::now() < deadline && !(host_synced && guest_synced) {
+            host_synced |= host.update(0.05).into_iter().any(|event| {
+                matches!(event, crate::net::NetworkEvent::TimeSync { time_of_day } if time_of_day == 120.0)
+            });
+            guest_synced |= guest.update(0.05).into_iter().any(|event| {
+                matches!(event, crate::net::NetworkEvent::TimeSync { time_of_day } if time_of_day == 120.0)
+            });
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(host_synced && guest_synced, "server should broadcast the requested time");
+
+        host.disconnect();
+        guest.disconnect();
+        drop(server);
+    }
+
+    #[test]
+    fn time_values_accept_named_and_numeric_ticks() {
+        assert_eq!(parse_time_value("day"), Some(120.0));
+        assert_eq!(parse_time_value("noon"), Some(240.0));
+        assert_eq!(parse_time_value("night"), Some(360.0));
+        assert_eq!(parse_time_value("midnight"), Some(0.0));
+        assert_eq!(parse_time_value("12000"), Some(240.0));
+        assert_eq!(parse_time_value("NaN"), None);
     }
 
     #[test]

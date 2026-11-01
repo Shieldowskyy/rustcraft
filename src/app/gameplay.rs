@@ -448,9 +448,14 @@ impl RustCraftApp {
                                     && matches!(command_parts[0].to_ascii_lowercase().as_str(), "/tp" | "/teleport");
                                 let kick_player = command_parts.len() >= 2
                                     && command_parts[0].eq_ignore_ascii_case("/kick");
+                                let time_command = command_parts
+                                    .first()
+                                    .is_some_and(|command| command.eq_ignore_ascii_case("/time"));
                                 if kick_player && !self.is_hosting_multiplayer {
                                     self.chat.add_info("Only the multiplayer host can kick players.");
-                                } else if (tp_to_player || kick_player) && self.net_client.is_some() {
+                                } else if (tp_to_player || kick_player || time_command)
+                                    && self.net_client.is_some()
+                                {
                                     if let Some(client) = &mut self.net_client {
                                         client.send_chat(&text);
                                     }
