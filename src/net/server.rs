@@ -41,10 +41,9 @@ struct ConnectedClient {
     is_sneaking: bool,
     is_sprinting: bool,
     rx_buffer: Vec<u8>,
-    #[allow(dead_code)]
     last_ping_sent: Instant,
-    #[allow(dead_code)]
-    pending_ping_seq: u32,
+    pending_ping_seq: Option<u32>,
+    next_ping_seq: u32,
 }
 
 impl ConnectedClient {
@@ -475,7 +474,8 @@ fn run_server(
                     is_sprinting: false,
                     rx_buffer: Vec::with_capacity(1024),
                     last_ping_sent: Instant::now(),
-                    pending_ping_seq: 0,
+                    pending_ping_seq: None,
+                    next_ping_seq: 0,
                 },
             );
         }
@@ -641,6 +641,17 @@ fn run_server(
                             Ok(ClientPacket::Ping { seq }) => {
                                 let _ = client.send_packet(&ServerPacket::Pong { seq });
                             }
+                            Ok(ClientPacket::Pong { seq }) => {
+                                if client.pending_ping_seq == Some(seq) {
+                                    client.ping_ms = client
+                                        .last_ping_sent
+                                        .elapsed()
+                                        .as_millis()
+                                        .clamp(1, u32::MAX as u128)
+                                        as u32;
+                                    client.pending_ping_seq = None;
+                                }
+                            }
                             Ok(ClientPacket::Disconnect { reason }) => {
                                 disconnected_clients.push((id, reason));
                                 break;
@@ -797,6 +808,26 @@ fn run_server(
             };
             for client in clients.values_mut() {
                 let _ = client.send_packet(&pos_packet);
+            }
+        }
+
+        for client in clients.values_mut() {
+            if client.pending_ping_seq.is_some()
+                && client.last_ping_sent.elapsed() >= Duration::from_secs(3)
+            {
+                client.pending_ping_seq = None;
+            }
+            if client.authenticated
+                && client.pending_ping_seq.is_none()
+                && client.last_ping_sent.elapsed() >= Duration::from_secs(1)
+            {
+                let seq = client.next_ping_seq;
+                client.next_ping_seq = client.next_ping_seq.wrapping_add(1);
+                client.pending_ping_seq = Some(seq);
+                client.last_ping_sent = Instant::now();
+                if !client.send_packet(&ServerPacket::Ping { seq }) {
+                    crate::log_warn!("SERVER", "Failed to send ping to '{}'", client.nickname);
+                }
             }
         }
 
@@ -1322,6 +1353,35 @@ mod tests {
         assert_eq!(load_player_data(&data_dir, "AnotherUser").unwrap(), None);
         std::fs::remove_file(player_data_path(&data_dir, "RelayUser")).unwrap();
         std::fs::remove_dir(&data_dir).unwrap();
+    }
+
+    #[test]
+    fn server_updates_player_list_with_measured_ping() {
+        let server = EmbeddedServer::start(
+            0,
+            EmbeddedServerState {
+                seed: 1,
+                time_of_day: 120.0,
+                spawn_pos: (8.5, 65.0, 8.5),
+                blocks: Vec::new(),
+            },
+        )
+        .unwrap();
+        let mut client = crate::net::NetworkClient::connect(
+            &format!("127.0.0.1:{}", server.port),
+            "PingTest",
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline && client.ping_ms == 0 {
+            client.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(client.is_connected);
+        assert!(client.ping_ms > 0);
+        client.disconnect();
+        drop(server);
     }
 
     #[test]

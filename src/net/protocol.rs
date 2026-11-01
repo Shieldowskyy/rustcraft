@@ -117,6 +117,9 @@ pub enum ClientPacket {
     PlayerData {
         data: PlayerData,
     },
+    Pong {
+        seq: u32,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -188,6 +191,9 @@ pub enum ServerPacket {
     },
     PlayerData {
         data: Option<PlayerData>,
+    },
+    Ping {
+        seq: u32,
     },
 }
 
@@ -392,6 +398,11 @@ impl ClientPacket {
                 write_player_data(&mut pw, data);
                 pw.finish()
             }
+            ClientPacket::Pong { seq } => {
+                let mut pw = PacketWriter::new(0x0B);
+                pw.write_u32(*seq);
+                pw.finish()
+            }
         }
     }
 
@@ -445,6 +456,7 @@ impl ClientPacket {
             0x0A => Ok(ClientPacket::PlayerData {
                 data: read_player_data(&mut r)?,
             }),
+            0x0B => Ok(ClientPacket::Pong { seq: r.read_u32()? }),
             _ => Err("Unknown client packet ID"),
         }
     }
@@ -582,6 +594,11 @@ impl ServerPacket {
                 if let Some(data) = data {
                     write_player_data(&mut pw, data);
                 }
+                pw.finish()
+            }
+            ServerPacket::Ping { seq } => {
+                let mut pw = PacketWriter::new(0x91);
+                pw.write_u32(*seq);
                 pw.finish()
             }
         }
@@ -722,6 +739,7 @@ impl ServerPacket {
                 };
                 Ok(ServerPacket::PlayerData { data })
             }
+            0x91 => Ok(ServerPacket::Ping { seq: r.read_u32()? }),
             _ => Err("Unknown server packet ID"),
         }
     }
@@ -959,6 +977,10 @@ mod tests {
         let mut framed_death = ClientPacket::PlayerDeath.serialize();
         let packets_death = extract_packets(&mut framed_death);
         assert_eq!(ClientPacket::deserialize(&packets_death[0]).unwrap(), ClientPacket::PlayerDeath);
+        let pong = ClientPacket::Pong { seq: 42 };
+        let mut framed_pong = pong.serialize();
+        let packets_pong = extract_packets(&mut framed_pong);
+        assert_eq!(ClientPacket::deserialize(&packets_pong[0]).unwrap(), pong);
 
         let player_data = PlayerData {
             x: 2.0,
@@ -1040,6 +1062,10 @@ mod tests {
         let mut framed_authority = authority.serialize();
         let packets_authority = extract_packets(&mut framed_authority);
         assert_eq!(ServerPacket::deserialize(&packets_authority[0]).unwrap(), authority);
+        let ping = ServerPacket::Ping { seq: 42 };
+        let mut framed_ping = ping.serialize();
+        let packets_ping = extract_packets(&mut framed_ping);
+        assert_eq!(ServerPacket::deserialize(&packets_ping[0]).unwrap(), ping);
 
         let mob_snapshot = ServerPacket::MobSnapshot {
             mobs: vec![MobSyncEntry {

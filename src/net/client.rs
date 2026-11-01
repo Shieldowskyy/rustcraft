@@ -306,6 +306,11 @@ impl NetworkClient {
                     events.push(NetworkEvent::Disconnected { reason });
                 }
                 Ok(ServerPacket::PlayerList { players }) => {
+                    if let Some(local_id) = self.local_id {
+                        if let Some(local_player) = players.iter().find(|player| player.id == local_id) {
+                            self.ping_ms = local_player.ping_ms;
+                        }
+                    }
                     self.player_list = players;
                 }
                 Ok(ServerPacket::PlayerJoined { id, nickname }) => {
@@ -398,6 +403,11 @@ impl NetworkClient {
                     events.push(NetworkEvent::ModsSynchronized { mods });
                 }
                 Ok(ServerPacket::Pong { seq: _ }) => {}
+                Ok(ServerPacket::Ping { seq }) => {
+                    if let Err(error) = self.send_packet(&ClientPacket::Pong { seq }) {
+                        crate::log_warn!("NETWORK", "Failed to reply to server ping: {}", error);
+                    }
+                }
                 Err(err) => {
                     eprintln!("[NET CLIENT] Error decoding packet: {}", err);
                 }
