@@ -328,6 +328,58 @@ impl Mob {
         Vec3::new(self.pos.x, self.pos.y + self.kind.height() * 0.5, self.pos.z)
     }
 
+    fn navigation_yaw(&self, world: &World, desired_yaw: f32) -> Option<f32> {
+        let half_width = self.kind.half_width() * if self.is_baby { 0.5 } else { 1.0 };
+        let height = self.kind.height() * if self.is_baby { 0.5 } else { 1.0 };
+        let look_ahead = (half_width + 0.55).max(0.9);
+        let offsets = [
+            0.0,
+            0.55,
+            -0.55,
+            1.1,
+            -1.1,
+            1.65,
+            -1.65,
+            2.2,
+            -2.2,
+            PI,
+        ];
+        let mut best: Option<(f32, f32)> = None;
+
+        for offset in offsets {
+            let yaw = desired_yaw + offset;
+            let next_x = self.pos.x + yaw.sin() * look_ahead;
+            let next_z = self.pos.z + yaw.cos() * look_ahead;
+            let min = Vec3::new(next_x - half_width, self.pos.y, next_z - half_width);
+            let max = Vec3::new(next_x + half_width, self.pos.y + height, next_z + half_width);
+            if world.box_collides(min, max) {
+                continue;
+            }
+
+            let support_y = (self.pos.y - 0.1).floor() as i32;
+            let support = [
+                (next_x - half_width + 0.05, next_z - half_width + 0.05),
+                (next_x + half_width - 0.05, next_z - half_width + 0.05),
+                (next_x - half_width + 0.05, next_z + half_width - 0.05),
+                (next_x + half_width - 0.05, next_z + half_width - 0.05),
+            ];
+            if !support.iter().any(|&(x, z)| {
+                world
+                    .get_block(IVec3::new(x.floor() as i32, support_y, z.floor() as i32))
+                    .is_solid()
+            }) {
+                continue;
+            }
+
+            let score = offset.cos();
+            if best.map_or(true, |(best_score, _)| score > best_score) {
+                best = Some((score, yaw));
+            }
+        }
+
+        best.map(|(_, yaw)| yaw)
+    }
+
     pub fn take_damage(&mut self, damage: f32, knockback_dir: Vec3) {
         if self.is_dead {
             return;
@@ -775,13 +827,22 @@ impl Mob {
             }
         }
 
+        let mut navigation_blocked = false;
+        if self.on_ground && self.ai_state_is_moving && self.eat_grass_timer <= 0.0 {
+            if let Some(yaw) = self.navigation_yaw(world, self.target_yaw) {
+                self.target_yaw = yaw;
+            } else {
+                navigation_blocked = true;
+            }
+        }
+
         let mut diff = self.target_yaw - self.yaw;
         while diff > PI { diff -= PI * 2.0; }
         while diff < -PI { diff += PI * 2.0; }
         let turn_speed = if self.panic_timer > 0.0 || pursuing_player { 10.0 } else { 4.0 };
         self.yaw += diff * (turn_speed * dt).min(1.0);
 
-        let move_speed = if self.eat_grass_timer > 0.0 {
+        let move_speed = if navigation_blocked || self.eat_grass_timer > 0.0 {
             0.0
         } else if self.panic_timer > 0.0 {
             5.4 // Rapid sprint away from player when panicked!
@@ -1747,6 +1808,51 @@ mod tests {
         let zombie = mob_manager.mobs.iter().find(|m| m.id == zombie_id).unwrap();
         let angle_to_player = (player_pos.x - zombie.pos.x).atan2(player_pos.z - zombie.pos.z);
         assert!((zombie.target_yaw - angle_to_player).abs() < 1e-4, "Zombie should target player in Survival mode");
+    }
+
+    #[test]
+    fn test_ground_mob_steers_around_walls() {
+        use crate::world::{Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
+
+        let mut world = World::new_with_seed(1);
+        world.chunks.clear();
+        world.chunks.insert(
+            (0, 0),
+            Chunk {
+                cx: 0,
+                cz: 0,
+                blocks: vec![
+                    BlockId::Air.to_u8();
+                    (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize
+                ],
+                dirty: false,
+            },
+        );
+        for x in 0..CHUNK_SIZE_X {
+            for z in 0..CHUNK_SIZE_Z {
+                world.set_block(IVec3::new(x, 10, z), BlockId::Grass);
+            }
+        }
+        for x in 7..=9 {
+            for y in 11..=12 {
+                world.set_block(IVec3::new(x, y, 9), BlockId::Stone);
+            }
+        }
+
+        let mob = Mob::new(1, MobKind::Pig, Vec3::new(8.5, 11.0, 8.5));
+        let detour_yaw = mob
+            .navigation_yaw(&world, 0.0)
+            .expect("a clear route around the wall should exist");
+        assert!(
+            detour_yaw.abs() > 0.5,
+            "mob should steer away from the blocked forward direction"
+        );
+
+        let direct = Vec3::new(8.5, 11.0, 9.4);
+        assert!(world.box_collides(
+            Vec3::new(direct.x - 0.4, direct.y, direct.z - 0.4),
+            Vec3::new(direct.x + 0.4, direct.y + MobKind::Pig.height(), direct.z + 0.4),
+        ));
     }
 
     #[test]
