@@ -76,6 +76,11 @@ impl RustCraftApp {
                                     self.particles.spawn_mob_hit(rp.pos);
                                 }
                             }
+                            crate::net::NetworkEvent::MobSnapshot { mobs } => {
+                                if let Err(error) = self.mob_manager.apply_network_snapshot(&mobs) {
+                                    crate::log_warn!("NETWORK", "Rejected mob snapshot: {}", error);
+                                }
+                            }
                             crate::net::NetworkEvent::ModsSynchronized { mods } => {
                                 pending_mods.extend(mods);
                             }
@@ -85,6 +90,7 @@ impl RustCraftApp {
                             _ => {}
                         }
                     }
+                    client.send_mob_snapshot(&self.mob_manager);
                     if !pending_mods.is_empty() {
                         self.sync_server_mods(pending_mods);
                     }
@@ -1937,7 +1943,12 @@ impl RustCraftApp {
                 let mobs_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
                 let held_item = self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize].map(|s| s.block);
                 let is_creative = self.player.gamemode == GameMode::Creative;
-                self.mob_manager.update(dt, &self.world, self.camera.position, held_item, is_creative);
+                let simulates_mobs = self.net_client.as_ref().map_or(true, |client| {
+                    !client.is_connected || client.local_id == client.mob_authority_id
+                });
+                if simulates_mobs {
+                    self.mob_manager.update(dt, &self.world, self.camera.position, held_item, is_creative);
+                }
                 let mut discovered_mob = false;
                 for mob in &self.mob_manager.mobs {
                     if !mob.is_dead && (mob.pos - self.camera.position).length_sq() <= 24.0 * 24.0 {

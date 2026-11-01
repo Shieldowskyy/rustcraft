@@ -23,6 +23,27 @@ pub struct PlayerPosUpdate {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct MobSyncEntry {
+    pub id: u32,
+    pub kind: u8,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub yaw: f32,
+    pub health: f32,
+    pub is_dead: bool,
+    pub walk_phase: f32,
+    pub is_baby: bool,
+    pub wool_color: u8,
+    pub is_sheared: bool,
+    pub is_puffed: bool,
+    pub fuse: f32,
+    pub is_ignited: bool,
+}
+
+const MAX_SYNCED_MOBS: usize = 512;
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct ModSyncEntry {
     pub mod_id: String,
     pub content: String,
@@ -61,6 +82,9 @@ pub enum ClientPacket {
     AttackPlayer {
         target_id: u32,
         damage: f32,
+    },
+    MobSnapshot {
+        mobs: Vec<MobSyncEntry>,
     },
 }
 
@@ -124,6 +148,12 @@ pub enum ServerPacket {
     },
     ModSync {
         mods: Vec<ModSyncEntry>,
+    },
+    MobAuthority {
+        id: u32,
+    },
+    MobSnapshot {
+        mobs: Vec<MobSyncEntry>,
     },
 }
 
@@ -317,6 +347,11 @@ impl ClientPacket {
                 pw.write_f32(*damage);
                 pw.finish()
             }
+            ClientPacket::MobSnapshot { mobs } => {
+                let mut pw = PacketWriter::new(0x08);
+                write_mob_snapshot(&mut pw, mobs);
+                pw.finish()
+            }
         }
     }
 
@@ -363,6 +398,9 @@ impl ClientPacket {
                 let damage = r.read_f32()?;
                 Ok(ClientPacket::AttackPlayer { target_id, damage })
             }
+            0x08 => Ok(ClientPacket::MobSnapshot {
+                mobs: read_mob_snapshot(&mut r)?,
+            }),
             _ => Err("Unknown client packet ID"),
         }
     }
@@ -482,6 +520,16 @@ impl ServerPacket {
                     pw.write_u32(bytes.len().min(u32::MAX as usize) as u32);
                     pw.buf.extend_from_slice(bytes);
                 }
+                pw.finish()
+            }
+            ServerPacket::MobAuthority { id } => {
+                let mut pw = PacketWriter::new(0x8E);
+                pw.write_u32(*id);
+                pw.finish()
+            }
+            ServerPacket::MobSnapshot { mobs } => {
+                let mut pw = PacketWriter::new(0x8F);
+                write_mob_snapshot(&mut pw, mobs);
                 pw.finish()
             }
         }
@@ -610,9 +658,63 @@ impl ServerPacket {
                 }
                 Ok(ServerPacket::ModSync { mods })
             }
+            0x8E => Ok(ServerPacket::MobAuthority { id: r.read_u32()? }),
+            0x8F => Ok(ServerPacket::MobSnapshot {
+                mobs: read_mob_snapshot(&mut r)?,
+            }),
             _ => Err("Unknown server packet ID"),
         }
     }
+}
+
+fn write_mob_snapshot(writer: &mut PacketWriter, mobs: &[MobSyncEntry]) {
+    let count = mobs.len().min(MAX_SYNCED_MOBS);
+    writer.write_u16(count as u16);
+    for mob in mobs.iter().take(count) {
+        writer.write_u32(mob.id);
+        writer.write_u8(mob.kind);
+        writer.write_f32(mob.x);
+        writer.write_f32(mob.y);
+        writer.write_f32(mob.z);
+        writer.write_f32(mob.yaw);
+        writer.write_f32(mob.health);
+        writer.write_bool(mob.is_dead);
+        writer.write_f32(mob.walk_phase);
+        writer.write_bool(mob.is_baby);
+        writer.write_u8(mob.wool_color);
+        writer.write_bool(mob.is_sheared);
+        writer.write_bool(mob.is_puffed);
+        writer.write_f32(mob.fuse);
+        writer.write_bool(mob.is_ignited);
+    }
+}
+
+fn read_mob_snapshot(reader: &mut PacketReader<'_>) -> Result<Vec<MobSyncEntry>, &'static str> {
+    let count = reader.read_u16()? as usize;
+    if count > MAX_SYNCED_MOBS {
+        return Err("Mob snapshot exceeds maximum entity count");
+    }
+    let mut mobs = Vec::with_capacity(count);
+    for _ in 0..count {
+        mobs.push(MobSyncEntry {
+            id: reader.read_u32()?,
+            kind: reader.read_u8()?,
+            x: reader.read_f32()?,
+            y: reader.read_f32()?,
+            z: reader.read_f32()?,
+            yaw: reader.read_f32()?,
+            health: reader.read_f32()?,
+            is_dead: reader.read_bool()?,
+            walk_phase: reader.read_f32()?,
+            is_baby: reader.read_bool()?,
+            wool_color: reader.read_u8()?,
+            is_sheared: reader.read_bool()?,
+            is_puffed: reader.read_bool()?,
+            fuse: reader.read_f32()?,
+            is_ignited: reader.read_bool()?,
+        });
+    }
+    Ok(mobs)
 }
 
 /// Helper to decode complete frames from a raw incoming byte stream buffer.
@@ -640,7 +742,7 @@ mod tests {
     #[test]
     fn test_client_packets_roundtrip() {
         let handshake = ClientPacket::Handshake {
-            protocol_version: 1,
+            protocol_version: PROTOCOL_VERSION,
             nickname: "TestMiner123".to_string(),
         };
         let mut framed = handshake.serialize();
@@ -669,6 +771,29 @@ mod tests {
         let mut framed_atk = attack.serialize();
         let packets_atk = extract_packets(&mut framed_atk);
         assert_eq!(ClientPacket::deserialize(&packets_atk[0]).unwrap(), attack);
+
+        let mob_snapshot = ClientPacket::MobSnapshot {
+            mobs: vec![MobSyncEntry {
+                id: 8,
+                kind: 2,
+                x: 1.0,
+                y: 64.0,
+                z: -3.0,
+                yaw: 0.5,
+                health: 4.0,
+                is_dead: false,
+                walk_phase: 1.25,
+                is_baby: false,
+                wool_color: 0,
+                is_sheared: false,
+                is_puffed: false,
+                fuse: 0.0,
+                is_ignited: false,
+            }],
+        };
+        let mut framed_mobs = mob_snapshot.serialize();
+        let packets_mobs = extract_packets(&mut framed_mobs);
+        assert_eq!(ClientPacket::deserialize(&packets_mobs[0]).unwrap(), mob_snapshot);
     }
 
     #[test]
@@ -716,5 +841,33 @@ mod tests {
         let mut framed_mod_sync = mod_sync.serialize();
         let packets_mod_sync = extract_packets(&mut framed_mod_sync);
         assert_eq!(ServerPacket::deserialize(&packets_mod_sync[0]).unwrap(), mod_sync);
+
+        let authority = ServerPacket::MobAuthority { id: 3 };
+        let mut framed_authority = authority.serialize();
+        let packets_authority = extract_packets(&mut framed_authority);
+        assert_eq!(ServerPacket::deserialize(&packets_authority[0]).unwrap(), authority);
+
+        let mob_snapshot = ServerPacket::MobSnapshot {
+            mobs: vec![MobSyncEntry {
+                id: 8,
+                kind: 2,
+                x: 1.0,
+                y: 64.0,
+                z: -3.0,
+                yaw: 0.5,
+                health: 4.0,
+                is_dead: false,
+                walk_phase: 1.25,
+                is_baby: false,
+                wool_color: 0,
+                is_sheared: false,
+                is_puffed: false,
+                fuse: 0.0,
+                is_ignited: false,
+            }],
+        };
+        let mut framed_mobs = mob_snapshot.serialize();
+        let packets_mobs = extract_packets(&mut framed_mobs);
+        assert_eq!(ServerPacket::deserialize(&packets_mobs[0]).unwrap(), mob_snapshot);
     }
 }

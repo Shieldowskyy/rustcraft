@@ -30,6 +30,7 @@ struct ConnectedClient {
     stream: TcpStream,
     addr: SocketAddr,
     nickname: String,
+    authenticated: bool,
     ping_ms: u32,
     x: f32,
     y: f32,
@@ -372,6 +373,8 @@ fn run_server(
         .as_ref()
         .map(|state| state.blocks.iter().map(|&(x, y, z, block)| ((x, y, z), block)).collect())
         .unwrap_or_default();
+    let mut mob_authority_id = None;
+    let mut mob_snapshot = Vec::new();
     let mut time_of_day = embedded_state
         .as_ref()
         .map_or(120.0, |state| state.time_of_day);
@@ -417,6 +420,7 @@ fn run_server(
                     stream,
                     addr,
                     nickname: format!("Player{}", id),
+                    authenticated: false,
                     ping_ms: 0,
                     x: spawn_pos.0,
                     y: spawn_pos.1,
@@ -438,6 +442,7 @@ fn run_server(
         let mut player_pos_updates: Vec<PlayerPosUpdate> = Vec::new();
         let mut in_game_commands: Vec<(u32, String)> = Vec::new();
         let mut pending_attacks: Vec<(u32, String, (f32, f32, f32), u32, f32)> = Vec::new();
+        let mut pending_mob_snapshots = Vec::new();
         let current_client_count = clients.len();
 
         let client_ids: Vec<u32> = clients.keys().copied().collect();
@@ -474,6 +479,10 @@ fn run_server(
                                 }
 
                                 client.nickname = nickname.clone();
+                                client.authenticated = true;
+                                if mob_authority_id.is_none() {
+                                    mob_authority_id = Some(id);
+                                }
                                 println!("[SERVER] Player '{}' (ID {}) logged in from {}", nickname, id, client.addr);
 
                                 // 1. Synchronize active server mods (Source engine style auto-download)
@@ -497,6 +506,12 @@ fn run_server(
                                     modified_blocks: block_list,
                                 };
                                 let _ = client.send_packet(&login_success);
+                                if let Some(authority_id) = mob_authority_id {
+                                    let _ = client.send_packet(&ServerPacket::MobAuthority { id: authority_id });
+                                }
+                                let _ = client.send_packet(&ServerPacket::MobSnapshot {
+                                    mobs: mob_snapshot.clone(),
+                                });
 
                                 // Send MOTD
                                 if !config.motd.is_empty() {
@@ -573,6 +588,9 @@ fn run_server(
                                     pending_attacks.push((id, attacker_name, attacker_pos, target_id, damage));
                                 }
                             }
+                            Ok(ClientPacket::MobSnapshot { mobs }) => {
+                                pending_mob_snapshots.push((id, mobs));
+                            }
                             Err(err) => {
                                 eprintln!("[SERVER] Corrupted packet from ID {}: {}", id, err);
                             }
@@ -585,6 +603,13 @@ fn run_server(
                 Err(e) => {
                     disconnected_clients.push((id, format!("I/O Error: {}", e)));
                 }
+            }
+        }
+
+        for (sender_id, snapshot) in pending_mob_snapshots {
+            if mob_authority_id == Some(sender_id) {
+                mob_snapshot = snapshot.clone();
+                broadcast_packets.push(ServerPacket::MobSnapshot { mobs: snapshot });
             }
         }
 
@@ -632,6 +657,9 @@ fn run_server(
         // 3. Handle disconnected clients
         for (id, reason) in disconnected_clients {
             if let Some(client) = clients.remove(&id) {
+                if mob_authority_id == Some(id) {
+                    mob_authority_id = None;
+                }
                 println!("[SERVER] Player '{}' (ID {}) disconnected: {}", client.nickname, id, reason);
                 broadcast_packets.push(ServerPacket::PlayerLeft {
                     id,
@@ -643,6 +671,17 @@ fn run_server(
                     text: format!("{} left the game", client.nickname),
                     is_system: true,
                 });
+            }
+        }
+
+        if mob_authority_id.is_none() {
+            mob_authority_id = clients
+                .values()
+                .filter(|client| client.authenticated)
+                .map(|client| client.id)
+                .min();
+            if let Some(id) = mob_authority_id {
+                broadcast_packets.push(ServerPacket::MobAuthority { id });
             }
         }
 

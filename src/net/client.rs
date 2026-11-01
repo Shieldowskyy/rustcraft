@@ -65,18 +65,23 @@ pub enum NetworkEvent {
         knockback_x: f32,
         knockback_z: f32,
     },
+    MobSnapshot {
+        mobs: Vec<MobSyncEntry>,
+    },
 }
 
 pub struct NetworkClient {
     stream: TcpStream,
     rx_buffer: Vec<u8>,
     pub local_id: Option<u32>,
+    pub mob_authority_id: Option<u32>,
     pub remote_players: HashMap<u32, RemotePlayer>,
     pub player_list: Vec<PlayerInfo>,
     pub is_connected: bool,
     pub disconnect_reason: Option<String>,
     pub last_move_sent: Instant,
     pub ping_ms: u32,
+    last_mob_snapshot_sent: Instant,
 }
 
 impl NetworkClient {
@@ -104,12 +109,14 @@ impl NetworkClient {
             stream,
             rx_buffer: Vec::with_capacity(2048),
             local_id: None,
+            mob_authority_id: None,
             remote_players: HashMap::new(),
             player_list: Vec::new(),
             is_connected: false,
             disconnect_reason: None,
             last_move_sent: Instant::now(),
             ping_ms: 0,
+            last_mob_snapshot_sent: Instant::now(),
         };
 
         // Send initial handshake
@@ -176,6 +183,24 @@ impl NetworkClient {
         }
         let packet = ClientPacket::AttackPlayer { target_id, damage };
         let _ = self.send_packet(&packet);
+    }
+
+    pub fn send_mob_snapshot(&mut self, mob_manager: &crate::gameplay::mob::MobManager) {
+        if !self.is_connected
+            || self.local_id != self.mob_authority_id
+            || self.last_mob_snapshot_sent.elapsed() < std::time::Duration::from_millis(100)
+        {
+            return;
+        }
+        let packet = ClientPacket::MobSnapshot {
+            mobs: mob_manager.network_snapshot(),
+        };
+        match self.send_packet(&packet) {
+            Ok(()) => self.last_mob_snapshot_sent = Instant::now(),
+            Err(error) => {
+                crate::log_warn!("NETWORK", "Failed to send mob snapshot: {}", error);
+            }
+        }
     }
 
     pub fn update(&mut self, dt: f32) -> Vec<NetworkEvent> {
@@ -334,6 +359,12 @@ impl NetworkClient {
                         rp.hurt_timer = 0.4;
                     }
                     events.push(NetworkEvent::PlayerHurt { victim_id, attacker_id, damage, knockback_x, knockback_z });
+                }
+                Ok(ServerPacket::MobAuthority { id }) => {
+                    self.mob_authority_id = Some(id);
+                }
+                Ok(ServerPacket::MobSnapshot { mobs }) => {
+                    events.push(NetworkEvent::MobSnapshot { mobs });
                 }
                 Ok(ServerPacket::ModSync { mods }) => {
                     events.push(NetworkEvent::ModsSynchronized { mods });

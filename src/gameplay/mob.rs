@@ -1098,6 +1098,64 @@ impl MobManager {
         id
     }
 
+    pub fn network_snapshot(&self) -> Vec<crate::net::protocol::MobSyncEntry> {
+        self.mobs
+            .iter()
+            .map(|mob| crate::net::protocol::MobSyncEntry {
+                id: mob.id,
+                kind: mob.kind as u8,
+                x: mob.pos.x,
+                y: mob.pos.y,
+                z: mob.pos.z,
+                yaw: mob.yaw,
+                health: mob.health,
+                is_dead: mob.is_dead,
+                walk_phase: mob.walk_phase,
+                is_baby: mob.is_baby,
+                wool_color: mob.wool_color,
+                is_sheared: mob.is_sheared,
+                is_puffed: mob.is_puffed,
+                fuse: mob.fuse,
+                is_ignited: mob.is_ignited,
+            })
+            .take(512)
+            .collect()
+    }
+
+    pub fn apply_network_snapshot(
+        &mut self,
+        snapshot: &[crate::net::protocol::MobSyncEntry],
+    ) -> Result<(), String> {
+        let mut mobs = Vec::with_capacity(snapshot.len());
+        for entry in snapshot {
+            let kind = MobKind::ALL
+                .get(entry.kind as usize)
+                .copied()
+                .ok_or_else(|| format!("Unknown mob kind {} in server snapshot", entry.kind))?;
+            let mut mob = Mob::new(entry.id, kind, Vec3::new(entry.x, entry.y, entry.z));
+            mob.yaw = entry.yaw;
+            mob.health = entry.health;
+            mob.is_dead = entry.is_dead;
+            mob.walk_phase = entry.walk_phase;
+            mob.is_baby = entry.is_baby;
+            mob.wool_color = entry.wool_color;
+            mob.is_sheared = entry.is_sheared;
+            mob.is_puffed = entry.is_puffed;
+            mob.fuse = entry.fuse;
+            mob.is_ignited = entry.is_ignited;
+            mobs.push(mob);
+        }
+        self.next_mob_id = mobs
+            .iter()
+            .map(|mob| mob.id)
+            .max()
+            .unwrap_or(0)
+            .wrapping_add(1)
+            .max(1);
+        self.mobs = mobs;
+        Ok(())
+    }
+
     pub fn update(&mut self, dt: f32, world: &World, player_pos: Vec3, player_held: Option<BlockId>, is_creative: bool) {
         let mut rng = self.rng_state;
         self.breeding_hearts.clear();
@@ -1802,6 +1860,42 @@ fn ray_aabb_intersect(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f
 mod tests {
     use super::*;
     use crate::audio::SoundId;
+
+    #[test]
+    fn test_network_snapshot_replaces_mobs_and_preserves_state() {
+        let mut manager = MobManager::new();
+        manager.spawn_mob(MobKind::Pig, Vec3::zero());
+        let snapshot = vec![crate::net::protocol::MobSyncEntry {
+            id: 17,
+            kind: MobKind::Sheep as u8,
+            x: 4.0,
+            y: 65.0,
+            z: -2.0,
+            yaw: 1.25,
+            health: 3.0,
+            is_dead: false,
+            walk_phase: 2.5,
+            is_baby: true,
+            wool_color: 6,
+            is_sheared: true,
+            is_puffed: false,
+            fuse: 0.0,
+            is_ignited: false,
+        }];
+
+        manager.apply_network_snapshot(&snapshot).unwrap();
+
+        assert_eq!(manager.mobs.len(), 1);
+        assert_eq!(manager.mobs[0].id, 17);
+        assert_eq!(manager.mobs[0].kind, MobKind::Sheep);
+        assert_eq!(manager.mobs[0].pos, Vec3::new(4.0, 65.0, -2.0));
+        assert_eq!(manager.mobs[0].health, 3.0);
+        assert!(manager.mobs[0].is_baby);
+        assert_eq!(manager.mobs[0].wool_color, 6);
+        assert!(manager.mobs[0].is_sheared);
+
+        assert_eq!(manager.spawn_mob(MobKind::Pig, Vec3::zero()), 18);
+    }
 
     #[test]
     fn test_mob_sounds_damage_and_death() {
