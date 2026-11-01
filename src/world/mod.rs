@@ -1093,6 +1093,7 @@ pub struct World {
     pub name: String,
     pub gamemode: GameMode,
     pub chunks: HashMap<(i32, i32), Chunk>,
+    block_overrides: HashMap<(i32, i32), HashMap<IVec3, u8>>,
     pub seed: u32,
     pub player_position: Vec3,
     fluid_levels: HashMap<IVec3, u8>,
@@ -1308,6 +1309,7 @@ impl World {
             name: "New World".to_string(),
             gamemode: GameMode::Survival,
             chunks: HashMap::new(),
+            block_overrides: HashMap::new(),
             seed,
             player_position: spawn_pos,
             fluid_levels: HashMap::new(),
@@ -1471,7 +1473,7 @@ impl World {
     pub fn save(&self, path: &str) -> Result<(), String> {
         crate::log_info!("SAVE", "Serializing world '{}' (seed: {}, mode: {:?}, chunks: {}, chests: {}, furnaces: {}) to '{}'", self.name, self.seed, self.gamemode, self.chunks.len(), self.chests.len(), self.furnaces.len(), path);
         let mut bytes = Vec::with_capacity(32 + self.chunks.len() * 4);
-        bytes.extend_from_slice(b"RUSTCRAFT6");
+        bytes.extend_from_slice(b"RUSTCRAFT7");
         bytes.extend_from_slice(&self.seed.to_le_bytes());
         bytes.push(match self.gamemode { GameMode::Survival => 0, GameMode::Creative => 1 });
 
@@ -1536,6 +1538,17 @@ impl World {
             bytes.push(0);
         }
 
+        let override_count: usize = self.block_overrides.values().map(HashMap::len).sum();
+        bytes.extend_from_slice(&(override_count as u32).to_le_bytes());
+        for overrides in self.block_overrides.values() {
+            for (pos, &block) in overrides {
+                bytes.extend_from_slice(&pos.x.to_le_bytes());
+                bytes.extend_from_slice(&pos.y.to_le_bytes());
+                bytes.extend_from_slice(&pos.z.to_le_bytes());
+                bytes.push(block);
+            }
+        }
+
         std::fs::write(path, bytes).map_err(|e| format!("failed to save world: {e}"))
     }
 
@@ -1547,6 +1560,7 @@ impl World {
         let version = match format {
             b"RUSTCRAFT1" => 1, b"RUSTCRAFT2" => 2, b"RUSTCRAFT3" => 3,
             b"RUSTCRAFT4" => 4, b"RUSTCRAFT5" => 5, b"RUSTCRAFT6" => 6,
+            b"RUSTCRAFT7" => 7,
             _ => return Err("unknown world file format".to_owned()),
         };
 
@@ -1647,6 +1661,49 @@ impl World {
                 }
             }
         }
+
+        if version >= 7 {
+            let override_count = read_u32(&mut cursor)? as usize;
+            let max_count = bytes.len().saturating_sub(cursor) / 13;
+            if override_count > max_count {
+                return Err("invalid block override count in world file".to_owned());
+            }
+            for _ in 0..override_count {
+                let pos = IVec3::new(
+                    read_i32(&mut cursor)?,
+                    read_i32(&mut cursor)?,
+                    read_i32(&mut cursor)?,
+                );
+                let block = read_bytes(&bytes, &mut cursor, 1)?[0];
+                let (cx, cz, _, _) = Self::world_to_chunk(pos.x, pos.z);
+                world
+                    .block_overrides
+                    .entry((cx, cz))
+                    .or_default()
+                    .insert(pos, block);
+            }
+        } else {
+            for (&(cx, cz), chunk) in &world.chunks {
+                let generated = Chunk::generate(cx, cz, world.seed);
+                for y in 0..CHUNK_SIZE_Y {
+                    for z in 0..CHUNK_SIZE_Z {
+                        for x in 0..CHUNK_SIZE_X {
+                            let index = Chunk::index(x, y, z);
+                            if chunk.blocks[index] != generated.blocks[index] {
+                                world
+                                    .block_overrides
+                                    .entry((cx, cz))
+                                    .or_default()
+                                    .insert(
+                                        IVec3::new(cx * CHUNK_SIZE_X + x, y, cz * CHUNK_SIZE_Z + z),
+                                        chunk.blocks[index],
+                                    );
+                            }
+                        }
+                    }
+                }
+            }
+        }
         crate::log_info!("SAVE", "Successfully loaded world '{}' (seed: {}, mode: {:?}, chunks: {}, chests: {}, furnaces: {})", world.name, world.seed, world.gamemode, world.chunks.len(), world.chests.len(), world.furnaces.len());
         Ok(world)
     }
@@ -1740,6 +1797,10 @@ impl World {
         let (cx, cz, lx, lz) = World::world_to_chunk(pos.x, pos.z);
         if let Some(chunk) = self.chunks.get_mut(&(cx, cz)) {
             chunk.set_local(lx, pos.y, lz, block);
+            self.block_overrides
+                .entry((cx, cz))
+                .or_default()
+                .insert(pos, block.to_u8());
 
             if matches!(block, BlockId::Water | BlockId::Lava) { self.set_fluid_level(pos, 8); } else { self.fluid_levels.remove(&pos); }
             if block == BlockId::Sand { self.active_sand.insert(pos); } else { self.active_sand.remove(&pos); }
@@ -1770,11 +1831,29 @@ impl World {
         }
         let (cx, cz, _, _) = Self::world_to_chunk(pos.x, pos.z);
         if !self.chunks.contains_key(&(cx, cz)) {
-            let chunk = Chunk::generate(cx, cz, self.seed);
+            let mut chunk = Chunk::generate(cx, cz, self.seed);
+            self.apply_block_overrides(&mut chunk);
             self.index_chunk_lights(&chunk);
             self.chunks.insert((cx, cz), chunk);
         }
         self.set_block(pos, block);
+    }
+
+    pub fn block_overrides(&self) -> impl Iterator<Item = (IVec3, u8)> + '_ {
+        self.block_overrides
+            .values()
+            .flat_map(|overrides| overrides.iter().map(|(&pos, &block)| (pos, block)))
+    }
+
+    fn apply_block_overrides(&self, chunk: &mut Chunk) {
+        if let Some(overrides) = self.block_overrides.get(&(chunk.cx, chunk.cz)) {
+            for (&pos, &block) in overrides {
+                let (_, _, lx, lz) = Self::world_to_chunk(pos.x, pos.z);
+                if (pos.y as u32) < CHUNK_SIZE_Y as u32 {
+                    chunk.set_local(lx, pos.y, lz, BlockId::from_u8(block));
+                }
+            }
+        }
     }
 
     pub fn prime_tnt(&mut self, pos: IVec3) {
@@ -2112,6 +2191,8 @@ impl World {
                 let (cx, cz) = (chunk.cx, chunk.cz);
                 self.pending_chunks.remove(&(cx, cz));
                 if (cx - pcx) * (cx - pcx) + (cz - pcz) * (cz - pcz) <= unload_dist_sq {
+                    let mut chunk = chunk;
+                    self.apply_block_overrides(&mut chunk);
                     self.index_chunk_lights(&chunk);
                     self.chunks.insert((cx, cz), chunk);
                     crate::log_debug!("CHUNK", "Integrated chunk ({}, {}) into active world (loaded: {})", cx, cz, self.chunks.len());
@@ -2151,7 +2232,8 @@ impl World {
 
             #[cfg(any(target_arch = "wasm32", feature = "xbox360"))]
             for (cx, cz) in missing_chunks.into_iter().take(1) {
-                let chunk = Chunk::generate(cx, cz, self.seed);
+                let mut chunk = Chunk::generate(cx, cz, self.seed);
+                self.apply_block_overrides(&mut chunk);
                 self.index_chunk_lights(&chunk);
                 self.chunks.insert((cx, cz), chunk);
                 self.mark_neighbors_dirty(cx, cz);
@@ -2687,6 +2769,33 @@ mod tests {
         assert_eq!(lp.armor[1].unwrap().block, BlockId::IronChestplate);
         assert_eq!(lp.offhand.unwrap().block, BlockId::Shield);
         let _ = std::fs::remove_file(path_str);
+    }
+
+    #[test]
+    fn test_block_changes_survive_chunk_unload_and_world_reload() {
+        let path = std::env::temp_dir().join(format!(
+            "rustcraft_test_block_overrides_{}.bin",
+            std::process::id()
+        ));
+        let path_str = path.to_string_lossy().to_string();
+        let mut world = World::new_with_seed(54321);
+        world.chunks.insert((0, 0), Chunk::generate(0, 0, world.seed));
+
+        let first = IVec3::new(2, 63, 3);
+        let second = IVec3::new(4, 63, 5);
+        world.set_block(first, BlockId::Stone);
+        world.chunks.remove(&(0, 0));
+        world.set_network_block(second, BlockId::Dirt);
+        assert_eq!(world.get_block(first), BlockId::Stone);
+
+        world.save(&path_str).expect("Should save world block overrides");
+        let mut loaded = World::load(&path_str).expect("Should load world block overrides");
+        loaded.chunks.remove(&(0, 0));
+        loaded.set_network_block(IVec3::new(6, 63, 7), BlockId::Planks);
+
+        assert_eq!(loaded.get_block(first), BlockId::Stone);
+        assert_eq!(loaded.get_block(second), BlockId::Dirt);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

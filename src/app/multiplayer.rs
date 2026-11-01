@@ -2,7 +2,7 @@ use crate::core::math::{IVec3, Vec3};
 use crate::gameplay::physics::ray_aabb_intersect;
 use crate::gameplay::player::GameMode;
 use crate::world::block::BlockId;
-use crate::world::{Chunk, World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
+use crate::world::World;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use super::{AppOutput, GameState, InputState, RustCraftApp};
 
@@ -597,20 +597,8 @@ fn configured_relay_address() -> Result<String, String> {
 }
 
 fn snapshot_world_changes(world: &World) -> Vec<(i32, i32, i32, u8)> {
-    let mut changes = Vec::new();
-    for (&(cx, cz), chunk) in &world.chunks {
-        let generated = Chunk::generate(cx, cz, world.seed);
-        for y in 0..CHUNK_SIZE_Y {
-            for z in 0..CHUNK_SIZE_Z {
-                for x in 0..CHUNK_SIZE_X {
-                    let index = Chunk::index(x, y, z);
-                    let block = chunk.blocks[index];
-                    if block != generated.blocks[index] {
-                        changes.push((cx * CHUNK_SIZE_X + x, y, cz * CHUNK_SIZE_Z + z, block));
-                    }
-                }
-            }
-        }
-    }
-    changes
+    world
+        .block_overrides()
+        .map(|(pos, block)| (pos.x, pos.y, pos.z, block))
+        .collect()
 }
