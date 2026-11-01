@@ -1,6 +1,6 @@
 //! Dedicated RustCraft multiplayer server with terminal console command management.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,6 +28,9 @@ macro_rules! eprintln {
 struct ConnectedClient {
     id: u32,
     stream: TcpStream,
+    tx_buffer: Vec<u8>,
+    tx_offset: usize,
+    output_failed: bool,
     addr: SocketAddr,
     nickname: String,
     authenticated: bool,
@@ -49,7 +52,37 @@ struct ConnectedClient {
 impl ConnectedClient {
     fn send_packet(&mut self, packet: &ServerPacket) -> bool {
         let bytes = packet.serialize();
-        self.stream.write_all(&bytes).is_ok()
+        let pending_bytes = self.tx_buffer.len().saturating_sub(self.tx_offset);
+        if bytes.len().saturating_sub(4) > MAX_PACKET_SIZE
+            || pending_bytes.saturating_add(bytes.len()) > MAX_QUEUED_BYTES
+        {
+            self.output_failed = true;
+            return false;
+        }
+        if self.tx_offset >= 64 * 1024 && self.tx_offset * 2 >= self.tx_buffer.len() {
+            self.tx_buffer.drain(..self.tx_offset);
+            self.tx_offset = 0;
+        }
+        self.tx_buffer.extend_from_slice(&bytes);
+        true
+    }
+
+    fn flush_outgoing(&mut self) -> bool {
+        if self.output_failed {
+            return false;
+        }
+        while self.tx_offset < self.tx_buffer.len() {
+            match self.stream.write(&self.tx_buffer[self.tx_offset..]) {
+                Ok(0) => return false,
+                Ok(written) => self.tx_offset += written,
+                Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock => return true,
+                Err(ref error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => return false,
+            }
+        }
+        self.tx_buffer.clear();
+        self.tx_offset = 0;
+        true
     }
 }
 
@@ -209,7 +242,9 @@ pub fn bind_server_listener(preferred_port: u16) -> Result<(TcpListener, u16), S
     while port <= max_port {
         match TcpListener::bind(("0.0.0.0", port)) {
             Ok(listener) => {
-                let _ = listener.set_nonblocking(true);
+                listener
+                    .set_nonblocking(true)
+                    .map_err(|error| format!("Could not configure server listener: {error}"))?;
                 let bound_port = listener
                     .local_addr()
                     .map_err(|e| format!("Could not determine bound server port: {e}"))?
@@ -233,6 +268,7 @@ pub struct EmbeddedServerState {
     pub time_of_day: f32,
     pub spawn_pos: (f32, f32, f32),
     pub blocks: Vec<(i32, i32, i32, u8)>,
+    pub mobs: Vec<MobSyncEntry>,
 }
 
 fn player_data_path(data_dir: &std::path::Path, nickname: &str) -> std::path::PathBuf {
@@ -242,6 +278,15 @@ fn player_data_path(data_dir: &std::path::Path, nickname: &str) -> std::path::Pa
         .map(|byte| format!("{byte:02x}"))
         .collect();
     data_dir.join(format!("{key}.dat"))
+}
+
+fn is_valid_nickname(nickname: &str) -> bool {
+    let nickname = nickname.trim();
+    !nickname.is_empty()
+        && nickname.len() <= 24
+        && nickname
+            .chars()
+            .all(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
 }
 
 fn load_player_data(
@@ -254,7 +299,8 @@ fn load_player_data(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(format!("{}: {error}", path.display())),
     };
-    let packets = extract_packets(&mut bytes);
+    let packets = extract_packets(&mut bytes)
+        .map_err(|error| format!("Invalid player data frame: {error}"))?;
     if !bytes.is_empty() || packets.len() != 1 {
         return Err(format!("Invalid player data file '{}'", path.display()));
     }
@@ -304,6 +350,7 @@ fn kick_client(
     let _ = client.send_packet(&ServerPacket::LoginDisconnect {
         reason: reason.to_string(),
     });
+    let _ = client.flush_outgoing();
     persist_client_player_data(&mut client);
     let nickname = client.nickname.clone();
     println!("[SERVER] Kicked '{}' (ID {}): {}", nickname, id, reason);
@@ -465,7 +512,10 @@ fn run_server(
         .unwrap_or_default();
     let mut mob_authority_id = None;
     let mut embedded_host_id = None;
-    let mut mob_snapshot = Vec::new();
+    let mut mob_snapshot = embedded_state
+        .as_ref()
+        .map(|state| state.mobs.clone())
+        .unwrap_or_default();
     let mut time_of_day = embedded_state
         .as_ref()
         .map_or(120.0, |state| state.time_of_day);
@@ -500,7 +550,10 @@ fn run_server(
 
         // 1. Accept new incoming client TCP connections
         while let Ok((stream, addr)) = listener.accept() {
-            let _ = stream.set_nonblocking(true);
+            if let Err(error) = stream.set_nonblocking(true) {
+                crate::log_warn!("SERVER", "Could not configure client socket {addr}: {error}");
+                continue;
+            }
             let id = next_client_id;
             next_client_id += 1;
             println!("[SERVER] Incoming connection from {} (Assigned Player ID: {})", addr, id);
@@ -509,6 +562,9 @@ fn run_server(
                 ConnectedClient {
                     id,
                     stream,
+                    tx_buffer: Vec::new(),
+                    tx_offset: 0,
+                    output_failed: false,
                     addr,
                     nickname: format!("Player{}", id),
                     authenticated: false,
@@ -536,11 +592,47 @@ fn run_server(
         let mut in_game_commands: Vec<(u32, String)> = Vec::new();
         let mut pending_attacks: Vec<(u32, String, (f32, f32, f32), u32, f32)> = Vec::new();
         let mut pending_mob_snapshots = Vec::new();
-        let current_client_count = clients.len();
+        let mut pending_mob_broadcasts = Vec::new();
+        let mut authenticated_client_count = clients
+            .values()
+            .filter(|client| client.authenticated)
+            .count();
+        let mut authenticated_nicknames: HashSet<String> = clients
+            .values()
+            .filter(|client| client.authenticated)
+            .map(|client| client.nickname.to_lowercase())
+            .collect();
 
         let client_ids: Vec<u32> = clients.keys().copied().collect();
         for id in client_ids {
+            let existing_players: Vec<PlayerInfo> = clients
+                .values()
+                .filter(|client| client.authenticated)
+                .map(|client| PlayerInfo {
+                    id: client.id,
+                    nickname: client.nickname.clone(),
+                    ping_ms: client.ping_ms,
+                })
+                .collect();
+            let existing_positions: Vec<PlayerPosUpdate> = clients
+                .values()
+                .filter(|client| client.authenticated)
+                .map(|client| PlayerPosUpdate {
+                    id: client.id,
+                    x: client.x,
+                    y: client.y,
+                    z: client.z,
+                    yaw: client.yaw,
+                    pitch: client.pitch,
+                    is_sneaking: client.is_sneaking,
+                    is_sprinting: client.is_sprinting,
+                })
+                .collect();
             let client = clients.get_mut(&id).unwrap();
+            if !client.flush_outgoing() {
+                disconnected_clients.push((id, "Network write failed".to_string()));
+                continue;
+            }
             let mut buf = [0u8; 4096];
             match client.stream.read(&mut buf) {
                 Ok(0) => {
@@ -548,7 +640,13 @@ fn run_server(
                 }
                 Ok(n) => {
                     client.rx_buffer.extend_from_slice(&buf[..n]);
-                    let raw_packets = extract_packets(&mut client.rx_buffer);
+                    let raw_packets = match extract_packets(&mut client.rx_buffer) {
+                        Ok(packets) => packets,
+                        Err(error) => {
+                            disconnected_clients.push((id, format!("Invalid packet frame: {error}")));
+                            continue;
+                        }
+                    };
                     for raw in raw_packets {
                         match ClientPacket::deserialize(&raw) {
                             Ok(ClientPacket::Handshake { protocol_version, nickname }) => {
@@ -563,7 +661,29 @@ fn run_server(
                                     break;
                                 }
 
-                                if current_client_count > config.max_players {
+                                if client.authenticated {
+                                    let _ = client.send_packet(&ServerPacket::LoginDisconnect {
+                                        reason: "Handshake already completed".to_string(),
+                                    });
+                                    disconnected_clients.push((id, "Repeated handshake".to_string()));
+                                    break;
+                                }
+                                if !is_valid_nickname(&nickname) {
+                                    let _ = client.send_packet(&ServerPacket::LoginDisconnect {
+                                        reason: "Nickname must contain 1-24 letters, numbers, '_' or '-'".to_string(),
+                                    });
+                                    disconnected_clients.push((id, "Invalid nickname".to_string()));
+                                    break;
+                                }
+                                let nickname = nickname.trim().to_string();
+                                if authenticated_nicknames.contains(&nickname.to_lowercase()) {
+                                    let _ = client.send_packet(&ServerPacket::LoginDisconnect {
+                                        reason: "That nickname is already in use".to_string(),
+                                    });
+                                    disconnected_clients.push((id, "Nickname already in use".to_string()));
+                                    break;
+                                }
+                                if authenticated_client_count >= config.max_players {
                                     let _ = client.send_packet(&ServerPacket::LoginDisconnect {
                                         reason: format!("Server is full! (max players: {})", config.max_players),
                                     });
@@ -573,21 +693,27 @@ fn run_server(
 
                                 client.nickname = nickname.clone();
                                 client.authenticated = true;
+                                authenticated_client_count += 1;
+                                authenticated_nicknames.insert(nickname.to_lowercase());
                                 if embedded && embedded_host_id.is_none() {
                                     embedded_host_id = Some(id);
                                 }
-                                match load_player_data(std::path::Path::new("playerdata"), &nickname) {
-                                    Ok(data) => {
-                                        if let Some(data) = &data {
-                                            client.x = data.x;
-                                            client.y = data.y;
-                                            client.z = data.z;
+                                if embedded && embedded_host_id == Some(id) {
+                                    client.player_data = None;
+                                } else {
+                                    match load_player_data(std::path::Path::new("playerdata"), &nickname) {
+                                        Ok(data) => {
+                                            if let Some(data) = &data {
+                                                client.x = data.x;
+                                                client.y = data.y;
+                                                client.z = data.z;
+                                            }
+                                            client.player_data = data;
                                         }
-                                        client.player_data = data;
-                                    }
-                                    Err(error) => {
-                                        crate::log_warn!("SERVER", "Could not load player data for '{}': {}", nickname, error);
-                                        client.player_data = None;
+                                        Err(error) => {
+                                            crate::log_warn!("SERVER", "Could not load player data for '{}': {}", nickname, error);
+                                            client.player_data = None;
+                                        }
                                     }
                                 }
                                 if mob_authority_id.is_none() {
@@ -616,12 +742,35 @@ fn run_server(
                                     modified_blocks: block_list,
                                 };
                                 let _ = client.send_packet(&login_success);
+                                let mut players = existing_players.clone();
+                                players.push(PlayerInfo {
+                                    id,
+                                    nickname: nickname.clone(),
+                                    ping_ms: client.ping_ms,
+                                });
+                                let _ = client.send_packet(&ServerPacket::PlayerList { players });
+                                let mut positions = existing_positions.clone();
+                                positions.push(PlayerPosUpdate {
+                                    id,
+                                    x: client.x,
+                                    y: client.y,
+                                    z: client.z,
+                                    yaw: client.yaw,
+                                    pitch: client.pitch,
+                                    is_sneaking: client.is_sneaking,
+                                    is_sprinting: client.is_sprinting,
+                                });
+                                let _ = client.send_packet(&ServerPacket::PlayerPositions {
+                                    updates: positions,
+                                });
                                 if let Some(authority_id) = mob_authority_id {
                                     let _ = client.send_packet(&ServerPacket::MobAuthority { id: authority_id });
                                 }
-                                let _ = client.send_packet(&ServerPacket::MobSnapshot {
-                                    mobs: mob_snapshot.clone(),
-                                });
+                                if mob_authority_id != Some(id) {
+                                    let _ = client.send_packet(&ServerPacket::MobSnapshot {
+                                        mobs: mob_snapshot.clone(),
+                                    });
+                                }
                                 let _ = client.send_packet(&ServerPacket::PlayerData {
                                     data: client.player_data.clone(),
                                 });
@@ -647,6 +796,12 @@ fn run_server(
                                 });
                             }
                             Ok(ClientPacket::PlayerMove { x, y, z, yaw, pitch, is_sneaking, is_sprinting }) => {
+                                if !client.authenticated
+                                    || ![x, y, z, yaw, pitch].iter().all(|value| value.is_finite())
+                                {
+                                    disconnected_clients.push((id, "Invalid player movement".to_string()));
+                                    break;
+                                }
                                 client.x = x;
                                 client.y = y;
                                 client.z = z;
@@ -671,6 +826,10 @@ fn run_server(
                                 });
                             }
                             Ok(ClientPacket::BlockChange { x, y, z, block }) => {
+                                if !client.authenticated || !(0..crate::world::CHUNK_SIZE_Y).contains(&y) {
+                                    disconnected_clients.push((id, "Invalid block change".to_string()));
+                                    break;
+                                }
                                 modified_blocks.insert((x, y, z), block);
                                 println!(
                                     "[SERVER] Block change from '{}' at ({}, {}, {}) -> BlockId {}",
@@ -679,6 +838,10 @@ fn run_server(
                                 broadcast_packets.push(ServerPacket::BlockChange { x, y, z, block });
                             }
                             Ok(ClientPacket::ChatMessage { text }) => {
+                                if !client.authenticated {
+                                    disconnected_clients.push((id, "Login required".to_string()));
+                                    break;
+                                }
                                 if text.starts_with('/') {
                                     in_game_commands.push((id, text));
                                 } else {
@@ -709,7 +872,10 @@ fn run_server(
                                 break;
                             }
                             Ok(ClientPacket::AttackPlayer { target_id, damage }) => {
-                                if !config.pvp {
+                                if !client.authenticated {
+                                    disconnected_clients.push((id, "Login required".to_string()));
+                                    break;
+                                } else if !config.pvp {
                                     println!("[SERVER] Attack from '{}' on player ID {} ignored (pvp=false)", client.nickname, target_id);
                                 } else {
                                     let attacker_pos = (client.x, client.y, client.z);
@@ -718,7 +884,12 @@ fn run_server(
                                 }
                             }
                             Ok(ClientPacket::MobSnapshot { mobs }) => {
-                                pending_mob_snapshots.push((id, mobs));
+                                if client.authenticated {
+                                    pending_mob_snapshots.push((id, mobs));
+                                } else {
+                                    disconnected_clients.push((id, "Login required".to_string()));
+                                    break;
+                                }
                             }
                             Ok(ClientPacket::PlayerDeath) => {
                                 if client.authenticated {
@@ -730,6 +901,12 @@ fn run_server(
                                 }
                             }
                             Ok(ClientPacket::PlayerData { data }) => {
+                                if !client.authenticated
+                                    || ![data.x, data.y, data.z].iter().all(|value| value.is_finite())
+                                {
+                                    disconnected_clients.push((id, "Invalid player data".to_string()));
+                                    break;
+                                }
                                 client.x = data.x;
                                 client.y = data.y;
                                 client.z = data.z;
@@ -742,6 +919,8 @@ fn run_server(
                             }
                             Err(err) => {
                                 eprintln!("[SERVER] Corrupted packet from ID {}: {}", id, err);
+                                disconnected_clients.push((id, format!("Invalid packet: {err}")));
+                                break;
                             }
                         }
                     }
@@ -758,7 +937,10 @@ fn run_server(
         for (sender_id, snapshot) in pending_mob_snapshots {
             if mob_authority_id == Some(sender_id) {
                 mob_snapshot = snapshot.clone();
-                broadcast_packets.push(ServerPacket::MobSnapshot { mobs: snapshot });
+                pending_mob_broadcasts.push((
+                    sender_id,
+                    ServerPacket::MobSnapshot { mobs: snapshot },
+                ));
             }
         }
 
@@ -807,21 +989,27 @@ fn run_server(
         // 3. Handle disconnected clients
         for (id, reason) in disconnected_clients {
             if let Some(mut client) = clients.remove(&id) {
-                persist_client_player_data(&mut client);
+                let _ = client.flush_outgoing();
+                let was_authenticated = client.authenticated;
+                if was_authenticated {
+                    persist_client_player_data(&mut client);
+                }
                 if mob_authority_id == Some(id) {
                     mob_authority_id = None;
                 }
                 println!("[SERVER] Player '{}' (ID {}) disconnected: {}", client.nickname, id, reason);
-                broadcast_packets.push(ServerPacket::PlayerLeft {
-                    id,
-                    nickname: client.nickname.clone(),
-                    reason,
-                });
-                broadcast_packets.push(ServerPacket::ChatMessage {
-                    sender: "Server".to_string(),
-                    text: format!("{} left the game", client.nickname),
-                    is_system: true,
-                });
+                if was_authenticated {
+                    broadcast_packets.push(ServerPacket::PlayerLeft {
+                        id,
+                        nickname: client.nickname.clone(),
+                        reason,
+                    });
+                    broadcast_packets.push(ServerPacket::ChatMessage {
+                        sender: "Server".to_string(),
+                        text: format!("{} left the game", client.nickname),
+                        is_system: true,
+                    });
+                }
             }
         }
 
@@ -841,6 +1029,13 @@ fn run_server(
             for packet in &broadcast_packets {
                 for client in clients.values_mut() {
                     let _ = client.send_packet(packet);
+                }
+            }
+        }
+        for (sender_id, packet) in pending_mob_broadcasts {
+            for client in clients.values_mut() {
+                if client.id != sender_id {
+                    let _ = client.send_packet(&packet);
                 }
             }
         }
@@ -883,6 +1078,7 @@ fn run_server(
 
             let player_list: Vec<PlayerInfo> = clients
                 .values()
+                .filter(|client| client.authenticated)
                 .map(|c| PlayerInfo {
                     id: c.id,
                     nickname: c.nickname.clone(),
@@ -893,7 +1089,7 @@ fn run_server(
                 players: player_list,
             };
 
-            for client in clients.values_mut() {
+            for client in clients.values_mut().filter(|client| client.authenticated) {
                 let _ = client.send_packet(&time_sync);
                 let _ = client.send_packet(&list_packet);
             }
@@ -914,7 +1110,12 @@ fn run_server(
         }
 
         // 8. LAN local network discovery updates and client probe pings
-        lan_discovery.update(clients.len() as u32);
+        lan_discovery.update(
+            clients
+                .values()
+                .filter(|client| client.authenticated)
+                .count() as u32,
+        );
 
         // TPS Tracking
         ticks_in_second += 1;
@@ -936,6 +1137,7 @@ fn run_server(
         let _ = client.send_packet(&ServerPacket::LoginDisconnect {
             reason: "Server shut down by host console".to_string(),
         });
+        let _ = client.flush_outgoing();
     }
     println!("[SERVER] Goodbye!");
     if !embedded {
@@ -1446,6 +1648,7 @@ mod tests {
                 time_of_day: 120.0,
                 spawn_pos: (8.5, 65.0, 8.5),
                 blocks: Vec::new(),
+                mobs: Vec::new(),
             },
         )
         .unwrap();
@@ -1468,6 +1671,23 @@ mod tests {
 
     #[test]
     fn embedded_server_uses_world_snapshot_and_stops_cleanly() {
+        let initial_mob = MobSyncEntry {
+            id: 7,
+            kind: crate::gameplay::mob::MobKind::Zombie as u8,
+            x: 4.0,
+            y: 65.0,
+            z: -2.0,
+            yaw: 0.5,
+            health: 20.0,
+            is_dead: false,
+            walk_phase: 1.0,
+            is_baby: false,
+            wool_color: 0,
+            is_sheared: false,
+            is_puffed: false,
+            fuse: 0.0,
+            is_ignited: false,
+        };
         let server = EmbeddedServer::start(
             0,
             EmbeddedServerState {
@@ -1475,6 +1695,7 @@ mod tests {
                 time_of_day: 42.0,
                 spawn_pos: (3.5, 65.0, -2.5),
                 blocks: vec![(3, 10, -2, crate::world::BlockId::Stone.to_u8())],
+                mobs: vec![initial_mob.clone()],
             },
         )
         .unwrap();
@@ -1485,16 +1706,20 @@ mod tests {
         .unwrap();
         let deadline = Instant::now() + Duration::from_secs(3);
         let mut connected = None;
+        let mut host_received_mob_snapshot = false;
         while Instant::now() < deadline {
             for event in client.update(0.05) {
-                if let crate::net::NetworkEvent::Connected {
-                    seed,
-                    time_of_day,
-                    modified_blocks,
-                    ..
-                } = event
-                {
-                    connected = Some((seed, time_of_day, modified_blocks));
+                match event {
+                    crate::net::NetworkEvent::Connected {
+                        seed,
+                        time_of_day,
+                        modified_blocks,
+                        ..
+                    } => connected = Some((seed, time_of_day, modified_blocks)),
+                    crate::net::NetworkEvent::MobSnapshot { .. } => {
+                        host_received_mob_snapshot = true;
+                    }
+                    _ => {}
                 }
             }
             if connected.is_some() {
@@ -1506,7 +1731,167 @@ mod tests {
         assert_eq!(seed, 98765);
         assert_eq!(time_of_day, 42.0);
         assert_eq!(modified_blocks, vec![(3, 10, -2, crate::world::BlockId::Stone.to_u8())]);
+
+        assert!(!host_received_mob_snapshot);
+        let host_position = crate::core::math::Vec3::new(31.0, 72.0, -8.0);
+        client.send_position(host_position, 0.3, -0.1, false, true);
+        thread::sleep(Duration::from_millis(100));
+        client.update(0.05);
+        let mut observer = crate::net::NetworkClient::connect(
+            &format!("127.0.0.1:{}", server.port),
+            "Observer",
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut observer_received_mobs = false;
+        while Instant::now() < deadline && !observer_received_mobs {
+            client.update(0.05);
+            for event in observer.update(0.05) {
+                if let crate::net::NetworkEvent::MobSnapshot { mobs } = event {
+                    observer_received_mobs = mobs == vec![initial_mob.clone()];
+                }
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(observer_received_mobs);
+        let host_id = client.local_id.expect("host should have an assigned ID");
+        let replicated_host = observer
+            .remote_players
+            .get(&host_id)
+            .expect("late joiner should receive existing players");
+        assert_eq!(replicated_host.target_pos, host_position);
+        assert_eq!(replicated_host.yaw, 0.3);
+
+        client
+            .send_packet(&ClientPacket::MobSnapshot {
+                mobs: vec![initial_mob.clone()],
+            })
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut observer_received_update = false;
+        let mut authority_received_own_update = false;
+        while Instant::now() < deadline && !observer_received_update {
+            for event in client.update(0.05) {
+                authority_received_own_update |=
+                    matches!(event, crate::net::NetworkEvent::MobSnapshot { .. });
+            }
+            for event in observer.update(0.05) {
+                if let crate::net::NetworkEvent::MobSnapshot { mobs } = event {
+                    observer_received_update = mobs == vec![initial_mob.clone()];
+                }
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(observer_received_update);
+        assert!(!authority_received_own_update);
+
+        let changed_block = (
+            6,
+            20,
+            -7,
+            crate::world::BlockId::Dirt.to_u8(),
+        );
+        client.send_block_change(
+            changed_block.0,
+            changed_block.1,
+            changed_block.2,
+            changed_block.3,
+        );
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut observer_received_block = false;
+        while Instant::now() < deadline && !observer_received_block {
+            client.update(0.05);
+            for event in observer.update(0.05) {
+                if let crate::net::NetworkEvent::BlockChanged { x, y, z, block } = event {
+                    observer_received_block = (x, y, z, block) == changed_block;
+                }
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(observer_received_block);
+
+        let mut late_joiner = crate::net::NetworkClient::connect(
+            &format!("127.0.0.1:{}", server.port),
+            "LateJoiner",
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut late_joiner_blocks = None;
+        while Instant::now() < deadline && late_joiner_blocks.is_none() {
+            client.update(0.05);
+            observer.update(0.05);
+            for event in late_joiner.update(0.05) {
+                if let crate::net::NetworkEvent::Connected {
+                    modified_blocks, ..
+                } = event
+                {
+                    late_joiner_blocks = Some(modified_blocks);
+                }
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let late_joiner_blocks = late_joiner_blocks.expect("late joiner should receive world changes");
+        assert!(late_joiner_blocks.contains(&changed_block));
+
+        late_joiner.disconnect();
+        observer.disconnect();
         client.disconnect();
+        drop(server);
+    }
+
+    #[test]
+    fn unauthenticated_clients_cannot_change_replicated_blocks() {
+        let server = EmbeddedServer::start(
+            0,
+            EmbeddedServerState {
+                seed: 1,
+                time_of_day: 120.0,
+                spawn_pos: (8.5, 65.0, 8.5),
+                blocks: Vec::new(),
+                mobs: Vec::new(),
+            },
+        )
+        .unwrap();
+        let mut unauthenticated =
+            TcpStream::connect(("127.0.0.1", server.port)).unwrap();
+        unauthenticated
+            .write_all(
+                &ClientPacket::BlockChange {
+                    x: 4,
+                    y: 20,
+                    z: 8,
+                    block: crate::world::BlockId::DiamondBlock.to_u8(),
+                }
+                .serialize(),
+            )
+            .unwrap();
+        drop(unauthenticated);
+        thread::sleep(Duration::from_millis(100));
+
+        let mut observer = crate::net::NetworkClient::connect(
+            &format!("127.0.0.1:{}", server.port),
+            "Observer",
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut modified_blocks = None;
+        while Instant::now() < deadline && modified_blocks.is_none() {
+            for event in observer.update(0.05) {
+                if let crate::net::NetworkEvent::Connected {
+                    modified_blocks: blocks,
+                    ..
+                } = event
+                {
+                    modified_blocks = Some(blocks);
+                }
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            modified_blocks.expect("observer should connect"),
+            Vec::<(i32, i32, i32, u8)>::new()
+        );
+        observer.disconnect();
         drop(server);
     }
 
@@ -1519,6 +1904,7 @@ mod tests {
                 time_of_day: 120.0,
                 spawn_pos: (8.5, 65.0, 8.5),
                 blocks: Vec::new(),
+                mobs: Vec::new(),
             },
         )
         .unwrap();
@@ -1575,6 +1961,7 @@ mod tests {
                 time_of_day: 120.0,
                 spawn_pos: (8.5, 65.0, 8.5),
                 blocks: Vec::new(),
+                mobs: Vec::new(),
             },
         )
         .unwrap();
@@ -1641,6 +2028,7 @@ mod tests {
                 time_of_day: 120.0,
                 spawn_pos: (8.5, 65.0, 8.5),
                 blocks: Vec::new(),
+                mobs: Vec::new(),
             },
         )
         .unwrap();

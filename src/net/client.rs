@@ -76,6 +76,9 @@ pub enum NetworkEvent {
 pub struct NetworkClient {
     stream: TcpStream,
     rx_buffer: Vec<u8>,
+    tx_buffer: Vec<u8>,
+    tx_offset: usize,
+    output_failed: bool,
     pub local_id: Option<u32>,
     pub mob_authority_id: Option<u32>,
     pub remote_players: HashMap<u32, RemotePlayer>,
@@ -106,12 +109,19 @@ impl NetworkClient {
                 .map_err(|e| format!("Failed to connect to {}: {}", addr, e))?
         };
 
-        let _ = stream.set_nonblocking(true);
-        let _ = stream.set_nodelay(true);
+        stream
+            .set_nonblocking(true)
+            .map_err(|error| format!("Could not configure non-blocking socket: {error}"))?;
+        stream
+            .set_nodelay(true)
+            .map_err(|error| format!("Could not enable TCP_NODELAY: {error}"))?;
 
         let mut client = Self {
             stream,
             rx_buffer: Vec::with_capacity(2048),
+            tx_buffer: Vec::new(),
+            tx_offset: 0,
+            output_failed: false,
             local_id: None,
             mob_authority_id: None,
             remote_players: HashMap::new(),
@@ -136,9 +146,37 @@ impl NetworkClient {
 
     pub fn send_packet(&mut self, packet: &ClientPacket) -> Result<(), String> {
         let bytes = packet.serialize();
-        self.stream
-            .write_all(&bytes)
-            .map_err(|e| format!("Network write failed: {}", e))
+        let pending_bytes = self.tx_buffer.len().saturating_sub(self.tx_offset);
+        if bytes.len().saturating_sub(4) > MAX_PACKET_SIZE
+            || pending_bytes.saturating_add(bytes.len()) > MAX_QUEUED_BYTES
+        {
+            self.output_failed = true;
+            return Err("Network send queue exceeded its size limit".to_string());
+        }
+        if self.tx_offset >= 64 * 1024 && self.tx_offset * 2 >= self.tx_buffer.len() {
+            self.tx_buffer.drain(..self.tx_offset);
+            self.tx_offset = 0;
+        }
+        self.tx_buffer.extend_from_slice(&bytes);
+        self.flush_outgoing()
+    }
+
+    fn flush_outgoing(&mut self) -> Result<(), String> {
+        if self.output_failed {
+            return Err("Network send queue exceeded its size limit".to_string());
+        }
+        while self.tx_offset < self.tx_buffer.len() {
+            match self.stream.write(&self.tx_buffer[self.tx_offset..]) {
+                Ok(0) => return Err("Network write returned zero bytes".to_string()),
+                Ok(written) => self.tx_offset += written,
+                Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
+                Err(ref error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(format!("Network write failed: {error}")),
+            }
+        }
+        self.tx_buffer.clear();
+        self.tx_offset = 0;
+        Ok(())
     }
 
     pub fn send_position(
@@ -230,6 +268,13 @@ impl NetworkClient {
 
     pub fn update(&mut self, dt: f32) -> Vec<NetworkEvent> {
         let mut events = Vec::new();
+        if let Err(error) = self.flush_outgoing() {
+            self.is_connected = false;
+            let reason = format!("Network write failed: {error}");
+            self.disconnect_reason = Some(reason.clone());
+            events.push(NetworkEvent::Disconnected { reason });
+            return events;
+        }
 
         // Interpolate remote player positions & decrement hurt timers
         for rp in self.remote_players.values_mut() {
@@ -276,7 +321,16 @@ impl NetworkClient {
         }
 
         // Parse extracted packets
-        let raw_packets = extract_packets(&mut self.rx_buffer);
+        let raw_packets = match extract_packets(&mut self.rx_buffer) {
+            Ok(packets) => packets,
+            Err(error) => {
+                self.is_connected = false;
+                let reason = format!("Invalid response from server: {error}");
+                self.disconnect_reason = Some(reason.clone());
+                events.push(NetworkEvent::Disconnected { reason });
+                return events;
+            }
+        };
         for raw in raw_packets {
             match ServerPacket::deserialize(&raw) {
                 Ok(ServerPacket::LoginSuccess {
@@ -419,6 +473,12 @@ impl NetworkClient {
             }
         }
 
+        if let Err(error) = self.flush_outgoing() {
+            self.is_connected = false;
+            let reason = format!("Network write failed: {error}");
+            self.disconnect_reason = Some(reason.clone());
+            events.push(NetworkEvent::Disconnected { reason });
+        }
         events
     }
 
@@ -427,6 +487,7 @@ impl NetworkClient {
             let _ = self.send_packet(&ClientPacket::Disconnect {
                 reason: "Client disconnected".to_string(),
             });
+            let _ = self.flush_outgoing();
             self.is_connected = false;
         }
     }

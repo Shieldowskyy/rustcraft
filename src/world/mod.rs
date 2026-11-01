@@ -1094,6 +1094,7 @@ pub struct World {
     pub gamemode: GameMode,
     pub chunks: HashMap<(i32, i32), Chunk>,
     block_overrides: HashMap<(i32, i32), HashMap<IVec3, u8>>,
+    pending_network_changes: HashMap<IVec3, u8>,
     pub seed: u32,
     pub player_position: Vec3,
     fluid_levels: HashMap<IVec3, u8>,
@@ -1310,6 +1311,7 @@ impl World {
             gamemode: GameMode::Survival,
             chunks: HashMap::new(),
             block_overrides: HashMap::new(),
+            pending_network_changes: HashMap::new(),
             seed,
             player_position: spawn_pos,
             fluid_levels: HashMap::new(),
@@ -1790,17 +1792,25 @@ impl World {
     }
 
     pub fn set_block(&mut self, pos: IVec3, block: BlockId) {
+        self.set_block_inner(pos, block, true);
+    }
+
+    fn set_block_inner(&mut self, pos: IVec3, block: BlockId, track_network_change: bool) {
         if (pos.y as u32) >= CHUNK_SIZE_Y as u32 {
             return;
         }
 
         let (cx, cz, lx, lz) = World::world_to_chunk(pos.x, pos.z);
         if let Some(chunk) = self.chunks.get_mut(&(cx, cz)) {
+            let changed = chunk.get_local(lx, pos.y, lz) != block;
             chunk.set_local(lx, pos.y, lz, block);
             self.block_overrides
                 .entry((cx, cz))
                 .or_default()
                 .insert(pos, block.to_u8());
+            if changed && track_network_change {
+                self.pending_network_changes.insert(pos, block.to_u8());
+            }
 
             if matches!(block, BlockId::Water | BlockId::Lava) { self.set_fluid_level(pos, 8); } else { self.fluid_levels.remove(&pos); }
             if block == BlockId::Sand { self.active_sand.insert(pos); } else { self.active_sand.remove(&pos); }
@@ -1836,7 +1846,13 @@ impl World {
             self.index_chunk_lights(&chunk);
             self.chunks.insert((cx, cz), chunk);
         }
-        self.set_block(pos, block);
+        self.set_block_inner(pos, block, false);
+    }
+
+    pub fn take_network_changes(
+        &mut self,
+    ) -> std::collections::hash_map::IntoIter<IVec3, u8> {
+        std::mem::take(&mut self.pending_network_changes).into_iter()
     }
 
     pub fn block_overrides(&self) -> impl Iterator<Item = (IVec3, u8)> + '_ {
@@ -2796,6 +2812,31 @@ mod tests {
         assert_eq!(loaded.get_block(first), BlockId::Stone);
         assert_eq!(loaded.get_block(second), BlockId::Dirt);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn network_block_changes_track_local_edits_without_echoing_server_updates() {
+        let mut world = World::new_with_seed(54321);
+        world.chunks.insert((0, 0), Chunk::generate(0, 0, world.seed));
+        let pos = IVec3::new(2, 63, 3);
+
+        world.set_block(pos, BlockId::Stone);
+        assert_eq!(
+            world.take_network_changes().collect::<Vec<_>>(),
+            vec![(pos, BlockId::Stone.to_u8())]
+        );
+
+        world.set_block(pos, BlockId::Stone);
+        assert_eq!(world.take_network_changes().count(), 0);
+
+        world.set_network_block(pos, BlockId::Dirt);
+        assert_eq!(world.take_network_changes().count(), 0);
+
+        world.set_block(pos, BlockId::Air);
+        assert_eq!(
+            world.take_network_changes().collect::<Vec<_>>(),
+            vec![(pos, BlockId::Air.to_u8())]
+        );
     }
 
     #[test]

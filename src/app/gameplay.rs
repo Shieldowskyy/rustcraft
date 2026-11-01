@@ -30,6 +30,8 @@ impl RustCraftApp {
                 self.chat.update(dt);
 
                 let player_data = self.net_client.is_some().then(|| self.multiplayer_player_data());
+                let network_block_changes = self.world.take_network_changes().collect::<Vec<_>>();
+                let mut received_player_data = None;
                 if let Some(client) = &mut self.net_client {
                     if client.last_move_sent.elapsed() >= std::time::Duration::from_millis(50) {
                         client.send_position(
@@ -87,6 +89,9 @@ impl RustCraftApp {
                                     crate::log_warn!("NETWORK", "Rejected mob snapshot: {}", error);
                                 }
                             }
+                            crate::net::NetworkEvent::PlayerDataLoaded { data } => {
+                                received_player_data = Some(data);
+                            }
                             crate::net::NetworkEvent::ModsSynchronized { mods } => {
                                 pending_mods.extend(mods);
                             }
@@ -97,7 +102,10 @@ impl RustCraftApp {
                         }
                     }
                     client.send_mob_snapshot(&self.mob_manager);
-                    if let Some(data) = player_data {
+                    for (pos, block) in network_block_changes {
+                        client.send_block_change(pos.x, pos.y, pos.z, block);
+                    }
+                    if let Some(data) = player_data.clone() {
                         client.send_player_data(data, false);
                     }
                     if !pending_mods.is_empty() {
@@ -106,6 +114,18 @@ impl RustCraftApp {
                     if let Some(reason) = should_disconnect {
                         self.handle_multiplayer_disconnect(reason);
                         out.request_release_mouse = true;
+                    }
+                }
+                if self.is_multiplayer {
+                    if let Some(data) = received_player_data {
+                        match data {
+                            Some(data) => self.apply_multiplayer_player_data(data),
+                            None => {
+                                if let (Some(client), Some(data)) = (&mut self.net_client, player_data) {
+                                    client.send_player_data(data, true);
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -1080,9 +1100,6 @@ impl RustCraftApp {
                                 self.process_achievement_unlocks(unlocked);
                                 if let Some(mate) = bed_mate {
                                     self.world.set_block(mate, BlockId::Air);
-                                    if let Some(client) = &mut self.net_client {
-                                        client.send_block_change(mate.x, mate.y, mate.z, BlockId::Air.to_u8());
-                                    }
                                 }
 
                                 // Breaking Kelp breaks all kelp blocks directly above it
@@ -1104,9 +1121,6 @@ impl RustCraftApp {
                                 let sound_pos = Vec3::new(bx, by, bz);
                                 self.play_world_sound_varied(break_sound, sound_pos, 0.95);
                                 self.request_rumble(0.4, 0.25, 75);
-                                if let Some(client) = &mut self.net_client {
-                                    client.send_block_change(target.x, target.y, target.z, 0);
-                                }
                                 crate::log_info!("WORLD", "Block broken: {:?} at ({}, {}, {})", broken_block, target.x, target.y, target.z);
 
                                 if self.player.gamemode == GameMode::Survival {
@@ -1857,10 +1871,6 @@ impl RustCraftApp {
                                         let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
                                         self.play_world_sound_varied(crate::audio::SoundId::PlaceWood, sound_pos, 0.85);
                                         self.request_rumble(0.2, 0.1, 45);
-                                        if let Some(client) = &mut self.net_client {
-                                            client.send_block_change(place_pos.x, place_pos.y, place_pos.z, BlockId::Bed.to_u8());
-                                            client.send_block_change(head_pos.x, head_pos.y, head_pos.z, BlockId::Bed.to_u8());
-                                        }
                                         if self.player.gamemode == GameMode::Survival {
                                             if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
                                                 stack.count -= 1;
@@ -1881,10 +1891,6 @@ impl RustCraftApp {
                                         let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
                                         self.play_world_sound_varied(crate::audio::SoundId::PlaceWood, sound_pos, 0.85);
                                         self.request_rumble(0.2, 0.1, 45);
-                                        if let Some(client) = &mut self.net_client {
-                                            client.send_block_change(place_pos.x, place_pos.y, place_pos.z, BlockId::Door.to_u8());
-                                            client.send_block_change(top_pos.x, top_pos.y, top_pos.z, BlockId::Door.to_u8());
-                                        }
                                         crate::log_info!("WORLD", "Placed door at ({}, {}, {})", place_pos.x, place_pos.y, place_pos.z);
                                         if self.player.gamemode == GameMode::Survival {
                                             if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
@@ -1903,9 +1909,6 @@ impl RustCraftApp {
                                     self.request_rumble(0.2, 0.1, 45);
                                     if matches!(place_id, BlockId::RustStone | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::Lever | BlockId::Button | BlockId::PressurePlate) {
                                         self.world.update_ruststone_network(place_pos, 16);
-                                    }
-                                    if let Some(client) = &mut self.net_client {
-                                        client.send_block_change(place_pos.x, place_pos.y, place_pos.z, place_id.to_u8());
                                     }
                                     crate::log_info!("WORLD", "Placed block {:?} at ({}, {}, {})", place_id, place_pos.x, place_pos.y, place_pos.z);
                                     if self.player.gamemode == GameMode::Survival {

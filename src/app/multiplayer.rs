@@ -37,7 +37,7 @@ impl RustCraftApp {
         }
     }
 
-    fn apply_multiplayer_player_data(&mut self, data: crate::net::protocol::PlayerData) {
+    pub(crate) fn apply_multiplayer_player_data(&mut self, data: crate::net::protocol::PlayerData) {
         let from_network_item = |item: Option<crate::net::protocol::PlayerItemStack>| {
             item.map(|item| {
                 crate::gameplay::inventory::ItemStack::with_durability(
@@ -262,6 +262,7 @@ impl RustCraftApp {
             self.multiplayer_status = Some(error.to_string());
             self.multiplayer_is_connecting = false;
             self.net_client = None;
+            self.pending_network_events.clear();
             self.stop_host_multiplayer();
             self.show_multiplayer_toast(error, true);
             self.state = if was_hosting { GameState::Paused } else { GameState::MultiplayerMenu };
@@ -295,7 +296,7 @@ impl RustCraftApp {
                     crate::net::NetworkEvent::PlayerDataLoaded { data } => {
                         player_data_result = Some(data);
                     }
-                    _ => {}
+                    other => self.pending_network_events.push(other),
                 }
             }
 
@@ -360,6 +361,7 @@ impl RustCraftApp {
                 self.multiplayer_status = Some(err.clone());
                 self.multiplayer_is_connecting = false;
                 self.net_client = None;
+                self.pending_network_events.clear();
                 self.stop_host_multiplayer();
                 self.show_multiplayer_toast(err, true);
                 self.state = if was_hosting { GameState::Paused } else { GameState::MultiplayerMenu };
@@ -380,6 +382,7 @@ impl RustCraftApp {
     }
 
     pub fn start_multiplayer_connect(&mut self) {
+        self.pending_network_events.clear();
         self.multiplayer_status = Some("Connecting to server...".to_string());
         self.multiplayer_is_connecting = true;
         let display_addr = crate::net::redact_invite_address(&self.multiplayer_server_addr);
@@ -433,6 +436,7 @@ impl RustCraftApp {
         if self.is_multiplayer || self.embedded_server.is_some() {
             return Err("This world is already in a multiplayer session".to_string());
         }
+        self.pending_network_events.clear();
         let relay_addr = configured_relay_address()?;
         let room_code = crate::net::generate_room_code()?;
         let spawn = self.camera.position;
@@ -443,8 +447,10 @@ impl RustCraftApp {
                 time_of_day: self.world.time_of_day,
                 spawn_pos: (spawn.x, spawn.y, spawn.z),
                 blocks: snapshot_world_changes(&self.world),
+                mobs: self.mob_manager.network_snapshot(),
             },
         )?;
+        self.world.take_network_changes().for_each(drop);
         let server_addr = format!("127.0.0.1:{}", server.port);
         let client = crate::net::NetworkClient::connect(&server_addr, &self.settings.nickname)?;
         let local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server.port);

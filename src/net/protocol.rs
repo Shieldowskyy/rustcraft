@@ -2,6 +2,8 @@
 
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const DEFAULT_SERVER_PORT: u16 = 26656;
+pub const MAX_PACKET_SIZE: usize = 16 * 1024 * 1024;
+pub const MAX_QUEUED_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlayerInfo {
@@ -897,13 +899,17 @@ fn read_player_data(reader: &mut PacketReader<'_>) -> Result<PlayerData, &'stati
 }
 
 /// Helper to decode complete frames from a raw incoming byte stream buffer.
-pub fn extract_packets(buffer: &mut Vec<u8>) -> Vec<Vec<u8>> {
+pub fn extract_packets(buffer: &mut Vec<u8>) -> Result<Vec<Vec<u8>>, &'static str> {
     let mut packets = Vec::new();
     loop {
         if buffer.len() < 4 {
             break;
         }
         let payload_len = u32::from_le_bytes(buffer[0..4].try_into().unwrap()) as usize;
+        if payload_len == 0 || payload_len > MAX_PACKET_SIZE {
+            buffer.clear();
+            return Err("Invalid packet frame length");
+        }
         if buffer.len() < 4 + payload_len {
             break;
         }
@@ -911,7 +917,7 @@ pub fn extract_packets(buffer: &mut Vec<u8>) -> Vec<Vec<u8>> {
         buffer.drain(0..4 + payload_len);
         packets.push(packet_data);
     }
-    packets
+    Ok(packets)
 }
 
 #[cfg(test)]
@@ -925,7 +931,7 @@ mod tests {
             nickname: "TestMiner123".to_string(),
         };
         let mut framed = handshake.serialize();
-        let packets = extract_packets(&mut framed);
+        let packets = extract_packets(&mut framed).unwrap();
         assert_eq!(packets.len(), 1);
         let decoded = ClientPacket::deserialize(&packets[0]).unwrap();
         assert_eq!(decoded, handshake);
@@ -940,7 +946,7 @@ mod tests {
             is_sprinting: false,
         };
         let mut framed2 = pmove.serialize();
-        let packets2 = extract_packets(&mut framed2);
+        let packets2 = extract_packets(&mut framed2).unwrap();
         assert_eq!(ClientPacket::deserialize(&packets2[0]).unwrap(), pmove);
 
         let attack = ClientPacket::AttackPlayer {
@@ -948,7 +954,7 @@ mod tests {
             damage: 6.5,
         };
         let mut framed_atk = attack.serialize();
-        let packets_atk = extract_packets(&mut framed_atk);
+        let packets_atk = extract_packets(&mut framed_atk).unwrap();
         assert_eq!(ClientPacket::deserialize(&packets_atk[0]).unwrap(), attack);
 
         let mob_snapshot = ClientPacket::MobSnapshot {
@@ -971,15 +977,15 @@ mod tests {
             }],
         };
         let mut framed_mobs = mob_snapshot.serialize();
-        let packets_mobs = extract_packets(&mut framed_mobs);
+        let packets_mobs = extract_packets(&mut framed_mobs).unwrap();
         assert_eq!(ClientPacket::deserialize(&packets_mobs[0]).unwrap(), mob_snapshot);
 
         let mut framed_death = ClientPacket::PlayerDeath.serialize();
-        let packets_death = extract_packets(&mut framed_death);
+        let packets_death = extract_packets(&mut framed_death).unwrap();
         assert_eq!(ClientPacket::deserialize(&packets_death[0]).unwrap(), ClientPacket::PlayerDeath);
         let pong = ClientPacket::Pong { seq: 42 };
         let mut framed_pong = pong.serialize();
-        let packets_pong = extract_packets(&mut framed_pong);
+        let packets_pong = extract_packets(&mut framed_pong).unwrap();
         assert_eq!(ClientPacket::deserialize(&packets_pong[0]).unwrap(), pong);
 
         let player_data = PlayerData {
@@ -1008,7 +1014,7 @@ mod tests {
             data: player_data.clone(),
         };
         let mut framed_data = packet.serialize();
-        let packets_data = extract_packets(&mut framed_data);
+        let packets_data = extract_packets(&mut framed_data).unwrap();
         assert_eq!(ClientPacket::deserialize(&packets_data[0]).unwrap(), packet);
     }
 
@@ -1024,7 +1030,7 @@ mod tests {
             modified_blocks: vec![(1, 2, 3, 4), (10, 20, 30, 0)],
         };
         let mut framed = login.serialize();
-        let packets = extract_packets(&mut framed);
+        let packets = extract_packets(&mut framed).unwrap();
         assert_eq!(packets.len(), 1);
         assert_eq!(ServerPacket::deserialize(&packets[0]).unwrap(), login);
 
@@ -1036,7 +1042,7 @@ mod tests {
             knockback_z: -0.2,
         };
         let mut framed_hurt = hurt.serialize();
-        let packets_hurt = extract_packets(&mut framed_hurt);
+        let packets_hurt = extract_packets(&mut framed_hurt).unwrap();
         assert_eq!(ServerPacket::deserialize(&packets_hurt[0]).unwrap(), hurt);
 
         let chat = ServerPacket::ChatMessage {
@@ -1045,7 +1051,7 @@ mod tests {
             is_system: false,
         };
         let mut framed_chat = chat.serialize();
-        let packets_chat = extract_packets(&mut framed_chat);
+        let packets_chat = extract_packets(&mut framed_chat).unwrap();
         assert_eq!(ServerPacket::deserialize(&packets_chat[0]).unwrap(), chat);
 
         let mod_sync = ServerPacket::ModSync {
@@ -1055,16 +1061,16 @@ mod tests {
             }],
         };
         let mut framed_mod_sync = mod_sync.serialize();
-        let packets_mod_sync = extract_packets(&mut framed_mod_sync);
+        let packets_mod_sync = extract_packets(&mut framed_mod_sync).unwrap();
         assert_eq!(ServerPacket::deserialize(&packets_mod_sync[0]).unwrap(), mod_sync);
 
         let authority = ServerPacket::MobAuthority { id: 3 };
         let mut framed_authority = authority.serialize();
-        let packets_authority = extract_packets(&mut framed_authority);
+        let packets_authority = extract_packets(&mut framed_authority).unwrap();
         assert_eq!(ServerPacket::deserialize(&packets_authority[0]).unwrap(), authority);
         let ping = ServerPacket::Ping { seq: 42 };
         let mut framed_ping = ping.serialize();
-        let packets_ping = extract_packets(&mut framed_ping);
+        let packets_ping = extract_packets(&mut framed_ping).unwrap();
         assert_eq!(ServerPacket::deserialize(&packets_ping[0]).unwrap(), ping);
 
         let mob_snapshot = ServerPacket::MobSnapshot {
@@ -1087,7 +1093,7 @@ mod tests {
             }],
         };
         let mut framed_mobs = mob_snapshot.serialize();
-        let packets_mobs = extract_packets(&mut framed_mobs);
+        let packets_mobs = extract_packets(&mut framed_mobs).unwrap();
         assert_eq!(ServerPacket::deserialize(&packets_mobs[0]).unwrap(), mob_snapshot);
 
         let player_data = ServerPacket::PlayerData {
@@ -1115,7 +1121,26 @@ mod tests {
             }),
         };
         let mut framed_data = player_data.serialize();
-        let packets_data = extract_packets(&mut framed_data);
+        let packets_data = extract_packets(&mut framed_data).unwrap();
         assert_eq!(ServerPacket::deserialize(&packets_data[0]).unwrap(), player_data);
+    }
+
+    #[test]
+    fn packet_extraction_handles_fragmented_and_oversized_frames() {
+        let mut frame = ClientPacket::Ping { seq: 42 }.serialize();
+        let suffix = frame.split_off(6);
+        assert!(extract_packets(&mut frame).unwrap().is_empty());
+        frame.extend_from_slice(&suffix);
+        assert_eq!(
+            ClientPacket::deserialize(&extract_packets(&mut frame).unwrap()[0]).unwrap(),
+            ClientPacket::Ping { seq: 42 }
+        );
+
+        let mut oversized = ((MAX_PACKET_SIZE as u32) + 1).to_le_bytes().to_vec();
+        assert_eq!(
+            extract_packets(&mut oversized),
+            Err("Invalid packet frame length")
+        );
+        assert!(oversized.is_empty());
     }
 }
