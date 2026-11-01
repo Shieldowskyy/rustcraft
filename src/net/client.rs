@@ -409,7 +409,12 @@ impl NetworkClient {
                     }
                 }
                 Err(err) => {
-                    eprintln!("[NET CLIENT] Error decoding packet: {}", err);
+                    let reason = format!("Invalid response from server: {err}");
+                    crate::log_warn!("NETWORK", "{}", reason);
+                    self.is_connected = false;
+                    self.disconnect_reason = Some(reason.clone());
+                    events.push(NetworkEvent::Disconnected { reason });
+                    break;
                 }
             }
         }

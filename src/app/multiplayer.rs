@@ -356,6 +356,7 @@ impl RustCraftApp {
                 out.request_capture_mouse = true;
             } else if let Some(err) = disconnected_err {
                 let was_hosting = self.is_hosting_multiplayer;
+                crate::log_warn!("NETWORK", "Disconnected while connecting: {}", err);
                 self.multiplayer_status = Some(err.clone());
                 self.multiplayer_is_connecting = false;
                 self.net_client = None;
@@ -398,14 +399,10 @@ impl RustCraftApp {
                 );
             }
             Err(err) => {
+                crate::log_warn!("NETWORK", "Connection failed: {}", err);
                 self.multiplayer_status = Some(err.clone());
                 self.multiplayer_is_connecting = false;
                 self.show_multiplayer_toast(err, true);
-                crate::log_warn!(
-                    "NETWORK",
-                    "Connection failed: {}",
-                    self.multiplayer_status.as_ref().unwrap()
-                );
             }
 
         }
@@ -413,6 +410,17 @@ impl RustCraftApp {
 
     pub(crate) fn show_multiplayer_toast(&mut self, message: impl Into<String>, is_error: bool) {
         self.multiplayer_toast = Some((message.into(), 6.0, is_error));
+    }
+
+    pub(crate) fn handle_multiplayer_disconnect(&mut self, reason: String) {
+        crate::log_warn!("NETWORK", "Disconnected from multiplayer: {}", reason);
+        self.multiplayer_status = Some(format!("Disconnected: {reason}"));
+        self.show_multiplayer_toast(format!("Disconnected: {reason}"), true);
+        self.pending_network_events.clear();
+        self.is_multiplayer = false;
+        self.net_client = None;
+        self.stop_host_multiplayer();
+        self.state = GameState::MainMenu;
     }
 
     /// Sets the multiplayer server address and initiates connection immediately.
@@ -437,6 +445,8 @@ impl RustCraftApp {
                 blocks: snapshot_world_changes(&self.world),
             },
         )?;
+        let server_addr = format!("127.0.0.1:{}", server.port);
+        let client = crate::net::NetworkClient::connect(&server_addr, &self.settings.nickname)?;
         let local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server.port);
         let relay = crate::net::ReverseTunnelHost::connect(
             &relay_addr,
@@ -444,8 +454,6 @@ impl RustCraftApp {
             local_addr,
         )?;
         let invite = crate::net::invite_address(&relay_addr, &room_code)?;
-        let server_addr = format!("127.0.0.1:{}", server.port);
-        let client = crate::net::NetworkClient::connect(&server_addr, &self.settings.nickname)?;
 
         self.net_client = Some(client);
         self.embedded_server = Some(server);

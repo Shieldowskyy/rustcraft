@@ -104,11 +104,7 @@ impl RustCraftApp {
                         self.sync_server_mods(pending_mods);
                     }
                     if let Some(reason) = should_disconnect {
-                        crate::log_info!("NETWORK", "Disconnected from server: {}", reason);
-                        self.is_multiplayer = false;
-                        self.net_client = None;
-                        self.stop_host_multiplayer();
-                        self.state = GameState::MainMenu;
+                        self.handle_multiplayer_disconnect(reason);
                         out.request_release_mouse = true;
                     }
                 }
@@ -172,7 +168,11 @@ impl RustCraftApp {
                                 let command_parts: Vec<&str> = text.split_whitespace().collect();
                                 let tp_to_player = command_parts.len() == 2
                                     && matches!(command_parts[0].to_ascii_lowercase().as_str(), "/tp" | "/teleport");
-                                if tp_to_player && self.net_client.is_some() {
+                                let kick_player = command_parts.len() >= 2
+                                    && command_parts[0].eq_ignore_ascii_case("/kick");
+                                if kick_player && !self.is_hosting_multiplayer {
+                                    self.chat.add_info("Only the multiplayer host can kick players.");
+                                } else if (tp_to_player || kick_player) && self.net_client.is_some() {
                                     if let Some(client) = &mut self.net_client {
                                         client.send_chat(&text);
                                     }

@@ -676,9 +676,20 @@ impl RustCraftApp {
         } }
 
         if !matches!(self.state, GameState::Playing | GameState::MultiplayerConnecting { .. }) {
-            if let Some(client) = &mut self.net_client {
-                if client.is_connected {
-                    self.pending_network_events.extend(client.update(dt));
+            let events = self
+                .net_client
+                .as_mut()
+                .filter(|client| client.is_connected)
+                .map(|client| client.update(dt));
+            if let Some(events) = events {
+                if let Some(reason) = events.iter().find_map(|event| match event {
+                    crate::net::NetworkEvent::Disconnected { reason } => Some(reason.clone()),
+                    _ => None,
+                }) {
+                    self.handle_multiplayer_disconnect(reason);
+                    out.request_release_mouse = true;
+                } else {
+                    self.pending_network_events.extend(events);
                 }
             }
         }

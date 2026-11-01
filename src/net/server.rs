@@ -277,6 +277,54 @@ fn save_player_data(
         .map_err(|error| format!("Could not write '{}': {error}", path.display()))
 }
 
+fn persist_client_player_data(client: &mut ConnectedClient) {
+    if let Some(mut data) = client.player_data.take() {
+        data.x = client.x;
+        data.y = client.y;
+        data.z = client.z;
+        if let Err(error) =
+            save_player_data(std::path::Path::new("playerdata"), &client.nickname, &data)
+        {
+            crate::log_error!(
+                "SERVER",
+                "Could not save player data for '{}': {}",
+                client.nickname,
+                error
+            );
+        }
+    }
+}
+
+fn kick_client(
+    clients: &mut HashMap<u32, ConnectedClient>,
+    id: u32,
+    reason: &str,
+) -> Option<String> {
+    let mut client = clients.remove(&id)?;
+    let _ = client.send_packet(&ServerPacket::LoginDisconnect {
+        reason: reason.to_string(),
+    });
+    persist_client_player_data(&mut client);
+    let nickname = client.nickname.clone();
+    println!("[SERVER] Kicked '{}' (ID {}): {}", nickname, id, reason);
+
+    let left_packet = ServerPacket::PlayerLeft {
+        id,
+        nickname: nickname.clone(),
+        reason: reason.to_string(),
+    };
+    let chat_packet = ServerPacket::ChatMessage {
+        sender: "Server".to_string(),
+        text: format!("{nickname} was kicked: {reason}"),
+        is_system: true,
+    };
+    for other in clients.values_mut() {
+        let _ = other.send_packet(&left_packet);
+        let _ = other.send_packet(&chat_packet);
+    }
+    Some(nickname)
+}
+
 pub struct EmbeddedServer {
     pub port: u16,
     running: Arc<AtomicBool>,
@@ -416,6 +464,7 @@ fn run_server(
         .map(|state| state.blocks.iter().map(|&(x, y, z, block)| ((x, y, z), block)).collect())
         .unwrap_or_default();
     let mut mob_authority_id = None;
+    let mut embedded_host_id = None;
     let mut mob_snapshot = Vec::new();
     let mut time_of_day = embedded_state
         .as_ref()
@@ -524,6 +573,9 @@ fn run_server(
 
                                 client.nickname = nickname.clone();
                                 client.authenticated = true;
+                                if embedded && embedded_host_id.is_none() {
+                                    embedded_host_id = Some(id);
+                                }
                                 match load_player_data(std::path::Path::new("playerdata"), &nickname) {
                                     Ok(data) => {
                                         if let Some(data) = &data {
@@ -744,6 +796,7 @@ fn run_server(
             handle_in_game_command(
                 &cmd_text,
                 sender_id,
+                embedded_host_id,
                 &mut clients,
                 &mut broadcast_packets,
                 &mut time_of_day,
@@ -754,16 +807,7 @@ fn run_server(
         // 3. Handle disconnected clients
         for (id, reason) in disconnected_clients {
             if let Some(mut client) = clients.remove(&id) {
-                if let Some(mut data) = client.player_data.take() {
-                    data.x = client.x;
-                    data.y = client.y;
-                    data.z = client.z;
-                    if let Err(error) =
-                        save_player_data(std::path::Path::new("playerdata"), &client.nickname, &data)
-                    {
-                        crate::log_error!("SERVER", "Could not save player data for '{}': {}", client.nickname, error);
-                    }
-                }
+                persist_client_player_data(&mut client);
                 if mob_authority_id == Some(id) {
                     mob_authority_id = None;
                 }
@@ -1001,19 +1045,7 @@ fn handle_console_command(
                     }
                 }
                 if let Some(id) = kick_id {
-                    let mut client = clients.remove(&id).unwrap();
-                    let _ = client.send_packet(&ServerPacket::LoginDisconnect {
-                        reason: reason.clone(),
-                    });
-                    println!("[SERVER] Kicked '{}' (ID {}): {}", client.nickname, id, reason);
-                    let left_packet = ServerPacket::PlayerLeft {
-                        id,
-                        nickname: client.nickname.clone(),
-                        reason,
-                    };
-                    for other in clients.values_mut() {
-                        let _ = other.send_packet(&left_packet);
-                    }
+                    kick_client(clients, id, &reason);
                 } else {
                     println!("[SERVER] Player '{}' not found", parts[1]);
                 }
@@ -1123,6 +1155,7 @@ fn handle_console_command(
 fn handle_in_game_command(
     cmd_line: &str,
     sender_id: u32,
+    embedded_host_id: Option<u32>,
     clients: &mut HashMap<u32, ConnectedClient>,
     broadcast_packets: &mut Vec<ServerPacket>,
     time_of_day: &mut f32,
@@ -1140,7 +1173,56 @@ fn handle_in_game_command(
             if let Some(client) = clients.get_mut(&sender_id) {
                 let _ = client.send_packet(&ServerPacket::ChatMessage {
                     sender: "Server".to_string(),
-                    text: "Available commands: /help, /list, /time <day|night>, /seed, /spawn, /tp <player>, /tell <player> <msg>".to_string(),
+                    text: "Available commands: /help, /list, /time <day|night>, /seed, /spawn, /tp <player>, /tell <player> <msg>, /kick <player> [reason] (host only)".to_string(),
+                    is_system: true,
+                });
+            }
+        }
+        "kick" => {
+            if embedded_host_id != Some(sender_id) {
+                if let Some(client) = clients.get_mut(&sender_id) {
+                    let _ = client.send_packet(&ServerPacket::ChatMessage {
+                        sender: "Server".to_string(),
+                        text: "Only the multiplayer host can kick players.".to_string(),
+                        is_system: true,
+                    });
+                }
+                return;
+            }
+            if parts.len() < 2 {
+                if let Some(client) = clients.get_mut(&sender_id) {
+                    let _ = client.send_packet(&ServerPacket::ChatMessage {
+                        sender: "Server".to_string(),
+                        text: "Usage: /kick <player> [reason]".to_string(),
+                        is_system: true,
+                    });
+                }
+                return;
+            }
+
+            let target = clients
+                .values()
+                .find(|client| client.nickname.eq_ignore_ascii_case(parts[1]))
+                .map(|client| client.id);
+            let reason = if parts.len() > 2 {
+                parts[2..].join(" ")
+            } else {
+                format!("Kicked by host ({sender_nick})")
+            };
+            if let Some(target_id) = target {
+                if let Some(target_name) = kick_client(clients, target_id, &reason) {
+                    if let Some(client) = clients.get_mut(&sender_id) {
+                        let _ = client.send_packet(&ServerPacket::ChatMessage {
+                            sender: "Server".to_string(),
+                            text: format!("Kicked {target_name}: {reason}"),
+                            is_system: true,
+                        });
+                    }
+                }
+            } else if let Some(client) = clients.get_mut(&sender_id) {
+                let _ = client.send_packet(&ServerPacket::ChatMessage {
+                    sender: "Server".to_string(),
+                    text: format!("Player '{}' not found", parts[1]),
                     is_system: true,
                 });
             }
@@ -1481,6 +1563,72 @@ mod tests {
         assert_eq!(teleport, Some((31.0, 72.0, -8.0)));
         host.disconnect();
         guest.disconnect();
+        drop(server);
+    }
+
+    #[test]
+    fn embedded_host_can_kick_a_player_with_a_visible_reason() {
+        let server = EmbeddedServer::start(
+            0,
+            EmbeddedServerState {
+                seed: 1,
+                time_of_day: 120.0,
+                spawn_pos: (8.5, 65.0, 8.5),
+                blocks: Vec::new(),
+            },
+        )
+        .unwrap();
+        let address = format!("127.0.0.1:{}", server.port);
+        let mut host = crate::net::NetworkClient::connect(&address, "Host").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && !host.is_connected {
+            host.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(host.is_connected);
+
+        let mut guest = crate::net::NetworkClient::connect(&address, "Guest").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && !guest.is_connected {
+            host.update(0.05);
+            guest.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(guest.is_connected);
+
+        guest.send_chat("/kick Host unauthorized");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut permission_denied = false;
+        while Instant::now() < deadline && !permission_denied {
+            host.update(0.05);
+            for event in guest.update(0.05) {
+                if let crate::net::NetworkEvent::ChatMessage { text, .. } = event {
+                    permission_denied = text.contains("Only the multiplayer host can kick");
+                }
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(permission_denied);
+        assert!(host.is_connected && guest.is_connected);
+
+        host.send_chat("/kick Guest Testing kick reason");
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut disconnect_reason = None;
+        while Instant::now() < deadline && disconnect_reason.is_none() {
+            host.update(0.05);
+            for event in guest.update(0.05) {
+                if let crate::net::NetworkEvent::Disconnected { reason } = event {
+                    disconnect_reason = Some(reason);
+                }
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        assert_eq!(
+            disconnect_reason.as_deref(),
+            Some("Testing kick reason")
+        );
+        host.disconnect();
         drop(server);
     }
 
