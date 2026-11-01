@@ -292,9 +292,9 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::SkeletonIdle => 813,
         SoundId::SkeletonHurt => 814,
         SoundId::SkeletonDeath => 815,
-        SoundId::CreeperHiss => 816,
-        SoundId::CreeperHurt => 817,
-        SoundId::CreeperDeath => 818,
+        SoundId::ReaperHiss => 816,
+        SoundId::ReaperHurt => 817,
+        SoundId::ReaperDeath => 818,
         SoundId::SheepIdle => 819,
         SoundId::SheepHurt => 820,
         SoundId::SheepDeath => 821,
@@ -390,8 +390,8 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
         SoundId::SkeletonIdle => synth_skeleton_idle(&mut rng, sr, 0.40, 0.80),
         SoundId::SkeletonHurt => synth_skeleton_hurt(&mut rng, sr, 0.25, 0.95),
         SoundId::SkeletonDeath => synth_skeleton_death(&mut rng, sr, 0.70, 1.0),
-        SoundId::CreeperHiss => synth_creeper_hiss(&mut rng, sr, 1.45, 0.90),
-        SoundId::CreeperHurt => synth_creeper_impulse(
+        SoundId::ReaperHiss => synth_reaper_hiss(&mut rng, sr, 1.45, 0.90),
+        SoundId::ReaperHurt => synth_reaper_impulse(
             &mut rng,
             sr,
             0.22,
@@ -403,7 +403,7 @@ pub fn synthesize_sound(id: SoundId, sample_rate: u32) -> SoundSample {
             true,
             0.90 * 1.6,
         ),
-        SoundId::CreeperDeath => synth_creeper_impulse(
+        SoundId::ReaperDeath => synth_reaper_impulse(
             &mut rng,
             sr,
             0.45,
@@ -1306,7 +1306,7 @@ fn synth_skeleton_death(rng: &mut FastRng, sr: f32, dur: f32, vol: f32) -> Vec<f
     out
 }
 
-fn synth_creeper_hiss(rng: &mut FastRng, sr: f32, dur: f32, vol: f32) -> Vec<f32> {
+fn synth_reaper_hiss(rng: &mut FastRng, sr: f32, dur: f32, vol: f32) -> Vec<f32> {
     let (mut hp, mut lp) = (
         IirFilter::highpass(1600.0, sr),
         IirFilter::lowpass(6800.0, sr),
@@ -1317,7 +1317,7 @@ fn synth_creeper_hiss(rng: &mut FastRng, sr: f32, dur: f32, vol: f32) -> Vec<f32
     })
 }
 
-fn synth_creeper_impulse(
+fn synth_reaper_impulse(
     rng: &mut FastRng,
     sr: f32,
     dur: f32,

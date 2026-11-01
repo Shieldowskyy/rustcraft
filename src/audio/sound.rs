@@ -102,9 +102,9 @@ pub enum SoundId {
     SkeletonIdle,
     SkeletonHurt,
     SkeletonDeath,
-    CreeperHiss,
-    CreeperHurt,
-    CreeperDeath,
+    ReaperHiss,
+    ReaperHurt,
+    ReaperDeath,
     SheepIdle,
     SheepHurt,
     SheepDeath,
@@ -209,9 +209,9 @@ impl SoundId {
             | SoundId::SkeletonIdle
             | SoundId::SkeletonHurt
             | SoundId::SkeletonDeath
-            | SoundId::CreeperHiss
-            | SoundId::CreeperHurt
-            | SoundId::CreeperDeath
+            | SoundId::ReaperHiss
+            | SoundId::ReaperHurt
+            | SoundId::ReaperDeath
             | SoundId::SheepIdle
             | SoundId::SheepHurt
             | SoundId::SheepDeath

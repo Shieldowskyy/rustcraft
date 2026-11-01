@@ -1776,7 +1776,7 @@ impl Renderer {
 
         let hurt_tint = if mob.hurt_timer > 0.0 {
             0.7
-        } else if mob.kind == MobKind::Creeper && mob.fuse > 0.0 && ((mob.fuse * 9.0) as i32 % 2 == 1) {
+        } else if mob.kind == MobKind::Reaper && mob.fuse > 0.0 && ((mob.fuse * 9.0) as i32 % 2 == 1) {
             0.85
         } else {
             0.0
@@ -2373,7 +2373,7 @@ impl Renderer {
                     self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
                 }
             }
-            MobKind::Creeper => {
+            MobKind::Reaper => {
                 let swell = if mob.fuse > 0.0 { 1.0 + (mob.fuse / 1.5).min(1.0) * 0.22 } else { 1.0 };
                 let body_box = MobBox {
                     center: Vec3::new(0.0, 0.72 * swell, 0.0),
@@ -2382,10 +2382,10 @@ impl Renderer {
                     pitch: 0.0,
                     roll: roll_angle,
                     origin: base_pos,
-                    tex_top: TextureId::CreeperSkin,
-                    tex_bottom: TextureId::CreeperSkin,
-                    tex_side: TextureId::CreeperSkin,
-                    tex_front: TextureId::CreeperSkin,
+                    tex_top: TextureId::ReaperSkin,
+                    tex_bottom: TextureId::ReaperSkin,
+                    tex_side: TextureId::ReaperSkin,
+                    tex_front: TextureId::ReaperSkin,
                 };
                 self.draw_mob_box(&body_box, hurt_tint, camera_pos, view_proj);
 
@@ -2398,10 +2398,10 @@ impl Renderer {
                     pitch: 0.0,
                     roll: roll_angle,
                     origin: head_pos,
-                    tex_top: TextureId::CreeperSkin,
-                    tex_bottom: TextureId::CreeperSkin,
-                    tex_side: TextureId::CreeperSkin,
-                    tex_front: TextureId::CreeperFace,
+                    tex_top: TextureId::ReaperSkin,
+                    tex_bottom: TextureId::ReaperSkin,
+                    tex_side: TextureId::ReaperSkin,
+                    tex_front: TextureId::ReaperFace,
                 };
                 self.draw_mob_box(&head_box, hurt_tint, camera_pos, view_proj);
 
@@ -2423,10 +2423,10 @@ impl Renderer {
                         pitch: swing,
                         roll: roll_angle,
                         origin: leg_origin,
-                        tex_top: TextureId::CreeperSkin,
-                        tex_bottom: TextureId::CreeperSkin,
-                        tex_side: TextureId::CreeperSkin,
-                        tex_front: TextureId::CreeperSkin,
+                        tex_top: TextureId::ReaperSkin,
+                        tex_bottom: TextureId::ReaperSkin,
+                        tex_side: TextureId::ReaperSkin,
+                        tex_front: TextureId::ReaperSkin,
                     };
                     self.draw_mob_box(&leg_box, hurt_tint, camera_pos, view_proj);
                 }

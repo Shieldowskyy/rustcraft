@@ -342,7 +342,7 @@ RustCraft includes a complete AI entity simulation with 14 distinct mob kinds (`
 * **Hostile Monsters**:
   * **Zombie**: Tracks player and villagers via pathfinding, deals melee damage, burns in daylight.
   * **Skeleton**: Ranged tracker, burns in daylight, drops bones (craftable into BoneMeal).
-  * **Creeper**: Silently approaches the player, hisses with an ignition countdown, and explodes creating crater voxel destruction; drops gunpowder.
+  * **Reaper**: Silently approaches the player, hisses with an ignition countdown, and explodes creating crater voxel destruction; drops gunpowder.
 * **Aquatic Marine Life**:
   * **Dolphin**: Swims smoothly with realistic banking and surfacing, jumps gracefully, and grants the player **Dolphin's Grace** (swimming speed boost) when nearby.
   * **Cod & Salmon**: Ambient schooling fish inhabiting rivers and oceans, drop raw fish.
@@ -481,7 +481,7 @@ rustcraft/
 │   │   ├── inventory.rs        # Item stacking, hotbar (10), main inventory (27)
 │   │   ├── item.rs             # Dropped ItemEntity physics
 │   │   ├── physics.rs          # AABB collision, ice/lava friction, step-jumping
-│   │   ├── mob.rs              # MobManager: 14 mobs (Pig, Cow, Chicken, Sheep, Zombie, Skeleton, Creeper, Dolphin, Fish, Villager, IronGolem)
+│   │   ├── mob.rs              # MobManager: 14 mobs (Pig, Cow, Chicken, Sheep, Zombie, Skeleton, Reaper, Dolphin, Fish, Villager, IronGolem)
 │   │   ├── trading.rs          # Villager professions, emerald trading economy & XP levels
 │   │   ├── particles.rs        # Block-break, hit sparks, explosion, rain/snow particles
 │   │   ├── recipe.rs           # 2×2 and 3×3 crafting recipe definitions

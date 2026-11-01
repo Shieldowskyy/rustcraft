@@ -9,7 +9,7 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
 | To modify / add: | Primary file/module: | Notes: |
 |---|---|---|
 | **New Block Type** | `src/world/block.rs`, `src/graphics/atlas.rs` | Add variant to `BlockId` (standard IDs 0..=162, custom modded IDs 163..=255), assign `TextureId`, add texture generator in `atlas.rs`. |
-| **New Mob Type** | `src/gameplay/mob.rs` | Add variant to `MobKind` (14 types: Pig, Cow, Chicken, Sheep, Zombie, Skeleton, Creeper, Dolphin, Cod, Salmon, Pufferfish, TropicalFish, Villager, IronGolem), define bounding boxes & AI tick, add draw calls in `software/mod.rs` and `platform/vita_gxm.rs`. |
+| **New Mob Type** | `src/gameplay/mob.rs` | Add variant to `MobKind` (14 types: Pig, Cow, Chicken, Sheep, Zombie, Skeleton, Reaper, Dolphin, Cod, Salmon, Pufferfish, TropicalFish, Villager, IronGolem), define bounding boxes & AI tick, add draw calls in `software/mod.rs` and `platform/vita_gxm.rs`. |
 | **Dynamic Weather** | `src/world/weather.rs` | Manage weather states (Clear, Rain, Thunderstorm), precipitation by biome temperature (rain/snow), storm audio, lightning flash, and `/weather` commands. |
 | **Villages & Trading** | `src/world/mod.rs`, `src/gameplay/trading.rs` | Village layout generator, professions, trade offerings, emerald currency, and trading window in `src/ui/container_ui.rs`. |
 | **New Texture / Atlas Layer** | `src/graphics/atlas.rs`, `src/graphics/gpu/mod.rs` | Add variant to `TextureId`, procedural rasterizer in `atlas.rs`, bidirectional layer mapping in `gpu/mod.rs`, and adjust `TEXTURE_LAYER_COUNT`. |

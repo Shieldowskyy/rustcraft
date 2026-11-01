@@ -11,7 +11,7 @@ pub enum MobKind {
     Sheep,
     Zombie,
     Skeleton,
-    Creeper,
+    Reaper,
     Dolphin,
     Cod,
     Salmon,
@@ -42,7 +42,7 @@ impl MobKind {
             MobKind::Sheep => 8.0,
             MobKind::Zombie => 20.0,
             MobKind::Skeleton => 20.0,
-            MobKind::Creeper => 20.0,
+            MobKind::Reaper => 20.0,
             MobKind::Dolphin => 10.0,
             MobKind::Cod => 3.0,
             MobKind::Salmon => 3.0,
@@ -62,7 +62,7 @@ impl MobKind {
             MobKind::Sheep => 0.45,
             MobKind::Zombie => 0.35,
             MobKind::Skeleton => 0.30,
-            MobKind::Creeper => 0.30,
+            MobKind::Reaper => 0.30,
             MobKind::Dolphin => 0.38,
             MobKind::Cod => 0.20,
             MobKind::Salmon => 0.24,
@@ -82,7 +82,7 @@ impl MobKind {
             MobKind::Sheep => 1.30,
             MobKind::Zombie => 1.85,
             MobKind::Skeleton => 1.85,
-            MobKind::Creeper => 1.70,
+            MobKind::Reaper => 1.70,
             MobKind::Dolphin => 0.60,
             MobKind::Cod => 0.30,
             MobKind::Salmon => 0.35,
@@ -99,7 +99,7 @@ impl MobKind {
         match self {
             MobKind::Pig | MobKind::Cow | MobKind::Chicken | MobKind::Sheep | MobKind::Villager | MobKind::IronGolem => false,
             MobKind::Dolphin | MobKind::Cod | MobKind::Salmon | MobKind::Pufferfish | MobKind::TropicalFish => false,
-            MobKind::Zombie | MobKind::Skeleton | MobKind::Creeper | MobKind::Spider => true,
+            MobKind::Zombie | MobKind::Skeleton | MobKind::Reaper | MobKind::Spider => true,
         }
     }
 
@@ -127,7 +127,7 @@ impl MobKind {
             MobKind::Sheep => "Sheep",
             MobKind::Zombie => "Zombie",
             MobKind::Skeleton => "Skeleton",
-            MobKind::Creeper => "Creeper",
+            MobKind::Reaper => "Reaper",
             MobKind::Dolphin => "Dolphin",
             MobKind::Cod => "Cod",
             MobKind::Salmon => "Salmon",
@@ -147,7 +147,7 @@ impl MobKind {
             MobKind::Sheep => Some(crate::audio::SoundId::SheepIdle),
             MobKind::Zombie => Some(crate::audio::SoundId::ZombieIdle),
             MobKind::Skeleton => Some(crate::audio::SoundId::SkeletonIdle),
-            MobKind::Creeper => None,
+            MobKind::Reaper => None,
             MobKind::Dolphin => Some(crate::audio::SoundId::DolphinIdle),
             MobKind::Villager => Some(crate::audio::SoundId::VillagerIdle),
             MobKind::IronGolem => Some(crate::audio::SoundId::IronGolemIdle),
@@ -164,7 +164,7 @@ impl MobKind {
             MobKind::Sheep => crate::audio::SoundId::SheepHurt,
             MobKind::Zombie => crate::audio::SoundId::ZombieHurt,
             MobKind::Skeleton => crate::audio::SoundId::SkeletonHurt,
-            MobKind::Creeper => crate::audio::SoundId::CreeperHurt,
+            MobKind::Reaper => crate::audio::SoundId::ReaperHurt,
             MobKind::Dolphin => crate::audio::SoundId::DolphinHurt,
             MobKind::Villager => crate::audio::SoundId::VillagerHurt,
             MobKind::IronGolem => crate::audio::SoundId::IronGolemHurt,
@@ -181,7 +181,7 @@ impl MobKind {
             MobKind::Sheep => crate::audio::SoundId::SheepDeath,
             MobKind::Zombie => crate::audio::SoundId::ZombieDeath,
             MobKind::Skeleton => crate::audio::SoundId::SkeletonDeath,
-            MobKind::Creeper => crate::audio::SoundId::CreeperDeath,
+            MobKind::Reaper => crate::audio::SoundId::ReaperDeath,
             MobKind::Dolphin => crate::audio::SoundId::DolphinDeath,
             MobKind::Villager => crate::audio::SoundId::VillagerDeath,
             MobKind::IronGolem => crate::audio::SoundId::IronGolemDeath,
@@ -614,12 +614,12 @@ impl Mob {
                 let dy = (target.y - self.pos.y).abs();
                 let dist_sq = dx * dx + dz * dz;
 
-                if self.kind == MobKind::Creeper {
+                if self.kind == MobKind::Reaper {
                     let total_dist_sq = dist_sq + (target.y - self.pos.y) * (target.y - self.pos.y);
                     if total_dist_sq < 3.2 * 3.2 {
                         if !self.is_ignited {
                             self.is_ignited = true;
-                            self.pending_sound = Some(crate::audio::SoundId::CreeperHiss);
+                            self.pending_sound = Some(crate::audio::SoundId::ReaperHiss);
                         }
                         self.fuse += dt;
                         if self.fuse >= 1.5 {
@@ -963,7 +963,7 @@ impl MobManager {
         self.love_hearts.clear();
 
         for mob in &mut self.mobs {
-            let was_exploding = mob.kind == MobKind::Creeper && mob.fuse >= 1.5;
+            let was_exploding = mob.kind == MobKind::Reaper && mob.fuse >= 1.5;
             let target_pos = if is_creative {
                 if mob.kind.is_hostile() {
                     None
@@ -976,7 +976,7 @@ impl MobManager {
                 Some(player_pos)
             };
 
-            if is_creative && mob.kind == MobKind::Creeper && mob.is_ignited {
+            if is_creative && mob.kind == MobKind::Reaper && mob.is_ignited {
                 mob.is_ignited = false;
                 mob.fuse = 0.0;
             }
@@ -999,7 +999,7 @@ impl MobManager {
             }
 
             mob.update(dt, world, &mut rng, target_pos, player_held);
-            if mob.kind == MobKind::Creeper && mob.fuse >= 1.5 && !was_exploding {
+            if mob.kind == MobKind::Reaper && mob.fuse >= 1.5 && !was_exploding {
                 self.pending_explosions.push(mob.center_pos());
             }
 
@@ -1226,7 +1226,7 @@ impl MobManager {
                                 });
                             }
                         }
-                        MobKind::Creeper => {
+                        MobKind::Reaper => {
                             if m.fuse < 1.45 {
                                 let gunpowder_count = 1 + (m.id % 2) as u8; // 1-2 gunpowder
                                 self.dying_drops.push(MobDrop {
@@ -1430,7 +1430,7 @@ impl MobManager {
                     } else if roll < 0.60 {
                         MobKind::Skeleton
                     } else if roll < 0.80 {
-                        MobKind::Creeper
+                        MobKind::Reaper
                     } else {
                         MobKind::Spider
                     };
@@ -1475,7 +1475,7 @@ impl MobManager {
                 } else if roll < 0.60 {
                     MobKind::Skeleton
                 } else if roll < 0.80 {
-                    MobKind::Creeper
+                    MobKind::Reaper
                 } else {
                     MobKind::Spider
                 };
@@ -1625,7 +1625,7 @@ mod tests {
             MobKind::Sheep,
             MobKind::Zombie,
             MobKind::Skeleton,
-            MobKind::Creeper,
+            MobKind::Reaper,
             MobKind::Spider,
         ];
         for kind in kinds {
@@ -1698,16 +1698,16 @@ mod tests {
         let world = crate::world::World::new_with_seed(12345);
         let player_pos = Vec3::new(5.0, 60.0, 5.0);
 
-        // Spawn a Creeper and a Zombie within targeting distance (2 blocks away)
-        let creeper_id = mob_manager.spawn_mob(MobKind::Creeper, Vec3::new(5.0, 60.0, 7.0));
+        // Spawn a Reaper and a Zombie within targeting distance (2 blocks away)
+        let reaper_id = mob_manager.spawn_mob(MobKind::Reaper, Vec3::new(5.0, 60.0, 7.0));
         let zombie_id = mob_manager.spawn_mob(MobKind::Zombie, Vec3::new(5.0, 60.0, 8.0));
 
         // 1. Creative mode: update mobs
         mob_manager.update(0.05, &world, player_pos, None, true);
 
-        let creeper = mob_manager.mobs.iter().find(|m| m.id == creeper_id).unwrap();
-        assert!(!creeper.is_ignited, "Creeper must not ignite or see player in Creative mode");
-        assert_eq!(creeper.fuse, 0.0, "Creeper fuse must stay 0 in Creative mode");
+        let reaper = mob_manager.mobs.iter().find(|m| m.id == reaper_id).unwrap();
+        assert!(!reaper.is_ignited, "Reaper must not ignite or see player in Creative mode");
+        assert_eq!(reaper.fuse, 0.0, "Reaper fuse must stay 0 in Creative mode");
 
         let zombie = mob_manager.mobs.iter().find(|m| m.id == zombie_id).unwrap();
         let angle_to_player = (player_pos.x - zombie.pos.x).atan2(player_pos.z - zombie.pos.z);
@@ -1716,8 +1716,8 @@ mod tests {
         // 2. Survival mode: update mobs
         mob_manager.update(0.05, &world, player_pos, None, false);
 
-        let creeper = mob_manager.mobs.iter().find(|m| m.id == creeper_id).unwrap();
-        assert!(creeper.is_ignited, "Creeper should ignite when seeing player in Survival mode");
+        let reaper = mob_manager.mobs.iter().find(|m| m.id == reaper_id).unwrap();
+        assert!(reaper.is_ignited, "Reaper should ignite when seeing player in Survival mode");
 
         let zombie = mob_manager.mobs.iter().find(|m| m.id == zombie_id).unwrap();
         let angle_to_player = (player_pos.x - zombie.pos.x).atan2(player_pos.z - zombie.pos.z);

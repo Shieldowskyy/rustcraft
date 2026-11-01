@@ -1033,8 +1033,8 @@ pub enum TextureId {
     SkeletonBone,
     SkeletonFace,
     SkeletonBody,
-    CreeperSkin,
-    CreeperFace,
+    ReaperSkin,
+    ReaperFace,
     Gunpowder,
     Farmland,
     FarmlandWet,
@@ -1556,8 +1556,8 @@ pub struct TextureAtlas {
     pub skeleton_bone: Texture,
     pub skeleton_face: Texture,
     pub skeleton_body: Texture,
-    pub creeper_skin: Texture,
-    pub creeper_face: Texture,
+    pub reaper_skin: Texture,
+    pub reaper_face: Texture,
     pub gunpowder: Texture,
     pub farmland: Texture,
     pub farmland_wet: Texture,
@@ -3031,7 +3031,7 @@ fn skeleton_body() -> Texture {
     tex
 }
 
-fn creeper_skin() -> Texture {
+fn reaper_skin() -> Texture {
     let mut tex = speckled([0.22, 0.62, 0.16], 0.18, 601);
     let lime = [0.38, 0.76, 0.22];
     let dark = [0.12, 0.38, 0.08];
@@ -3048,8 +3048,8 @@ fn creeper_skin() -> Texture {
     tex
 }
 
-fn creeper_face() -> Texture {
-    let mut tex = creeper_skin();
+fn reaper_face() -> Texture {
+    let mut tex = reaper_skin();
     let black = [0.03, 0.03, 0.03];
 
     // Left and right eyes (3x3 blocks)
@@ -4489,8 +4489,8 @@ impl TextureAtlas {
             skeleton_bone: skeleton_bone(),
             skeleton_face: skeleton_face(),
             skeleton_body: skeleton_body(),
-            creeper_skin: creeper_skin(),
-            creeper_face: creeper_face(),
+            reaper_skin: reaper_skin(),
+            reaper_face: reaper_face(),
             gunpowder: gunpowder(),
             farmland: farmland(),
             farmland_wet: farmland_wet(),
@@ -4717,8 +4717,8 @@ impl TextureAtlas {
             TextureId::SkeletonBone => &self.skeleton_bone,
             TextureId::SkeletonFace => &self.skeleton_face,
             TextureId::SkeletonBody => &self.skeleton_body,
-            TextureId::CreeperSkin => &self.creeper_skin,
-            TextureId::CreeperFace => &self.creeper_face,
+            TextureId::ReaperSkin => &self.reaper_skin,
+            TextureId::ReaperFace => &self.reaper_face,
             TextureId::Gunpowder => &self.gunpowder,
             TextureId::Farmland => &self.farmland,
             TextureId::FarmlandWet => &self.farmland_wet,

@@ -765,7 +765,7 @@ pub const ALL_TEXTURES: &[TextureId] = &[
     TextureId::DiamondOre, TextureId::DiamondBlock, TextureId::Diamond, TextureId::BedTop, TextureId::BedSide, TextureId::Ladder,
     TextureId::ZombieSkin, TextureId::ZombieFace, TextureId::ZombieShirt, TextureId::ZombiePants,
     TextureId::SkeletonBone, TextureId::SkeletonFace, TextureId::SkeletonBody,
-    TextureId::CreeperSkin, TextureId::CreeperFace, TextureId::Gunpowder,
+    TextureId::ReaperSkin, TextureId::ReaperFace, TextureId::Gunpowder,
     TextureId::WhiteWool, TextureId::OrangeWool, TextureId::MagentaWool, TextureId::LightBlueWool,
     TextureId::YellowWool, TextureId::LimeWool, TextureId::PinkWool, TextureId::GrayWool,
     TextureId::LightGrayWool, TextureId::CyanWool, TextureId::PurpleWool, TextureId::BlueWool,
@@ -980,8 +980,8 @@ pub fn atlas_uv(tex_id: TextureId) -> (f32, f32, f32, f32) {
         TextureId::SkeletonBone => 108,
         TextureId::SkeletonFace => 109,
         TextureId::SkeletonBody => 110,
-        TextureId::CreeperSkin => 111,
-        TextureId::CreeperFace => 112,
+        TextureId::ReaperSkin => 111,
+        TextureId::ReaperFace => 112,
         TextureId::Gunpowder => 113,
         TextureId::WhiteWool => 114,
         TextureId::OrangeWool => 115,
@@ -3173,7 +3173,7 @@ fn append_mob(
                 append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
             }
         }
-        MobKind::Creeper => {
+        MobKind::Reaper => {
             let swell = if mob.fuse > 0.0 { 1.0 + (mob.fuse / 1.5).min(1.0) * 0.22 } else { 1.0 };
             let body_box = GxmMobBox {
                 center: Vec3::new(0.0, 0.72 * swell, 0.0),
@@ -3182,10 +3182,10 @@ fn append_mob(
                 pitch: 0.0,
                 roll: roll_angle,
                 origin: base_pos,
-                tex_top: TextureId::CreeperSkin,
-                tex_bottom: TextureId::CreeperSkin,
-                tex_side: TextureId::CreeperSkin,
-                tex_front: TextureId::CreeperSkin,
+                tex_top: TextureId::ReaperSkin,
+                tex_bottom: TextureId::ReaperSkin,
+                tex_side: TextureId::ReaperSkin,
+                tex_front: TextureId::ReaperSkin,
             };
             append_mob_box(&body_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
 
@@ -3198,10 +3198,10 @@ fn append_mob(
                 pitch: 0.0,
                 roll: roll_angle,
                 origin: head_pos,
-                tex_top: TextureId::CreeperSkin,
-                tex_bottom: TextureId::CreeperSkin,
-                tex_side: TextureId::CreeperSkin,
-                tex_front: TextureId::CreeperFace,
+                tex_top: TextureId::ReaperSkin,
+                tex_bottom: TextureId::ReaperSkin,
+                tex_side: TextureId::ReaperSkin,
+                tex_front: TextureId::ReaperFace,
             };
             append_mob_box(&head_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
 
@@ -3223,10 +3223,10 @@ fn append_mob(
                     pitch: swing,
                     roll: roll_angle,
                     origin: leg_origin,
-                    tex_top: TextureId::CreeperSkin,
-                    tex_bottom: TextureId::CreeperSkin,
-                    tex_side: TextureId::CreeperSkin,
-                    tex_front: TextureId::CreeperSkin,
+                    tex_top: TextureId::ReaperSkin,
+                    tex_bottom: TextureId::ReaperSkin,
+                    tex_side: TextureId::ReaperSkin,
+                    tex_front: TextureId::ReaperSkin,
                 };
                 append_mob_box(&leg_box, camera_pos, vb, ib, v_count, i_count, max_verts, max_idx);
             }

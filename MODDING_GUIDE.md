@@ -217,7 +217,7 @@ Furnace recipes turn an input item into an output item when cooked over fuel (co
 
 You can add custom loot drops when hostile or passive mobs are killed.
 
-Supported targets: `"zombie"`, `"skeleton"`, `"creeper"`, `"pig"`, `"cow"`, `"chicken"`, `"sheep"`, `"dolphin"`, `"cod"`, `"salmon"`, `"pufferfish"`, `"tropical_fish"`.
+Supported targets: `"zombie"`, `"skeleton"`, `"reaper"`, `"pig"`, `"cow"`, `"chicken"`, `"sheep"`, `"dolphin"`, `"cod"`, `"salmon"`, `"pufferfish"`, `"tropical_fish"`.
 
 ```json
 "loot": [

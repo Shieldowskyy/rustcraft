@@ -1889,8 +1889,8 @@ impl RustCraftApp {
                             self.horiz_velocity.z += push_z * 3.0;
                         }
 
-                        // Hostile mob attack (creepers do not melee, they explode; ignored in creative mode)
-                        if !is_creative && mob.kind.is_hostile() && mob.kind != crate::gameplay::mob::MobKind::Creeper && dist_sq < 1.4 * 1.4 && (mob.pos.y - self.camera.position.y).abs() < 1.8 {
+                        // Hostile mob attack (reapers do not melee, they explode; ignored in creative mode)
+                        if !is_creative && mob.kind.is_hostile() && mob.kind != crate::gameplay::mob::MobKind::Reaper && dist_sq < 1.4 * 1.4 && (mob.pos.y - self.camera.position.y).abs() < 1.8 {
                             let to_mob = (mob.pos - self.camera.position).normalized();
                             let is_front = to_mob.dot(self.camera.forward()) > 0.35;
                             let (took_damage, blocked, item_broke) = self.player.take_physical_damage(2.0, is_front);

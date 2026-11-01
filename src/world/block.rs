@@ -129,7 +129,7 @@ pub enum BlockId {
     Ladder,
     /// Bone dropped by skeletons
     Bone,
-    /// Gunpowder dropped by creepers
+    /// Gunpowder dropped by reapers
     Gunpowder,
     /// Wooden Hoe
     WoodenHoe,

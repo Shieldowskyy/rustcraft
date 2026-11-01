@@ -422,7 +422,7 @@ impl ChatState {
                 self.add_info("/time set <day|noon|night|midnight|number> - Set time");
                 self.add_info("/give <item> [count] - Add items to inventory");
                 self.add_info("/tp <x> <y> <z> - Teleport player");
-                self.add_info("/spawn <pig|cow|chicken|zombie|skeleton|creeper> [count] - Spawn mob");
+                self.add_info("/spawn <pig|cow|chicken|zombie|skeleton|reaper> [count] - Spawn mob");
                 self.add_info("/mobs - List all currently spawned mobs in the world");
                 self.add_info("/heal - Restore health and hunger");
                 self.add_info("/kill - Kill the player");
@@ -626,7 +626,7 @@ impl ChatState {
                     "sheep" | "owca" => Some(MobKind::Sheep),
                     "zombie" | "zombi" => Some(MobKind::Zombie),
                     "skeleton" | "szkielet" => Some(MobKind::Skeleton),
-                    "creeper" => Some(MobKind::Creeper),
+                    "reaper" => Some(MobKind::Reaper),
                     "dolphin" | "delfin" => Some(MobKind::Dolphin),
                     "cod" | "dorsz" => Some(MobKind::Cod),
                     "salmon" | "losos" => Some(MobKind::Salmon),
@@ -648,7 +648,7 @@ impl ChatState {
                     self.add_success(format!("Spawned {} {:?}(s)", count, kind));
                     crate::log_debug!("Command", "Spawned {} {:?} mobs", count, kind);
                 } else {
-                    self.add_error("Usage: /spawn <pig|cow|chicken|sheep|zombie|skeleton|creeper|dolphin|cod|salmon|pufferfish|tropical_fish|villager> [count]");
+                    self.add_error("Usage: /spawn <pig|cow|chicken|sheep|zombie|skeleton|reaper|dolphin|cod|salmon|pufferfish|tropical_fish|villager> [count]");
                 }
             }
 
@@ -750,7 +750,7 @@ impl ChatState {
         let mut sheep = 0;
         let mut zombies = 0;
         let mut skeletons = 0;
-        let mut creepers = 0;
+        let mut reapers = 0;
         let mut dolphins = 0;
         let mut cod = 0;
         let mut salmon = 0;
@@ -768,7 +768,7 @@ impl ChatState {
                 MobKind::Sheep => sheep += 1,
                 MobKind::Zombie => zombies += 1,
                 MobKind::Skeleton => skeletons += 1,
-                MobKind::Creeper => creepers += 1,
+                MobKind::Reaper => reapers += 1,
                 MobKind::Dolphin => dolphins += 1,
                 MobKind::Cod => cod += 1,
                 MobKind::Salmon => salmon += 1,
@@ -802,8 +802,8 @@ impl ChatState {
         }
 
         self.add_info(format!(
-            "Summary: Pigs: {}, Cows: {}, Chickens: {}, Sheep: {}, Zombies: {}, Skeletons: {}, Creepers: {}, Spiders: {}, Dolphins: {}, Fish: {}, Villagers: {}, Iron Golems: {}",
-            pigs, cows, chickens, sheep, zombies, skeletons, creepers, spiders, dolphins, cod + salmon + pufferfish + tropical_fish, villagers, iron_golems
+            "Summary: Pigs: {}, Cows: {}, Chickens: {}, Sheep: {}, Zombies: {}, Skeletons: {}, Reapers: {}, Spiders: {}, Dolphins: {}, Fish: {}, Villagers: {}, Iron Golems: {}",
+            pigs, cows, chickens, sheep, zombies, skeletons, reapers, spiders, dolphins, cod + salmon + pufferfish + tropical_fish, villagers, iron_golems
         ));
     }
 }
@@ -967,7 +967,7 @@ mod tests {
         let mut mob_manager = MobManager::new();
         mob_manager.spawn_mob(MobKind::Zombie, Vec3::new(10.0, 64.0, 10.0));
         mob_manager.spawn_mob(MobKind::Skeleton, Vec3::new(15.0, 64.0, 15.0));
-        mob_manager.spawn_mob(MobKind::Creeper, Vec3::new(8.0, 64.0, 8.0));
+        mob_manager.spawn_mob(MobKind::Reaper, Vec3::new(8.0, 64.0, 8.0));
 
         let mut player = Player::new();
         let mut camera = Camera::new(Vec3::new(0.0, 64.0, 0.0));

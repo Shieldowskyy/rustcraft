@@ -278,7 +278,7 @@ pub fn get_custom_block_drop(broken_block: BlockId) -> Option<(BlockId, u8)> {
     None
 }
 
-/// Returns all custom drops for a defeated mob (pig, cow, chicken, zombie, skeleton, creeper).
+/// Returns all custom drops for a defeated mob (pig, cow, chicken, zombie, skeleton, reaper).
 pub fn get_custom_mob_drops(mob_name: &str) -> Vec<(BlockId, u8)> {
     let mut drops = Vec::new();
     let lower = mob_name.to_ascii_lowercase();
@@ -448,7 +448,7 @@ pub fn execute_mod_command(cmd_def: &ModCommandDef, chat: &mut ChatState, ctx: &
                     "chicken" => Some(crate::gameplay::mob::MobKind::Chicken),
                     "zombie" => Some(crate::gameplay::mob::MobKind::Zombie),
                     "skeleton" => Some(crate::gameplay::mob::MobKind::Skeleton),
-                    "creeper" => Some(crate::gameplay::mob::MobKind::Creeper),
+                    "reaper" => Some(crate::gameplay::mob::MobKind::Reaper),
                     "spider" => Some(crate::gameplay::mob::MobKind::Spider),
                     _ => None,
                 };
