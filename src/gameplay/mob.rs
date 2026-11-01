@@ -232,6 +232,7 @@ pub struct Mob {
     pub villager_profession: u8,
     pub trades: Vec<crate::gameplay::trading::TradeOffer>,
     pub attack_cooldown: f32,
+    pub home_pos: Option<Vec3>,
 }
 
 impl Mob {
@@ -305,6 +306,7 @@ impl Mob {
             villager_profession,
             trades,
             attack_cooldown: 0.0,
+            home_pos: (kind == MobKind::Villager).then_some(pos),
         }
     }
 
@@ -693,6 +695,21 @@ impl Mob {
             }
         }
 
+        let mut returning_home = false;
+        if self.kind == MobKind::Villager {
+            if let Some(home) = self.home_pos {
+                let dx = home.x - self.pos.x;
+                let dz = home.z - self.pos.z;
+                if dx * dx + dz * dz > 14.0 * 14.0 {
+                    self.target_yaw = dx.atan2(dz);
+                    self.ai_state_is_moving = true;
+                    self.ai_timer = 0.5;
+                    following_player = false;
+                    returning_home = true;
+                }
+            }
+        }
+
         // Animals get skittish and step away if player approaches closely without food
         let mut skittish_avoiding = false;
         if matches!(self.kind, MobKind::Pig | MobKind::Cow | MobKind::Chicken | MobKind::Sheep)
@@ -714,7 +731,7 @@ impl Mob {
         }
 
         // Villagers turn to look at nearby players
-        if self.kind == MobKind::Villager && !following_player && self.panic_timer <= 0.0 {
+        if self.kind == MobKind::Villager && !following_player && !returning_home && self.panic_timer <= 0.0 {
             if let Some(target) = player_pos {
                 let dx = target.x - self.pos.x;
                 let dz = target.z - self.pos.z;
@@ -727,7 +744,7 @@ impl Mob {
             }
         }
 
-        if !pursuing_player && !following_player && !skittish_avoiding {
+        if !pursuing_player && !following_player && !skittish_avoiding && !returning_home {
             self.ai_timer -= dt;
             if self.ai_timer <= 0.0 {
                 if self.panic_timer > 0.0 {
@@ -1018,11 +1035,19 @@ impl MobManager {
                 let dy = (player_pos.y - mob.pos.y).abs();
                 let dist_sq = dx * dx + dz * dz;
                 if dist_sq < 18.0 * 18.0 && dy < 10.0 {
-                    mob.attack_cooldown += dt;
-                    if mob.attack_cooldown >= 2.2 {
+                    let start_pos = mob.pos + Vec3::new(0.0, 1.4, 0.0);
+                    let aim_pos = player_pos + Vec3::new(0.0, 0.8, 0.0);
+                    let shot_delta = aim_pos - start_pos;
+                    let line_of_sight = world.raycast_camera_collision(
+                        start_pos,
+                        shot_delta,
+                        shot_delta.length(),
+                    ) >= shot_delta.length();
+                    if line_of_sight {
+                        mob.attack_cooldown += dt;
+                    }
+                    if line_of_sight && mob.attack_cooldown >= 2.2 {
                         mob.attack_cooldown = 0.0;
-                        let start_pos = mob.pos + Vec3::new(0.0, 1.4, 0.0);
-                        let aim_pos = player_pos + Vec3::new(0.0, 0.8, 0.0);
                         let dir = (aim_pos - start_pos).normalized();
                         let arrow = crate::gameplay::ArrowEntity::new(
                             start_pos,
@@ -1722,6 +1747,79 @@ mod tests {
         let zombie = mob_manager.mobs.iter().find(|m| m.id == zombie_id).unwrap();
         let angle_to_player = (player_pos.x - zombie.pos.x).atan2(player_pos.z - zombie.pos.z);
         assert!((zombie.target_yaw - angle_to_player).abs() < 1e-4, "Zombie should target player in Survival mode");
+    }
+
+    #[test]
+    fn test_skeleton_does_not_shoot_through_walls() {
+        use crate::world::{Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
+
+        let mut world = World::new_with_seed(1);
+        world.chunks.clear();
+        world.chunks.insert(
+            (0, 0),
+            Chunk {
+                cx: 0,
+                cz: 0,
+                blocks: vec![
+                    BlockId::Air.to_u8();
+                    (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize
+                ],
+                dirty: false,
+            },
+        );
+        for x in 0..CHUNK_SIZE_X {
+            for z in 0..CHUNK_SIZE_Z {
+                world.set_block(IVec3::new(x, 0, z), BlockId::Stone);
+            }
+        }
+        for y in 1..=3 {
+            world.set_block(IVec3::new(4, y, 2), BlockId::Stone);
+        }
+
+        let mut manager = MobManager::new();
+        manager.spawn_mob(MobKind::Skeleton, Vec3::new(2.5, 1.0, 2.5));
+        manager.update(0.05, &world, Vec3::new(8.5, 1.0, 2.5), None, false);
+
+        assert!(manager.pending_arrows.is_empty());
+        assert_eq!(manager.mobs[0].attack_cooldown, 0.0);
+    }
+
+    #[test]
+    fn test_villagers_return_to_their_home_after_wandering() {
+        use crate::world::{Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
+
+        let mut world = World::new_with_seed(1);
+        world.chunks.clear();
+        world.chunks.insert(
+            (0, 0),
+            Chunk {
+                cx: 0,
+                cz: 0,
+                blocks: vec![
+                    BlockId::Air.to_u8();
+                    (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize
+                ],
+                dirty: false,
+            },
+        );
+        for x in 0..CHUNK_SIZE_X {
+            for z in 0..CHUNK_SIZE_Z {
+                world.set_block(IVec3::new(x, 10, z), BlockId::Grass);
+            }
+        }
+
+        let home = Vec3::new(8.5, 11.0, 8.5);
+        let mut villager = Mob::new(1, MobKind::Villager, home);
+        let mut rng = 12345;
+        let mut max_distance_sq: f32 = 0.0;
+        for _ in 0..600 {
+            villager.update(0.05, &world, &mut rng, None, None);
+            let dx = villager.pos.x - home.x;
+            let dz = villager.pos.z - home.z;
+            max_distance_sq = max_distance_sq.max(dx * dx + dz * dz);
+        }
+
+        assert!(max_distance_sq < 17.0 * 17.0);
     }
 
     #[test]
