@@ -546,6 +546,8 @@ fn run_server(
     let mut last_fps_check = Instant::now();
     let mut ticks_in_second = 0;
     let mut current_tps = 20.0;
+    let mut tick_work_ms_total = 0.0;
+    let mut current_mspt = 0.0;
 
     while running.load(Ordering::Relaxed) {
         let frame_start = Instant::now();
@@ -1081,6 +1083,8 @@ fn run_server(
                 &mut broadcast_packets,
                 &mut time_of_day,
                 &config,
+                current_tps,
+                current_mspt,
             );
         }
 
@@ -1209,6 +1213,7 @@ fn run_server(
                 &mut time_of_day,
                 seed,
                 current_tps,
+                current_mspt,
                 start_time.elapsed(),
                 &running,
             );
@@ -1222,11 +1227,15 @@ fn run_server(
                 .count() as u32,
         );
 
-        // TPS Tracking
+        // TPS and server-loop work tracking
         ticks_in_second += 1;
+        tick_work_ms_total += frame_start.elapsed().as_secs_f32() * 1000.0;
         if last_fps_check.elapsed() >= Duration::from_secs(1) {
-            current_tps = ticks_in_second as f32 / last_fps_check.elapsed().as_secs_f32();
+            let sample_seconds = last_fps_check.elapsed().as_secs_f32();
+            current_tps = ticks_in_second as f32 / sample_seconds;
+            current_mspt = tick_work_ms_total / ticks_in_second.max(1) as f32;
             ticks_in_second = 0;
+            tick_work_ms_total = 0.0;
             last_fps_check = Instant::now();
         }
 
@@ -1258,6 +1267,7 @@ fn handle_console_command(
     time_of_day: &mut f32,
     seed: u32,
     tps: f32,
+    mspt: f32,
     uptime: Duration,
     running: &Arc<AtomicBool>,
 ) {
@@ -1275,6 +1285,7 @@ fn handle_console_command(
             println!("  tell <player> <message>  - Whisper a private message to a player");
             println!("  kick <player> [reason]   - Disconnect a player from the server");
             println!("  time [day|night|set <v>] - Display or change world time of day");
+            println!("  tps                      - Display server TPS and tick time");
             println!("  seed                     - Display the world generation seed");
             println!("  status                   - Display server TPS, uptime, and stats");
             println!("  tp <p1> <p2> / tp <p> x y z - Teleport a player");
@@ -1406,6 +1417,9 @@ fn handle_console_command(
             println!("  Time of Day:     {:.1}s", *time_of_day);
             println!("-----------------------------------------------------");
         }
+        "tps" => {
+            println!("[SERVER] TPS: {:.1} / 20.0 | MSPT: {:.2} ms", tps, mspt);
+        }
         "tp" => {
             if parts.len() == 5 {
                 let p_name = parts[1].to_lowercase();
@@ -1480,6 +1494,8 @@ fn handle_in_game_command(
     broadcast_packets: &mut Vec<ServerPacket>,
     time_of_day: &mut f32,
     config: &ServerConfig,
+    tps: f32,
+    mspt: f32,
 ) {
     let sender_nick = clients.get(&sender_id).map(|c| c.nickname.clone()).unwrap_or_default();
     let trimmed = cmd_line.trim_start_matches('/');
@@ -1493,7 +1509,7 @@ fn handle_in_game_command(
             if let Some(client) = clients.get_mut(&sender_id) {
                 let _ = client.send_packet(&ServerPacket::ChatMessage {
                     sender: "Server".to_string(),
-                    text: "Available commands: /help, /list, /time set <day|noon|night|midnight|number>, /seed, /spawn, /tp <player>, /tell <player> <msg>, /kick <player> [reason] (host only)".to_string(),
+                    text: "Available commands: /help, /list, /time set <day|noon|night|midnight|number>, /tps, /seed, /spawn, /tp <player>, /tell <player> <msg>, /kick <player> [reason] (host only)".to_string(),
                     is_system: true,
                 });
             }
@@ -1652,6 +1668,15 @@ fn handle_in_game_command(
                 let _ = client.send_packet(&ServerPacket::ChatMessage {
                     sender: "Server".to_string(),
                     text: "Usage: /time set <day|noon|night|midnight|number>".to_string(),
+                    is_system: true,
+                });
+            }
+        }
+        "tps" => {
+            if let Some(client) = clients.get_mut(&sender_id) {
+                let _ = client.send_packet(&ServerPacket::ChatMessage {
+                    sender: "Server".to_string(),
+                    text: format!("Server TPS: {:.1} / 20.0 | MSPT: {:.2} ms", tps, mspt),
                     is_system: true,
                 });
             }
@@ -1972,6 +1997,47 @@ mod tests {
 
         host.disconnect();
         guest.disconnect();
+        drop(server);
+    }
+
+    #[test]
+    fn in_game_tps_command_reports_server_metrics_to_requesting_client() {
+        let server = EmbeddedServer::start(
+            0,
+            EmbeddedServerState {
+                seed: 1,
+                time_of_day: 42.0,
+                spawn_pos: (8.5, 48.0, 8.5),
+                blocks: Vec::new(),
+                mobs: Vec::new(),
+            },
+        )
+        .unwrap();
+        let address = format!("127.0.0.1:{}", server.port);
+        let mut client = crate::net::NetworkClient::connect(&address, "TpsGuest").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && !client.is_connected {
+            client.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(client.is_connected);
+
+        client.send_chat("/tps");
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut received_metrics = false;
+        while Instant::now() < deadline && !received_metrics {
+            received_metrics = client.update(0.05).into_iter().any(|event| {
+                matches!(
+                    event,
+                    crate::net::NetworkEvent::ChatMessage { text, is_system: true, .. }
+                        if text.contains("Server TPS:") && text.contains("MSPT:")
+                )
+            });
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(received_metrics, "server should respond with TPS and MSPT");
+
+        client.disconnect();
         drop(server);
     }
 

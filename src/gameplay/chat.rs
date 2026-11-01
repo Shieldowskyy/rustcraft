@@ -994,6 +994,7 @@ impl ChatState {
                 self.add_info("--- Showing help page (Minecraft Commands) ---");
                 self.add_info("/gamemode <survival|creative> - Change game mode");
                 self.add_info("/time set <day|noon|night|midnight|number> - Set time");
+                self.add_info("/tps - Show multiplayer server tick rate and tick time");
                 self.add_info("/give <item> [count] - Add items to inventory");
                 self.add_info("/tp <x> <y> <z> or /tp <player> - Teleport");
                 self.add_info(
@@ -1085,6 +1086,10 @@ impl ChatState {
                         self.add_error("Usage: /time <set|query> <value>");
                     }
                 }
+            }
+
+            "tps" => {
+                self.add_info("TPS is available when connected to a multiplayer server or host.");
             }
 
             "weather" => {
