@@ -27,6 +27,8 @@ pub const CHUNK_SIZE_X: i32 = 16;
 pub const CHUNK_SIZE_Y: i32 = 64;
 pub const CHUNK_SIZE_Z: i32 = 16;
 
+const MAX_BLOCK_LIGHT_RADIUS: i32 = 14;
+
 pub const VIEW_DISTANCE: i32 = 4;
 pub const DEFAULT_WORLD_SEED: u32 = 1337;
 
@@ -1800,7 +1802,8 @@ impl World {
 
         let (cx, cz, lx, lz) = World::world_to_chunk(pos.x, pos.z);
         if let Some(chunk) = self.chunks.get_mut(&(cx, cz)) {
-            let changed = chunk.get_local(lx, pos.y, lz) != block;
+            let previous_block = chunk.get_local(lx, pos.y, lz);
+            let changed = previous_block != block;
             chunk.set_local(lx, pos.y, lz, block);
             self.block_overrides
                 .entry((cx, cz))
@@ -1829,6 +1832,18 @@ impl World {
             if lx == CHUNK_SIZE_X - 1 { self.mark_dirty(cx + 1, cz); }
             if lz == 0 { self.mark_dirty(cx, cz - 1); }
             if lz == CHUNK_SIZE_Z - 1 { self.mark_dirty(cx, cz + 1); }
+
+            let light_source_changed = previous_block == BlockId::Torch
+                || block == BlockId::Torch
+                || ruststone_light_params(previous_block).is_some()
+                || ruststone_light_params(block).is_some();
+            let light_occlusion_changed = previous_block.is_opaque() != block.is_opaque();
+            if changed
+                && (light_source_changed
+                    || (light_occlusion_changed && self.has_nearby_light_source(pos)))
+            {
+                self.mark_light_affected_chunks_dirty(pos);
+            }
         }
     }
 
@@ -1888,9 +1903,13 @@ impl World {
                 for lx in 0..CHUNK_SIZE_X {
                     let b = chunk.get_local(lx, ly, lz);
                     if b == BlockId::Torch {
-                        self.torches.insert(IVec3::new(base_x + lx, ly, base_z + lz));
+                        let pos = IVec3::new(base_x + lx, ly, base_z + lz);
+                        self.torches.insert(pos);
+                        self.mark_light_affected_chunks_dirty(pos);
                     } else if let Some(params) = ruststone_light_params(b) {
-                        self.ruststone_lights.insert(IVec3::new(base_x + lx, ly, base_z + lz), params);
+                        let pos = IVec3::new(base_x + lx, ly, base_z + lz);
+                        self.ruststone_lights.insert(pos, params);
+                        self.mark_light_affected_chunks_dirty(pos);
                     }
                 }
             }
@@ -2180,6 +2199,36 @@ impl World {
 
     fn mark_dirty(&mut self, cx: i32, cz: i32) {
         if let Some(c) = self.chunks.get_mut(&(cx, cz)) { c.dirty = true; }
+    }
+
+    fn mark_light_affected_chunks_dirty(&mut self, pos: IVec3) {
+        let min_cx = pos.x.saturating_sub(MAX_BLOCK_LIGHT_RADIUS) >> 4;
+        let max_cx = pos.x.saturating_add(MAX_BLOCK_LIGHT_RADIUS) >> 4;
+        let min_cz = pos.z.saturating_sub(MAX_BLOCK_LIGHT_RADIUS) >> 4;
+        let max_cz = pos.z.saturating_add(MAX_BLOCK_LIGHT_RADIUS) >> 4;
+
+        for cx in min_cx..=max_cx {
+            for cz in min_cz..=max_cz {
+                self.mark_dirty(cx, cz);
+            }
+        }
+    }
+
+    fn has_nearby_light_source(&self, pos: IVec3) -> bool {
+        let is_within_radius = |source: IVec3, radius: f32| {
+            let dx = (pos.x - source.x) as f32;
+            let dy = (pos.y - source.y) as f32;
+            let dz = (pos.z - source.z) as f32;
+            dx * dx + dy * dy + dz * dz <= radius * radius
+        };
+
+        self.torches
+            .iter()
+            .any(|&source| is_within_radius(source, MAX_BLOCK_LIGHT_RADIUS as f32))
+            || self
+                .ruststone_lights
+                .iter()
+                .any(|(&source, &(radius, _))| is_within_radius(source, radius))
     }
 
     fn mark_neighbors_dirty(&mut self, cx: i32, cz: i32) {
@@ -3105,5 +3154,58 @@ mod tests {
         assert!(center_chunk.blocks.contains(&BlockId::Torch.to_u8()));
         assert!(Chunk::generate(vcx + 1, vcz, seed).blocks.contains(&BlockId::Bed.to_u8()));
         assert!(Chunk::generate(vcx - 1, vcz, seed).blocks.contains(&BlockId::Furnace.to_u8()));
+    }
+
+    #[test]
+    fn changing_torch_dirties_neighbor_chunk_within_light_radius() {
+        let mut world = World::new();
+        for cx in 0..=1 {
+            for cz in 0..=1 {
+                world.chunks.insert(
+                    (cx, cz),
+                    Chunk {
+                        cx,
+                        cz,
+                        blocks: vec![0; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
+                        dirty: false,
+                    },
+                );
+            }
+        }
+
+        let torch_pos = IVec3::new(14, 32, 8);
+        world.set_block(torch_pos, BlockId::Torch);
+        assert!(
+            world.chunks.get(&(1, 0)).unwrap().dirty,
+            "placing a torch near the border should rebuild the lit neighbor chunk"
+        );
+        let target_job = world.create_mesh_job((1, 0)).unwrap();
+        assert!(target_job.lights.iter().any(|light| light.pos == torch_pos));
+        let target_cache = mesher::ChunkNeighborCache::from_job(&target_job);
+        assert!(
+            target_cache.sample_block_light(16.5, 32.5, 8.5) > 0.0,
+            "the neighboring chunk should receive light from the torch"
+        );
+
+        world.chunks.get_mut(&(1, 0)).unwrap().dirty = false;
+        world.set_block(torch_pos, BlockId::Air);
+        assert!(
+            world.chunks.get(&(1, 0)).unwrap().dirty,
+            "removing a torch should rebuild the neighbor chunk to remove stale light"
+        );
+
+        world.chunks.get_mut(&(1, 1)).unwrap().dirty = false;
+        let mut streamed_chunk = Chunk {
+            cx: 0,
+            cz: 0,
+            blocks: vec![0; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
+            dirty: false,
+        };
+        streamed_chunk.set_local(14, 32, 14, BlockId::Torch);
+        world.index_chunk_lights(&streamed_chunk);
+        assert!(
+            world.chunks.get(&(1, 1)).unwrap().dirty,
+            "indexing a streamed torch should rebuild diagonal chunks in its light radius"
+        );
     }
 }
