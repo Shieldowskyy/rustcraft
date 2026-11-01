@@ -2680,12 +2680,6 @@ impl RustCraftApp {
                             self.renderer.draw_mob(mob, &effective_camera, &view_proj);
                         }
 
-                        if let Some(client) = &self.net_client {
-                            for rp in client.remote_players.values() {
-                                self.renderer.draw_remote_player(rp, &effective_camera, &view_proj);
-                            }
-                        }
-
                         for tnt in &self.world.primed_tnts {
                             self.renderer.draw_tnt_cube(tnt.pos, tnt.fuse, &effective_camera, &view_proj);
                         }
@@ -2765,6 +2759,12 @@ impl RustCraftApp {
                         // Weather Precipitation (Rain & Snow) and Lightning Bolts
                         self.renderer.draw_precipitation(&self.world, &effective_camera, &view_proj, self.total_time);
                         self.renderer.draw_lightning_bolts(&self.world.weather.active_lightning, &view_proj);
+                    }
+
+                    if let Some(client) = &self.net_client {
+                        for rp in client.remote_players.values() {
+                            self.renderer.draw_remote_player(rp, &effective_camera, &view_proj);
+                        }
                     }
 
                     let block_at_camera = self.world.get_block(self.camera.position.floor_to_ivec());
