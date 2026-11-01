@@ -276,7 +276,7 @@ pub struct GameSettings {
     pub nickname: String,
 
     // Audio options
-    /// Master volume [0.0, 1.0] (default: 0.8).
+    /// Master volume [0.0, 1.0] (default: 0.5).
     pub master_volume: f32,
     /// Sound effects volume [0.0, 1.0] (default: 1.0).
     pub sfx_volume: f32,
@@ -332,7 +332,7 @@ impl Default for GameSettings {
             profiler_server: false,
             profiler_server_port: 8080,
             nickname: generate_default_nickname(),
-            master_volume: 0.8,
+            master_volume: 0.5,
             sfx_volume: 1.0,
             music_volume: 0.5,
             ambient_volume: 0.7,
@@ -455,7 +455,7 @@ impl GameSettings {
                 };
 
                 let audio_offset = 35 + if bytes.len() >= 35 { bytes[34] as usize } else { 0 };
-                let master_volume = round_to_5_pct(bytes.get(audio_offset).map(|&b| b as f32 / 100.0).unwrap_or(0.8));
+                let master_volume = round_to_5_pct(bytes.get(audio_offset).map(|&b| b as f32 / 100.0).unwrap_or(0.5));
                 let sfx_volume = round_to_5_pct(bytes.get(audio_offset + 1).map(|&b| b as f32 / 100.0).unwrap_or(1.0));
                 let music_volume = round_to_5_pct(bytes.get(audio_offset + 2).map(|&b| b as f32 / 100.0).unwrap_or(0.5));
                 let ambient_volume = round_to_5_pct(bytes.get(audio_offset + 3).map(|&b| b as f32 / 100.0).unwrap_or(0.7));
@@ -926,6 +926,11 @@ mod tests {
 
         settings.cycle_master_volume(false);
         assert_eq!((settings.master_volume * 100.0).round() as i32, 100);
+    }
+
+    #[test]
+    fn test_default_master_volume_is_50_percent() {
+        assert_eq!(GameSettings::default().master_volume, 0.5);
     }
 
     #[test]
