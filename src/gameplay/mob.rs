@@ -415,7 +415,15 @@ impl Mob {
         }
     }
 
-    pub fn update(&mut self, dt: f32, world: &World, rng: &mut u32, player_pos: Option<Vec3>, player_held: Option<BlockId>) {
+    pub fn update(
+        &mut self,
+        dt: f32,
+        world: &World,
+        rng: &mut u32,
+        player_pos: Option<Vec3>,
+        player_held: Option<BlockId>,
+        villager_pos: Option<Vec3>,
+    ) {
         let rand_f32 = |state: &mut u32| -> f32 {
             *state = state.wrapping_mul(1664525).wrapping_add(1013904223);
             (*state as f32) / (u32::MAX as f32)
@@ -666,13 +674,25 @@ impl Mob {
         if self.kind.is_hostile()
             || (self.kind == MobKind::IronGolem && self.player_anger_timer > 0.0)
         {
-            if let Some(target) = player_pos {
+            let target = if self.kind == MobKind::Zombie {
+                villager_pos.or(player_pos)
+            } else {
+                player_pos
+            };
+            if let Some(target) = target {
                 let dx = target.x - self.pos.x;
                 let dz = target.z - self.pos.z;
                 let dy = (target.y - self.pos.y).abs();
                 let dist_sq = dx * dx + dz * dz;
 
-                if self.kind == MobKind::Reaper {
+                if self.kind == MobKind::Zombie && villager_pos.is_some() {
+                    if dist_sq < 24.0 * 24.0 && dy < 12.0 {
+                        pursuing_player = true;
+                        self.target_yaw = dx.atan2(dz);
+                        self.ai_state_is_moving = dist_sq > 1.5 * 1.5;
+                        self.head_yaw_offset = 0.0;
+                    }
+                } else if self.kind == MobKind::Reaper {
                     let total_dist_sq = dist_sq + (target.y - self.pos.y) * (target.y - self.pos.y);
                     if total_dist_sq < 3.2 * 3.2 {
                         if !self.is_ignited {
@@ -1044,10 +1064,37 @@ impl MobManager {
         self.breeding_hearts.clear();
         self.love_hearts.clear();
 
-        for mob in &mut self.mobs {
+        let villagers: Vec<(usize, Vec3)> = self.mobs.iter().enumerate()
+            .filter(|(_, mob)| mob.kind == MobKind::Villager && !mob.is_dead)
+            .map(|(index, mob)| (index, mob.pos))
+            .collect();
+        let mut zombie_attacks = Vec::new();
+
+        for (mob_index, mob) in self.mobs.iter_mut().enumerate() {
             if mob.kind == MobKind::IronGolem {
                 mob.player_anger_timer = (mob.player_anger_timer - dt).max(0.0);
+            }
+            if mob.kind == MobKind::IronGolem || mob.kind == MobKind::Zombie {
                 mob.attack_cooldown = (mob.attack_cooldown - dt).max(0.0);
+            }
+            let villager_target = if mob.kind == MobKind::Zombie && !mob.is_dead {
+                villagers.iter().filter_map(|&(villager_index, pos)| {
+                    let dx = pos.x - mob.pos.x;
+                    let dy = (pos.y - mob.pos.y).abs();
+                    let dz = pos.z - mob.pos.z;
+                    let distance_sq = dx * dx + dz * dz;
+                    (distance_sq < 24.0 * 24.0 && dy < 12.0)
+                        .then_some((villager_index, pos, distance_sq))
+                }).min_by(|a, b| a.2.total_cmp(&b.2))
+            } else {
+                None
+            };
+            let villager_pos = villager_target.map(|(_, pos, _)| pos);
+            if let Some((villager_index, _, distance_sq)) = villager_target {
+                if distance_sq <= 1.5 * 1.5 && mob.attack_cooldown <= 0.0 {
+                    zombie_attacks.push((mob_index, villager_index));
+                    mob.attack_cooldown = 1.0;
+                }
             }
             let was_exploding = mob.kind == MobKind::Reaper && mob.fuse >= 1.5;
             let target_pos = if is_creative {
@@ -1086,7 +1133,7 @@ impl MobManager {
                 }
             }
 
-            mob.update(dt, world, &mut rng, target_pos, player_held);
+            mob.update(dt, world, &mut rng, target_pos, player_held, villager_pos);
             if mob.kind == MobKind::Reaper && mob.fuse >= 1.5 && !was_exploding {
                 self.pending_explosions.push(mob.center_pos());
             }
@@ -1137,6 +1184,14 @@ impl MobManager {
             if dist_sq > 75.0 * 75.0 && !mob.is_dead {
                 mob.despawn_pending = true;
             }
+        }
+
+        for (zombie_index, villager_index) in zombie_attacks {
+            let direction = self.mobs[villager_index].pos - self.mobs[zombie_index].pos;
+            self.mobs[villager_index].take_damage(
+                3.0,
+                Vec3::new(direction.x, 1.0, direction.z),
+            );
         }
 
         // Iron Golem AI: defend villagers and player by attacking nearby hostile mobs
@@ -1792,12 +1847,12 @@ mod tests {
         sheep.eat_grass_timer = 1.0;
         let world = crate::world::World::new_with_seed(42);
         let mut rng = 12345;
-        sheep.update(0.5, &world, &mut rng, None, None);
+        sheep.update(0.5, &world, &mut rng, None, None, None);
         assert!(sheep.is_sheared);
         assert!(sheep.eat_grass_timer > 0.0);
 
         // Regrow wool
-        sheep.update(0.6, &world, &mut rng, None, None);
+        sheep.update(0.6, &world, &mut rng, None, None, None);
         assert_eq!(sheep.eat_grass_timer, 0.0);
         assert!(!sheep.is_sheared, "Wool should regrow after grazing");
     }
@@ -1851,6 +1906,32 @@ mod tests {
 
         let distant_golem = manager.mobs.iter().find(|mob| mob.id == distant_golem_id).unwrap();
         assert_eq!(distant_golem.player_anger_timer, 0.0);
+    }
+
+    #[test]
+    fn test_zombies_attack_nearby_villagers() {
+        let mut manager = MobManager::new();
+        let world = World::new_with_seed(1);
+        let villager_id = manager.spawn_mob(MobKind::Villager, Vec3::new(1.0, 60.0, 0.0));
+        manager.spawn_mob(MobKind::Zombie, Vec3::new(0.0, 60.0, 0.0));
+
+        manager.update(0.1, &world, Vec3::new(20.0, 60.0, 0.0), None, false);
+
+        let villager = manager.mobs.iter().find(|mob| mob.id == villager_id).unwrap();
+        assert_eq!(villager.health, MobKind::Villager.max_health() - 3.0);
+    }
+
+    #[test]
+    fn test_zombies_ignore_villagers_outside_target_range() {
+        let mut manager = MobManager::new();
+        let world = World::new_with_seed(1);
+        let villager_id = manager.spawn_mob(MobKind::Villager, Vec3::new(30.0, 60.0, 0.0));
+        manager.spawn_mob(MobKind::Zombie, Vec3::new(0.0, 60.0, 0.0));
+
+        manager.update(0.1, &world, Vec3::new(40.0, 60.0, 0.0), None, false);
+
+        let villager = manager.mobs.iter().find(|mob| mob.id == villager_id).unwrap();
+        assert_eq!(villager.health, MobKind::Villager.max_health());
     }
 
     #[test]
@@ -1962,7 +2043,7 @@ mod tests {
         let mut rng = 12345;
         let mut max_distance_sq: f32 = 0.0;
         for _ in 0..600 {
-            villager.update(0.05, &world, &mut rng, None, None);
+            villager.update(0.05, &world, &mut rng, None, None, None);
             let dx = villager.pos.x - home.x;
             let dz = villager.pos.z - home.z;
             max_distance_sq = max_distance_sq.max(dx * dx + dz * dz);
