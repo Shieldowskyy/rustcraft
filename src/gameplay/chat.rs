@@ -49,6 +49,16 @@ pub struct ChatState {
     pub history_idx: Option<usize>,
     pub cursor_blink: f32,
     pub saved_draft: String,
+    pub selection_anchor: Option<(usize, usize)>,
+    pub selection_focus: Option<(usize, usize)>,
+    input_selection: Option<(usize, usize)>,
+    context_menu: Option<ChatContextMenu>,
+    selecting_text: bool,
+    was_mouse_left: bool,
+    was_mouse_right: bool,
+    was_copy: bool,
+    was_paste: bool,
+    was_select_all: bool,
 
     // Key edge trackers
     was_backspace: bool,
@@ -60,6 +70,19 @@ pub struct ChatState {
     was_enter: bool,
     was_escape: bool,
     pub ignore_slash_until_release: bool,
+}
+
+#[derive(Clone, Copy)]
+struct ChatContextMenu {
+    x: i32,
+    y: i32,
+    target: ChatContextTarget,
+}
+
+#[derive(Clone, Copy)]
+enum ChatContextTarget {
+    Input,
+    Message(usize),
 }
 
 impl Default for ChatState {
@@ -79,6 +102,16 @@ impl ChatState {
             history_idx: None,
             cursor_blink: 0.0,
             saved_draft: String::new(),
+            selection_anchor: None,
+            selection_focus: None,
+            input_selection: None,
+            context_menu: None,
+            selecting_text: false,
+            was_mouse_left: false,
+            was_mouse_right: false,
+            was_copy: false,
+            was_paste: false,
+            was_select_all: false,
 
             was_backspace: false,
             was_delete: false,
@@ -100,6 +133,11 @@ impl ChatState {
         self.cursor_blink = 0.0;
         self.saved_draft.clear();
         self.ignore_slash_until_release = initial_text.starts_with('/');
+        self.selection_anchor = None;
+        self.selection_focus = None;
+        self.input_selection = None;
+        self.context_menu = None;
+        self.selecting_text = false;
         crate::log_debug!("Chat", "Chat opened with prefix: '{}'", initial_text);
     }
 
@@ -109,6 +147,11 @@ impl ChatState {
         self.cursor_pos = 0;
         self.history_idx = None;
         self.ignore_slash_until_release = false;
+        self.selection_anchor = None;
+        self.selection_focus = None;
+        self.input_selection = None;
+        self.context_menu = None;
+        self.selecting_text = false;
         crate::log_debug!("Chat", "Chat closed");
     }
 
@@ -181,6 +224,35 @@ impl ChatState {
             return Some(ChatAction::Close);
         }
 
+        let control_down = input.key_ctrl
+            || input.is_key_down(crate::core::controls::KeyCode::Ctrl)
+            || input.is_key_down(crate::core::controls::KeyCode::LeftCtrl)
+            || input.is_key_down(crate::core::controls::KeyCode::RightCtrl);
+        let copy_down = input.key_c || input.is_key_down(crate::core::controls::KeyCode::C);
+        let copy_pressed = control_down && copy_down && !self.was_copy;
+        self.was_copy = control_down && copy_down;
+        if copy_pressed {
+            if let Some(selected) = self.selected_text().or_else(|| self.selected_input_text()) {
+                crate::ui::clipboard::set_clipboard(&selected);
+            }
+        }
+        let select_all_down =
+            control_down && (input.key_a || input.is_key_down(crate::core::controls::KeyCode::A));
+        if select_all_down && !self.was_select_all {
+            self.input_selection = Some((0, self.input_text.len()));
+            self.selection_anchor = None;
+            self.selection_focus = None;
+        }
+        self.was_select_all = select_all_down;
+
+        let paste_down =
+            control_down && (input.key_v || input.is_key_down(crate::core::controls::KeyCode::V));
+        let paste_pressed = paste_down && !self.was_paste;
+        self.was_paste = paste_down;
+        if paste_pressed {
+            self.paste_into_input(&crate::ui::clipboard::get_clipboard());
+        }
+
         // 3. Arrow keys: Up/Down for command history
         let up_pressed = input.key_up && !self.was_up;
         self.was_up = input.key_up;
@@ -188,6 +260,7 @@ impl ChatState {
         self.was_down = input.key_down;
 
         if up_pressed && !self.history.is_empty() {
+            self.input_selection = None;
             if self.history_idx.is_none() {
                 self.saved_draft = self.input_text.clone();
                 let new_idx = self.history.len() - 1;
@@ -204,6 +277,7 @@ impl ChatState {
             }
             self.cursor_blink = 0.0;
         } else if down_pressed && self.history_idx.is_some() {
+            self.input_selection = None;
             let idx = self.history_idx.unwrap();
             if idx + 1 < self.history.len() {
                 let new_idx = idx + 1;
@@ -221,31 +295,63 @@ impl ChatState {
         // 4. Cursor Navigation (Left / Right)
         let left_pressed = input.key_left && !self.was_left;
         self.was_left = input.key_left;
-        if left_pressed && self.cursor_pos > 0 {
-            self.cursor_pos -= 1;
+        if left_pressed {
+            if let Some((start, _)) = self.input_selection.take() {
+                self.cursor_pos = start;
+            } else if self.cursor_pos > 0 {
+                self.cursor_pos = self.input_text[..self.cursor_pos]
+                    .char_indices()
+                    .last()
+                    .map(|(index, _)| index)
+                    .unwrap_or(0);
+            }
             self.cursor_blink = 0.0;
         }
 
         let right_pressed = input.key_right && !self.was_right;
         self.was_right = input.key_right;
-        if right_pressed && self.cursor_pos < self.input_text.len() {
-            self.cursor_pos += 1;
+        if right_pressed {
+            if let Some((_, end)) = self.input_selection.take() {
+                self.cursor_pos = end;
+            } else if self.cursor_pos < self.input_text.len() {
+                self.cursor_pos = self.input_text[self.cursor_pos..]
+                    .char_indices()
+                    .nth(1)
+                    .map(|(offset, _)| self.cursor_pos + offset)
+                    .unwrap_or(self.input_text.len());
+            }
             self.cursor_blink = 0.0;
         }
 
         // 5. Backspace & Delete
         let bs_pressed = input.key_backspace && !self.was_backspace;
         self.was_backspace = input.key_backspace;
-        if bs_pressed && self.cursor_pos > 0 {
-            self.input_text.remove(self.cursor_pos - 1);
-            self.cursor_pos -= 1;
+        if bs_pressed && self.input_selection.is_some() {
+            self.delete_input_selection();
+            self.cursor_blink = 0.0;
+        } else if bs_pressed && self.cursor_pos > 0 {
+            let previous = self.input_text[..self.cursor_pos]
+                .char_indices()
+                .last()
+                .map(|(index, _)| index)
+                .unwrap_or(0);
+            self.input_text.replace_range(previous..self.cursor_pos, "");
+            self.cursor_pos = previous;
             self.cursor_blink = 0.0;
         }
 
         let del_pressed = input.key_del && !self.was_delete;
         self.was_delete = input.key_del;
-        if del_pressed && self.cursor_pos < self.input_text.len() {
-            self.input_text.remove(self.cursor_pos);
+        if del_pressed && self.input_selection.is_some() {
+            self.delete_input_selection();
+            self.cursor_blink = 0.0;
+        } else if del_pressed && self.cursor_pos < self.input_text.len() {
+            let next = self.input_text[self.cursor_pos..]
+                .char_indices()
+                .nth(1)
+                .map(|(offset, _)| self.cursor_pos + offset)
+                .unwrap_or(self.input_text.len());
+            self.input_text.replace_range(self.cursor_pos..next, "");
             self.cursor_blink = 0.0;
         }
 
@@ -254,18 +360,316 @@ impl ChatState {
             self.ignore_slash_until_release = false;
         }
 
-        for &ch in &input.typed_chars {
+        for &ch in input
+            .typed_chars
+            .iter()
+            .filter(|_| !copy_pressed && !paste_pressed && !select_all_down)
+        {
             if self.ignore_slash_until_release && ch == '/' {
                 continue;
             }
             if !ch.is_control() {
+                self.delete_input_selection();
                 self.input_text.insert(self.cursor_pos, ch);
-                self.cursor_pos += 1;
+                self.cursor_pos += ch.len_utf8();
                 self.cursor_blink = 0.0;
             }
         }
 
         None
+    }
+
+    pub fn update_text_selection(
+        &mut self,
+        input: &crate::app::InputState,
+        width: usize,
+        height: usize,
+    ) {
+        let left_pressed = input.mouse_left && !self.was_mouse_left;
+        self.was_mouse_left = input.mouse_left;
+        let right_pressed = input.mouse_right && !self.was_mouse_right;
+        self.was_mouse_right = input.mouse_right;
+
+        if !self.is_open {
+            self.selecting_text = false;
+            self.context_menu = None;
+            return;
+        }
+
+        if right_pressed {
+            if let Some((x, y)) = input.mouse_pos.map(|(x, y)| (x as i32, y as i32)) {
+                if self.input_rect_contains(x, y, width, height) {
+                    let clicked_cursor = self.input_cursor_at(x, width);
+                    if !self.input_selection.is_some_and(|(start, end)| {
+                        clicked_cursor >= start && clicked_cursor <= end
+                    }) {
+                        self.cursor_pos = clicked_cursor;
+                        self.input_selection = None;
+                    }
+                    self.context_menu = Some(ChatContextMenu {
+                        x: x.clamp(0, (width as i32 - 116).max(0)),
+                        y: y.clamp(0, (height as i32 - 57).max(0)),
+                        target: ChatContextTarget::Input,
+                    });
+                    return;
+                }
+                if let Some((message_index, _)) = self.message_position_at(x, y, width, height) {
+                    self.context_menu = Some(ChatContextMenu {
+                        x: x.clamp(0, (width as i32 - 116).max(0)),
+                        y: y.clamp(0, (height as i32 - 57).max(0)),
+                        target: ChatContextTarget::Message(message_index),
+                    });
+                    return;
+                }
+            }
+            self.context_menu = None;
+        }
+
+        if let Some(menu) = self.context_menu {
+            if left_pressed {
+                if let Some((x, y)) = input.mouse_pos.map(|(x, y)| (x as i32, y as i32)) {
+                    let item = if x >= menu.x && x < menu.x + 116 && y >= menu.y && y < menu.y + 57
+                    {
+                        Some(((y - menu.y) / 19) as usize)
+                    } else {
+                        None
+                    };
+                    self.context_menu = None;
+                    if let Some(item) = item {
+                        self.apply_context_action(item, menu.target, height);
+                        return;
+                    }
+                } else {
+                    self.context_menu = None;
+                }
+            }
+        }
+
+        let cursor = input
+            .mouse_pos
+            .and_then(|(x, y)| self.message_position_at(x as i32, y as i32, width, height));
+        if left_pressed {
+            if input
+                .mouse_pos
+                .is_some_and(|(x, y)| self.input_rect_contains(x as i32, y as i32, width, height))
+            {
+                if let Some((x, _)) = input.mouse_pos {
+                    self.cursor_pos = self.input_cursor_at(x as i32, width);
+                }
+                self.input_selection = None;
+                self.selection_anchor = None;
+                self.selection_focus = None;
+                self.selecting_text = false;
+                return;
+            }
+            self.selection_anchor = cursor;
+            self.selection_focus = cursor;
+            self.input_selection = None;
+            self.selecting_text = cursor.is_some();
+        } else if self.selecting_text && input.mouse_left {
+            if let Some(cursor) = cursor {
+                self.selection_focus = Some(cursor);
+            }
+        } else if !input.mouse_left {
+            self.selecting_text = false;
+        }
+    }
+
+    fn apply_context_action(&mut self, action: usize, target: ChatContextTarget, height: usize) {
+        match action {
+            0 => {
+                let selected = match target {
+                    ChatContextTarget::Input => self.selected_input_text(),
+                    ChatContextTarget::Message(index) => self
+                        .selected_text()
+                        .or_else(|| self.messages.get(index).map(|message| message.text.clone())),
+                };
+                if let Some(text) = selected {
+                    crate::ui::clipboard::set_clipboard(&text);
+                }
+            }
+            1 => self.paste_into_input(&crate::ui::clipboard::get_clipboard()),
+            2 => match target {
+                ChatContextTarget::Input => {
+                    self.input_selection = Some((0, self.input_text.len()));
+                    self.selection_anchor = None;
+                    self.selection_focus = None;
+                }
+                ChatContextTarget::Message(_) => {
+                    let (rows, count) = self.visible_message_rows(height);
+                    let oldest = rows.iter().take(count).map(|(index, _)| *index).min();
+                    if let Some(oldest) = oldest {
+                        let newest = rows
+                            .iter()
+                            .take(count)
+                            .map(|(index, _)| *index)
+                            .max()
+                            .unwrap_or(oldest);
+                        self.selection_anchor = Some((oldest, 0));
+                        self.selection_focus =
+                            Some((newest, self.messages[newest].text.chars().count()));
+                        self.input_selection = None;
+                    }
+                }
+            },
+            _ => {}
+        }
+    }
+
+    fn input_rect_contains(&self, x: i32, y: i32, width: usize, height: usize) -> bool {
+        let left = 5;
+        let top = height as i32 - 20;
+        x >= left && x < width as i32 - left && y >= top && y < top + 14
+    }
+
+    fn input_cursor_at(&self, x: i32, width: usize) -> usize {
+        let start_x = 8 + crate::graphics::font::measure_text("> ", 1, 1);
+        let rel_x = (x - start_x).clamp(0, width as i32);
+        let mut prefix = String::new();
+        let mut cursor = 0;
+        for (byte_index, ch) in self.input_text.char_indices() {
+            let char_x = crate::graphics::font::measure_text(&prefix, 1, 1);
+            let next_prefix = format!("{prefix}{ch}");
+            let next_x = crate::graphics::font::measure_text(&next_prefix, 1, 1);
+            cursor = if rel_x < (char_x + next_x) / 2 {
+                byte_index
+            } else {
+                byte_index + ch.len_utf8()
+            };
+            prefix = next_prefix;
+            if rel_x < next_x {
+                break;
+            }
+        }
+        cursor.min(self.input_text.len())
+    }
+
+    fn selected_input_text(&self) -> Option<String> {
+        let (start, end) = self.input_selection?;
+        (start <= end)
+            .then(|| self.input_text.get(start..end).map(str::to_string))
+            .flatten()
+    }
+
+    pub fn selected_copy_text(&self) -> Option<String> {
+        self.selected_text().or_else(|| self.selected_input_text())
+    }
+
+    pub fn paste_clipboard_text(&mut self, text: &str) {
+        if self.is_open {
+            self.paste_into_input(text);
+        }
+    }
+
+    fn delete_input_selection(&mut self) {
+        if let Some((start, end)) = self.input_selection.take() {
+            if start <= end && end <= self.input_text.len() {
+                self.input_text.replace_range(start..end, "");
+                self.cursor_pos = start;
+            }
+        }
+    }
+
+    fn paste_into_input(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        self.delete_input_selection();
+        let insert_at = self.cursor_pos.min(self.input_text.len());
+        if self.input_text.is_char_boundary(insert_at) {
+            let sanitized: String = text.chars().filter(|ch| !ch.is_control()).collect();
+            self.input_text.insert_str(insert_at, &sanitized);
+            self.cursor_pos += sanitized.len();
+            self.cursor_blink = 0.0;
+        }
+    }
+
+    fn visible_message_rows(&self, height: usize) -> ([(usize, i32); 12], usize) {
+        let mut rows = [(0, 0); 12];
+        let mut row_count = 0;
+        let mut y = height as i32 - 18 - 3;
+        for index in (0..self.messages.len()).rev() {
+            if row_count >= rows.len() {
+                break;
+            }
+            if !self.is_open && self.messages[index].age > 10.0 {
+                continue;
+            }
+            let alpha = if self.is_open {
+                0.70f32
+            } else {
+                (1.0 - (self.messages[index].age - 8.0).max(0.0) / 2.0).clamp(0.0, 1.0) * 0.70
+            };
+            if alpha <= 0.02 {
+                continue;
+            }
+            y -= 11;
+            rows[row_count] = (index, y);
+            row_count += 1;
+        }
+        (rows, row_count)
+    }
+
+    fn message_position_at(
+        &self,
+        px: i32,
+        py: i32,
+        width: usize,
+        height: usize,
+    ) -> Option<(usize, usize)> {
+        let base_x = 8;
+        let (rows, row_count) = self.visible_message_rows(height);
+        for (index, y) in rows.into_iter().take(row_count) {
+            if py < y - 2 || py >= y + 9 {
+                continue;
+            }
+            let text = &self.messages[index].text;
+            let text_width = crate::graphics::font::measure_text(text, 1, 1);
+            if px < base_x || px > (base_x + text_width).min(width as i32 - base_x) {
+                return None;
+            }
+            let relative_x = px - base_x;
+            let mut closest = (0, i32::MAX);
+            let mut prefix = String::new();
+            for (char_index, ch) in text.chars().enumerate() {
+                let char_x = crate::graphics::font::measure_text(&prefix, 1, 1);
+                let distance = (relative_x - char_x).abs();
+                if distance < closest.1 {
+                    closest = (char_index, distance);
+                }
+                prefix.push(ch);
+            }
+            let end_index = text.chars().count();
+            let end_x = crate::graphics::font::measure_text(text, 1, 1);
+            if (relative_x - end_x).abs() < closest.1 {
+                closest.0 = end_index;
+            }
+            return Some((index, closest.0));
+        }
+        None
+    }
+
+    fn selected_text(&self) -> Option<String> {
+        let (Some(anchor), Some(focus)) = (self.selection_anchor, self.selection_focus) else {
+            return None;
+        };
+        let (start, end) = if anchor <= focus {
+            (anchor, focus)
+        } else {
+            (focus, anchor)
+        };
+        if start == end {
+            return None;
+        }
+
+        let mut selected_lines = Vec::new();
+        for index in start.0..=end.0 {
+            let chars: Vec<char> = self.messages.get(index)?.text.chars().collect();
+            let from = if index == start.0 { start.1 } else { 0 };
+            let to = if index == end.0 { end.1 } else { chars.len() };
+            selected_lines.push(chars.get(from..to)?.iter().collect::<String>());
+        }
+        Some(selected_lines.join("\n"))
     }
 
     /// Renders chat messages and active command prompt overlay.
@@ -276,30 +680,14 @@ impl ChatState {
         let input_y = height as i32 - 18;
 
         // 1. Draw message history (from bottom to top)
-        let mut y = input_y - 3;
-        let mut rendered = 0;
-
-        for msg in self.messages.iter().rev() {
-            if rendered >= max_visible_lines {
-                break;
-            }
-
-            // In closed state, messages fade out after 10s
-            if !self.is_open && msg.age > 10.0 {
-                continue;
-            }
-
+        let (rows, row_count) = self.visible_message_rows(height);
+        for (index, y) in rows.into_iter().take(row_count.min(max_visible_lines)) {
+            let msg = &self.messages[index];
             let alpha = if self.is_open {
                 0.70f32
             } else {
                 (1.0 - (msg.age - 8.0).max(0.0) / 2.0).clamp(0.0, 1.0) * 0.70
             };
-
-            if alpha <= 0.02 {
-                continue;
-            }
-
-            y -= line_height;
             let text_w = crate::graphics::font::measure_text(&msg.text, 1, 1);
             let bar_w = (text_w + 6).min(width as i32 - base_x * 2);
 
@@ -315,6 +703,37 @@ impl ChatState {
                 alpha,
             );
 
+            if let (Some(anchor), Some(focus)) = (self.selection_anchor, self.selection_focus) {
+                let (start, end) = if anchor <= focus {
+                    (anchor, focus)
+                } else {
+                    (focus, anchor)
+                };
+                if index >= start.0 && index <= end.0 {
+                    let chars: Vec<char> = msg.text.chars().collect();
+                    let from = if index == start.0 { start.1 } else { 0 };
+                    let to = if index == end.0 { end.1 } else { chars.len() };
+                    if from < to && to <= chars.len() {
+                        let prefix: String = chars[..from].iter().collect();
+                        let selected: String = chars[from..to].iter().collect();
+                        let selection_x =
+                            base_x + crate::graphics::font::measure_text(&prefix, 1, 1);
+                        let selection_w = crate::graphics::font::measure_text(&selected, 1, 1);
+                        fill_rect_alpha(
+                            buffer,
+                            width,
+                            height,
+                            selection_x,
+                            y - 1,
+                            selection_w.max(1),
+                            9,
+                            pack_color(0.18, 0.40, 0.78),
+                            0.90,
+                        );
+                    }
+                }
+            }
+
             let text_alpha = if self.is_open {
                 1.0
             } else {
@@ -323,19 +742,9 @@ impl ChatState {
 
             if text_alpha > 0.05 {
                 draw_text_colored_shadowed(
-                    buffer,
-                    width,
-                    height,
-                    &msg.text,
-                    base_x,
-                    y,
-                    1,
-                    1,
-                    msg.color,
+                    buffer, width, height, &msg.text, base_x, y, 1, 1, msg.color,
                 );
             }
-
-            rendered += 1;
         }
 
         // 2. Draw chat input bar when open
@@ -369,6 +778,33 @@ impl ChatState {
             let prefix = "> ";
             let display_str = format!("{}{}", prefix, self.input_text);
             let white = pack_color(1.0, 1.0, 1.0);
+            if let Some((start, end)) = self.input_selection {
+                if start < end && end <= self.input_text.len() {
+                    if let (Some(selected), Some(before)) = (
+                        self.input_text.get(start..end),
+                        self.input_text.get(..start),
+                    ) {
+                        let sx = base_x
+                            + crate::graphics::font::measure_text(
+                                &format!("{prefix}{before}"),
+                                1,
+                                1,
+                            );
+                        let sw = crate::graphics::font::measure_text(selected, 1, 1);
+                        fill_rect_alpha(
+                            buffer,
+                            width,
+                            height,
+                            sx,
+                            input_y,
+                            sw,
+                            9,
+                            pack_color(0.18, 0.40, 0.78),
+                            0.90,
+                        );
+                    }
+                }
+            }
             draw_text_colored_shadowed(
                 buffer,
                 width,
@@ -387,6 +823,75 @@ impl ChatState {
                 let cursor_sub = format!("{}{}", prefix, &self.input_text[..self.cursor_pos]);
                 let cursor_x = base_x + crate::graphics::font::measure_text(&cursor_sub, 1, 1);
                 fill_rect(buffer, width, height, cursor_x, input_y + 1, 2, 7, white);
+            }
+        }
+
+        if let Some(menu) = self.context_menu {
+            let menu_width = 116;
+            let menu_height = 57;
+            fill_rect_alpha(
+                buffer,
+                width,
+                height,
+                menu.x,
+                menu.y,
+                menu_width,
+                menu_height,
+                pack_color(0.08, 0.09, 0.12),
+                0.98,
+            );
+            fill_rect(
+                buffer,
+                width,
+                height,
+                menu.x,
+                menu.y,
+                menu_width,
+                1,
+                pack_color(0.55, 0.58, 0.64),
+            );
+            fill_rect(
+                buffer,
+                width,
+                height,
+                menu.x,
+                menu.y,
+                1,
+                menu_height,
+                pack_color(0.55, 0.58, 0.64),
+            );
+            fill_rect(
+                buffer,
+                width,
+                height,
+                menu.x + menu_width - 1,
+                menu.y,
+                1,
+                menu_height,
+                pack_color(0.22, 0.24, 0.28),
+            );
+            fill_rect(
+                buffer,
+                width,
+                height,
+                menu.x,
+                menu.y + menu_height - 1,
+                menu_width,
+                1,
+                pack_color(0.22, 0.24, 0.28),
+            );
+            for (index, label) in ["Copy", "Paste", "Select all"].iter().enumerate() {
+                draw_text_colored_shadowed(
+                    buffer,
+                    width,
+                    height,
+                    label,
+                    menu.x + 8,
+                    menu.y + 5 + index as i32 * 19,
+                    1,
+                    1,
+                    pack_color(0.95, 0.95, 0.97),
+                );
             }
         }
     }
@@ -422,7 +927,9 @@ impl ChatState {
                 self.add_info("/time set <day|noon|night|midnight|number> - Set time");
                 self.add_info("/give <item> [count] - Add items to inventory");
                 self.add_info("/tp <x> <y> <z> - Teleport player");
-                self.add_info("/spawn <pig|cow|chicken|zombie|skeleton|reaper> [count] - Spawn mob");
+                self.add_info(
+                    "/spawn <pig|cow|chicken|zombie|skeleton|reaper> [count] - Spawn mob",
+                );
                 self.add_info("/mobs - List all currently spawned mobs in the world");
                 self.add_info("/heal - Restore health and hunger");
                 self.add_info("/kill - Kill the player");
@@ -494,7 +1001,9 @@ impl ChatState {
                                     ctx.world.time_of_day = World::DAY_DURATION * frac;
                                     self.add_success(format!("Set the time to {:.0}", ticks));
                                 } else {
-                                    self.add_error("Usage: /time set <day|noon|night|midnight|number>");
+                                    self.add_error(
+                                        "Usage: /time set <day|noon|night|midnight|number>",
+                                    );
                                 }
                             }
                         }
@@ -515,18 +1024,34 @@ impl ChatState {
                 match sub.as_str() {
                     "clear" => {
                         let duration = duration_arg.unwrap_or(600.0);
-                        ctx.world.weather.set_weather(crate::world::weather::WeatherType::Clear, Some(duration));
-                        self.add_success(format!("Set the weather to clear (duration: {:.0}s)", duration));
+                        ctx.world
+                            .weather
+                            .set_weather(crate::world::weather::WeatherType::Clear, Some(duration));
+                        self.add_success(format!(
+                            "Set the weather to clear (duration: {:.0}s)",
+                            duration
+                        ));
                     }
                     "rain" => {
                         let duration = duration_arg.unwrap_or(360.0);
-                        ctx.world.weather.set_weather(crate::world::weather::WeatherType::Rain, Some(duration));
-                        self.add_success(format!("Set the weather to rain (duration: {:.0}s)", duration));
+                        ctx.world
+                            .weather
+                            .set_weather(crate::world::weather::WeatherType::Rain, Some(duration));
+                        self.add_success(format!(
+                            "Set the weather to rain (duration: {:.0}s)",
+                            duration
+                        ));
                     }
                     "thunder" | "thunderstorm" => {
                         let duration = duration_arg.unwrap_or(240.0);
-                        ctx.world.weather.set_weather(crate::world::weather::WeatherType::Thunder, Some(duration));
-                        self.add_success(format!("Set the weather to thunder and rain (duration: {:.0}s)", duration));
+                        ctx.world.weather.set_weather(
+                            crate::world::weather::WeatherType::Thunder,
+                            Some(duration),
+                        );
+                        self.add_success(format!(
+                            "Set the weather to thunder and rain (duration: {:.0}s)",
+                            duration
+                        ));
                     }
                     "query" => {
                         let state_str = match ctx.world.weather.current_type {
@@ -569,7 +1094,10 @@ impl ChatState {
                         crate::log_debug!("Command", "Gave {} {:?} to Player", given, block);
                     }
                     if leftover > 0 {
-                        self.add_error(format!("Inventory full! Could not give {} items.", leftover));
+                        self.add_error(format!(
+                            "Inventory full! Could not give {} items.",
+                            leftover
+                        ));
                     }
                 } else {
                     self.add_error(format!("Unknown item: '{}'", item_arg));
@@ -602,8 +1130,17 @@ impl ChatState {
                         ctx.camera.position = Vec3::new(x, y, z);
                         *ctx.horiz_velocity = Vec3::zero();
                         *ctx.fly_velocity = Vec3::zero();
-                        self.add_success(format!("Teleported Player to {:.1}, {:.1}, {:.1}", x, y, z));
-                        crate::log_debug!("Command", "Teleported Player to ({:.1}, {:.1}, {:.1})", x, y, z);
+                        self.add_success(format!(
+                            "Teleported Player to {:.1}, {:.1}, {:.1}",
+                            x, y, z
+                        ));
+                        crate::log_debug!(
+                            "Command",
+                            "Teleported Player to ({:.1}, {:.1}, {:.1})",
+                            x,
+                            y,
+                            z
+                        );
                     } else {
                         self.add_error("Invalid coordinates. Example: /tp 0 70 0 or /tp ~ ~10 ~");
                     }
@@ -617,7 +1154,11 @@ impl ChatState {
                 if kind_arg == "mob" {
                     kind_arg = parts.next().unwrap_or("").to_ascii_lowercase();
                 }
-                let count: usize = parts.next().and_then(|c| c.parse().ok()).unwrap_or(1).clamp(1, 20);
+                let count: usize = parts
+                    .next()
+                    .and_then(|c| c.parse().ok())
+                    .unwrap_or(1)
+                    .clamp(1, 20);
 
                 let mob_kind = match kind_arg.as_str() {
                     "pig" | "swinia" => Some(MobKind::Pig),
@@ -727,7 +1268,10 @@ impl ChatState {
                 if let Some(cmd_def) = crate::engine::modding::find_mod_command(&cmd) {
                     crate::engine::modding::execute_mod_command(&cmd_def, self, ctx);
                 } else {
-                    self.add_error(format!("Unknown command: '/{}'. Type /help for help.", unknown));
+                    self.add_error(format!(
+                        "Unknown command: '/{}'. Type /help for help.",
+                        unknown
+                    ));
                 }
             }
         }
@@ -779,7 +1323,11 @@ impl ChatState {
                 MobKind::Spider => spiders += 1,
             }
             let dist = (mob.pos - player_pos).length();
-            let hostile_tag = if mob.kind.is_hostile() { " [HOSTILE]" } else { "" };
+            let hostile_tag = if mob.kind.is_hostile() {
+                " [HOSTILE]"
+            } else {
+                ""
+            };
             self.add_message(
                 format!(
                     "#{:02} {} at ({:.1}, {:.1}, {:.1}) | Dist: {:.1}m | HP: {:.0}/{:.0}{}",
@@ -867,7 +1415,9 @@ pub fn parse_vanilla_block_id(s: &str) -> Option<BlockId> {
         "ruststone" | "rdzawnik" | "redstone" => Some(BlockId::RustStone),
         "ruststone_ore" | "ruda_rdzawnika" | "redstone_ore" => Some(BlockId::RustStoneOre),
         "ruststone_block" | "blok_rdzawnika" | "redstone_block" => Some(BlockId::RustStoneBlock),
-        "ruststone_lamp" | "lampa_rdzawnikowa" | "lampa" | "redstone_lamp" => Some(BlockId::RustStoneLamp),
+        "ruststone_lamp" | "lampa_rdzawnikowa" | "lampa" | "redstone_lamp" => {
+            Some(BlockId::RustStoneLamp)
+        }
         "lever" | "dzwignia" => Some(BlockId::Lever),
         "button" | "przycisk" => Some(BlockId::Button),
         "pressure_plate" | "plytka" | "plytka_naciskowa" => Some(BlockId::PressurePlate),
@@ -900,7 +1450,9 @@ pub fn parse_vanilla_block_id(s: &str) -> Option<BlockId> {
         "dried_kelp" | "suszone_wodorosty" => Some(BlockId::DriedKelp),
         "dolphin_spawn_egg" | "dolphin_egg" | "jajko_delfina" => Some(BlockId::DolphinSpawnEgg),
         "fish_spawn_egg" | "fish_egg" | "jajko_ryby" => Some(BlockId::FishSpawnEgg),
-        "villager_spawn_egg" | "villager_egg" | "jajko_osadnika" | "jajko_wiesniaka" => Some(BlockId::VillagerSpawnEgg),
+        "villager_spawn_egg" | "villager_egg" | "jajko_osadnika" | "jajko_wiesniaka" => {
+            Some(BlockId::VillagerSpawnEgg)
+        }
         "emerald" | "szmaragd" => Some(BlockId::Emerald),
         "emerald_ore" | "ruda_szmaragdu" => Some(BlockId::EmeraldOre),
         "emerald_block" | "blok_szmaragdu" => Some(BlockId::EmeraldBlock),
@@ -945,6 +1497,135 @@ mod tests {
         chat.close();
         assert!(!chat.is_open);
         assert_eq!(chat.input_text, "");
+    }
+
+    #[test]
+    fn mouse_selection_copies_text_across_chat_lines() {
+        let mut chat = ChatState::new();
+        chat.add_message("first", pack_color(1.0, 1.0, 1.0));
+        chat.add_message("second", pack_color(1.0, 1.0, 1.0));
+        chat.open("");
+
+        let first_line_y = 200 - 18 - 3 - 22;
+        let latest_line_y = first_line_y + 11;
+        let first_char_width = crate::graphics::font::measure_text("f", 1, 1);
+        let third_char_width = crate::graphics::font::measure_text("sec", 1, 1);
+        let mut input = crate::app::InputState {
+            mouse_pos: Some((8.0 + first_char_width as f32, first_line_y as f32)),
+            mouse_left: true,
+            ..Default::default()
+        };
+        chat.update_text_selection(&input, 320, 200);
+
+        input.mouse_pos = Some((8.0 + third_char_width as f32, latest_line_y as f32));
+        chat.update_text_selection(&input, 320, 200);
+        assert_eq!(chat.selected_text().as_deref(), Some("irst\nsec"));
+    }
+
+    #[test]
+    fn ctrl_a_selects_input_and_selection_can_be_replaced() {
+        let mut chat = ChatState::new();
+        chat.open("draft");
+        let input = crate::app::InputState {
+            key_ctrl: true,
+            key_a: true,
+            ..Default::default()
+        };
+
+        chat.handle_input(&input);
+        assert_eq!(chat.selected_copy_text().as_deref(), Some("draft"));
+
+        chat.paste_clipboard_text("replacement");
+        assert_eq!(chat.input_text, "replacement");
+    }
+
+    #[test]
+    fn input_context_menu_select_all_then_paste_replaces_text() {
+        let mut chat = ChatState::new();
+        chat.open("draft");
+        let mut input = crate::app::InputState {
+            mouse_pos: Some((30.0, 182.0)),
+            mouse_right: true,
+            ..Default::default()
+        };
+        chat.update_text_selection(&input, 320, 200);
+        input.mouse_right = false;
+        chat.update_text_selection(&input, 320, 200);
+        let menu = chat
+            .context_menu
+            .expect("right-clicking the input should open its context menu");
+
+        input.mouse_left = true;
+        input.mouse_pos = Some(((menu.x + 8) as f32, (menu.y + 43) as f32));
+        chat.update_text_selection(&input, 320, 200);
+        assert_eq!(chat.selected_copy_text().as_deref(), Some("draft"));
+
+        chat.paste_clipboard_text("replacement");
+        assert_eq!(chat.input_text, "replacement");
+    }
+
+    #[test]
+    fn ctrl_c_copies_selected_chat_text() {
+        let _clipboard_lock = crate::ui::clipboard::CLIPBOARD_TEST_LOCK
+            .lock()
+            .expect("clipboard test lock poisoned");
+        let mut chat = ChatState::new();
+        chat.add_message("selected", pack_color(1.0, 1.0, 1.0));
+        chat.open("");
+        chat.selection_anchor = Some((0, 0));
+        chat.selection_focus = Some((0, 8));
+
+        chat.handle_input(&crate::app::InputState {
+            key_ctrl: true,
+            key_c: true,
+            ..Default::default()
+        });
+
+        assert_eq!(crate::ui::clipboard::internal_clipboard_text(), "selected");
+    }
+
+    #[test]
+    fn right_click_chat_context_menu_can_copy_and_select_all() {
+        let _clipboard_lock = crate::ui::clipboard::CLIPBOARD_TEST_LOCK
+            .lock()
+            .expect("clipboard test lock poisoned");
+        let mut chat = ChatState::new();
+        chat.add_message("first", pack_color(1.0, 1.0, 1.0));
+        chat.add_message("second", pack_color(1.0, 1.0, 1.0));
+        chat.open("");
+
+        let mut input = crate::app::InputState {
+            mouse_pos: Some((12.0, 168.0)),
+            mouse_right: true,
+            ..Default::default()
+        };
+        chat.update_text_selection(&input, 320, 200);
+        assert!(chat.context_menu.is_some());
+
+        input.mouse_right = false;
+        chat.update_text_selection(&input, 320, 200);
+        let menu = chat
+            .context_menu
+            .expect("right-click menu should remain open");
+        input.mouse_pos = Some(((menu.x + 8) as f32, (menu.y + 5) as f32));
+        input.mouse_left = true;
+        chat.update_text_selection(&input, 320, 200);
+        assert_eq!(crate::ui::clipboard::internal_clipboard_text(), "second");
+        assert!(chat.context_menu.is_none());
+
+        input.mouse_left = false;
+        input.mouse_right = true;
+        input.mouse_pos = Some((12.0, 168.0));
+        chat.update_text_selection(&input, 320, 200);
+        input.mouse_right = false;
+        chat.update_text_selection(&input, 320, 200);
+        let menu = chat
+            .context_menu
+            .expect("right-click menu should remain open");
+        input.mouse_left = true;
+        input.mouse_pos = Some(((menu.x + 8) as f32, (menu.y + 43) as f32));
+        chat.update_text_selection(&input, 320, 200);
+        assert_eq!(chat.selected_text().as_deref(), Some("first\nsecond"));
     }
 
     #[test]
@@ -994,7 +1675,10 @@ mod tests {
 
         chat.execute_command("/mobs", &mut ctx);
         assert!(!chat.messages.is_empty());
-        assert!(chat.messages.iter().any(|m| m.text.contains("Spawned Mobs")));
+        assert!(chat
+            .messages
+            .iter()
+            .any(|m| m.text.contains("Spawned Mobs")));
         assert!(chat.messages.iter().any(|m| m.text.contains("Zombie")));
         assert!(chat.messages.iter().any(|m| m.text.contains("Skeleton")));
     }
@@ -1027,17 +1711,29 @@ mod tests {
         };
 
         chat.execute_command("/weather rain 120", &mut ctx);
-        assert_eq!(ctx.world.weather.current_type, crate::world::weather::WeatherType::Rain);
+        assert_eq!(
+            ctx.world.weather.current_type,
+            crate::world::weather::WeatherType::Rain
+        );
         assert_eq!(ctx.world.weather.timer, 120.0);
 
         chat.execute_command("/weather thunder 60", &mut ctx);
-        assert_eq!(ctx.world.weather.current_type, crate::world::weather::WeatherType::Thunder);
+        assert_eq!(
+            ctx.world.weather.current_type,
+            crate::world::weather::WeatherType::Thunder
+        );
         assert_eq!(ctx.world.weather.timer, 60.0);
 
         chat.execute_command("/weather query", &mut ctx);
-        assert!(chat.messages.iter().any(|m| m.text.contains("weather is currently thunder")));
+        assert!(chat
+            .messages
+            .iter()
+            .any(|m| m.text.contains("weather is currently thunder")));
 
         chat.execute_command("/weather clear", &mut ctx);
-        assert_eq!(ctx.world.weather.current_type, crate::world::weather::WeatherType::Clear);
+        assert_eq!(
+            ctx.world.weather.current_type,
+            crate::world::weather::WeatherType::Clear
+        );
     }
 }

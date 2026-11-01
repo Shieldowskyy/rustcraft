@@ -34,6 +34,7 @@ let scrollDelta = 0;
 let isPointerLocked = false;
 let justLocked = false;
 let isGameCurrentlyPlaying = false;
+let lastWasmClipboardText = null;
 
 // Gamepad button edge detection (just pressed)
 let prevGpButtons = new Array(20).fill(false);
@@ -52,6 +53,27 @@ function updateCanvasMousePos(evt) {
 // Keyboard event listeners
 window.addEventListener('keydown', (e) => {
   const code = e.code;
+  if (e.ctrlKey && code === 'KeyC' && game && game.chat_is_open()) {
+    e.preventDefault();
+    const text = game.chat_copy_text();
+    if (text && navigator.clipboard) {
+      navigator.clipboard.writeText(text).catch((error) => {
+        console.warn('Could not write chat selection to the clipboard:', error);
+      });
+    }
+  } else if (e.ctrlKey && code === 'KeyV' && game && game.chat_is_open()) {
+    e.preventDefault();
+    if (navigator.clipboard) {
+      navigator.clipboard.readText().then((text) => {
+        if (game) game.paste_chat_text(text);
+      }).catch((error) => {
+        console.warn('Could not read text from the clipboard:', error);
+        if (game) game.paste_chat_text(game.get_clipboard_text());
+      });
+    } else {
+      game.paste_chat_text(game.get_clipboard_text());
+    }
+  }
   if (code === 'KeyW') keys.w = true;
   else if (code === 'KeyS') keys.s = true;
   else if (code === 'KeyA') keys.a = true;
@@ -156,7 +178,16 @@ window.addEventListener('mouseup', (e) => {
   if (e.button === 2) mouseButtons.right = false;
 });
 
-canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+canvas.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  if (!game || !game.chat_is_open() || !navigator.clipboard) return;
+  lastWasmClipboardText = null;
+  navigator.clipboard.readText().then((text) => {
+    if (game) game.set_clipboard_text(text);
+  }).catch((error) => {
+    console.warn('Could not read text from the clipboard:', error);
+  });
+});
 
 canvas.addEventListener('wheel', (e) => {
   scrollDelta += e.deltaY < 0 ? 1 : -1;
@@ -322,6 +353,16 @@ function frameLoop(now) {
         gp.dpadUpJust, gp.dpadDownJust, gp.dpadLeftJust, gp.dpadRightJust,
         gp.rtJust, gp.ltJust,
       );
+
+      const clipboardText = game.get_clipboard_text();
+      if (clipboardText && clipboardText !== lastWasmClipboardText) {
+        lastWasmClipboardText = clipboardText;
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(clipboardText).catch((error) => {
+            console.warn('Could not write chat text to the clipboard:', error);
+          });
+        }
+      }
 
       isGameCurrentlyPlaying = statusStr.includes('playing');
 

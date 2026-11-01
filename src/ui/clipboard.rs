@@ -72,69 +72,78 @@ pub fn set_clipboard(text: &str) {
         *g = text.to_string();
     }
 
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows"))]
     {
-        use std::io::Write;
-        let copied = if let Ok(mut child) = std::process::Command::new("wl-copy")
-            .stdin(std::process::Stdio::piped())
-            .spawn()
+        let text = text.to_string();
+        if let Err(error) = std::thread::Builder::new()
+            .name("clipboard-write".to_string())
+            .spawn(move || set_system_clipboard(&text))
         {
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(text.as_bytes());
-            }
-            child.wait().map(|s| s.success()).unwrap_or(false)
-        } else {
-            false
-        };
-
-        if !copied {
-            let copied_xclip = if let Ok(mut child) = std::process::Command::new("xclip")
-                .args(["-selection", "clipboard", "-in"])
-                .stdin(std::process::Stdio::piped())
-                .spawn()
-            {
-                if let Some(mut stdin) = child.stdin.take() {
-                    let _ = stdin.write_all(text.as_bytes());
-                }
-                child.wait().map(|s| s.success()).unwrap_or(false)
-            } else {
-                false
-            };
-
-            if !copied_xclip {
-                if let Ok(mut child) = std::process::Command::new("xsel")
-                    .args(["--clipboard", "--input"])
-                    .stdin(std::process::Stdio::piped())
-                    .spawn()
-                {
-                    if let Some(mut stdin) = child.stdin.take() {
-                        let _ = stdin.write_all(text.as_bytes());
-                    }
-                    let _ = child.wait();
-                }
-            }
+            crate::log_warn!("Clipboard", "Could not start clipboard worker: {}", error);
         }
     }
+}
 
-    #[cfg(target_os = "windows")]
-    {
-        use std::io::Write;
-        let mut success = false;
-        if let Ok(mut child) = std::process::Command::new("clip")
-            .stdin(std::process::Stdio::piped())
-            .spawn()
+#[cfg(test)]
+pub(crate) fn internal_clipboard_text() -> String {
+    INTERNAL_CLIPBOARD
+        .lock()
+        .expect("clipboard lock poisoned")
+        .clone()
+}
+
+#[cfg(test)]
+pub(crate) static CLIPBOARD_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+fn set_system_clipboard(text: &str) {
+    let copied = write_to_command(&mut std::process::Command::new("wl-copy"), text)
+        || write_to_command(
+            std::process::Command::new("xclip").args(["-selection", "clipboard", "-in"]),
+            text,
+        )
+        || write_to_command(
+            std::process::Command::new("xsel").args(["--clipboard", "--input"]),
+            text,
+        );
+    if !copied {
+        crate::log_debug!(
+            "Clipboard",
+            "No supported system clipboard command succeeded"
+        );
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn set_system_clipboard(text: &str) {
+    if !write_to_command(&mut std::process::Command::new("clip"), text) {
+        let escaped = text.replace('\'', "''");
+        if let Err(error) = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!("Set-Clipboard -Value '{}'", escaped),
+            ])
+            .output()
         {
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(text.as_bytes());
-            }
-            success = child.wait().map(|s| s.success()).unwrap_or(false);
-        }
-
-        if !success {
-            let escaped = text.replace('\'', "''");
-            let _ = std::process::Command::new("powershell")
-                .args(["-NoProfile", "-Command", &format!("Set-Clipboard -Value '{}'", escaped)])
-                .output();
+            crate::log_warn!("Clipboard", "Could not access system clipboard: {}", error);
         }
     }
+}
+
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows"))]
+fn write_to_command(command: &mut std::process::Command, text: &str) -> bool {
+    use std::io::Write;
+
+    let Ok(mut child) = command.stdin(std::process::Stdio::piped()).spawn() else {
+        return false;
+    };
+    let Some(mut stdin) = child.stdin.take() else {
+        return false;
+    };
+    if stdin.write_all(text.as_bytes()).is_err() {
+        return false;
+    }
+    drop(stdin);
+    child.wait().map(|status| status.success()).unwrap_or(false)
 }

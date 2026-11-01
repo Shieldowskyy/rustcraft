@@ -268,6 +268,7 @@ impl RustCraftApp {
                 self.chat.add_message(format!("[Server] Connected to multiplayer server as {}", self.settings.nickname), crate::ui::pack_color(1.0, 1.0, 0.4));
                 if let Some(invite) = &self.multiplayer_invite {
                     self.chat.add_message(format!("[Relay] Share this invite: {invite}"), crate::ui::pack_color(0.35, 0.9, 1.0));
+                    crate::ui::clipboard::set_clipboard(invite);
                 }
                 self.state = GameState::Playing;
                 out.request_capture_mouse = true;

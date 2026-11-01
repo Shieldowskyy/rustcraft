@@ -832,6 +832,7 @@ impl RustCraftApp {
             );
         }
 
+        out.is_playing = matches!(self.state, GameState::Playing) && !self.chat.is_open;
         out.rumble_request = self.pending_rumble.take();
         if !input.is_mouse_captured && !matches!(self.state, GameState::Playing) {
             out.cursor_visible = Some(!self.is_gamepad_active);

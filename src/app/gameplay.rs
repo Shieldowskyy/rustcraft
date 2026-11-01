@@ -121,17 +121,20 @@ impl RustCraftApp {
 
                 let open_chat_requested = (input.key_t && !self.prev_t_down) || self.controls.is_just_pressed(Action::OpenChat);
                 let open_cmd_requested = (input.key_slash && !self.prev_slash_down) || self.controls.is_just_pressed(Action::OpenCommand);
+                let chat_was_open = self.chat.is_open;
 
                 if !self.chat.is_open {
                     if open_cmd_requested {
                         self.chat.open("/");
                         self.horiz_velocity = Vec3::zero();
                         self.fly_velocity = Vec3::zero();
+                        out.request_release_mouse = true;
                         crate::log_debug!("CHAT", "Opened command prompt");
                     } else if open_chat_requested {
                         self.chat.open("");
                         self.horiz_velocity = Vec3::zero();
                         self.fly_velocity = Vec3::zero();
+                        out.request_release_mouse = true;
                         crate::log_debug!("CHAT", "Opened chat prompt");
                     }
                 } else {
@@ -175,6 +178,8 @@ impl RustCraftApp {
                         }
                     }
                 }
+                self.chat
+                    .update_text_selection(input, self.width, self.height);
 
                 // F3+A: Reload all chunks shortcut
                 if input.key_f3 && input.key_a && !self.prev_a_down && !self.chat.is_open {
@@ -194,7 +199,7 @@ impl RustCraftApp {
                     }
                     self.save_metadata_cache = std::array::from_fn(|idx| get_save_metadata(idx as u8 + 1));
                 }
-                if !self.chat.is_open && self.controls.is_just_pressed(Action::Pause) {
+                if !self.chat.is_open && !chat_was_open && self.controls.is_just_pressed(Action::Pause) {
                     self.last_clean_thumbnail = Some(crate::world::storage::capture_thumbnail(self.renderer.pixel_buffer(), self.width, self.height));
                     self.state = GameState::Paused;
                     out.request_release_mouse = true;
@@ -2835,6 +2840,31 @@ mod tests {
     use crate::gameplay::player::GameMode;
     use crate::gameplay::inventory::ItemStack;
     use crate::core::math::{Vec3, IVec3};
+
+    #[test]
+    fn opening_chat_releases_mouse_and_closing_it_recaptures() {
+        let mut app = RustCraftApp::new(160, 120, "software", 12345);
+        app.state = GameState::Playing;
+        let mut input = InputState {
+            key_t: true,
+            is_mouse_captured: true,
+            ..Default::default()
+        };
+
+        let opened = app.update_and_render(0.016, &input);
+        assert!(app.chat.is_open);
+        assert!(opened.request_release_mouse);
+        assert!(!opened.is_playing);
+
+        input.key_t = false;
+        input.is_mouse_captured = false;
+        input.key_escape = true;
+        let closed = app.update_and_render(0.016, &input);
+        assert!(!app.chat.is_open);
+        assert!(closed.request_capture_mouse);
+        assert!(closed.is_playing);
+        assert!(matches!(app.state, GameState::Playing));
+    }
 
     #[test]
     fn test_creative_flight_double_tap_space() {

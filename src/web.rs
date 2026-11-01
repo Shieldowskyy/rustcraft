@@ -32,11 +32,14 @@ impl WebGame {
     pub fn new(canvas_id: &str, seed: Option<u32>) -> Result<WebGame, JsValue> {
         console_error_panic_hook::set_once();
 
-        let window = web_sys::window().ok_or_else(|| JsValue::from_str("Missing global window object"))?;
-        let document = window.document().ok_or_else(|| JsValue::from_str("Missing document object"))?;
-        let canvas = document
-            .get_element_by_id(canvas_id)
-            .ok_or_else(|| JsValue::from_str(&format!("Canvas element not found with ID '{canvas_id}'")))?;
+        let window =
+            web_sys::window().ok_or_else(|| JsValue::from_str("Missing global window object"))?;
+        let document = window
+            .document()
+            .ok_or_else(|| JsValue::from_str("Missing document object"))?;
+        let canvas = document.get_element_by_id(canvas_id).ok_or_else(|| {
+            JsValue::from_str(&format!("Canvas element not found with ID '{canvas_id}'"))
+        })?;
         let canvas: HtmlCanvasElement = canvas.dyn_into::<HtmlCanvasElement>()?;
 
         canvas.set_width(WIDTH as u32);
@@ -75,6 +78,26 @@ impl WebGame {
 
     pub fn get_rgba_ptr(&self) -> *const u8 {
         self.rgba_bytes.as_ptr()
+    }
+
+    pub fn chat_is_open(&self) -> bool {
+        self.app.chat.is_open
+    }
+
+    pub fn chat_copy_text(&self) -> String {
+        self.app.chat.selected_copy_text().unwrap_or_default()
+    }
+
+    pub fn paste_chat_text(&mut self, text: String) {
+        self.app.chat.paste_clipboard_text(&text);
+    }
+
+    pub fn set_clipboard_text(&mut self, text: String) {
+        crate::ui::clipboard::set_clipboard(&text);
+    }
+
+    pub fn get_clipboard_text(&self) -> String {
+        crate::ui::clipboard::get_clipboard()
     }
 
     pub fn update_and_render(
@@ -281,11 +304,8 @@ impl WebGame {
         }
 
         let clamped = Clamped(&self.rgba_bytes[..]);
-        let image_data = ImageData::new_with_u8_clamped_array_and_sh(
-            clamped,
-            WIDTH as u32,
-            HEIGHT as u32,
-        )?;
+        let image_data =
+            ImageData::new_with_u8_clamped_array_and_sh(clamped, WIDTH as u32, HEIGHT as u32)?;
         self.ctx.put_image_data(&image_data, 0.0, 0.0)?;
 
         let mut actions = Vec::new();
