@@ -4708,7 +4708,7 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
             self.raster_triangle(&first, view_proj);
             self.raster_triangle(&second, view_proj);
             self.raster_triangle(&Triangle { v0: first.v2, v1: first.v1, v2: first.v0, texture }, view_proj);
-            self.raster_triangle(&Triangle { v0: second.v2, v1: second.v2, v2: second.v0, texture }, view_proj);
+            self.raster_triangle(&Triangle { v0: second.v2, v1: second.v1, v2: second.v0, texture }, view_proj);
         }
     }
 
@@ -4747,7 +4747,7 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
             self.raster_triangle(&first, view_proj);
             self.raster_triangle(&second, view_proj);
             self.raster_triangle(&Triangle { v0: first.v2, v1: first.v1, v2: first.v0, texture }, view_proj);
-            self.raster_triangle(&Triangle { v0: second.v2, v1: second.v2, v2: second.v0, texture }, view_proj);
+            self.raster_triangle(&Triangle { v0: second.v2, v1: second.v1, v2: second.v0, texture }, view_proj);
         }
     }
 }
