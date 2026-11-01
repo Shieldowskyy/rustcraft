@@ -29,6 +29,7 @@ impl RustCraftApp {
         let f5_down = input.key_f5;
                 self.chat.update(dt);
 
+                let player_data = self.net_client.is_some().then(|| self.multiplayer_player_data());
                 if let Some(client) = &mut self.net_client {
                     if client.last_move_sent.elapsed() >= std::time::Duration::from_millis(50) {
                         client.send_position(
@@ -95,6 +96,9 @@ impl RustCraftApp {
                         }
                     }
                     client.send_mob_snapshot(&self.mob_manager);
+                    if let Some(data) = player_data {
+                        client.send_player_data(data, false);
+                    }
                     if !pending_mods.is_empty() {
                         self.sync_server_mods(pending_mods);
                     }

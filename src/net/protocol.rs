@@ -41,6 +41,33 @@ pub struct MobSyncEntry {
     pub is_ignited: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlayerItemStack {
+    pub block: u8,
+    pub count: u8,
+    pub durability: u16,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlayerData {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub health: f32,
+    pub max_health: f32,
+    pub hunger: f32,
+    pub max_hunger: f32,
+    pub saturation: f32,
+    pub exhaustion: f32,
+    pub air: f32,
+    pub selected_hotbar_slot: u8,
+    pub hotbar: [Option<PlayerItemStack>; 10],
+    pub main: [Option<PlayerItemStack>; 27],
+    pub armor: [Option<PlayerItemStack>; 4],
+    pub offhand: Option<PlayerItemStack>,
+    pub spawn_point: Option<(i32, i32, i32)>,
+}
+
 const MAX_SYNCED_MOBS: usize = 512;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -87,6 +114,9 @@ pub enum ClientPacket {
         mobs: Vec<MobSyncEntry>,
     },
     PlayerDeath,
+    PlayerData {
+        data: PlayerData,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -155,6 +185,9 @@ pub enum ServerPacket {
     },
     MobSnapshot {
         mobs: Vec<MobSyncEntry>,
+    },
+    PlayerData {
+        data: Option<PlayerData>,
     },
 }
 
@@ -354,6 +387,11 @@ impl ClientPacket {
                 pw.finish()
             }
             ClientPacket::PlayerDeath => PacketWriter::new(0x09).finish(),
+            ClientPacket::PlayerData { data } => {
+                let mut pw = PacketWriter::new(0x0A);
+                write_player_data(&mut pw, data);
+                pw.finish()
+            }
         }
     }
 
@@ -404,6 +442,9 @@ impl ClientPacket {
                 mobs: read_mob_snapshot(&mut r)?,
             }),
             0x09 => Ok(ClientPacket::PlayerDeath),
+            0x0A => Ok(ClientPacket::PlayerData {
+                data: read_player_data(&mut r)?,
+            }),
             _ => Err("Unknown client packet ID"),
         }
     }
@@ -533,6 +574,14 @@ impl ServerPacket {
             ServerPacket::MobSnapshot { mobs } => {
                 let mut pw = PacketWriter::new(0x8F);
                 write_mob_snapshot(&mut pw, mobs);
+                pw.finish()
+            }
+            ServerPacket::PlayerData { data } => {
+                let mut pw = PacketWriter::new(0x90);
+                pw.write_bool(data.is_some());
+                if let Some(data) = data {
+                    write_player_data(&mut pw, data);
+                }
                 pw.finish()
             }
         }
@@ -665,6 +714,14 @@ impl ServerPacket {
             0x8F => Ok(ServerPacket::MobSnapshot {
                 mobs: read_mob_snapshot(&mut r)?,
             }),
+            0x90 => {
+                let data = if r.read_bool()? {
+                    Some(read_player_data(&mut r)?)
+                } else {
+                    None
+                };
+                Ok(ServerPacket::PlayerData { data })
+            }
             _ => Err("Unknown server packet ID"),
         }
     }
@@ -718,6 +775,107 @@ fn read_mob_snapshot(reader: &mut PacketReader<'_>) -> Result<Vec<MobSyncEntry>,
         });
     }
     Ok(mobs)
+}
+
+fn write_optional_item(writer: &mut PacketWriter, item: Option<PlayerItemStack>) {
+    writer.write_bool(item.is_some());
+    if let Some(item) = item {
+        writer.write_u8(item.block);
+        writer.write_u8(item.count);
+        writer.write_u16(item.durability);
+    }
+}
+
+fn read_optional_item(reader: &mut PacketReader<'_>) -> Result<Option<PlayerItemStack>, &'static str> {
+    if reader.read_bool()? {
+        Ok(Some(PlayerItemStack {
+            block: reader.read_u8()?,
+            count: reader.read_u8()?,
+            durability: reader.read_u16()?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+fn write_player_data(writer: &mut PacketWriter, data: &PlayerData) {
+    writer.write_f32(data.x);
+    writer.write_f32(data.y);
+    writer.write_f32(data.z);
+    writer.write_f32(data.health);
+    writer.write_f32(data.max_health);
+    writer.write_f32(data.hunger);
+    writer.write_f32(data.max_hunger);
+    writer.write_f32(data.saturation);
+    writer.write_f32(data.exhaustion);
+    writer.write_f32(data.air);
+    writer.write_u8(data.selected_hotbar_slot);
+    for item in data.hotbar {
+        write_optional_item(writer, item);
+    }
+    for item in data.main {
+        write_optional_item(writer, item);
+    }
+    for item in data.armor {
+        write_optional_item(writer, item);
+    }
+    write_optional_item(writer, data.offhand);
+    writer.write_bool(data.spawn_point.is_some());
+    if let Some((x, y, z)) = data.spawn_point {
+        writer.write_i32(x);
+        writer.write_i32(y);
+        writer.write_i32(z);
+    }
+}
+
+fn read_player_data(reader: &mut PacketReader<'_>) -> Result<PlayerData, &'static str> {
+    let x = reader.read_f32()?;
+    let y = reader.read_f32()?;
+    let z = reader.read_f32()?;
+    let health = reader.read_f32()?;
+    let max_health = reader.read_f32()?;
+    let hunger = reader.read_f32()?;
+    let max_hunger = reader.read_f32()?;
+    let saturation = reader.read_f32()?;
+    let exhaustion = reader.read_f32()?;
+    let air = reader.read_f32()?;
+    let selected_hotbar_slot = reader.read_u8()?;
+    let mut hotbar = [None; 10];
+    for item in &mut hotbar {
+        *item = read_optional_item(reader)?;
+    }
+    let mut main = [None; 27];
+    for item in &mut main {
+        *item = read_optional_item(reader)?;
+    }
+    let mut armor = [None; 4];
+    for item in &mut armor {
+        *item = read_optional_item(reader)?;
+    }
+    let offhand = read_optional_item(reader)?;
+    let spawn_point = if reader.read_bool()? {
+        Some((reader.read_i32()?, reader.read_i32()?, reader.read_i32()?))
+    } else {
+        None
+    };
+    Ok(PlayerData {
+        x,
+        y,
+        z,
+        health,
+        max_health,
+        hunger,
+        max_hunger,
+        saturation,
+        exhaustion,
+        air,
+        selected_hotbar_slot,
+        hotbar,
+        main,
+        armor,
+        offhand,
+        spawn_point,
+    })
 }
 
 /// Helper to decode complete frames from a raw incoming byte stream buffer.
@@ -801,6 +959,35 @@ mod tests {
         let mut framed_death = ClientPacket::PlayerDeath.serialize();
         let packets_death = extract_packets(&mut framed_death);
         assert_eq!(ClientPacket::deserialize(&packets_death[0]).unwrap(), ClientPacket::PlayerDeath);
+
+        let player_data = PlayerData {
+            x: 2.0,
+            y: 70.0,
+            z: -4.0,
+            health: 17.0,
+            max_health: 20.0,
+            hunger: 13.0,
+            max_hunger: 20.0,
+            saturation: 2.5,
+            exhaustion: 0.5,
+            air: 20.0,
+            selected_hotbar_slot: 3,
+            hotbar: [Some(PlayerItemStack {
+                block: 1,
+                count: 32,
+                durability: 12,
+            }); 10],
+            main: [None; 27],
+            armor: [None; 4],
+            offhand: None,
+            spawn_point: Some((10, 64, -8)),
+        };
+        let packet = ClientPacket::PlayerData {
+            data: player_data.clone(),
+        };
+        let mut framed_data = packet.serialize();
+        let packets_data = extract_packets(&mut framed_data);
+        assert_eq!(ClientPacket::deserialize(&packets_data[0]).unwrap(), packet);
     }
 
     #[test]
@@ -876,5 +1063,33 @@ mod tests {
         let mut framed_mobs = mob_snapshot.serialize();
         let packets_mobs = extract_packets(&mut framed_mobs);
         assert_eq!(ServerPacket::deserialize(&packets_mobs[0]).unwrap(), mob_snapshot);
+
+        let player_data = ServerPacket::PlayerData {
+            data: Some(PlayerData {
+                x: 2.0,
+                y: 70.0,
+                z: -4.0,
+                health: 17.0,
+                max_health: 20.0,
+                hunger: 13.0,
+                max_hunger: 20.0,
+                saturation: 2.5,
+                exhaustion: 0.5,
+                air: 20.0,
+                selected_hotbar_slot: 3,
+                hotbar: [Some(PlayerItemStack {
+                    block: 1,
+                    count: 32,
+                    durability: 12,
+                }); 10],
+                main: [None; 27],
+                armor: [None; 4],
+                offhand: None,
+                spawn_point: Some((10, 64, -8)),
+            }),
+        };
+        let mut framed_data = player_data.serialize();
+        let packets_data = extract_packets(&mut framed_data);
+        assert_eq!(ServerPacket::deserialize(&packets_data[0]).unwrap(), player_data);
     }
 }

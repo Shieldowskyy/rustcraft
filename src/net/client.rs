@@ -68,6 +68,9 @@ pub enum NetworkEvent {
     MobSnapshot {
         mobs: Vec<MobSyncEntry>,
     },
+    PlayerDataLoaded {
+        data: Option<PlayerData>,
+    },
 }
 
 pub struct NetworkClient {
@@ -82,6 +85,7 @@ pub struct NetworkClient {
     pub last_move_sent: Instant,
     pub ping_ms: u32,
     last_mob_snapshot_sent: Instant,
+    last_player_data_sent: Instant,
 }
 
 impl NetworkClient {
@@ -117,6 +121,7 @@ impl NetworkClient {
             last_move_sent: Instant::now(),
             ping_ms: 0,
             last_mob_snapshot_sent: Instant::now(),
+            last_player_data_sent: Instant::now(),
         };
 
         // Send initial handshake
@@ -180,6 +185,20 @@ impl NetworkClient {
     pub fn send_player_death(&mut self) {
         if self.is_connected {
             let _ = self.send_packet(&ClientPacket::PlayerDeath);
+        }
+    }
+
+    pub fn send_player_data(&mut self, data: PlayerData, force: bool) {
+        if !self.is_connected
+            || (!force && self.last_player_data_sent.elapsed() < std::time::Duration::from_secs(1))
+        {
+            return;
+        }
+        match self.send_packet(&ClientPacket::PlayerData { data }) {
+            Ok(()) => self.last_player_data_sent = Instant::now(),
+            Err(error) => {
+                crate::log_warn!("NETWORK", "Failed to send player data: {}", error);
+            }
         }
     }
 
@@ -371,6 +390,9 @@ impl NetworkClient {
                 }
                 Ok(ServerPacket::MobSnapshot { mobs }) => {
                     events.push(NetworkEvent::MobSnapshot { mobs });
+                }
+                Ok(ServerPacket::PlayerData { data }) => {
+                    events.push(NetworkEvent::PlayerDataLoaded { data });
                 }
                 Ok(ServerPacket::ModSync { mods }) => {
                     events.push(NetworkEvent::ModsSynchronized { mods });

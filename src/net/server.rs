@@ -31,6 +31,7 @@ struct ConnectedClient {
     addr: SocketAddr,
     nickname: String,
     authenticated: bool,
+    player_data: Option<PlayerData>,
     ping_ms: u32,
     x: f32,
     y: f32,
@@ -235,6 +236,48 @@ pub struct EmbeddedServerState {
     pub blocks: Vec<(i32, i32, i32, u8)>,
 }
 
+fn player_data_path(data_dir: &std::path::Path, nickname: &str) -> std::path::PathBuf {
+    let key: String = nickname
+        .to_ascii_lowercase()
+        .bytes()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    data_dir.join(format!("{key}.dat"))
+}
+
+fn load_player_data(
+    data_dir: &std::path::Path,
+    nickname: &str,
+) -> Result<Option<PlayerData>, String> {
+    let path = player_data_path(data_dir, nickname);
+    let mut bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("{}: {error}", path.display())),
+    };
+    let packets = extract_packets(&mut bytes);
+    if !bytes.is_empty() || packets.len() != 1 {
+        return Err(format!("Invalid player data file '{}'", path.display()));
+    }
+    match ClientPacket::deserialize(&packets[0]) {
+        Ok(ClientPacket::PlayerData { data }) => Ok(Some(data)),
+        Ok(_) => Err(format!("Unexpected packet in player data file '{}'", path.display())),
+        Err(error) => Err(format!("Could not decode '{}': {error}", path.display())),
+    }
+}
+
+fn save_player_data(
+    data_dir: &std::path::Path,
+    nickname: &str,
+    data: &PlayerData,
+) -> Result<(), String> {
+    std::fs::create_dir_all(data_dir)
+        .map_err(|error| format!("Could not create '{}': {error}", data_dir.display()))?;
+    let path = player_data_path(data_dir, nickname);
+    std::fs::write(&path, ClientPacket::PlayerData { data: data.clone() }.serialize())
+        .map_err(|error| format!("Could not write '{}': {error}", path.display()))
+}
+
 pub struct EmbeddedServer {
     pub port: u16,
     running: Arc<AtomicBool>,
@@ -421,6 +464,7 @@ fn run_server(
                     addr,
                     nickname: format!("Player{}", id),
                     authenticated: false,
+                    player_data: None,
                     ping_ms: 0,
                     x: spawn_pos.0,
                     y: spawn_pos.1,
@@ -480,6 +524,20 @@ fn run_server(
 
                                 client.nickname = nickname.clone();
                                 client.authenticated = true;
+                                match load_player_data(std::path::Path::new("playerdata"), &nickname) {
+                                    Ok(data) => {
+                                        if let Some(data) = &data {
+                                            client.x = data.x;
+                                            client.y = data.y;
+                                            client.z = data.z;
+                                        }
+                                        client.player_data = data;
+                                    }
+                                    Err(error) => {
+                                        crate::log_warn!("SERVER", "Could not load player data for '{}': {}", nickname, error);
+                                        client.player_data = None;
+                                    }
+                                }
                                 if mob_authority_id.is_none() {
                                     mob_authority_id = Some(id);
                                 }
@@ -512,6 +570,9 @@ fn run_server(
                                 let _ = client.send_packet(&ServerPacket::MobSnapshot {
                                     mobs: mob_snapshot.clone(),
                                 });
+                                let _ = client.send_packet(&ServerPacket::PlayerData {
+                                    data: client.player_data.clone(),
+                                });
 
                                 // Send MOTD
                                 if !config.motd.is_empty() {
@@ -541,6 +602,11 @@ fn run_server(
                                 client.pitch = pitch;
                                 client.is_sneaking = is_sneaking;
                                 client.is_sprinting = is_sprinting;
+                                if let Some(data) = &mut client.player_data {
+                                    data.x = x;
+                                    data.y = y;
+                                    data.z = z;
+                                }
                                 player_pos_updates.push(PlayerPosUpdate {
                                     id,
                                     x,
@@ -598,6 +664,17 @@ fn run_server(
                                         text: format!("{} died", client.nickname),
                                         is_system: true,
                                     });
+                                }
+                            }
+                            Ok(ClientPacket::PlayerData { data }) => {
+                                client.x = data.x;
+                                client.y = data.y;
+                                client.z = data.z;
+                                client.player_data = Some(data.clone());
+                                if let Err(error) =
+                                    save_player_data(std::path::Path::new("playerdata"), &client.nickname, &data)
+                                {
+                                    crate::log_error!("SERVER", "Could not save player data for '{}': {}", client.nickname, error);
                                 }
                             }
                             Err(err) => {
@@ -665,7 +742,17 @@ fn run_server(
 
         // 3. Handle disconnected clients
         for (id, reason) in disconnected_clients {
-            if let Some(client) = clients.remove(&id) {
+            if let Some(mut client) = clients.remove(&id) {
+                if let Some(mut data) = client.player_data.take() {
+                    data.x = client.x;
+                    data.y = client.y;
+                    data.z = client.z;
+                    if let Err(error) =
+                        save_player_data(std::path::Path::new("playerdata"), &client.nickname, &data)
+                    {
+                        crate::log_error!("SERVER", "Could not save player data for '{}': {}", client.nickname, error);
+                    }
+                }
                 if mob_authority_id == Some(id) {
                     mob_authority_id = None;
                 }
@@ -1195,6 +1282,47 @@ fn handle_in_game_command(
 mod tests {
     use super::*;
     use std::time::Instant;
+
+    #[test]
+    fn player_data_is_persisted_by_case_insensitive_nickname() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let data_dir = std::env::temp_dir().join(format!(
+            "rustcraft_playerdata_{}_{}",
+            std::process::id(),
+            unique
+        ));
+        let data = PlayerData {
+            x: 12.5,
+            y: 70.0,
+            z: -6.0,
+            health: 16.0,
+            max_health: 20.0,
+            hunger: 14.0,
+            max_hunger: 20.0,
+            saturation: 2.0,
+            exhaustion: 1.0,
+            air: 18.0,
+            selected_hotbar_slot: 2,
+            hotbar: [Some(PlayerItemStack {
+                block: crate::world::BlockId::Diamond.to_u8(),
+                count: 5,
+                durability: 42,
+            }); 10],
+            main: [None; 27],
+            armor: [None; 4],
+            offhand: None,
+            spawn_point: Some((3, 64, 8)),
+        };
+
+        save_player_data(&data_dir, "RelayUser", &data).unwrap();
+        assert_eq!(load_player_data(&data_dir, "relayuser").unwrap(), Some(data));
+        assert_eq!(load_player_data(&data_dir, "AnotherUser").unwrap(), None);
+        std::fs::remove_file(player_data_path(&data_dir, "RelayUser")).unwrap();
+        std::fs::remove_dir(&data_dir).unwrap();
+    }
 
     #[test]
     fn embedded_server_uses_world_snapshot_and_stops_cleanly() {

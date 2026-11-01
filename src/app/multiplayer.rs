@@ -9,6 +9,63 @@ use super::{AppOutput, GameState, InputState, RustCraftApp};
 const DEFAULT_RELAY_ADDRESS: &str = "relay.rustcraft.dsh.yt:26657";
 
 impl RustCraftApp {
+    pub(crate) fn multiplayer_player_data(&self) -> crate::net::protocol::PlayerData {
+        let to_network_item = |stack: Option<crate::gameplay::inventory::ItemStack>| {
+            stack.map(|stack| crate::net::protocol::PlayerItemStack {
+                block: stack.block.to_u8(),
+                count: stack.count,
+                durability: stack.durability,
+            })
+        };
+        crate::net::protocol::PlayerData {
+            x: self.camera.position.x,
+            y: self.camera.position.y,
+            z: self.camera.position.z,
+            health: self.player.health,
+            max_health: self.player.max_health,
+            hunger: self.player.hunger,
+            max_hunger: self.player.max_hunger,
+            saturation: self.player.saturation,
+            exhaustion: self.player.exhaustion,
+            air: self.player.air,
+            selected_hotbar_slot: self.player.selected_hotbar_slot,
+            hotbar: self.player.inventory.hotbar.map(to_network_item),
+            main: self.player.inventory.main.map(to_network_item),
+            armor: self.player.inventory.armor.map(to_network_item),
+            offhand: to_network_item(self.player.inventory.offhand),
+            spawn_point: self.player.spawn_point.map(|pos| (pos.x, pos.y, pos.z)),
+        }
+    }
+
+    fn apply_multiplayer_player_data(&mut self, data: crate::net::protocol::PlayerData) {
+        let from_network_item = |item: Option<crate::net::protocol::PlayerItemStack>| {
+            item.map(|item| {
+                crate::gameplay::inventory::ItemStack::with_durability(
+                    BlockId::from_u8(item.block),
+                    item.count,
+                    item.durability,
+                )
+            })
+        };
+        self.camera.position = Vec3::new(data.x, data.y, data.z);
+        self.world.player_position = self.camera.position;
+        self.player.health = data.health;
+        self.player.max_health = data.max_health;
+        self.player.hunger = data.hunger;
+        self.player.max_hunger = data.max_hunger;
+        self.player.saturation = data.saturation;
+        self.player.exhaustion = data.exhaustion;
+        self.player.air = data.air;
+        self.player.selected_hotbar_slot = data.selected_hotbar_slot.min(9);
+        self.player.inventory.hotbar = data.hotbar.map(from_network_item);
+        self.player.inventory.main = data.main.map(from_network_item);
+        self.player.inventory.armor = data.armor.map(from_network_item);
+        self.player.inventory.offhand = from_network_item(data.offhand);
+        self.player.spawn_point = data
+            .spawn_point
+            .map(|(x, y, z)| IVec3::new(x, y, z));
+    }
+
     pub(crate) fn announce_player_death(&mut self) {
         if self.death_message_sent {
             return;
@@ -214,6 +271,7 @@ impl RustCraftApp {
             let mut connected_result = None;
             let mut disconnected_err = None;
             let mut pending_mods = Vec::new();
+            let mut player_data_result = None;
 
             for ev in events {
                 match ev {
@@ -233,6 +291,9 @@ impl RustCraftApp {
                     }
                     crate::net::NetworkEvent::Disconnected { reason } => {
                         disconnected_err = Some(reason);
+                    }
+                    crate::net::NetworkEvent::PlayerDataLoaded { data } => {
+                        player_data_result = Some(data);
                     }
                     _ => {}
                 }
@@ -262,6 +323,17 @@ impl RustCraftApp {
                     }
                     self.player.reset(GameMode::Survival);
                 }
+                match player_data_result {
+                    Some(Some(data)) => self.apply_multiplayer_player_data(data),
+                    Some(None) => {
+                        let data = self.multiplayer_player_data();
+                        if let Some(client) = &mut self.net_client {
+                            client.send_player_data(data, true);
+                        }
+                    }
+                    None => {}
+                }
+                self.death_message_sent = false;
                 self.is_multiplayer = true;
                 self.multiplayer_is_connecting = false;
                 let was_hosting = self.is_hosting_multiplayer;
