@@ -3474,7 +3474,7 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
         let mut draw_quad = |p0: Vec3, p1: Vec3, p2: Vec3, p3: Vec3, tex: TextureId, shade: f32| {
             let edge1 = p1 - p0;
             let edge2 = p3 - p0;
-            let normal = edge1.cross(edge2);
+            let normal = edge2.cross(edge1);
             let c = (p0 + p1 + p2 + p3) * 0.25;
             let to_face = c - camera_pos;
             if to_face.dot(normal) >= 0.0 {
