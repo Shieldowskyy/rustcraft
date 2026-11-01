@@ -68,6 +68,12 @@ pub enum NetworkEvent {
     MobSnapshot {
         mobs: Vec<MobSyncEntry>,
     },
+    MobAttack {
+        attacker_id: u32,
+        mob_id: u32,
+        damage: f32,
+        direction: Vec3,
+    },
     WorldSnapshot {
         snapshot: WorldSnapshot,
     },
@@ -251,6 +257,16 @@ impl NetworkClient {
         }
         let packet = ClientPacket::AttackPlayer { target_id, damage };
         let _ = self.send_packet(&packet);
+    }
+
+    pub fn send_attack_mob(&mut self, mob_id: u32, damage: f32) {
+        if !self.is_connected || self.local_id == self.mob_authority_id {
+            return;
+        }
+        let packet = ClientPacket::AttackMob { mob_id, damage };
+        if let Err(error) = self.send_packet(&packet) {
+            crate::log_warn!("NETWORK", "Failed to send mob attack: {}", error);
+        }
     }
 
     pub fn send_mob_snapshot(&mut self, mob_manager: &crate::gameplay::mob::MobManager) {
@@ -472,6 +488,21 @@ impl NetworkClient {
                 }
                 Ok(ServerPacket::MobSnapshot { mobs }) => {
                     events.push(NetworkEvent::MobSnapshot { mobs });
+                }
+                Ok(ServerPacket::MobAttack {
+                    attacker_id,
+                    mob_id,
+                    damage,
+                    direction_x,
+                    direction_y,
+                    direction_z,
+                }) => {
+                    events.push(NetworkEvent::MobAttack {
+                        attacker_id,
+                        mob_id,
+                        damage,
+                        direction: Vec3::new(direction_x, direction_y, direction_z),
+                    });
                 }
                 Ok(ServerPacket::WorldSnapshot { snapshot }) => {
                     events.push(NetworkEvent::WorldSnapshot { snapshot });

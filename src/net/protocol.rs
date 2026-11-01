@@ -1,6 +1,6 @@
 //! Binary network protocol definition, framing, packet serialization, and parsing.
 
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 pub const DEFAULT_SERVER_PORT: u16 = 26656;
 pub const MAX_PACKET_SIZE: usize = 16 * 1024 * 1024;
 pub const MAX_QUEUED_BYTES: usize = 32 * 1024 * 1024;
@@ -229,6 +229,10 @@ pub enum ClientPacket {
         target_id: u32,
         damage: f32,
     },
+    AttackMob {
+        mob_id: u32,
+        damage: f32,
+    },
     MobSnapshot {
         mobs: Vec<MobSyncEntry>,
     },
@@ -319,6 +323,14 @@ pub enum ServerPacket {
     },
     WorldSnapshot {
         snapshot: WorldSnapshot,
+    },
+    MobAttack {
+        attacker_id: u32,
+        mob_id: u32,
+        damage: f32,
+        direction_x: f32,
+        direction_y: f32,
+        direction_z: f32,
     },
 }
 
@@ -547,6 +559,12 @@ impl ClientPacket {
                 write_world_snapshot(&mut pw, snapshot);
                 pw.finish()
             }
+            ClientPacket::AttackMob { mob_id, damage } => {
+                let mut pw = PacketWriter::new(0x0D);
+                pw.write_u32(*mob_id);
+                pw.write_f32(*damage);
+                pw.finish()
+            }
         }
     }
 
@@ -603,6 +621,10 @@ impl ClientPacket {
             0x0B => Ok(ClientPacket::Pong { seq: r.read_u32()? }),
             0x0C => Ok(ClientPacket::WorldSnapshot {
                 snapshot: read_world_snapshot(&mut r)?,
+            }),
+            0x0D => Ok(ClientPacket::AttackMob {
+                mob_id: r.read_u32()?,
+                damage: r.read_f32()?,
             }),
             _ => Err("Unknown client packet ID"),
         }
@@ -753,6 +775,23 @@ impl ServerPacket {
                 write_world_snapshot(&mut pw, snapshot);
                 pw.finish()
             }
+            ServerPacket::MobAttack {
+                attacker_id,
+                mob_id,
+                damage,
+                direction_x,
+                direction_y,
+                direction_z,
+            } => {
+                let mut pw = PacketWriter::new(0x93);
+                pw.write_u32(*attacker_id);
+                pw.write_u32(*mob_id);
+                pw.write_f32(*damage);
+                pw.write_f32(*direction_x);
+                pw.write_f32(*direction_y);
+                pw.write_f32(*direction_z);
+                pw.finish()
+            }
         }
     }
 
@@ -894,6 +933,14 @@ impl ServerPacket {
             0x91 => Ok(ServerPacket::Ping { seq: r.read_u32()? }),
             0x92 => Ok(ServerPacket::WorldSnapshot {
                 snapshot: read_world_snapshot(&mut r)?,
+            }),
+            0x93 => Ok(ServerPacket::MobAttack {
+                attacker_id: r.read_u32()?,
+                mob_id: r.read_u32()?,
+                damage: r.read_f32()?,
+                direction_x: r.read_f32()?,
+                direction_y: r.read_f32()?,
+                direction_z: r.read_f32()?,
             }),
             _ => Err("Unknown server packet ID"),
         }
@@ -1425,6 +1472,32 @@ mod tests {
         let mut framed_atk = attack.serialize();
         let packets_atk = extract_packets(&mut framed_atk).unwrap();
         assert_eq!(ClientPacket::deserialize(&packets_atk[0]).unwrap(), attack);
+
+        let attack_mob = ClientPacket::AttackMob {
+            mob_id: 8,
+            damage: 6.5,
+        };
+        let mut framed_mob_attack = attack_mob.serialize();
+        let packets_mob_attack = extract_packets(&mut framed_mob_attack).unwrap();
+        assert_eq!(
+            ClientPacket::deserialize(&packets_mob_attack[0]).unwrap(),
+            attack_mob
+        );
+
+        let mob_attack = ServerPacket::MobAttack {
+            attacker_id: 2,
+            mob_id: 8,
+            damage: 6.5,
+            direction_x: 0.0,
+            direction_y: 0.1,
+            direction_z: 1.0,
+        };
+        let mut framed_server_mob_attack = mob_attack.serialize();
+        let packets_server_mob_attack = extract_packets(&mut framed_server_mob_attack).unwrap();
+        assert_eq!(
+            ServerPacket::deserialize(&packets_server_mob_attack[0]).unwrap(),
+            mob_attack
+        );
 
         let mob_snapshot = ClientPacket::MobSnapshot {
             mobs: vec![MobSyncEntry {

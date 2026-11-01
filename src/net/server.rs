@@ -593,6 +593,7 @@ fn run_server(
         let mut player_pos_updates: Vec<PlayerPosUpdate> = Vec::new();
         let mut in_game_commands: Vec<(u32, String)> = Vec::new();
         let mut pending_attacks: Vec<(u32, String, (f32, f32, f32), u32, f32)> = Vec::new();
+        let mut pending_mob_attacks = Vec::new();
         let mut pending_mob_snapshots = Vec::new();
         let mut pending_mob_broadcasts = Vec::new();
         let mut pending_world_snapshots = Vec::new();
@@ -892,6 +893,17 @@ fn run_server(
                                     pending_attacks.push((id, attacker_name, attacker_pos, target_id, damage));
                                 }
                             }
+                            Ok(ClientPacket::AttackMob { mob_id, damage }) => {
+                                if !client.authenticated
+                                    || !damage.is_finite()
+                                    || damage <= 0.0
+                                    || damage > 50.0
+                                {
+                                    disconnected_clients.push((id, "Invalid mob attack".to_string()));
+                                    break;
+                                }
+                                pending_mob_attacks.push((id, mob_id, damage, client.yaw, client.pitch));
+                            }
                             Ok(ClientPacket::MobSnapshot { mobs }) => {
                                 if client.authenticated {
                                     pending_mob_snapshots.push((id, mobs));
@@ -958,6 +970,35 @@ fn run_server(
                     sender_id,
                     ServerPacket::MobSnapshot { mobs: snapshot },
                 ));
+            }
+        }
+        for (attacker_id, mob_id, damage, yaw, pitch) in pending_mob_attacks {
+            let Some(authority_id) = mob_authority_id.filter(|authority_id| *authority_id != attacker_id) else {
+                continue;
+            };
+            let Some(mob) = mob_snapshot.iter().find(|mob| mob.id == mob_id) else {
+                continue;
+            };
+            let Some(attacker) = clients.get(&attacker_id) else {
+                continue;
+            };
+            let dx = mob.x - attacker.x;
+            let dy = mob.y - attacker.y;
+            let dz = mob.z - attacker.z;
+            if dx * dx + dy * dy + dz * dz > 36.0 {
+                continue;
+            }
+            let (sin_yaw, cos_yaw) = yaw.sin_cos();
+            let (sin_pitch, cos_pitch) = pitch.sin_cos();
+            if let Some(authority) = clients.get_mut(&authority_id) {
+                let _ = authority.send_packet(&ServerPacket::MobAttack {
+                    attacker_id,
+                    mob_id,
+                    damage,
+                    direction_x: sin_yaw * cos_pitch,
+                    direction_y: -sin_pitch,
+                    direction_z: cos_yaw * cos_pitch,
+                });
             }
         }
         for (sender_id, snapshot) in pending_world_snapshots {
@@ -1700,6 +1741,76 @@ mod tests {
         assert!(client.is_connected);
         assert!(client.ping_ms > 0);
         client.disconnect();
+        drop(server);
+    }
+
+    #[test]
+    fn non_authority_mob_attacks_are_sent_to_the_mob_authority() {
+        let server = EmbeddedServer::start(
+            0,
+            EmbeddedServerState {
+                seed: 1,
+                time_of_day: 120.0,
+                spawn_pos: (8.5, 48.0, 8.5),
+                blocks: Vec::new(),
+                mobs: vec![MobSyncEntry {
+                    id: 7,
+                    kind: crate::gameplay::mob::MobKind::Zombie as u8,
+                    x: 9.0,
+                    y: 48.0,
+                    z: 8.5,
+                    yaw: 0.0,
+                    health: 20.0,
+                    is_dead: false,
+                    walk_phase: 0.0,
+                    is_baby: false,
+                    wool_color: 0,
+                    is_sheared: false,
+                    is_puffed: false,
+                    fuse: 0.0,
+                    is_ignited: false,
+                }],
+            },
+        )
+        .unwrap();
+        let address = format!("127.0.0.1:{}", server.port);
+        let mut authority = crate::net::NetworkClient::connect(&address, "Authority").unwrap();
+        let mut attacker = crate::net::NetworkClient::connect(&address, "Attacker").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline
+            && (!authority.is_connected
+                || !attacker.is_connected
+                || attacker.mob_authority_id != authority.local_id)
+        {
+            authority.update(0.05);
+            attacker.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(authority.is_connected && attacker.is_connected);
+        assert_eq!(attacker.mob_authority_id, authority.local_id);
+
+        attacker.send_attack_mob(7, 6.5);
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut replicated = false;
+        while Instant::now() < deadline && !replicated {
+            replicated |= authority.update(0.05).into_iter().any(|event| {
+                matches!(
+                    event,
+                    crate::net::NetworkEvent::MobAttack {
+                        attacker_id,
+                        mob_id: 7,
+                        damage: 6.5,
+                        ..
+                    } if Some(attacker_id) == attacker.local_id
+                )
+            });
+            attacker.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(replicated, "mob authority should receive the remote attack");
+
+        authority.disconnect();
+        attacker.disconnect();
         drop(server);
     }
 

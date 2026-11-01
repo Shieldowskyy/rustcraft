@@ -317,6 +317,27 @@ impl RustCraftApp {
                                     crate::log_warn!("NETWORK", "Rejected mob snapshot: {}", error);
                                 }
                             }
+                            crate::net::NetworkEvent::MobAttack {
+                                attacker_id,
+                                mob_id,
+                                damage,
+                                direction,
+                            } => {
+                                if client.local_id == client.mob_authority_id
+                                    && client.local_id != Some(attacker_id)
+                                {
+                                    if let Some(mob) = self
+                                        .mob_manager
+                                        .mobs
+                                        .iter_mut()
+                                        .find(|mob| mob.id == mob_id)
+                                    {
+                                        let hit_pos = mob.center_pos();
+                                        mob.take_damage(damage, direction);
+                                        self.particles.spawn_mob_hit(hit_pos);
+                                    }
+                                }
+                            }
                             crate::net::NetworkEvent::WorldSnapshot { snapshot } => {
                                 received_world_snapshot = Some(snapshot);
                             }
@@ -1215,14 +1236,17 @@ impl RustCraftApp {
                     {
                         entity_hit = true;
                         if interact_left_just {
-                            let (kind, remaining_hp, mob_pos, was_alive) = {
+                            let (mob_id, kind, remaining_hp, mob_pos, was_alive) = {
                                 let mob = &mut self.mob_manager.mobs[mob_idx];
                                 let was_alive = !mob.is_dead;
                                 let hit_pos = mob.center_pos();
                                 mob.take_damage(dmg, forward);
                                 self.particles.spawn_mob_hit(hit_pos);
-                                (mob.kind, mob.health, mob.pos, was_alive)
+                                (mob.id, mob.kind, mob.health, mob.pos, was_alive)
                             };
+                            if let Some(client) = &mut self.net_client {
+                                client.send_attack_mob(mob_id, dmg);
+                            }
                             if was_alive && remaining_hp <= 0.0 {
                                 let unlocked = self.achievements.record_defeated_mob();
                                 self.process_achievement_unlocks(unlocked);
