@@ -2471,13 +2471,14 @@ impl World {
         for (pos, stone) in solidifications { self.set_block(pos, stone); }
         for (pos, block, level) in fluid_spawns {
             if self.get_block(pos) == BlockId::Air {
-                self.set_block(pos, block);
+                // Flow is simulated locally on every peer; levels aren't networked.
+                self.set_block_inner(pos, block, false);
                 self.set_fluid_level(pos, level);
             }
         }
         for pos in fluid_despawns {
             if matches!(self.get_block(pos), BlockId::Water | BlockId::Lava) && self.fluid_level(pos) < 8 {
-                self.set_block(pos, BlockId::Air);
+                self.set_block_inner(pos, BlockId::Air, false);
             }
         }
 
