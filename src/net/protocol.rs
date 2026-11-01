@@ -86,6 +86,7 @@ pub enum ClientPacket {
     MobSnapshot {
         mobs: Vec<MobSyncEntry>,
     },
+    PlayerDeath,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -352,6 +353,7 @@ impl ClientPacket {
                 write_mob_snapshot(&mut pw, mobs);
                 pw.finish()
             }
+            ClientPacket::PlayerDeath => PacketWriter::new(0x09).finish(),
         }
     }
 
@@ -401,6 +403,7 @@ impl ClientPacket {
             0x08 => Ok(ClientPacket::MobSnapshot {
                 mobs: read_mob_snapshot(&mut r)?,
             }),
+            0x09 => Ok(ClientPacket::PlayerDeath),
             _ => Err("Unknown client packet ID"),
         }
     }
@@ -794,6 +797,10 @@ mod tests {
         let mut framed_mobs = mob_snapshot.serialize();
         let packets_mobs = extract_packets(&mut framed_mobs);
         assert_eq!(ClientPacket::deserialize(&packets_mobs[0]).unwrap(), mob_snapshot);
+
+        let mut framed_death = ClientPacket::PlayerDeath.serialize();
+        let packets_death = extract_packets(&mut framed_death);
+        assert_eq!(ClientPacket::deserialize(&packets_death[0]).unwrap(), ClientPacket::PlayerDeath);
     }
 
     #[test]

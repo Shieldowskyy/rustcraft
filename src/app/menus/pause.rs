@@ -418,6 +418,7 @@ impl RustCraftApp {
                     self.player.fall_distance = 0.0;
                     self.player.invulnerability_timer = 3.0;
                     self.player.has_landed = false;
+                    self.death_message_sent = false;
                     self.damage_tilt_timer = 0.0;
                     let (spawn_biome, _) = crate::world::get_biome_at(spawn_pos.x.floor() as i32, spawn_pos.z.floor() as i32, self.world.seed);
                     self.biome_filter_tint = spawn_biome.color_filter();
@@ -427,6 +428,7 @@ impl RustCraftApp {
                 }
                 1 => {
                     self.player.reset(self.player.gamemode);
+                    self.death_message_sent = false;
                     self.camera.position = self.world.player_position;
                     let _ = self.save_world_progress();
                     crate::ui::minimap::save_waypoints(self.save_slot, self.world.seed, &self.minimap.waypoints);

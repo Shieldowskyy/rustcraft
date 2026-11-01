@@ -48,8 +48,12 @@ impl RustCraftApp {
                             crate::net::NetworkEvent::BlockChanged { x, y, z, block } => {
                                 self.world.set_network_block(IVec3::new(x, y, z), BlockId::from_u8(block));
                             }
-                            crate::net::NetworkEvent::ChatMessage { sender, text, is_system: _ } => {
-                                self.chat.add_message(format!("<{}> {}", sender, text), crate::ui::pack_color(1.0, 1.0, 1.0));
+                            crate::net::NetworkEvent::ChatMessage { sender, text, is_system } => {
+                                if is_system {
+                                    self.chat.add_info(format!("[{}] {}", sender, text));
+                                } else {
+                                    self.chat.add_message(format!("<{}> {}", sender, text), crate::ui::pack_color(1.0, 1.0, 1.0));
+                                }
                             }
                             crate::net::NetworkEvent::TimeSync { time_of_day } => {
                                 self.world.time_of_day = time_of_day;
@@ -849,6 +853,7 @@ impl RustCraftApp {
                         self.player.fall_distance = 0.0;
                     }
                     if self.player.is_dead() {
+                        self.announce_player_death();
                         self.state = GameState::DeathScreen;
                         out.request_release_mouse = true;
                         self.death_hovered_btn = Some(0);
@@ -2073,6 +2078,7 @@ impl RustCraftApp {
                 let items_start = if collect_profiling { Some(std::time::Instant::now()) } else { None };
 
                 if self.player.is_dead() {
+                    self.announce_player_death();
                     self.state = GameState::DeathScreen;
                     out.request_release_mouse = true;
                     self.death_hovered_btn = Some(0);

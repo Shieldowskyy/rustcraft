@@ -9,6 +9,16 @@ use super::{AppOutput, GameState, InputState, RustCraftApp};
 const DEFAULT_RELAY_ADDRESS: &str = "relay.rustcraft.dsh.yt:26657";
 
 impl RustCraftApp {
+    pub(crate) fn announce_player_death(&mut self) {
+        if self.death_message_sent {
+            return;
+        }
+        if let Some(client) = &mut self.net_client {
+            client.send_player_death();
+            self.death_message_sent = true;
+        }
+    }
+
     pub(crate) fn update_and_render_multiplayer_menu(
         &mut self,
         _dt: f32,

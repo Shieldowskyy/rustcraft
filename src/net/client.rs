@@ -177,6 +177,12 @@ impl NetworkClient {
         let _ = self.send_packet(&packet);
     }
 
+    pub fn send_player_death(&mut self) {
+        if self.is_connected {
+            let _ = self.send_packet(&ClientPacket::PlayerDeath);
+        }
+    }
+
     pub fn send_attack_player(&mut self, target_id: u32, damage: f32) {
         if !self.is_connected {
             return;

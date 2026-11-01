@@ -591,6 +591,15 @@ fn run_server(
                             Ok(ClientPacket::MobSnapshot { mobs }) => {
                                 pending_mob_snapshots.push((id, mobs));
                             }
+                            Ok(ClientPacket::PlayerDeath) => {
+                                if client.authenticated {
+                                    broadcast_packets.push(ServerPacket::ChatMessage {
+                                        sender: "Server".to_string(),
+                                        text: format!("{} died", client.nickname),
+                                        is_system: true,
+                                    });
+                                }
+                            }
                             Err(err) => {
                                 eprintln!("[SERVER] Corrupted packet from ID {}: {}", id, err);
                             }
@@ -1284,6 +1293,57 @@ mod tests {
         assert_eq!(teleport, Some((31.0, 72.0, -8.0)));
         host.disconnect();
         guest.disconnect();
+        drop(server);
+    }
+
+    #[test]
+    fn player_death_is_broadcast_to_all_connected_clients() {
+        let server = EmbeddedServer::start(
+            0,
+            EmbeddedServerState {
+                seed: 1,
+                time_of_day: 120.0,
+                spawn_pos: (8.5, 65.0, 8.5),
+                blocks: Vec::new(),
+            },
+        )
+        .unwrap();
+        let address = format!("127.0.0.1:{}", server.port);
+        let mut player = crate::net::NetworkClient::connect(&address, "PlayerOne").unwrap();
+        let mut observer = crate::net::NetworkClient::connect(&address, "Observer").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && (!player.is_connected || !observer.is_connected) {
+            player.update(0.05);
+            observer.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(player.is_connected && observer.is_connected);
+
+        player.send_player_death();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut player_notified = false;
+        let mut observer_notified = false;
+        while Instant::now() < deadline && !(player_notified && observer_notified) {
+            for event in player.update(0.05) {
+                player_notified |= matches!(
+                    event,
+                    crate::net::NetworkEvent::ChatMessage { ref text, is_system: true, .. }
+                        if text == "PlayerOne died"
+                );
+            }
+            for event in observer.update(0.05) {
+                observer_notified |= matches!(
+                    event,
+                    crate::net::NetworkEvent::ChatMessage { ref text, is_system: true, .. }
+                        if text == "PlayerOne died"
+                );
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(player_notified && observer_notified);
+        player.disconnect();
+        observer.disconnect();
         drop(server);
     }
 
