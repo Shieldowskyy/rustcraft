@@ -148,6 +148,10 @@ impl RustCraftApp {
                     }
                 }
                 4 => {
+                    self.state = GameState::AchievementTree;
+                    crate::log_info!("MENU", "Opened Field Notes from pause menu");
+                }
+                5 => {
                     if self.is_multiplayer {
                         if let Some(client) = &mut self.net_client {
                             client.disconnect();
@@ -168,10 +172,6 @@ impl RustCraftApp {
                     self.state = GameState::MainMenu;
                     out.request_release_mouse = true;
                     crate::log_info!("STATE", "Returned to Main Menu from pause menu");
-                }
-                5 => {
-                    self.state = GameState::AchievementTree;
-                    crate::log_info!("MENU", "Opened achievement tree");
                 }
                 6 => {
                     if self.is_multiplayer {
