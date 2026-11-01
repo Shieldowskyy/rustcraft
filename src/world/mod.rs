@@ -83,7 +83,9 @@ pub enum Biome {
     DeepOcean, Ocean, SnowyTaiga, SnowyTundra, AutumnForest, Forest, CherryGrove,
     Plains, Swamp, Savanna, Desert, Mountain, Jungle, Badlands, DarkForest,
     Taiga, BirchForest, IceSpikes, MushroomIsland, Meadow, JaggedPeaks,
-    FrozenPeaks, SnowySlopes,
+    FrozenPeaks, SnowySlopes, River, FrozenRiver, Beach, ColdBeach, StoneBeach,
+    SunflowerPlains, FlowerForest, MegaTaiga, JungleEdge, SavannaPlateau,
+    Mesa, MesaPlateau, MesaPlateauForest, MesaBryce,
 }
 
 impl Biome {
@@ -97,6 +99,12 @@ impl Biome {
             Self::Forest => "FOREST", Self::DarkForest => "DARK FOREST", Self::AutumnForest => "AUTUMN FOREST",
             Self::CherryGrove => "CHERRY GROVE", Self::Mountain => "MOUNTAINS", Self::JaggedPeaks => "JAGGED PEAKS",
             Self::FrozenPeaks => "FROZEN PEAKS", Self::SnowySlopes => "SNOWY SLOPES",
+            Self::River => "RIVER", Self::FrozenRiver => "FROZEN RIVER",
+            Self::Beach => "BEACH", Self::ColdBeach => "COLD BEACH", Self::StoneBeach => "STONE BEACH",
+            Self::SunflowerPlains => "SUNFLOWER PLAINS", Self::FlowerForest => "FLOWER FOREST",
+            Self::MegaTaiga => "MEGA TAIGA", Self::JungleEdge => "JUNGLE EDGE",
+            Self::SavannaPlateau => "SAVANNA PLATEAU", Self::Mesa => "MESA", Self::MesaPlateau => "MESA PLATEAU",
+            Self::MesaPlateauForest => "MESA PLATEAU FOREST", Self::MesaBryce => "MESA BRYCE",
         }
     }
 
@@ -115,17 +123,24 @@ impl Biome {
             Self::MushroomIsland => [1.05, 0.96, 1.08], Self::Meadow => [1.04, 1.05, 0.98],
             Self::JaggedPeaks => [0.95, 0.97, 1.05], Self::FrozenPeaks => [0.89, 1.01, 1.13],
             Self::SnowySlopes => [0.95, 1.01, 1.08],
+            Self::River => [0.86, 1.02, 1.12], Self::FrozenRiver => [0.88, 1.03, 1.15],
+            Self::Beach => [1.08, 1.06, 0.94], Self::ColdBeach => [0.93, 1.01, 1.10],
+            Self::StoneBeach => [0.99, 1.00, 1.04], Self::SunflowerPlains => [1.08, 1.08, 0.91],
+            Self::FlowerForest => [1.07, 1.06, 1.00], Self::MegaTaiga => [0.95, 1.00, 0.98],
+            Self::JungleEdge => [0.98, 1.06, 0.95], Self::SavannaPlateau => [1.08, 1.03, 0.89],
+            Self::Mesa => [1.11, 0.98, 0.89], Self::MesaPlateau => [1.12, 0.99, 0.91], Self::MesaPlateauForest => [1.09, 0.99, 0.92],
+            Self::MesaBryce => [1.14, 0.96, 0.87],
         }
     }
 
     #[inline]
     pub fn has_snow(self) -> bool {
-        matches!(self, Self::SnowyTaiga | Self::SnowyTundra | Self::IceSpikes | Self::FrozenPeaks | Self::SnowySlopes | Self::JaggedPeaks)
+        matches!(self, Self::SnowyTaiga | Self::SnowyTundra | Self::IceSpikes | Self::FrozenPeaks | Self::SnowySlopes | Self::JaggedPeaks | Self::FrozenRiver | Self::ColdBeach)
     }
 
     #[inline]
     pub fn has_precipitation(self) -> bool {
-        !matches!(self, Self::Desert | Self::Badlands | Self::Savanna)
+        !matches!(self, Self::Desert | Self::Badlands | Self::Savanna | Self::SavannaPlateau | Self::Mesa | Self::MesaPlateau | Self::MesaPlateauForest | Self::MesaBryce)
     }
 }
 
@@ -136,11 +151,18 @@ pub fn get_biome_at(wx: i32, wz: i32, seed: u32) -> (Biome, f32) {
     let temp = fractal_noise2(fx * 0.0010, fz * 0.0010, seed.wrapping_add(500), 4, 0.5);
     let humidity = fractal_noise2(fx * 0.0010, fz * 0.0010, seed.wrapping_add(1500), 4, 0.5);
     let rarity = fractal_noise2(fx * 0.0014, fz * 0.0014, seed.wrapping_add(4500), 4, 0.5);
+    let river = fractal_noise2(fx * 0.0030, fz * 0.0030, seed.wrapping_add(6500), 2, 0.5);
 
     let biome = if continentalness < -0.38 {
         if rarity > 0.38 { Biome::MushroomIsland } else { Biome::DeepOcean }
     } else if continentalness < -0.16 {
         if continentalness < -0.28 && rarity > 0.40 { Biome::MushroomIsland } else { Biome::Ocean }
+    } else if river.abs() < 0.035 {
+        if temp < -0.30 { Biome::FrozenRiver } else { Biome::River }
+    } else if continentalness < -0.105 {
+        if temp < -0.30 { Biome::ColdBeach }
+        else if rarity > 0.40 { Biome::StoneBeach }
+        else { Biome::Beach }
     } else if continentalness > 0.34 {
         if continentalness < 0.46 {
             if continentalness < 0.44 && temp > -0.05 && temp < 0.22 && humidity > -0.05 { Biome::Meadow }
@@ -155,18 +177,34 @@ pub fn get_biome_at(wx: i32, wz: i32, seed: u32) -> (Biome, f32) {
         } else if temp < -0.40 && rarity > 0.30 { Biome::IceSpikes }
         else if humidity > 0.08 { Biome::SnowyTaiga } else { Biome::SnowyTundra }
     } else if temp < -0.05 {
-        if humidity > 0.16 { Biome::AutumnForest }
+        if humidity > 0.16 && rarity > 0.28 { Biome::MegaTaiga }
+        else if humidity > 0.16 { Biome::AutumnForest }
         else if humidity > -0.05 { Biome::Taiga } else { Biome::Plains }
     } else if temp < 0.22 {
         if humidity > 0.28 {
-            if rarity > 0.16 { Biome::DarkForest } else if temp < 0.10 { Biome::Swamp } else { Biome::Forest }
+            if rarity > 0.56 { Biome::FlowerForest }
+            else if rarity > 0.16 { Biome::DarkForest }
+            else if temp < 0.10 { Biome::Swamp }
+            else { Biome::Forest }
         } else if humidity > 0.10 {
             if rarity < -0.18 { Biome::BirchForest } else { Biome::Forest }
-        } else if humidity > -0.04 && temp > 0.09 { Biome::CherryGrove } else { Biome::Plains }
-    } else if humidity > 0.22 { Biome::Jungle }
-    else if humidity < -0.18 && rarity > 0.12 { Biome::Badlands }
+        } else if humidity > -0.04 && temp > 0.09 { Biome::CherryGrove }
+        else if rarity > 0.45 { Biome::SunflowerPlains }
+        else { Biome::Plains }
+    } else if humidity > 0.30 { Biome::Jungle }
+    else if humidity > 0.14 { Biome::JungleEdge }
+    else if humidity < -0.18 && rarity > 0.12 {
+        if rarity > 0.30 { Biome::MesaBryce }
+        else if rarity > 0.24 { Biome::MesaPlateauForest }
+        else if rarity > 0.20 { Biome::MesaPlateau }
+        else if rarity > 0.16 { Biome::Mesa }
+        else { Biome::Badlands }
+    }
     else if humidity < -0.08 { Biome::Desert }
-    else if humidity < 0.16 { Biome::Savanna } else { Biome::Forest };
+    else if humidity < 0.16 {
+        if continentalness > 0.12 && rarity > 0.30 { Biome::SavannaPlateau }
+        else { Biome::Savanna }
+    } else { Biome::Forest };
 
     (biome, continentalness)
 }
@@ -174,27 +212,42 @@ pub fn get_biome_at(wx: i32, wz: i32, seed: u32) -> (Biome, f32) {
 #[inline(always)]
 pub fn get_height_at(wx: i32, wz: i32, seed: u32, biome: Biome, continentalness: f32) -> i32 {
     let n = fractal_noise2(wx as f32 * 0.012, wz as f32 * 0.012, seed, 4, 0.5);
+    let broad = fractal_noise2(wx as f32 * 0.0035, wz as f32 * 0.0035, seed.wrapping_add(7103), 3, 0.55);
+    let detail = fractal_noise2(wx as f32 * 0.020, wz as f32 * 0.020, seed.wrapping_add(7109), 2, 0.5);
     let m_t = ((continentalness - 0.34) / 0.26).clamp(0.0, 1.0);
     let lift = m_t * m_t * (3.0 - 2.0 * m_t);
+    let ridge_noise = fractal_noise2(wx as f32 * 0.0045, wz as f32 * 0.0045, seed.wrapping_add(7117), 3, 0.55);
+    let ridge = 1.0 - ridge_noise.abs();
 
     let h = match biome {
-        Biome::DeepOcean => 6.0 + n * 3.0,
-        Biome::Ocean => 13.0 + n * 4.0,
-        Biome::MushroomIsland => 23.0 + n * 3.0,
-        Biome::Swamp => 20.0 + n * 2.5,
-        Biome::Meadow | Biome::SnowySlopes => 31.0 + n * 6.0 + lift * 18.0,
-        Biome::Mountain => 31.0 + n * 6.0 + lift * (20.0 + (1.0 - (n * 2.0).abs().clamp(0.0, 1.0)) * 8.0),
-        Biome::JaggedPeaks => 31.0 + n * 6.0 + lift * (20.0 + (1.0 - (n * 2.2).abs().clamp(0.0, 1.0)) * 9.0),
-        Biome::FrozenPeaks => 31.0 + n * 6.0 + lift * (20.0 + (1.0 - (n * 1.8).abs().clamp(0.0, 1.0)) * 9.0),
-        Biome::Badlands => ((32.0 + n * 8.0) / 3.0).floor() * 3.0 + 1.0,
-        Biome::Desert => 25.0 + n * 8.0,
-        Biome::Savanna => 26.0 + n * 5.0,
-        Biome::Jungle => 27.0 + n * 8.0,
-        Biome::DarkForest => 27.0 + n * 7.0,
-        Biome::BirchForest => 28.0 + n * 9.0,
-        Biome::AutumnForest | Biome::Forest | Biome::CherryGrove => 28.0 + n * 10.0,
-        Biome::Taiga | Biome::SnowyTaiga | Biome::SnowyTundra | Biome::IceSpikes | Biome::Plains => 27.0 + n * 10.0,
+        Biome::DeepOcean => 7.0 + n * 3.0 + broad * 1.5,
+        Biome::Ocean => 14.0 + n * 3.5 + broad * 2.0,
+        Biome::Beach | Biome::ColdBeach | Biome::StoneBeach => 20.0 + broad * 1.5 + n * 2.0,
+        Biome::River | Biome::FrozenRiver => 25.0 + broad * 2.5 + n * 2.5,
+        Biome::MushroomIsland => 25.0 + broad * 2.0 + n * 2.5,
+        Biome::Swamp => 23.0 + broad * 1.5 + n * 2.0,
+        Biome::Meadow | Biome::SnowySlopes | Biome::Mountain | Biome::JaggedPeaks | Biome::FrozenPeaks => {
+            27.0 + broad * 3.0 + n * 2.0 + lift * (ridge * 31.0 + detail * 3.0)
+        }
+        Biome::MesaBryce => 30.0 + broad * 2.0 + n * 2.5 + ridge * 8.0 + lift * (ridge * 25.0 + detail * 4.0),
+        Biome::SavannaPlateau |         Biome::Mesa | Biome::MesaPlateau | Biome::MesaPlateauForest => {
+            31.0 + broad * 1.5 + n * 1.5 + lift * ridge * 8.0
+        }
+        Biome::Badlands => ((30.0 + broad * 2.5 + n * 4.0) / 3.0).floor() * 3.0 + 1.0,
+        Biome::Desert => 26.0 + broad * 3.0 + n * 4.0,
+        Biome::Savanna => 27.0 + broad * 3.0 + n * 3.5,
+        Biome::Jungle | Biome::JungleEdge => 27.0 + broad * 3.5 + n * 4.0,
+        Biome::DarkForest | Biome::FlowerForest => 27.0 + broad * 3.5 + n * 3.5,
+        Biome::BirchForest => 27.0 + broad * 3.5 + n * 3.5,
+        Biome::AutumnForest | Biome::Forest | Biome::CherryGrove | Biome::MegaTaiga => 27.0 + broad * 3.5 + n * 3.5,
+        Biome::SunflowerPlains | Biome::Taiga | Biome::SnowyTaiga | Biome::SnowyTundra | Biome::IceSpikes | Biome::Plains => {
+            27.0 + broad * 3.0 + n * 3.0
+        }
     };
+    let river_noise = fractal_noise2(wx as f32 * 0.0030, wz as f32 * 0.0030, seed.wrapping_add(6500), 2, 0.5);
+    let river_t = ((0.10 - river_noise.abs()) / 0.065).clamp(0.0, 1.0);
+    let river_cut = river_t * river_t * (3.0 - 2.0 * river_t) * 10.0;
+    let h = if continentalness >= -0.16 { h - river_cut } else { h };
     (h as i32).clamp(1, CHUNK_SIZE_Y - 2)
 }
 
@@ -258,7 +311,7 @@ impl Chunk {
         let (v_biome, v_cont) = get_biome_at(v_cx * CHUNK_SIZE_X + 8, v_cz * CHUNK_SIZE_Z + 8, seed);
         let v_height = get_height_at(v_cx * CHUNK_SIZE_X + 8, v_cz * CHUNK_SIZE_Z + 8, seed, v_biome, v_cont);
 
-        let village_comp = if matches!(v_biome, Biome::Plains | Biome::Meadow | Biome::Savanna | Biome::Desert | Biome::Taiga)
+        let village_comp = if matches!(v_biome, Biome::Plains | Biome::SunflowerPlains | Biome::Meadow | Biome::Savanna | Biome::SavannaPlateau | Biome::Desert | Biome::Taiga)
             && v_height > 22 && v_height < CHUNK_SIZE_Y - 14
         {
             match (cx - v_cx, cz - v_cz) {
@@ -281,7 +334,7 @@ impl Chunk {
             structure = Some(Structure::Village(8, v_height, 8, v_biome, comp));
             struct_exclusion = (0, 16, 0, 16);
         } else if center_height > 22 && center_height < CHUNK_SIZE_Y - 12 {
-            let is_desert = matches!(c_biome, Biome::Desert | Biome::Badlands);
+            let is_desert = matches!(c_biome, Biome::Desert | Biome::Badlands | Biome::Mesa | Biome::MesaPlateau | Biome::MesaPlateauForest | Biome::MesaBryce);
             if is_desert && chunk_hash % 71 == 0 {
                 structure = Some(Structure::DesertWell(8, center_height, 8));
                 struct_exclusion = (4, 12, 4, 12);
@@ -294,13 +347,13 @@ impl Chunk {
             } else if matches!(c_biome, Biome::FrozenPeaks | Biome::SnowyTundra | Biome::IceSpikes | Biome::SnowyTaiga) && chunk_hash % 63 == 0 {
                 structure = Some(Structure::FrozenRuin(8, center_height, 8));
                 struct_exclusion = (3, 13, 3, 13);
-            } else if matches!(c_biome, Biome::Jungle | Biome::DarkForest | Biome::Swamp) && chunk_hash % 67 == 0 {
+            } else if matches!(c_biome, Biome::Jungle | Biome::JungleEdge | Biome::DarkForest | Biome::Swamp) && chunk_hash % 67 == 0 {
                 structure = Some(Structure::OvergrownTempleRuin(8, center_height, 8));
                 struct_exclusion = (3, 13, 3, 13);
             } else if matches!(c_biome, Biome::Mountain | Biome::SnowyTundra | Biome::Taiga) && chunk_hash % 73 == 0 {
                 structure = Some(Structure::StoneRuins(8, center_height, 8));
                 struct_exclusion = (3, 13, 3, 13);
-            } else if matches!(c_biome, Biome::Forest | Biome::AutumnForest | Biome::DarkForest | Biome::BirchForest) && chunk_hash % 79 == 0 {
+            } else if matches!(c_biome, Biome::Forest | Biome::FlowerForest | Biome::AutumnForest | Biome::DarkForest | Biome::BirchForest | Biome::MegaTaiga) && chunk_hash % 79 == 0 {
                 structure = Some(Structure::ForestCabin(8, center_height, 8));
                 struct_exclusion = (3, 13, 3, 13);
             }
@@ -319,7 +372,7 @@ impl Chunk {
                 let (biome, continentalness) = get_biome_at(wx, wz, seed);
                 let height = get_height_at(wx, wz, seed, biome, continentalness);
                 let patch_noise = fractal_noise2(wx as f32 * 0.045, wz as f32 * 0.045, seed.wrapping_add(8881), 2, 0.5);
-                let is_mountain = matches!(biome, Biome::Mountain | Biome::JaggedPeaks | Biome::FrozenPeaks | Biome::SnowySlopes);
+                let is_mountain = matches!(biome, Biome::Mountain | Biome::JaggedPeaks | Biome::FrozenPeaks | Biome::SnowySlopes | Biome::MesaBryce);
 
                 for y in 0..CHUNK_SIZE_Y {
                     if y == 0 {
@@ -334,7 +387,7 @@ impl Chunk {
 
                     let block = if y > height {
                         if y <= 20 {
-                            if y == 20 && matches!(biome, Biome::SnowyTaiga | Biome::SnowyTundra | Biome::IceSpikes | Biome::FrozenPeaks) {
+                            if y == 20 && biome.has_snow() {
                                 BlockId::Ice
                             } else {
                                 BlockId::Water
@@ -344,11 +397,15 @@ impl Chunk {
                         }
                     } else if y == height {
                         match biome {
-                            Biome::DeepOcean | Biome::Ocean | Biome::Desert => BlockId::Sand,
+                            Biome::DeepOcean | Biome::Ocean | Biome::Desert | Biome::Beach => BlockId::Sand,
+                            Biome::StoneBeach => BlockId::Stone,
+                            Biome::River | Biome::FrozenRiver => {
+                                if hash_coords(wx, wz, seed.wrapping_add(51893)) % 3 == 0 { BlockId::Sand } else { BlockId::Gravel }
+                            }
                             Biome::Swamp => if height <= 20 { BlockId::Mud } else { BlockId::Grass },
                             Biome::MushroomIsland => BlockId::Mud,
-                            Biome::Badlands => match (height / 2) % 3 { 0 => BlockId::Sand, 1 => BlockId::Stone, _ => BlockId::Mud },
-                            Biome::SnowyTaiga | Biome::SnowyTundra | Biome::IceSpikes | Biome::SnowySlopes => BlockId::Snow,
+                            Biome::Badlands | Biome::Mesa | Biome::MesaPlateau | Biome::MesaPlateauForest | Biome::MesaBryce => match (height / 2) % 3 { 0 => BlockId::Sand, 1 => BlockId::Stone, _ => BlockId::Mud },
+                            Biome::SnowyTaiga | Biome::SnowyTundra | Biome::IceSpikes | Biome::SnowySlopes | Biome::ColdBeach => BlockId::Snow,
                             Biome::JaggedPeaks => {
                                 let snow = if height >= 52 { patch_noise >= -0.35 } else if height >= 40 { patch_noise > -0.05 } else { patch_noise > 0.15 };
                                 if snow { BlockId::Snow } else { BlockId::Stone }
@@ -368,9 +425,10 @@ impl Chunk {
                         }
                     } else if y > height - 4 {
                         match biome {
-                            Biome::DeepOcean | Biome::Ocean => BlockId::Sand,
+                            Biome::DeepOcean | Biome::Ocean | Biome::Beach | Biome::ColdBeach => BlockId::Sand,
+                            Biome::StoneBeach | Biome::River | Biome::FrozenRiver => BlockId::Gravel,
                             Biome::Desert => if y <= height - 3 { BlockId::Sandstone } else { BlockId::Sand },
-                            Biome::Badlands => match (y / 2) % 3 { 0 => BlockId::Sand, 1 => BlockId::Stone, _ => BlockId::Mud },
+                            Biome::Badlands | Biome::Mesa | Biome::MesaPlateau | Biome::MesaPlateauForest | Biome::MesaBryce => match (y / 2) % 3 { 0 => BlockId::Sand, 1 => BlockId::Stone, _ => BlockId::Mud },
                             Biome::Swamp | Biome::MushroomIsland => BlockId::Mud,
                             Biome::IceSpikes => if y > height - 2 { BlockId::Snow } else { BlockId::Ice },
                             Biome::FrozenPeaks => {
@@ -395,7 +453,7 @@ impl Chunk {
                         }
                     } else {
                         let ore_h = hash_coords_3d(wx, y, wz, seed);
-                        if biome == Biome::Badlands && y >= 14 {
+                        if matches!(biome, Biome::Badlands | Biome::Mesa | Biome::MesaPlateau | Biome::MesaPlateauForest | Biome::MesaBryce) && y >= 14 {
                             if ore_h % 37 == 0 { BlockId::CoalOre }
                             else if ore_h % 67 == 0 && y < 30 { BlockId::IronOre }
                             else if ore_h % 127 == 0 && y < 20 { BlockId::GoldOre }
@@ -448,14 +506,14 @@ impl Chunk {
                             Biome::SnowyTundra if h % 233 == 0 => decorations.push(Decoration::PineTree(lx, by, lz)),
                             Biome::IceSpikes if h % 47 == 0 => decorations.push(Decoration::IceSpike(lx, by, lz, 7 + (h % 9) as i32)),
                             Biome::AutumnForest if h % 47 == 0 => decorations.push(Decoration::AutumnTree(lx, by, lz)),
-                            Biome::Forest if h % 43 == 0 => decorations.push(Decoration::Tree(lx, by, lz)),
+                            Biome::Forest | Biome::FlowerForest if h % 43 == 0 => decorations.push(Decoration::Tree(lx, by, lz)),
                             Biome::BirchForest if h % 41 == 0 => decorations.push(Decoration::BirchTree(lx, by, lz)),
                             Biome::DarkForest => {
                                 if h % 29 == 0 { decorations.push(Decoration::DarkOakTree(lx, by, lz)); }
                                 else if h % 83 == 0 { decorations.push(Decoration::HugeRedMushroom(lx, by, lz)); }
                                 else if h % 89 == 0 { decorations.push(Decoration::HugeBrownMushroom(lx, by, lz)); }
                             }
-                            Biome::Jungle => {
+                            Biome::Jungle | Biome::JungleEdge => {
                                 if h % 43 == 0 { decorations.push(Decoration::JungleTree(lx, by, lz, 10 + (h % 7) as i32)); }
                                 else if h % 31 == 0 { decorations.push(Decoration::JungleBush(lx, by, lz)); }
                             }
@@ -465,10 +523,10 @@ impl Chunk {
                             }
                             Biome::CherryGrove if h % 53 == 0 => decorations.push(Decoration::CherryTree(lx, by, lz)),
                             Biome::Swamp if h % 67 == 0 => decorations.push(Decoration::SwampTree(lx, by, lz)),
-                            Biome::Savanna if h % 163 == 0 => decorations.push(Decoration::AcaciaTree(lx, by, lz)),
-                            Biome::Plains if h % 149 == 0 => decorations.push(Decoration::Tree(lx, by, lz)),
+                            Biome::Savanna | Biome::SavannaPlateau if h % 163 == 0 => decorations.push(Decoration::AcaciaTree(lx, by, lz)),
+                            Biome::Plains | Biome::SunflowerPlains if h % 149 == 0 => decorations.push(Decoration::Tree(lx, by, lz)),
                             Biome::Meadow if h % 199 == 0 => decorations.push(Decoration::Tree(lx, by, lz)),
-                            Biome::SnowySlopes if h % 127 == 0 => decorations.push(Decoration::PineTree(lx, by, lz)),
+                            Biome::SnowySlopes | Biome::MegaTaiga if h % 127 == 0 => decorations.push(Decoration::PineTree(lx, by, lz)),
                             _ => {}
                         }
                     }
@@ -2639,11 +2697,52 @@ mod tests {
                 *counts.entry(get_biome_at(x, z, 424242).0).or_insert(0) += 1;
             }
         }
-        for b in [Biome::Jungle, Biome::Badlands, Biome::DarkForest, Biome::Taiga, Biome::BirchForest, Biome::IceSpikes, Biome::MushroomIsland, Biome::Meadow, Biome::JaggedPeaks, Biome::FrozenPeaks, Biome::SnowySlopes] {
+        for b in [
+            Biome::Jungle, Biome::Badlands, Biome::DarkForest, Biome::Taiga,
+            Biome::BirchForest, Biome::IceSpikes, Biome::MushroomIsland,
+            Biome::Meadow, Biome::JaggedPeaks, Biome::FrozenPeaks,
+            Biome::SnowySlopes, Biome::River, Biome::FrozenRiver, Biome::Beach,
+            Biome::ColdBeach, Biome::StoneBeach, Biome::SunflowerPlains,
+            Biome::FlowerForest, Biome::MegaTaiga, Biome::JungleEdge,
+            Biome::SavannaPlateau, Biome::Mesa, Biome::MesaPlateau, Biome::MesaPlateauForest,
+            Biome::MesaBryce,
+        ] {
             assert!(counts.contains_key(&b), "{:?} must generate", b);
         }
         assert!(counts[&Biome::MushroomIsland] < counts[&Biome::Plains]);
         assert!(counts[&Biome::IceSpikes] < counts[&Biome::Taiga]);
+    }
+
+    #[test]
+    fn test_terrain_has_rolling_lowlands_high_peaks_and_carved_rivers() {
+        let seed = 424242;
+        let mut min_lowland = CHUNK_SIZE_Y;
+        let mut max_lowland = 0;
+        let mut max_highland = 0;
+        let mut max_river = 0;
+        let mut found_river = false;
+
+        for x in (-2000..=2000).step_by(20) {
+            for z in (-2000..=2000).step_by(20) {
+                let (biome, continentalness) = get_biome_at(x, z, seed);
+                let height = get_height_at(x, z, seed, biome, continentalness);
+                if continentalness > 0.34 {
+                    max_highland = max_highland.max(height);
+                } else if continentalness >= -0.105 && !matches!(biome, Biome::River | Biome::FrozenRiver) {
+                    min_lowland = min_lowland.min(height);
+                    max_lowland = max_lowland.max(height);
+                }
+                if matches!(biome, Biome::River | Biome::FrozenRiver) {
+                    found_river = true;
+                    max_river = max_river.max(height);
+                }
+            }
+        }
+
+        assert!(max_lowland - min_lowland >= 8, "lowlands should have broad rolling relief");
+        assert!(max_highland >= 45, "mountain ranges should rise above the lowlands");
+        assert!(found_river, "river biomes should occur in the sampled region");
+        assert!(max_river <= 20, "river channels should reach the sea-level basin");
     }
 
     #[test]
@@ -2658,13 +2757,16 @@ mod tests {
             Biome::CherryGrove, Biome::Plains, Biome::Swamp, Biome::Savanna, Biome::Desert, Biome::Mountain,
             Biome::Jungle, Biome::Badlands, Biome::DarkForest, Biome::Taiga, Biome::BirchForest, Biome::IceSpikes,
             Biome::MushroomIsland, Biome::Meadow, Biome::JaggedPeaks, Biome::FrozenPeaks, Biome::SnowySlopes,
+            Biome::River, Biome::FrozenRiver, Biome::Beach, Biome::ColdBeach, Biome::StoneBeach,
+            Biome::SunflowerPlains, Biome::FlowerForest, Biome::MegaTaiga, Biome::JungleEdge,
+            Biome::SavannaPlateau, Biome::Mesa, Biome::MesaPlateau, Biome::MesaPlateauForest, Biome::MesaBryce,
         ];
         let mut seen = HashSet::new();
         for b in all {
             let f = b.color_filter();
             assert!(seen.insert(((f[0] * 1000.0).round() as i32, (f[1] * 1000.0).round() as i32, (f[2] * 1000.0).round() as i32)));
         }
-        assert_eq!(seen.len(), 23);
+        assert_eq!(seen.len(), 37);
     }
 
     #[test]
