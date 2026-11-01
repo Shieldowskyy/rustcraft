@@ -512,6 +512,7 @@ fn run_server(
         .unwrap_or_default();
     let mut mob_authority_id = None;
     let mut embedded_host_id = None;
+    let mut ops = load_ops();
     let mut mob_snapshot = embedded_state
         .as_ref()
         .map(|state| state.mobs.clone())
@@ -1079,6 +1080,7 @@ fn run_server(
                 &cmd_text,
                 sender_id,
                 embedded_host_id,
+                &mut ops,
                 &mut clients,
                 &mut broadcast_packets,
                 &mut time_of_day,
@@ -1215,6 +1217,7 @@ fn run_server(
                 &mut clients,
                 &mut modified_blocks,
                 &mut time_of_day,
+                &mut ops,
                 seed,
                 current_tps,
                 current_mspt,
@@ -1269,6 +1272,7 @@ fn handle_console_command(
     clients: &mut HashMap<u32, ConnectedClient>,
     modified_blocks: &mut HashMap<(i32, i32, i32), u8>,
     time_of_day: &mut f32,
+    ops: &mut std::collections::HashSet<String>,
     seed: u32,
     tps: f32,
     mspt: f32,
@@ -1288,6 +1292,7 @@ fn handle_console_command(
             println!("  say <message>            - Broadcast chat message to all players");
             println!("  tell <player> <message>  - Whisper a private message to a player");
             println!("  kick <player> [reason]   - Disconnect a player from the server");
+            println!("  op <player> | deop <player> - Grant or revoke operator status");
             println!("  time [day|night|set <v>] - Display or change world time of day");
             println!("  tps                      - Display server TPS and tick time");
             println!("  seed                     - Display the world generation seed");
@@ -1371,6 +1376,25 @@ fn handle_console_command(
                 } else {
                     println!("[SERVER] Player '{}' not found", parts[1]);
                 }
+            }
+        }
+        "op" | "deop" => {
+            let grant = parts[0].eq_ignore_ascii_case("op");
+            if let Some(name) = parts.get(1) {
+                if set_op(ops, name, grant) {
+                    println!("[SERVER] {} operator status for {}", if grant { "Granted" } else { "Revoked" }, name);
+                    for client in clients.values_mut().filter(|c| c.nickname.eq_ignore_ascii_case(name)) {
+                        let _ = client.send_packet(&ServerPacket::ChatMessage {
+                            sender: "Server".to_string(),
+                            text: if grant { "You are now an operator" } else { "You are no longer an operator" }.to_string(),
+                            is_system: true,
+                        });
+                    }
+                } else {
+                    println!("[SERVER] Nothing changed for '{}'", name);
+                }
+            } else {
+                println!("[SERVER] Usage: op <player> | deop <player>");
             }
         }
         "seed" => {
@@ -1490,10 +1514,63 @@ fn parse_time_value(value: &str) -> Option<f32> {
     }
 }
 
+const OPS_FILE: &str = "ops.txt";
+
+fn load_ops() -> std::collections::HashSet<String> {
+    if cfg!(test) {
+        return Default::default();
+    }
+    std::fs::read_to_string(OPS_FILE)
+        .map(|text| {
+            text.lines()
+                .map(|line| line.trim().to_lowercase())
+                .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn save_ops(ops: &std::collections::HashSet<String>) {
+    if cfg!(test) {
+        return;
+    }
+    let mut names: Vec<&String> = ops.iter().collect();
+    names.sort();
+    let text = names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join("\n");
+    if let Err(error) = std::fs::write(OPS_FILE, text) {
+        println!("[SERVER] Could not save {}: {}", OPS_FILE, error);
+    }
+}
+
+/// Grants or revokes operator status. Returns the canonical nickname if the change was applied.
+fn set_op(
+    ops: &mut std::collections::HashSet<String>,
+    name: &str,
+    grant: bool,
+) -> bool {
+    let key = name.to_lowercase();
+    let changed = if grant { ops.insert(key) } else { ops.remove(&key) };
+    if changed {
+        save_ops(ops);
+    }
+    changed
+}
+
+fn send_system(clients: &mut HashMap<u32, ConnectedClient>, id: u32, text: &str) {
+    if let Some(client) = clients.get_mut(&id) {
+        let _ = client.send_packet(&ServerPacket::ChatMessage {
+            sender: "Server".to_string(),
+            text: text.to_string(),
+            is_system: true,
+        });
+    }
+}
+
 fn handle_in_game_command(
     cmd_line: &str,
     sender_id: u32,
     embedded_host_id: Option<u32>,
+    ops: &mut std::collections::HashSet<String>,
     clients: &mut HashMap<u32, ConnectedClient>,
     broadcast_packets: &mut Vec<ServerPacket>,
     time_of_day: &mut f32,
@@ -1508,27 +1585,53 @@ fn handle_in_game_command(
         return;
     }
 
-    match parts[0].to_lowercase().as_str() {
+    let is_op = embedded_host_id == Some(sender_id) || ops.contains(&sender_nick.to_lowercase());
+    let command = parts[0].to_lowercase();
+    let needs_op = match command.as_str() {
+        "kick" | "tp" | "teleport" | "op" | "deop" => true,
+        "time" => !parts.get(1).is_some_and(|arg| arg.eq_ignore_ascii_case("query")),
+        _ => false,
+    };
+    if needs_op && !is_op {
+        send_system(clients, sender_id, "You do not have permission to use this command.");
+        return;
+    }
+
+    match command.as_str() {
+        "op" | "deop" => {
+            let grant = command == "op";
+            let Some(target) = parts.get(1) else {
+                send_system(clients, sender_id, &format!("Usage: /{} <player>", command));
+                return;
+            };
+            let online_name = clients
+                .values()
+                .find(|c| c.nickname.eq_ignore_ascii_case(target))
+                .map(|c| (c.id, c.nickname.clone()));
+            if !grant && embedded_host_id.is_some_and(|id| clients.get(&id).is_some_and(|c| c.nickname.eq_ignore_ascii_case(target))) {
+                send_system(clients, sender_id, "The host cannot be de-opped.");
+                return;
+            }
+            let name = online_name.as_ref().map(|(_, n)| n.clone()).unwrap_or_else(|| target.to_string());
+            if set_op(ops, &name, grant) {
+                send_system(clients, sender_id, &format!("{} {} operator status", if grant { "Made" } else { "Removed" }, name));
+                if let Some((id, _)) = online_name {
+                    send_system(clients, id, if grant { "You are now an operator" } else { "You are no longer an operator" });
+                }
+            } else {
+                send_system(clients, sender_id, if grant { "Nothing changed. That player is already an operator" } else { "Nothing changed. That player is not an operator" });
+            }
+        }
         "help" => {
             if let Some(client) = clients.get_mut(&sender_id) {
                 let _ = client.send_packet(&ServerPacket::ChatMessage {
                     sender: "Server".to_string(),
-                    text: "Available commands: /help, /list, /time set <day|noon|night|midnight|number>, /tps, /seed, /spawn, /tp <player>, /tell <player> <msg>, /kick <player> [reason] (host only)".to_string(),
+                    text: "Available commands: /help, /list, /time set <day|noon|night|midnight|number>, /tps, /seed, /spawn, /tp <player>, /tell <player> <msg>, /kick <player> [reason] (op), /op <player> (op), /deop <player> (op)".to_string(),
                     is_system: true,
                 });
             }
         }
         "kick" => {
-            if embedded_host_id != Some(sender_id) {
-                if let Some(client) = clients.get_mut(&sender_id) {
-                    let _ = client.send_packet(&ServerPacket::ChatMessage {
-                        sender: "Server".to_string(),
-                        text: "Only the multiplayer host can kick players.".to_string(),
-                        is_system: true,
-                    });
-                }
-                return;
-            }
             if parts.len() < 2 {
                 if let Some(client) = clients.get_mut(&sender_id) {
                     let _ = client.send_packet(&ServerPacket::ChatMessage {
@@ -1975,6 +2078,11 @@ mod tests {
         .unwrap();
         let address = format!("127.0.0.1:{}", server.port);
         let mut host = crate::net::NetworkClient::connect(&address, "TimeHost").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && !host.is_connected {
+            host.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
         let mut guest = crate::net::NetworkClient::connect(&address, "TimeGuest").unwrap();
         let deadline = Instant::now() + Duration::from_secs(3);
         while Instant::now() < deadline && (!host.is_connected || !guest.is_connected) {
@@ -1984,7 +2092,7 @@ mod tests {
         }
         assert!(host.is_connected && guest.is_connected);
 
-        guest.send_chat("/time set day");
+        host.send_chat("/time set day");
         let deadline = Instant::now() + Duration::from_secs(3);
         let mut host_synced = false;
         let mut guest_synced = false;
@@ -2423,6 +2531,8 @@ mod tests {
             false,
         );
         thread::sleep(Duration::from_millis(100));
+        host.send_chat("/op Guest");
+        thread::sleep(Duration::from_millis(200));
         guest.send_chat("/tp Host");
 
         let deadline = Instant::now() + Duration::from_secs(2);
@@ -2479,7 +2589,7 @@ mod tests {
             host.update(0.05);
             for event in guest.update(0.05) {
                 if let crate::net::NetworkEvent::ChatMessage { text, .. } = event {
-                    permission_denied = text.contains("Only the multiplayer host can kick");
+                    permission_denied = text.contains("do not have permission");
                 }
             }
             thread::sleep(Duration::from_millis(10));
