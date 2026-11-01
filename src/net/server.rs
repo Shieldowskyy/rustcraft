@@ -516,6 +516,8 @@ fn run_server(
         .as_ref()
         .map(|state| state.mobs.clone())
         .unwrap_or_default();
+    let mut world_snapshot = WorldSnapshot::default();
+    let mut world_snapshot_initialized = false;
     let mut time_of_day = embedded_state
         .as_ref()
         .map_or(120.0, |state| state.time_of_day);
@@ -593,6 +595,8 @@ fn run_server(
         let mut pending_attacks: Vec<(u32, String, (f32, f32, f32), u32, f32)> = Vec::new();
         let mut pending_mob_snapshots = Vec::new();
         let mut pending_mob_broadcasts = Vec::new();
+        let mut pending_world_snapshots = Vec::new();
+        let mut pending_world_broadcasts = Vec::new();
         let mut authenticated_client_count = clients
             .values()
             .filter(|client| client.authenticated)
@@ -771,6 +775,11 @@ fn run_server(
                                         mobs: mob_snapshot.clone(),
                                     });
                                 }
+                                if world_snapshot_initialized {
+                                    let _ = client.send_packet(&ServerPacket::WorldSnapshot {
+                                        snapshot: world_snapshot.clone(),
+                                    });
+                                }
                                 let _ = client.send_packet(&ServerPacket::PlayerData {
                                     data: client.player_data.clone(),
                                 });
@@ -891,6 +900,14 @@ fn run_server(
                                     break;
                                 }
                             }
+                            Ok(ClientPacket::WorldSnapshot { snapshot }) => {
+                                if client.authenticated {
+                                    pending_world_snapshots.push((id, snapshot));
+                                } else {
+                                    disconnected_clients.push((id, "Login required".to_string()));
+                                    break;
+                                }
+                            }
                             Ok(ClientPacket::PlayerDeath) => {
                                 if client.authenticated {
                                     broadcast_packets.push(ServerPacket::ChatMessage {
@@ -940,6 +957,16 @@ fn run_server(
                 pending_mob_broadcasts.push((
                     sender_id,
                     ServerPacket::MobSnapshot { mobs: snapshot },
+                ));
+            }
+        }
+        for (sender_id, snapshot) in pending_world_snapshots {
+            if mob_authority_id == Some(sender_id) {
+                world_snapshot = snapshot.clone();
+                world_snapshot_initialized = true;
+                pending_world_broadcasts.push((
+                    sender_id,
+                    ServerPacket::WorldSnapshot { snapshot },
                 ));
             }
         }
@@ -1033,6 +1060,13 @@ fn run_server(
             }
         }
         for (sender_id, packet) in pending_mob_broadcasts {
+            for client in clients.values_mut() {
+                if client.id != sender_id {
+                    let _ = client.send_packet(&packet);
+                }
+            }
+        }
+        for (sender_id, packet) in pending_world_broadcasts {
             for client in clients.values_mut() {
                 if client.id != sender_id {
                     let _ = client.send_packet(&packet);
@@ -1666,6 +1700,109 @@ mod tests {
         assert!(client.is_connected);
         assert!(client.ping_ms > 0);
         client.disconnect();
+        drop(server);
+    }
+
+    #[test]
+    fn authoritative_world_snapshots_reach_other_clients_and_late_joiners() {
+        let server = EmbeddedServer::start(
+            0,
+            EmbeddedServerState {
+                seed: 1,
+                time_of_day: 120.0,
+                spawn_pos: (8.5, 65.0, 8.5),
+                blocks: Vec::new(),
+                mobs: Vec::new(),
+            },
+        )
+        .unwrap();
+        let mut host =
+            crate::net::NetworkClient::connect(&format!("127.0.0.1:{}", server.port), "WorldHost")
+                .unwrap();
+        let mut observer = crate::net::NetworkClient::connect(
+            &format!("127.0.0.1:{}", server.port),
+            "WorldObserver",
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline
+            && (!host.is_connected
+                || !observer.is_connected
+                || host.mob_authority_id.is_none()
+                || observer.mob_authority_id.is_none())
+        {
+            host.update(0.05);
+            observer.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(host.is_connected && observer.is_connected);
+        assert_eq!(host.mob_authority_id, observer.mob_authority_id);
+
+        let snapshot = WorldSnapshot {
+            items: vec![WorldItemEntry {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+                velocity_x: 0.0,
+                velocity_y: 1.0,
+                velocity_z: 0.0,
+                block: crate::world::BlockId::Stone.to_u8(),
+                count: 2,
+                pickup_delay: 0.5,
+                age: 1.0,
+            }],
+            ..WorldSnapshot::default()
+        };
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut received = false;
+        if host.local_id == host.mob_authority_id {
+            host.send_packet(&ClientPacket::WorldSnapshot {
+                snapshot: snapshot.clone(),
+            })
+            .unwrap();
+            while Instant::now() < deadline && !received {
+                host.update(0.05);
+                received |= observer.update(0.05).into_iter().any(|event| {
+                    matches!(event, crate::net::NetworkEvent::WorldSnapshot { snapshot: actual } if actual == snapshot)
+                });
+                thread::sleep(Duration::from_millis(10));
+            }
+        } else {
+            observer
+                .send_packet(&ClientPacket::WorldSnapshot {
+                    snapshot: snapshot.clone(),
+                })
+                .unwrap();
+            while Instant::now() < deadline && !received {
+                observer.update(0.05);
+                received |= host.update(0.05).into_iter().any(|event| {
+                    matches!(event, crate::net::NetworkEvent::WorldSnapshot { snapshot: actual } if actual == snapshot)
+                });
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+        assert!(received, "observer should receive the authority's world snapshot");
+
+        host.disconnect();
+        observer.disconnect();
+        thread::sleep(Duration::from_millis(200));
+        let mut late_joiner = crate::net::NetworkClient::connect(
+            &format!("127.0.0.1:{}", server.port),
+            "WorldLateJoiner",
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut late_joiner_received = false;
+        while Instant::now() < deadline && !late_joiner_received {
+            late_joiner_received |= late_joiner.update(0.05).into_iter().any(|event| {
+                matches!(event, crate::net::NetworkEvent::WorldSnapshot { snapshot: actual } if actual == snapshot)
+            });
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(late_joiner_received, "late joiner should receive the latest snapshot");
+
+        late_joiner.disconnect();
         drop(server);
     }
 

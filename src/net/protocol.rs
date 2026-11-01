@@ -1,6 +1,6 @@
 //! Binary network protocol definition, framing, packet serialization, and parsing.
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 pub const DEFAULT_SERVER_PORT: u16 = 26656;
 pub const MAX_PACKET_SIZE: usize = 16 * 1024 * 1024;
 pub const MAX_QUEUED_BYTES: usize = 32 * 1024 * 1024;
@@ -71,6 +71,123 @@ pub struct PlayerData {
 }
 
 const MAX_SYNCED_MOBS: usize = 512;
+pub const MAX_SYNCED_WORLD_ITEMS: usize = 4096;
+pub const MAX_SYNCED_TILE_ENTITIES: usize = 4096;
+pub const MAX_SYNCED_PROJECTILES: usize = 2048;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WorldItemEntry {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub velocity_x: f32,
+    pub velocity_y: f32,
+    pub velocity_z: f32,
+    pub block: u8,
+    pub count: u8,
+    pub pickup_delay: f32,
+    pub age: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChestSnapshot {
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    pub items: [Option<PlayerItemStack>; 27],
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FurnaceSnapshot {
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    pub input: Option<PlayerItemStack>,
+    pub fuel: Option<PlayerItemStack>,
+    pub output: Option<PlayerItemStack>,
+    pub burn_time_remaining: f32,
+    pub burn_time_total: f32,
+    pub cook_progress: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PrimedTntEntry {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub velocity_x: f32,
+    pub velocity_y: f32,
+    pub velocity_z: f32,
+    pub fuse: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ArrowEntry {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub velocity_x: f32,
+    pub velocity_y: f32,
+    pub velocity_z: f32,
+    pub shooter_is_player: bool,
+    pub in_ground: bool,
+    pub lifetime: f32,
+    pub damage: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LightningEntry {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub timer: f32,
+    pub max_duration: f32,
+    pub seed: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WeatherSnapshot {
+    pub current_type: u8,
+    pub timer: f32,
+    pub rain_strength: f32,
+    pub thunder_strength: f32,
+    pub lightning_timer: f32,
+    pub lightning_flash: f32,
+    pub rng_state: u64,
+    pub active_lightning: Vec<LightningEntry>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WorldSnapshot {
+    pub items: Vec<WorldItemEntry>,
+    pub chests: Vec<ChestSnapshot>,
+    pub furnaces: Vec<FurnaceSnapshot>,
+    pub primed_tnts: Vec<PrimedTntEntry>,
+    pub arrows: Vec<ArrowEntry>,
+    pub weather: WeatherSnapshot,
+}
+
+impl Default for WorldSnapshot {
+    fn default() -> Self {
+        Self {
+            items: Vec::new(),
+            chests: Vec::new(),
+            furnaces: Vec::new(),
+            primed_tnts: Vec::new(),
+            arrows: Vec::new(),
+            weather: WeatherSnapshot {
+                current_type: 0,
+                timer: 900.0,
+                rain_strength: 0.0,
+                thunder_strength: 0.0,
+                lightning_timer: 8.0,
+                lightning_flash: 0.0,
+                rng_state: 0,
+                active_lightning: Vec::new(),
+            },
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModSyncEntry {
@@ -121,6 +238,9 @@ pub enum ClientPacket {
     },
     Pong {
         seq: u32,
+    },
+    WorldSnapshot {
+        snapshot: WorldSnapshot,
     },
 }
 
@@ -197,6 +317,9 @@ pub enum ServerPacket {
     Ping {
         seq: u32,
     },
+    WorldSnapshot {
+        snapshot: WorldSnapshot,
+    },
 }
 
 // -----------------------------------------------------------------------------
@@ -231,6 +354,10 @@ impl PacketWriter {
     }
 
     pub fn write_u32(&mut self, val: u32) {
+        self.buf.extend_from_slice(&val.to_le_bytes());
+    }
+
+    pub fn write_u64(&mut self, val: u64) {
         self.buf.extend_from_slice(&val.to_le_bytes());
     }
 
@@ -301,6 +428,16 @@ impl<'a> PacketReader<'a> {
             Ok(val)
         } else {
             Err("Unexpected EOF reading u32")
+        }
+    }
+
+    pub fn read_u64(&mut self) -> Result<u64, &'static str> {
+        if self.cursor + 8 <= self.data.len() {
+            let val = u64::from_le_bytes(self.data[self.cursor..self.cursor + 8].try_into().unwrap());
+            self.cursor += 8;
+            Ok(val)
+        } else {
+            Err("Unexpected EOF reading u64")
         }
     }
 
@@ -405,6 +542,11 @@ impl ClientPacket {
                 pw.write_u32(*seq);
                 pw.finish()
             }
+            ClientPacket::WorldSnapshot { snapshot } => {
+                let mut pw = PacketWriter::new(0x0C);
+                write_world_snapshot(&mut pw, snapshot);
+                pw.finish()
+            }
         }
     }
 
@@ -459,6 +601,9 @@ impl ClientPacket {
                 data: read_player_data(&mut r)?,
             }),
             0x0B => Ok(ClientPacket::Pong { seq: r.read_u32()? }),
+            0x0C => Ok(ClientPacket::WorldSnapshot {
+                snapshot: read_world_snapshot(&mut r)?,
+            }),
             _ => Err("Unknown client packet ID"),
         }
     }
@@ -603,6 +748,11 @@ impl ServerPacket {
                 pw.write_u32(*seq);
                 pw.finish()
             }
+            ServerPacket::WorldSnapshot { snapshot } => {
+                let mut pw = PacketWriter::new(0x92);
+                write_world_snapshot(&mut pw, snapshot);
+                pw.finish()
+            }
         }
     }
 
@@ -742,6 +892,9 @@ impl ServerPacket {
                 Ok(ServerPacket::PlayerData { data })
             }
             0x91 => Ok(ServerPacket::Ping { seq: r.read_u32()? }),
+            0x92 => Ok(ServerPacket::WorldSnapshot {
+                snapshot: read_world_snapshot(&mut r)?,
+            }),
             _ => Err("Unknown server packet ID"),
         }
     }
@@ -795,6 +948,322 @@ fn read_mob_snapshot(reader: &mut PacketReader<'_>) -> Result<Vec<MobSyncEntry>,
         });
     }
     Ok(mobs)
+}
+
+fn write_world_snapshot(writer: &mut PacketWriter, snapshot: &WorldSnapshot) {
+    let items = snapshot.items.len().min(MAX_SYNCED_WORLD_ITEMS);
+    writer.write_u16(items as u16);
+    for item in snapshot.items.iter().take(items) {
+        for value in [
+            item.x,
+            item.y,
+            item.z,
+            item.velocity_x,
+            item.velocity_y,
+            item.velocity_z,
+        ] {
+            writer.write_f32(value);
+        }
+        writer.write_u8(item.block);
+        writer.write_u8(item.count);
+        writer.write_f32(item.pickup_delay);
+        writer.write_f32(item.age);
+    }
+
+    let chests = snapshot.chests.len().min(MAX_SYNCED_TILE_ENTITIES);
+    writer.write_u16(chests as u16);
+    for chest in snapshot.chests.iter().take(chests) {
+        writer.write_i32(chest.x);
+        writer.write_i32(chest.y);
+        writer.write_i32(chest.z);
+        for item in chest.items {
+            write_optional_item(writer, item);
+        }
+    }
+
+    let furnaces = snapshot.furnaces.len().min(MAX_SYNCED_TILE_ENTITIES);
+    writer.write_u16(furnaces as u16);
+    for furnace in snapshot.furnaces.iter().take(furnaces) {
+        writer.write_i32(furnace.x);
+        writer.write_i32(furnace.y);
+        writer.write_i32(furnace.z);
+        write_optional_item(writer, furnace.input);
+        write_optional_item(writer, furnace.fuel);
+        write_optional_item(writer, furnace.output);
+        writer.write_f32(furnace.burn_time_remaining);
+        writer.write_f32(furnace.burn_time_total);
+        writer.write_f32(furnace.cook_progress);
+    }
+
+    let tnts = snapshot.primed_tnts.len().min(MAX_SYNCED_PROJECTILES);
+    writer.write_u16(tnts as u16);
+    for tnt in snapshot.primed_tnts.iter().take(tnts) {
+        for value in [
+            tnt.x,
+            tnt.y,
+            tnt.z,
+            tnt.velocity_x,
+            tnt.velocity_y,
+            tnt.velocity_z,
+            tnt.fuse,
+        ] {
+            writer.write_f32(value);
+        }
+    }
+
+    let arrows = snapshot.arrows.len().min(MAX_SYNCED_PROJECTILES);
+    writer.write_u16(arrows as u16);
+    for arrow in snapshot.arrows.iter().take(arrows) {
+        for value in [
+            arrow.x,
+            arrow.y,
+            arrow.z,
+            arrow.velocity_x,
+            arrow.velocity_y,
+            arrow.velocity_z,
+        ] {
+            writer.write_f32(value);
+        }
+        writer.write_bool(arrow.shooter_is_player);
+        writer.write_bool(arrow.in_ground);
+        writer.write_f32(arrow.lifetime);
+        writer.write_f32(arrow.damage);
+    }
+
+    let weather = &snapshot.weather;
+    writer.write_u8(weather.current_type);
+    writer.write_f32(weather.timer);
+    writer.write_f32(weather.rain_strength);
+    writer.write_f32(weather.thunder_strength);
+    writer.write_f32(weather.lightning_timer);
+    writer.write_f32(weather.lightning_flash);
+    writer.write_u64(weather.rng_state);
+    let lightning = weather.active_lightning.len().min(64);
+    writer.write_u8(lightning as u8);
+    for bolt in weather.active_lightning.iter().take(lightning) {
+        writer.write_f32(bolt.x);
+        writer.write_f32(bolt.y);
+        writer.write_f32(bolt.z);
+        writer.write_f32(bolt.timer);
+        writer.write_f32(bolt.max_duration);
+        writer.write_u32(bolt.seed);
+    }
+}
+
+fn read_world_snapshot(reader: &mut PacketReader<'_>) -> Result<WorldSnapshot, &'static str> {
+    let item_count = reader.read_u16()? as usize;
+    if item_count > MAX_SYNCED_WORLD_ITEMS {
+        return Err("World snapshot exceeds maximum item count");
+    }
+    let mut items = Vec::with_capacity(item_count);
+    for _ in 0..item_count {
+        items.push(WorldItemEntry {
+            x: reader.read_f32()?,
+            y: reader.read_f32()?,
+            z: reader.read_f32()?,
+            velocity_x: reader.read_f32()?,
+            velocity_y: reader.read_f32()?,
+            velocity_z: reader.read_f32()?,
+            block: reader.read_u8()?,
+            count: reader.read_u8()?,
+            pickup_delay: reader.read_f32()?,
+            age: reader.read_f32()?,
+        });
+    }
+
+    let chest_count = reader.read_u16()? as usize;
+    if chest_count > MAX_SYNCED_TILE_ENTITIES {
+        return Err("World snapshot exceeds maximum chest count");
+    }
+    let mut chests = Vec::with_capacity(chest_count);
+    for _ in 0..chest_count {
+        let x = reader.read_i32()?;
+        let y = reader.read_i32()?;
+        let z = reader.read_i32()?;
+        let mut items = [None; 27];
+        for item in &mut items {
+            *item = read_optional_item(reader)?;
+        }
+        chests.push(ChestSnapshot { x, y, z, items });
+    }
+
+    let furnace_count = reader.read_u16()? as usize;
+    if furnace_count > MAX_SYNCED_TILE_ENTITIES {
+        return Err("World snapshot exceeds maximum furnace count");
+    }
+    let mut furnaces = Vec::with_capacity(furnace_count);
+    for _ in 0..furnace_count {
+        furnaces.push(FurnaceSnapshot {
+            x: reader.read_i32()?,
+            y: reader.read_i32()?,
+            z: reader.read_i32()?,
+            input: read_optional_item(reader)?,
+            fuel: read_optional_item(reader)?,
+            output: read_optional_item(reader)?,
+            burn_time_remaining: reader.read_f32()?,
+            burn_time_total: reader.read_f32()?,
+            cook_progress: reader.read_f32()?,
+        });
+    }
+
+    let tnt_count = reader.read_u16()? as usize;
+    if tnt_count > MAX_SYNCED_PROJECTILES {
+        return Err("World snapshot exceeds maximum primed TNT count");
+    }
+    let mut primed_tnts = Vec::with_capacity(tnt_count);
+    for _ in 0..tnt_count {
+        primed_tnts.push(PrimedTntEntry {
+            x: reader.read_f32()?,
+            y: reader.read_f32()?,
+            z: reader.read_f32()?,
+            velocity_x: reader.read_f32()?,
+            velocity_y: reader.read_f32()?,
+            velocity_z: reader.read_f32()?,
+            fuse: reader.read_f32()?,
+        });
+    }
+
+    let arrow_count = reader.read_u16()? as usize;
+    if arrow_count > MAX_SYNCED_PROJECTILES {
+        return Err("World snapshot exceeds maximum arrow count");
+    }
+    let mut arrows = Vec::with_capacity(arrow_count);
+    for _ in 0..arrow_count {
+        arrows.push(ArrowEntry {
+            x: reader.read_f32()?,
+            y: reader.read_f32()?,
+            z: reader.read_f32()?,
+            velocity_x: reader.read_f32()?,
+            velocity_y: reader.read_f32()?,
+            velocity_z: reader.read_f32()?,
+            shooter_is_player: reader.read_bool()?,
+            in_ground: reader.read_bool()?,
+            lifetime: reader.read_f32()?,
+            damage: reader.read_f32()?,
+        });
+    }
+
+    let current_type = reader.read_u8()?;
+    if current_type > 2 {
+        return Err("World snapshot contains unknown weather type");
+    }
+    let timer = reader.read_f32()?;
+    let rain_strength = reader.read_f32()?;
+    let thunder_strength = reader.read_f32()?;
+    let lightning_timer = reader.read_f32()?;
+    let lightning_flash = reader.read_f32()?;
+    let rng_state = reader.read_u64()?;
+    let lightning_count = reader.read_u8()? as usize;
+    if lightning_count > 64 {
+        return Err("World snapshot exceeds maximum lightning count");
+    }
+    let mut active_lightning = Vec::with_capacity(lightning_count);
+    for _ in 0..lightning_count {
+        active_lightning.push(LightningEntry {
+            x: reader.read_f32()?,
+            y: reader.read_f32()?,
+            z: reader.read_f32()?,
+            timer: reader.read_f32()?,
+            max_duration: reader.read_f32()?,
+            seed: reader.read_u32()?,
+        });
+    }
+
+    let snapshot = WorldSnapshot {
+        items,
+        chests,
+        furnaces,
+        primed_tnts,
+        arrows,
+        weather: WeatherSnapshot {
+            current_type,
+            timer,
+            rain_strength,
+            thunder_strength,
+            lightning_timer,
+            lightning_flash,
+            rng_state,
+            active_lightning,
+        },
+    };
+    if !world_snapshot_is_finite(&snapshot) {
+        return Err("World snapshot contains non-finite values");
+    }
+    Ok(snapshot)
+}
+
+fn world_snapshot_is_finite(snapshot: &WorldSnapshot) -> bool {
+    let weather = &snapshot.weather;
+    [
+        weather.timer,
+        weather.rain_strength,
+        weather.thunder_strength,
+        weather.lightning_timer,
+        weather.lightning_flash,
+    ]
+    .iter()
+    .all(|value| value.is_finite())
+        && snapshot.items.iter().all(|item| {
+            [
+                item.x,
+                item.y,
+                item.z,
+                item.velocity_x,
+                item.velocity_y,
+                item.velocity_z,
+                item.pickup_delay,
+                item.age,
+            ]
+            .iter()
+            .all(|value| value.is_finite())
+        })
+        && snapshot.furnaces.iter().all(|furnace| {
+            [
+                furnace.burn_time_remaining,
+                furnace.burn_time_total,
+                furnace.cook_progress,
+            ]
+            .iter()
+            .all(|value| value.is_finite())
+        })
+        && snapshot.primed_tnts.iter().all(|tnt| {
+            [
+                tnt.x,
+                tnt.y,
+                tnt.z,
+                tnt.velocity_x,
+                tnt.velocity_y,
+                tnt.velocity_z,
+                tnt.fuse,
+            ]
+            .iter()
+            .all(|value| value.is_finite())
+        })
+        && snapshot.arrows.iter().all(|arrow| {
+            [
+                arrow.x,
+                arrow.y,
+                arrow.z,
+                arrow.velocity_x,
+                arrow.velocity_y,
+                arrow.velocity_z,
+                arrow.lifetime,
+                arrow.damage,
+            ]
+            .iter()
+            .all(|value| value.is_finite())
+        })
+        && weather.active_lightning.iter().all(|bolt| {
+            [
+                bolt.x,
+                bolt.y,
+                bolt.z,
+                bolt.timer,
+                bolt.max_duration,
+            ]
+            .iter()
+            .all(|value| value.is_finite())
+        })
 }
 
 fn write_optional_item(writer: &mut PacketWriter, item: Option<PlayerItemStack>) {
@@ -1123,6 +1592,118 @@ mod tests {
         let mut framed_data = player_data.serialize();
         let packets_data = extract_packets(&mut framed_data).unwrap();
         assert_eq!(ServerPacket::deserialize(&packets_data[0]).unwrap(), player_data);
+    }
+
+    #[test]
+    fn world_snapshot_packets_roundtrip_and_reject_non_finite_values() {
+        let snapshot = WorldSnapshot {
+            items: vec![WorldItemEntry {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+                velocity_x: 0.1,
+                velocity_y: 0.2,
+                velocity_z: 0.3,
+                block: 7,
+                count: 4,
+                pickup_delay: 0.5,
+                age: 12.0,
+            }],
+            chests: vec![ChestSnapshot {
+                x: 4,
+                y: 5,
+                z: 6,
+                items: [None; 27],
+            }],
+            furnaces: vec![FurnaceSnapshot {
+                x: 7,
+                y: 8,
+                z: 9,
+                input: Some(PlayerItemStack {
+                    block: 10,
+                    count: 2,
+                    durability: 30,
+                }),
+                fuel: None,
+                output: None,
+                burn_time_remaining: 3.0,
+                burn_time_total: 4.0,
+                cook_progress: 5.0,
+            }],
+            primed_tnts: vec![PrimedTntEntry {
+                x: 1.5,
+                y: 2.5,
+                z: 3.5,
+                velocity_x: 0.0,
+                velocity_y: 2.0,
+                velocity_z: 0.0,
+                fuse: 1.25,
+            }],
+            arrows: vec![ArrowEntry {
+                x: 6.0,
+                y: 7.0,
+                z: 8.0,
+                velocity_x: 1.0,
+                velocity_y: 2.0,
+                velocity_z: 3.0,
+                shooter_is_player: true,
+                in_ground: false,
+                lifetime: 0.75,
+                damage: 6.0,
+            }],
+            weather: WeatherSnapshot {
+                current_type: 2,
+                timer: 20.0,
+                rain_strength: 0.8,
+                thunder_strength: 0.6,
+                lightning_timer: 1.5,
+                lightning_flash: 0.25,
+                rng_state: 123456789,
+                active_lightning: vec![LightningEntry {
+                    x: 10.0,
+                    y: 64.0,
+                    z: -5.0,
+                    timer: 0.1,
+                    max_duration: 0.2,
+                    seed: 42,
+                }],
+            },
+        };
+        let client_packet = ClientPacket::WorldSnapshot {
+            snapshot: snapshot.clone(),
+        };
+        let mut frame = client_packet.serialize();
+        let payload = extract_packets(&mut frame).unwrap().pop().unwrap();
+        assert_eq!(ClientPacket::deserialize(&payload).unwrap(), client_packet);
+
+        let server_packet = ServerPacket::WorldSnapshot { snapshot };
+        let mut frame = server_packet.serialize();
+        let payload = extract_packets(&mut frame).unwrap().pop().unwrap();
+        assert_eq!(ServerPacket::deserialize(&payload).unwrap(), server_packet);
+
+        let invalid = ClientPacket::WorldSnapshot {
+            snapshot: WorldSnapshot {
+                items: vec![WorldItemEntry {
+                    x: f32::NAN,
+                    y: 0.0,
+                    z: 0.0,
+                    velocity_x: 0.0,
+                    velocity_y: 0.0,
+                    velocity_z: 0.0,
+                    block: 1,
+                    count: 1,
+                    pickup_delay: 0.0,
+                    age: 0.0,
+                }],
+                ..WorldSnapshot::default()
+            },
+        };
+        let mut frame = invalid.serialize();
+        let payload = extract_packets(&mut frame).unwrap().pop().unwrap();
+        assert_eq!(
+            ClientPacket::deserialize(&payload),
+            Err("World snapshot contains non-finite values")
+        );
     }
 
     #[test]

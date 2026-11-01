@@ -68,6 +68,9 @@ pub enum NetworkEvent {
     MobSnapshot {
         mobs: Vec<MobSyncEntry>,
     },
+    WorldSnapshot {
+        snapshot: WorldSnapshot,
+    },
     PlayerDataLoaded {
         data: Option<PlayerData>,
     },
@@ -88,6 +91,7 @@ pub struct NetworkClient {
     pub last_move_sent: Instant,
     pub ping_ms: u32,
     last_mob_snapshot_sent: Instant,
+    last_world_snapshot_sent: Instant,
     last_player_data_sent: Instant,
 }
 
@@ -131,6 +135,7 @@ impl NetworkClient {
             last_move_sent: Instant::now(),
             ping_ms: 0,
             last_mob_snapshot_sent: Instant::now(),
+            last_world_snapshot_sent: Instant::now(),
             last_player_data_sent: Instant::now(),
         };
 
@@ -264,6 +269,24 @@ impl NetworkClient {
                 crate::log_warn!("NETWORK", "Failed to send mob snapshot: {}", error);
             }
         }
+    }
+
+    pub fn send_world_snapshot(&mut self, snapshot: WorldSnapshot) {
+        if !self.can_send_world_snapshot() {
+            return;
+        }
+        match self.send_packet(&ClientPacket::WorldSnapshot { snapshot }) {
+            Ok(()) => self.last_world_snapshot_sent = Instant::now(),
+            Err(error) => {
+                crate::log_warn!("NETWORK", "Failed to send world snapshot: {}", error);
+            }
+        }
+    }
+
+    pub fn can_send_world_snapshot(&self) -> bool {
+        self.is_connected
+            && self.local_id == self.mob_authority_id
+            && self.last_world_snapshot_sent.elapsed() >= std::time::Duration::from_millis(100)
     }
 
     pub fn update(&mut self, dt: f32) -> Vec<NetworkEvent> {
@@ -449,6 +472,9 @@ impl NetworkClient {
                 }
                 Ok(ServerPacket::MobSnapshot { mobs }) => {
                     events.push(NetworkEvent::MobSnapshot { mobs });
+                }
+                Ok(ServerPacket::WorldSnapshot { snapshot }) => {
+                    events.push(NetworkEvent::WorldSnapshot { snapshot });
                 }
                 Ok(ServerPacket::PlayerData { data }) => {
                     events.push(NetworkEvent::PlayerDataLoaded { data });

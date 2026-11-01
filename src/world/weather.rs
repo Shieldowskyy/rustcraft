@@ -168,6 +168,31 @@ impl WeatherState {
         state
     }
 
+    pub fn network_rng_state(&self) -> u64 {
+        self.rng_state
+    }
+
+    pub fn set_network_state(
+        &mut self,
+        current_type: WeatherType,
+        timer: f32,
+        rain_strength: f32,
+        thunder_strength: f32,
+        lightning_timer: f32,
+        lightning_flash: f32,
+        rng_state: u64,
+        active_lightning: Vec<LightningStrike>,
+    ) {
+        self.current_type = current_type;
+        self.timer = timer;
+        self.rain_strength = rain_strength;
+        self.thunder_strength = thunder_strength;
+        self.lightning_timer = lightning_timer;
+        self.lightning_flash = lightning_flash;
+        self.rng_state = rng_state;
+        self.active_lightning = active_lightning;
+    }
+
     /// Pseudo-random float [0.0, 1.0) using linear congruential generator.
     fn next_f32(&mut self) -> f32 {
         self.rng_state = self.rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
