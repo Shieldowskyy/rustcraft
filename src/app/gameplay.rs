@@ -1016,12 +1016,25 @@ impl RustCraftApp {
                                     None
                                 };
 
+                                let bed_mate = if broken_block == BlockId::Bed {
+                                    self.world.bed_pair_at(target).map(|(first, second)| {
+                                        if first == target { second } else { first }
+                                    })
+                                } else {
+                                    None
+                                };
                                 let replace_block = if matches!(broken_block, BlockId::Kelp | BlockId::Seagrass) && target.y <= 20 {
                                     BlockId::Water
                                 } else {
                                     BlockId::Air
                                 };
                                 self.world.set_block(target, replace_block);
+                                if let Some(mate) = bed_mate {
+                                    self.world.set_block(mate, BlockId::Air);
+                                    if let Some(client) = &mut self.net_client {
+                                        client.send_block_change(mate.x, mate.y, mate.z, BlockId::Air.to_u8());
+                                    }
+                                }
 
                                 // Breaking Kelp breaks all kelp blocks directly above it
                                 if broken_block == BlockId::Kelp {
@@ -1712,7 +1725,10 @@ impl RustCraftApp {
                             self.fly_velocity = Vec3::zero();
                             crate::log_info!("MENU", "Opened furnace container at ({}, {}, {})", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
                         } else if targeted_block == BlockId::Bed && !is_crouching {
-                            self.player.spawn_point = Some(hit.block_pos);
+                            let spawn_pos = self.world.bed_pair_at(hit.block_pos)
+                                .map(|(foot, _)| foot)
+                                .unwrap_or(hit.block_pos);
+                            self.player.spawn_point = Some(spawn_pos);
                             let is_night = self.world.time_of_day > 260.0 || self.world.time_of_day < 90.0;
                             let is_storm_or_rain = self.world.weather.is_raining();
                             if is_night || is_storm_or_rain {
@@ -1725,11 +1741,11 @@ impl RustCraftApp {
                                 } else {
                                     self.chat.add_message("Przespano noc. Punkt odrodzenia ustawiony!".to_string(), crate::ui::pack_color(0.9, 0.9, 0.3));
                                 }
-                                crate::log_info!("PLAYER", "Player slept in bed at ({}, {}, {}). Time set to morning, weather cleared.", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
+                                crate::log_info!("PLAYER", "Player slept in bed at ({}, {}, {}). Time set to morning, weather cleared.", spawn_pos.x, spawn_pos.y, spawn_pos.z);
                             } else {
                                 self.audio.play_sound(crate::audio::SoundId::UiClick, 0.6, 1.2);
                                 self.chat.add_message("Punkt odrodzenia ustawiony! Mozesz spac tylko w nocy lub podczas burzy.".to_string(), crate::ui::pack_color(0.9, 0.9, 0.3));
-                                crate::log_info!("PLAYER", "Spawn point set to bed at ({}, {}, {}). Day time, cannot sleep.", hit.block_pos.x, hit.block_pos.y, hit.block_pos.z);
+                                crate::log_info!("PLAYER", "Spawn point set to bed at ({}, {}, {}). Day time, cannot sleep.", spawn_pos.x, spawn_pos.y, spawn_pos.z);
                             }
                         } else if let Some(mob_kind) = BlockId::from_u8(selected_block_id).spawn_mob_kind() {
                             let spawn_pos = Vec3::new(
@@ -1763,7 +1779,39 @@ impl RustCraftApp {
                                 && can_place_here
                             {
                                 self.hand_animation = 1.0;
-                                if place_id == BlockId::Door {
+                                if place_id == BlockId::Bed {
+                                    let forward = self.camera.forward_flat();
+                                    let offset = if forward.x.abs() > forward.z.abs() {
+                                        IVec3::new(if forward.x > 0.0 { 1 } else { -1 }, 0, 0)
+                                    } else {
+                                        IVec3::new(0, 0, if forward.z > 0.0 { 1 } else { -1 })
+                                    };
+                                    let head_pos = place_pos + offset;
+                                    let foot_support = self.world.get_block(place_pos - IVec3::new(0, 1, 0));
+                                    let head_support = self.world.get_block(head_pos - IVec3::new(0, 1, 0));
+                                    if self.world.get_block(head_pos) == BlockId::Air
+                                        && foot_support.is_solid()
+                                        && head_support.is_solid()
+                                        && !block_intersects_player(place_pos, self.camera.position, self.current_eye_offset, self.current_player_height)
+                                        && !block_intersects_player(head_pos, self.camera.position, self.current_eye_offset, self.current_player_height)
+                                    {
+                                        self.world.set_block(place_pos, BlockId::Bed);
+                                        self.world.set_block(head_pos, BlockId::Bed);
+                                        let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
+                                        self.play_world_sound_varied(crate::audio::SoundId::PlaceWood, sound_pos, 0.85);
+                                        self.request_rumble(0.2, 0.1, 45);
+                                        if let Some(client) = &mut self.net_client {
+                                            client.send_block_change(place_pos.x, place_pos.y, place_pos.z, BlockId::Bed.to_u8());
+                                            client.send_block_change(head_pos.x, head_pos.y, head_pos.z, BlockId::Bed.to_u8());
+                                        }
+                                        if self.player.gamemode == GameMode::Survival {
+                                            if let Some(stack) = &mut self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] {
+                                                stack.count -= 1;
+                                                if stack.count == 0 { self.player.inventory.hotbar[self.player.selected_hotbar_slot as usize] = None; }
+                                            }
+                                        }
+                                    }
+                                } else if place_id == BlockId::Door {
                                     let top_pos = place_pos + IVec3::new(0, 1, 0);
                                     if !block_intersects_player(place_pos, self.camera.position, self.current_eye_offset, self.current_player_height)
                                         && !block_intersects_player(top_pos, self.camera.position, self.current_eye_offset, self.current_player_height)

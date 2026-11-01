@@ -842,6 +842,7 @@ fn place_village_component(blocks: &mut [u8], _cx: i32, by: i32, _cz: i32, biome
             fill_box(blocks, 4, 13, by + 4, by + 4, 3, 12, wood);
             fill_box(blocks, 5, 12, by + 5, by + 5, 5, 10, plank);
             set_blk(blocks, 11, by + 1, 10, BlockId::Bed);
+            set_blk(blocks, 11, by + 1, 9, BlockId::Bed);
             set_blk(blocks, 11, by + 1, 5, BlockId::CraftingTable);
             set_blk(blocks, 10, by + 1, 5, BlockId::Planks);
             set_blk(blocks, 7, by + 1, 10, BlockId::Chest);
@@ -864,6 +865,7 @@ fn place_village_component(blocks: &mut [u8], _cx: i32, by: i32, _cz: i32, biome
             set_blk(blocks, 7, by + 3, 10, BlockId::Torch);
             fill_box(blocks, 4, 4, by + 1, by + 3, 5, 10, stone);
             set_blk(blocks, 5, by + 1, 5, BlockId::Bed);
+            set_blk(blocks, 6, by + 1, 5, BlockId::Bed);
             set_blk(blocks, 5, by + 1, 10, BlockId::CraftingTable);
             set_blk(blocks, 5, by + 3, 7, BlockId::Torch);
         }
@@ -2295,6 +2297,25 @@ impl World {
         })
     }
 
+    pub fn bed_pair_at(&self, pos: IVec3) -> Option<(IVec3, IVec3)> {
+        if self.get_block(pos) != BlockId::Bed {
+            return None;
+        }
+
+        for offset in [
+            IVec3::new(1, 0, 0),
+            IVec3::new(-1, 0, 0),
+            IVec3::new(0, 0, 1),
+            IVec3::new(0, 0, -1),
+        ] {
+            let other = pos + offset;
+            if self.get_block(other) == BlockId::Bed {
+                return Some((pos, other));
+            }
+        }
+        None
+    }
+
     pub fn raycast_camera_collision(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> f32 {
         let dir = dir.normalized();
         if dir.length_sq() < 1e-8 { return max_dist; }
@@ -2457,6 +2478,35 @@ mod tests {
         assert_eq!(chunk.get_local(15, 63, 15), BlockId::IronOre);
         assert_eq!(chunk.get_local(-1, 0, 0), BlockId::Air);
         assert_eq!(chunk.get_local(16, 0, 0), BlockId::Air);
+    }
+
+    #[test]
+    fn test_bed_pair_uses_two_horizontal_blocks() {
+        let mut world = World::new_with_seed(1);
+        world.chunks.clear();
+        world.chunks.insert(
+            (0, 0),
+            Chunk {
+                cx: 0,
+                cz: 0,
+                blocks: vec![
+                    BlockId::Air.to_u8();
+                    (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize
+                ],
+                dirty: false,
+            },
+        );
+        let foot = IVec3::new(4, 20, 4);
+        let head = IVec3::new(4, 20, 5);
+        world.set_block(foot, BlockId::Bed);
+        assert_eq!(world.bed_pair_at(foot), None);
+
+        world.set_block(head, BlockId::Bed);
+        assert_eq!(world.bed_pair_at(foot), Some((foot, head)));
+        assert_eq!(world.bed_pair_at(head), Some((head, foot)));
+
+        world.set_block(head, BlockId::Air);
+        assert_eq!(world.bed_pair_at(foot), None);
     }
 
     #[test]
