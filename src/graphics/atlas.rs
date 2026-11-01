@@ -2195,7 +2195,7 @@ fn bed_side() -> Texture {
 }
 
 fn ladder() -> Texture {
-    let mut texels = vec![[0.0; 3]; TEX_SIZE * TEX_SIZE];
+    let mut texels = vec![[-0.001, 0.0, 0.0]; TEX_SIZE * TEX_SIZE];
     let wood_light = [0.65, 0.45, 0.25];
     let wood_dark = [0.42, 0.28, 0.14];
     let nail = [0.20, 0.20, 0.22];
@@ -2210,12 +2210,25 @@ fn ladder() -> Texture {
             } else if is_rail || is_rung {
                 if n > 0.5 { wood_light } else { wood_dark }
             } else {
-                [0.0, 0.0, 0.0]
+                [-0.001, 0.0, 0.0]
             };
             texels[y * TEX_SIZE + x] = col;
         }
     }
     Texture { texels }
+}
+
+#[cfg(test)]
+mod ladder_tests {
+    use super::*;
+
+    #[test]
+    fn ladder_texture_background_is_transparent() {
+        let texture = ladder();
+
+        assert!(texture.sample(0.0, 0.0)[0] < 0.0);
+        assert!(texture.sample(0.1875, 0.1875)[0] >= 0.0);
+    }
 }
 
 fn chest_top() -> Texture {

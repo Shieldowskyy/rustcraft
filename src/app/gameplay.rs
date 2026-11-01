@@ -8,9 +8,10 @@ use crate::core::profiler::{FrameProfiler, MemoryBreakdown};
 use crate::gameplay::inventory::ItemStack;
 use crate::gameplay::item::ItemEntity;
 use crate::gameplay::physics::{
-    block_intersects_player, move_player_with_collision, CROUCH_EYE_OFFSET, CROUCH_HEIGHT,
-    FLY_SPEED, GRAVITY, JUMP_SPEED, SNEAK_SPEED, SPRINT_JUMP_BOOST, SPRINT_SPEED,
-    STANDING_EYE_OFFSET, STANDING_HEIGHT, SWIM_SPEED, TERMINAL_VELOCITY, WALK_SPEED,
+    block_intersects_player, move_player_with_collision, player_touches_ladder,
+    CROUCH_EYE_OFFSET, CROUCH_HEIGHT, FLY_SPEED, GRAVITY, JUMP_SPEED, PLAYER_HALF_WIDTH,
+    SNEAK_SPEED, SPRINT_JUMP_BOOST, SPRINT_SPEED, STANDING_EYE_OFFSET, STANDING_HEIGHT,
+    SWIM_SPEED, TERMINAL_VELOCITY, WALK_SPEED,
 };
 use crate::gameplay::player::GameMode;
 use crate::world::block::{BlockId, Face};
@@ -791,7 +792,16 @@ impl RustCraftApp {
 
                     let target_horiz = wish_dir * (if in_lava { SWIM_SPEED * 0.55 } else if in_water { swim_speed } else { move_speed });
                     let on_ice = feet_block == BlockId::Ice;
-                    let in_ladder = feet_block == BlockId::Ladder || eye_block == BlockId::Ladder;
+                    let in_ladder = player_touches_ladder(
+                        &self.world,
+                        Vec3::new(
+                            self.camera.position.x,
+                            self.camera.position.y - self.current_eye_offset,
+                            self.camera.position.z,
+                        ),
+                        PLAYER_HALF_WIDTH,
+                        self.current_player_height,
+                    );
                     let damping = if in_lava {
                         12.0
                     } else if in_water {

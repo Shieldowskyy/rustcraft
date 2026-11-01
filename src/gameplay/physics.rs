@@ -96,6 +96,24 @@ pub fn block_intersects_player(place_pos: IVec3, eye_pos: Vec3, eye_offset: f32,
         && p_max_z > b_min_z
 }
 
+pub fn player_touches_ladder(world: &World, feet: Vec3, half: f32, height: f32) -> bool {
+    let eps = 1e-4;
+    let x0 = (feet.x - half).floor() as i32;
+    let x1 = (feet.x + half - eps).floor() as i32;
+    let y0 = feet.y.floor().max(0.0) as i32;
+    let y1 = (feet.y + height - eps).floor() as i32;
+    let z0 = (feet.z - half).floor() as i32;
+    let z1 = (feet.z + half - eps).floor() as i32;
+
+    (x0..=x1).any(|x| {
+        (y0..=y1).any(|y| {
+            (z0..=z1).any(|z| {
+                world.get_block(IVec3::new(x, y, z)) == crate::world::block::BlockId::Ladder
+            })
+        })
+    })
+}
+
 /// Checks if there is solid ground directly beneath the player's feet.
 /// Used for sneak anti-fall edge restriction.
 fn has_ground_below(world: &World, feet: Vec3, half: f32) -> bool {
@@ -417,6 +435,35 @@ pub fn ray_aabb_intersect(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Opti
 mod tests {
     use super::*;
     use crate::world::block::BlockId;
+
+    #[test]
+    fn ladder_contact_covers_player_hitbox_and_ends_at_ladder_top() {
+        use crate::world::{Chunk, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
+
+        let mut world = World::new();
+        let mut chunk = Chunk {
+            cx: 0,
+            cz: 0,
+            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
+            dirty: false,
+        };
+        chunk.set_local(0, 10, 0, BlockId::Ladder);
+        world.chunks.insert((0, 0), chunk);
+
+        let half = PLAYER_HALF_WIDTH;
+        assert!(player_touches_ladder(
+            &world,
+            Vec3::new(1.1, 10.9, 0.5),
+            half,
+            STANDING_HEIGHT,
+        ));
+        assert!(!player_touches_ladder(
+            &world,
+            Vec3::new(1.1, 11.0, 0.5),
+            half,
+            STANDING_HEIGHT,
+        ));
+    }
 
     #[test]
     fn test_resolve_block_penetration_pushes_out() {

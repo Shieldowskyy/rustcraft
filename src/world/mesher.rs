@@ -1183,32 +1183,112 @@ fn emit_ladder(
     let north_solid = cache.sample_block(lx, wy, lz - 1).is_solid();
     let south_solid = cache.sample_block(lx, wy, lz + 1).is_solid();
     let west_solid = cache.sample_block(lx - 1, wy, lz).is_solid();
+    let east_solid = cache.sample_block(lx + 1, wy, lz).is_solid();
 
     let x = wx as f32;
     let y = wy as f32;
     let z = wz as f32;
 
     let mut quad = |a: Vec3, b: Vec3, c: Vec3, d: Vec3, shade: f32| {
-        let va = Vertex { pos: a, uv: (0.0, 1.0), ao: shade, sky_light: sky, block_light: block_l };
-        let vb = Vertex { pos: b, uv: (1.0, 1.0), ao: shade, sky_light: sky, block_light: block_l };
-        let vc = Vertex { pos: c, uv: (1.0, 0.0), ao: shade, sky_light: sky, block_light: block_l };
-        let vd = Vertex { pos: d, uv: (0.0, 0.0), ao: shade, sky_light: sky, block_light: block_l };
-        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture: tex });
-        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture: tex });
+        let va = Vertex {
+            pos: a,
+            uv: (0.0, 1.0),
+            ao: shade,
+            sky_light: sky,
+            block_light: block_l,
+        };
+        let vb = Vertex {
+            pos: b,
+            uv: (1.0, 1.0),
+            ao: shade,
+            sky_light: sky,
+            block_light: block_l,
+        };
+        let vc = Vertex {
+            pos: c,
+            uv: (1.0, 0.0),
+            ao: shade,
+            sky_light: sky,
+            block_light: block_l,
+        };
+        let vd = Vertex {
+            pos: d,
+            uv: (0.0, 0.0),
+            ao: shade,
+            sky_light: sky,
+            block_light: block_l,
+        };
+        tris.push(Triangle {
+            v0: va,
+            v1: vb,
+            v2: vc,
+            texture: tex,
+        });
+        tris.push(Triangle {
+            v0: va,
+            v1: vc,
+            v2: vd,
+            texture: tex,
+        });
+        tris.push(Triangle {
+            v0: va,
+            v1: vc,
+            v2: vb,
+            texture: tex,
+        });
+        tris.push(Triangle {
+            v0: va,
+            v1: vd,
+            v2: vc,
+            texture: tex,
+        });
     };
 
     if north_solid {
         let z_pos = z + 0.05;
-        quad(Vec3::new(x + 1.0, y, z_pos), Vec3::new(x, y, z_pos), Vec3::new(x, y + 1.0, z_pos), Vec3::new(x + 1.0, y + 1.0, z_pos), 0.95);
+        quad(
+            Vec3::new(x, y, z_pos),
+            Vec3::new(x + 1.0, y, z_pos),
+            Vec3::new(x + 1.0, y + 1.0, z_pos),
+            Vec3::new(x, y + 1.0, z_pos),
+            0.95,
+        );
     } else if south_solid {
         let z_pos = z + 0.95;
-        quad(Vec3::new(x, y, z_pos), Vec3::new(x + 1.0, y, z_pos), Vec3::new(x + 1.0, y + 1.0, z_pos), Vec3::new(x, y + 1.0, z_pos), 0.95);
+        quad(
+            Vec3::new(x, y, z_pos),
+            Vec3::new(x + 1.0, y, z_pos),
+            Vec3::new(x + 1.0, y + 1.0, z_pos),
+            Vec3::new(x, y + 1.0, z_pos),
+            0.95,
+        );
     } else if west_solid {
         let x_pos = x + 0.05;
-        quad(Vec3::new(x_pos, y, z), Vec3::new(x_pos, y, z + 1.0), Vec3::new(x_pos, y + 1.0, z + 1.0), Vec3::new(x_pos, y + 1.0, z), 0.90);
+        quad(
+            Vec3::new(x_pos, y, z + 1.0),
+            Vec3::new(x_pos, y, z),
+            Vec3::new(x_pos, y + 1.0, z),
+            Vec3::new(x_pos, y + 1.0, z + 1.0),
+            0.90,
+        );
+    } else if east_solid {
+        let x_pos = x + 0.95;
+        quad(
+            Vec3::new(x_pos, y, z),
+            Vec3::new(x_pos, y, z + 1.0),
+            Vec3::new(x_pos, y + 1.0, z + 1.0),
+            Vec3::new(x_pos, y + 1.0, z),
+            0.90,
+        );
     } else {
         let x_pos = x + 0.95;
-        quad(Vec3::new(x_pos, y, z + 1.0), Vec3::new(x_pos, y, z), Vec3::new(x_pos, y + 1.0, z), Vec3::new(x_pos, y + 1.0, z + 1.0), 0.90);
+        quad(
+            Vec3::new(x_pos, y, z),
+            Vec3::new(x_pos, y, z + 1.0),
+            Vec3::new(x_pos, y + 1.0, z + 1.0),
+            Vec3::new(x_pos, y + 1.0, z),
+            0.90,
+        );
     }
 }
 
@@ -1602,6 +1682,44 @@ fn emit_face(
 mod tests {
     use super::*;
     use crate::world::{Chunk, World};
+
+    #[test]
+    fn ladder_mesh_is_double_sided_and_faces_away_from_east_support() {
+        let mut world = World::new();
+        let mut chunk = Chunk {
+            cx: 0,
+            cz: 0,
+            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
+            dirty: false,
+        };
+        chunk.set_local(2, 5, 2, BlockId::Ladder);
+        chunk.set_local(3, 5, 2, BlockId::Stone);
+        world.chunks.insert((0, 0), chunk);
+
+        let cache = ChunkNeighborCache::new(world.chunks.get(&(0, 0)).unwrap(), &world);
+        let mut tris = Vec::new();
+        emit_ladder(&mut tris, 2, 5, 2, &cache);
+
+        assert_eq!(tris.len(), 4);
+        assert!(tris.iter().all(|tri| (tri.v0.pos.x - 2.95).abs() < 1e-4));
+
+        let first = &tris[0];
+        let ab = Vec3::new(
+            first.v1.pos.x - first.v0.pos.x,
+            first.v1.pos.y - first.v0.pos.y,
+            first.v1.pos.z - first.v0.pos.z,
+        );
+        let ac = Vec3::new(
+            first.v2.pos.x - first.v0.pos.x,
+            first.v2.pos.y - first.v0.pos.y,
+            first.v2.pos.z - first.v0.pos.z,
+        );
+        let normal_x = ab.y * ac.z - ab.z * ac.y;
+        assert!(
+            normal_x < 0.0,
+            "ladder front should face away from east support"
+        );
+    }
 
     #[test]
     fn test_chunk_bottom_face_culling_at_y0() {
