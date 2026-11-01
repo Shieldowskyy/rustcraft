@@ -243,7 +243,6 @@ impl AudioEngine {
                     let mut mixer = AudioMixer::new(sample_rate);
                     let mut audio_backend = backend;
                     let mut scratch_buffer = [0.0f32; 2048]; // 1024 stereo frames = ~21.3ms latency
-                    let mut listener = AudioListener::default();
                     let is_null_sink = !audio_backend.is_active() || audio_backend.name() == "Null Audio Sink";
 
                     while running.load(Ordering::Relaxed) {
@@ -265,26 +264,30 @@ impl AudioEngine {
                                         occlusion,
                                     } => {
                                         if let Some(sample) = bank_clone.get(&sound_id) {
-                                            let (lg, rg, filter_alpha) = if spatial {
-                                                let res = listener.calculate_spatial(
-                                                    position, min_dist, max_dist, rolloff, occlusion,
+                                            if spatial {
+                                                mixer.play_spatial_sample(
+                                                    sample,
+                                                    sound_id.category(),
+                                                    volume,
+                                                    pitch,
+                                                    position,
+                                                    min_dist,
+                                                    max_dist,
+                                                    rolloff,
+                                                    occlusion,
+                                                    looping,
                                                 );
-                                                (res.left_gain, res.right_gain, res.filter_alpha)
                                             } else {
                                                 let angle = (pan.clamp(-1.0, 1.0) + 1.0)
                                                     * (std::f32::consts::PI * 0.25);
-                                                (angle.cos(), angle.sin(), 1.0)
-                                            };
-
-                                            if lg > 0.001 || rg > 0.001 {
                                                 mixer.play_sample(
                                                     sample,
                                                     sound_id.category(),
                                                     volume,
                                                     pitch,
-                                                    lg,
-                                                    rg,
-                                                    filter_alpha,
+                                                    angle.cos(),
+                                                    angle.sin(),
+                                                    1.0,
                                                     looping,
                                                 );
                                             }
@@ -312,10 +315,9 @@ impl AudioEngine {
                                         right,
                                         up,
                                     } => {
-                                        listener.position = position;
-                                        listener.forward = forward;
-                                        listener.right = right;
-                                        listener.up = up;
+                                        mixer.update_spatial_listener(AudioListener::new(
+                                            position, forward, right, up,
+                                        ));
                                     }
                                     AudioCommand::SetCategoryVolume { category, volume } => {
                                         mixer.set_category_volume(category, volume);
@@ -517,15 +519,31 @@ impl AudioEngine {
                     occlusion,
                 } => {
                     if let Some(sample) = self.soundbank.get(&sound_id) {
-                        let (lg, rg, filter_alpha) = if spatial {
-                            let res = self.listener.calculate_spatial(position, min_dist, max_dist, rolloff, occlusion);
-                            (res.left_gain, res.right_gain, res.filter_alpha)
+                        if spatial {
+                            mixer.play_spatial_sample(
+                                sample,
+                                sound_id.category(),
+                                volume,
+                                pitch,
+                                position,
+                                min_dist,
+                                max_dist,
+                                rolloff,
+                                occlusion,
+                                looping,
+                            );
                         } else {
                             let angle = (pan.clamp(-1.0, 1.0) + 1.0) * (std::f32::consts::PI * 0.25);
-                            (angle.cos(), angle.sin(), 1.0)
-                        };
-                        if lg > 0.001 || rg > 0.001 {
-                            mixer.play_sample(sample, sound_id.category(), volume, pitch, lg, rg, filter_alpha, looping);
+                            mixer.play_sample(
+                                sample,
+                                sound_id.category(),
+                                volume,
+                                pitch,
+                                angle.cos(),
+                                angle.sin(),
+                                1.0,
+                                looping,
+                            );
                         }
                     }
                 }
@@ -541,6 +559,7 @@ impl AudioEngine {
                     self.listener.forward = forward;
                     self.listener.right = right;
                     self.listener.up = up;
+                    mixer.update_spatial_listener(self.listener);
                 }
                 AudioCommand::SetCategoryVolume { category, volume } => {
                     mixer.set_category_volume(category, volume);

@@ -3,6 +3,8 @@
 
 use std::sync::Arc;
 use crate::audio::sound::{SoundCategory, SoundSample};
+use crate::audio::spatial::AudioListener;
+use crate::core::math::Vec3;
 
 /// Maximum polyphonic hardware voice channels allocated upfront.
 pub const MAX_VOICES: usize = 64;
@@ -11,6 +13,16 @@ const REVERB_COMB_DELAYS: [f32; 8] = [
 ];
 const REVERB_ALLPASS_DELAYS: [f32; 4] = [0.0051, 0.0073, 0.0061, 0.0083];
 const REVERB_MAX_MIX_FRAMES: usize = 1024;
+
+#[derive(Clone, Copy)]
+struct SpatialSource {
+    position: Vec3,
+    volume: f32,
+    min_dist: f32,
+    max_dist: f32,
+    rolloff: f32,
+    occlusion: f32,
+}
 
 struct ReverbDelay {
     buffer: Vec<f32>,
@@ -61,6 +73,7 @@ pub struct Voice {
     pub filter_alpha: f32,
     pub filter_state: f32,
     pub channels: u16,
+    spatial_source: Option<SpatialSource>,
 }
 
 impl Default for Voice {
@@ -83,6 +96,7 @@ impl Default for Voice {
             filter_alpha: 1.0,
             filter_state: 0.0,
             channels: 1,
+            spatial_source: None,
         }
     }
 }
@@ -102,6 +116,7 @@ pub struct AudioMixer {
     reverb_decay_seconds: f32,
     target_reverb_decay_seconds: f32,
     reverb_tail_samples: u32,
+    listener: AudioListener,
 }
 
 impl AudioMixer {
@@ -125,6 +140,7 @@ impl AudioMixer {
             filter_alpha: 1.0,
             filter_state: 0.0,
             channels: 1,
+            spatial_source: None,
         };
 
         let output_sample_rate = output_sample_rate.max(8000);
@@ -146,6 +162,7 @@ impl AudioMixer {
             reverb_decay_seconds: 0.35,
             target_reverb_decay_seconds: 0.35,
             reverb_tail_samples: 0,
+            listener: AudioListener::default(),
         }
     }
 
@@ -193,6 +210,94 @@ impl AudioMixer {
         right_pan_gain: f32,
         filter_alpha: f32,
         looping: bool,
+    ) {
+        self.play_sample_inner(
+            sample,
+            category,
+            volume,
+            pitch,
+            left_pan_gain,
+            right_pan_gain,
+            filter_alpha,
+            looping,
+            None,
+        );
+    }
+
+    pub fn play_spatial_sample(
+        &mut self,
+        sample: &SoundSample,
+        category: SoundCategory,
+        volume: f32,
+        pitch: f32,
+        position: Vec3,
+        min_dist: f32,
+        max_dist: f32,
+        rolloff: f32,
+        occlusion: f32,
+        looping: bool,
+    ) {
+        let source = SpatialSource {
+            position,
+            volume,
+            min_dist,
+            max_dist,
+            rolloff,
+            occlusion,
+        };
+        let result = self.listener.calculate_spatial(
+            position,
+            min_dist,
+            max_dist,
+            rolloff,
+            occlusion,
+        );
+        self.play_sample_inner(
+            sample,
+            category,
+            volume,
+            pitch,
+            result.left_gain,
+            result.right_gain,
+            result.filter_alpha,
+            looping,
+            Some(source),
+        );
+    }
+
+    pub fn update_spatial_listener(&mut self, listener: AudioListener) {
+        self.listener = listener;
+        for voice in &mut self.voices {
+            let Some(source) = voice.spatial_source else {
+                continue;
+            };
+            if !voice.active {
+                continue;
+            }
+            let result = listener.calculate_spatial(
+                source.position,
+                source.min_dist,
+                source.max_dist,
+                source.rolloff,
+                source.occlusion,
+            );
+            voice.target_left = (source.volume * result.left_gain).clamp(0.0, 2.0);
+            voice.target_right = (source.volume * result.right_gain).clamp(0.0, 2.0);
+            voice.filter_alpha = result.filter_alpha.clamp(0.005, 1.0);
+        }
+    }
+
+    fn play_sample_inner(
+        &mut self,
+        sample: &SoundSample,
+        category: SoundCategory,
+        volume: f32,
+        pitch: f32,
+        left_pan_gain: f32,
+        right_pan_gain: f32,
+        filter_alpha: f32,
+        looping: bool,
+        spatial_source: Option<SpatialSource>,
     ) {
         self.age_counter = self.age_counter.wrapping_add(1);
 
@@ -251,6 +356,7 @@ impl AudioMixer {
         v.filter_state = 0.0;
         v.priority = new_priority;
         v.channels = sample.channels;
+        v.spatial_source = spatial_source;
     }
 
     /// Stops all currently active sounds with smooth fade-out to prevent clicks.
@@ -576,5 +682,40 @@ mod tests {
         ui_mixer.play_sample(&impulse, SoundCategory::Ui, 1.0, 1.0, 1.0, 1.0, 1.0, false);
         ui_mixer.mix_interleaved_stereo(&mut output);
         assert!(!ui_mixer.has_pending_audio(), "UI sounds should remain dry");
+    }
+
+    #[test]
+    fn active_spatial_sound_tracks_listener_movement() {
+        let sample = SoundSample::new(vec![1.0; 1024], 48000, 1);
+        let mut mixer = AudioMixer::new(48000);
+        let source_pos = Vec3::new(10.0, 0.0, 0.0);
+        mixer.play_spatial_sample(
+            &sample,
+            SoundCategory::Sfx,
+            1.0,
+            1.0,
+            source_pos,
+            2.0,
+            36.0,
+            1.0,
+            0.0,
+            false,
+        );
+
+        let initial_left = mixer.voices[0].target_left;
+        let initial_right = mixer.voices[0].target_right;
+        assert!(initial_right > initial_left);
+
+        mixer.update_spatial_listener(AudioListener::new(
+            Vec3::new(9.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, -1.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+        ));
+
+        let moved_left = mixer.voices[0].target_left;
+        let moved_right = mixer.voices[0].target_right;
+        assert!(moved_left + moved_right > initial_left + initial_right);
+        assert!(moved_right > moved_left);
     }
 }
