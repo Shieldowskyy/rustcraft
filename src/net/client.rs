@@ -74,6 +74,10 @@ pub enum NetworkEvent {
         damage: f32,
         direction: Vec3,
     },
+    MobSpawn {
+        kind: u8,
+        pos: Vec3,
+    },
     WorldSnapshot {
         snapshot: WorldSnapshot,
     },
@@ -266,6 +270,21 @@ impl NetworkClient {
         let packet = ClientPacket::AttackMob { mob_id, damage };
         if let Err(error) = self.send_packet(&packet) {
             crate::log_warn!("NETWORK", "Failed to send mob attack: {}", error);
+        }
+    }
+
+    pub fn send_spawn_mob(&mut self, kind: crate::gameplay::mob::MobKind, pos: Vec3) {
+        if !self.is_connected || self.local_id == self.mob_authority_id {
+            return;
+        }
+        let packet = ClientPacket::SpawnMob {
+            kind: kind as u8,
+            x: pos.x,
+            y: pos.y,
+            z: pos.z,
+        };
+        if let Err(error) = self.send_packet(&packet) {
+            crate::log_warn!("NETWORK", "Failed to send mob spawn request: {}", error);
         }
     }
 
@@ -502,6 +521,12 @@ impl NetworkClient {
                         mob_id,
                         damage,
                         direction: Vec3::new(direction_x, direction_y, direction_z),
+                    });
+                }
+                Ok(ServerPacket::MobSpawn { kind, x, y, z }) => {
+                    events.push(NetworkEvent::MobSpawn {
+                        kind,
+                        pos: Vec3::new(x, y, z),
                     });
                 }
                 Ok(ServerPacket::WorldSnapshot { snapshot }) => {

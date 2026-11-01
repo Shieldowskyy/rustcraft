@@ -1,6 +1,6 @@
 //! Binary network protocol definition, framing, packet serialization, and parsing.
 
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 pub const DEFAULT_SERVER_PORT: u16 = 26656;
 pub const MAX_PACKET_SIZE: usize = 16 * 1024 * 1024;
 pub const MAX_QUEUED_BYTES: usize = 32 * 1024 * 1024;
@@ -233,6 +233,12 @@ pub enum ClientPacket {
         mob_id: u32,
         damage: f32,
     },
+    SpawnMob {
+        kind: u8,
+        x: f32,
+        y: f32,
+        z: f32,
+    },
     MobSnapshot {
         mobs: Vec<MobSyncEntry>,
     },
@@ -331,6 +337,12 @@ pub enum ServerPacket {
         direction_x: f32,
         direction_y: f32,
         direction_z: f32,
+    },
+    MobSpawn {
+        kind: u8,
+        x: f32,
+        y: f32,
+        z: f32,
     },
 }
 
@@ -565,6 +577,14 @@ impl ClientPacket {
                 pw.write_f32(*damage);
                 pw.finish()
             }
+            ClientPacket::SpawnMob { kind, x, y, z } => {
+                let mut pw = PacketWriter::new(0x0E);
+                pw.write_u8(*kind);
+                pw.write_f32(*x);
+                pw.write_f32(*y);
+                pw.write_f32(*z);
+                pw.finish()
+            }
         }
     }
 
@@ -625,6 +645,12 @@ impl ClientPacket {
             0x0D => Ok(ClientPacket::AttackMob {
                 mob_id: r.read_u32()?,
                 damage: r.read_f32()?,
+            }),
+            0x0E => Ok(ClientPacket::SpawnMob {
+                kind: r.read_u8()?,
+                x: r.read_f32()?,
+                y: r.read_f32()?,
+                z: r.read_f32()?,
             }),
             _ => Err("Unknown client packet ID"),
         }
@@ -792,6 +818,14 @@ impl ServerPacket {
                 pw.write_f32(*direction_z);
                 pw.finish()
             }
+            ServerPacket::MobSpawn { kind, x, y, z } => {
+                let mut pw = PacketWriter::new(0x94);
+                pw.write_u8(*kind);
+                pw.write_f32(*x);
+                pw.write_f32(*y);
+                pw.write_f32(*z);
+                pw.finish()
+            }
         }
     }
 
@@ -941,6 +975,12 @@ impl ServerPacket {
                 direction_x: r.read_f32()?,
                 direction_y: r.read_f32()?,
                 direction_z: r.read_f32()?,
+            }),
+            0x94 => Ok(ServerPacket::MobSpawn {
+                kind: r.read_u8()?,
+                x: r.read_f32()?,
+                y: r.read_f32()?,
+                z: r.read_f32()?,
             }),
             _ => Err("Unknown server packet ID"),
         }
@@ -1484,6 +1524,19 @@ mod tests {
             attack_mob
         );
 
+        let spawn_mob = ClientPacket::SpawnMob {
+            kind: crate::gameplay::mob::MobKind::Zombie as u8,
+            x: 12.5,
+            y: 64.0,
+            z: -7.25,
+        };
+        let mut framed_spawn = spawn_mob.serialize();
+        let packets_spawn = extract_packets(&mut framed_spawn).unwrap();
+        assert_eq!(
+            ClientPacket::deserialize(&packets_spawn[0]).unwrap(),
+            spawn_mob
+        );
+
         let mob_attack = ServerPacket::MobAttack {
             attacker_id: 2,
             mob_id: 8,
@@ -1497,6 +1550,19 @@ mod tests {
         assert_eq!(
             ServerPacket::deserialize(&packets_server_mob_attack[0]).unwrap(),
             mob_attack
+        );
+
+        let mob_spawn = ServerPacket::MobSpawn {
+            kind: crate::gameplay::mob::MobKind::Zombie as u8,
+            x: 12.5,
+            y: 64.0,
+            z: -7.25,
+        };
+        let mut framed_server_spawn = mob_spawn.serialize();
+        let packets_server_spawn = extract_packets(&mut framed_server_spawn).unwrap();
+        assert_eq!(
+            ServerPacket::deserialize(&packets_server_spawn[0]).unwrap(),
+            mob_spawn
         );
 
         let mob_snapshot = ClientPacket::MobSnapshot {

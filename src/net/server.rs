@@ -594,6 +594,7 @@ fn run_server(
         let mut in_game_commands: Vec<(u32, String)> = Vec::new();
         let mut pending_attacks: Vec<(u32, String, (f32, f32, f32), u32, f32)> = Vec::new();
         let mut pending_mob_attacks = Vec::new();
+        let mut pending_mob_spawns = Vec::new();
         let mut pending_mob_snapshots = Vec::new();
         let mut pending_mob_broadcasts = Vec::new();
         let mut pending_world_snapshots = Vec::new();
@@ -904,6 +905,16 @@ fn run_server(
                                 }
                                 pending_mob_attacks.push((id, mob_id, damage, client.yaw, client.pitch));
                             }
+                            Ok(ClientPacket::SpawnMob { kind, x, y, z }) => {
+                                if !client.authenticated
+                                    || crate::gameplay::mob::MobKind::ALL.get(kind as usize).is_none()
+                                    || ![x, y, z].iter().all(|coordinate| coordinate.is_finite())
+                                {
+                                    disconnected_clients.push((id, "Invalid mob spawn request".to_string()));
+                                    break;
+                                }
+                                pending_mob_spawns.push((id, kind, x, y, z));
+                            }
                             Ok(ClientPacket::MobSnapshot { mobs }) => {
                                 if client.authenticated {
                                     pending_mob_snapshots.push((id, mobs));
@@ -999,6 +1010,25 @@ fn run_server(
                     direction_y: -sin_pitch,
                     direction_z: cos_yaw * cos_pitch,
                 });
+            }
+        }
+        for (requester_id, kind, x, y, z) in pending_mob_spawns {
+            let Some(authority_id) =
+                mob_authority_id.filter(|authority_id| *authority_id != requester_id)
+            else {
+                continue;
+            };
+            let Some(requester) = clients.get(&requester_id) else {
+                continue;
+            };
+            let dx = x - requester.x;
+            let dy = y - requester.y;
+            let dz = z - requester.z;
+            if dx * dx + dy * dy + dz * dz > 144.0 {
+                continue;
+            }
+            if let Some(authority) = clients.get_mut(&authority_id) {
+                let _ = authority.send_packet(&ServerPacket::MobSpawn { kind, x, y, z });
             }
         }
         for (sender_id, snapshot) in pending_world_snapshots {
@@ -1821,6 +1851,59 @@ mod tests {
 
         authority.disconnect();
         attacker.disconnect();
+        drop(server);
+    }
+
+    #[test]
+    fn non_authority_mob_spawns_are_sent_to_the_mob_authority() {
+        let server = EmbeddedServer::start(
+            0,
+            EmbeddedServerState {
+                seed: 1,
+                time_of_day: 120.0,
+                spawn_pos: (8.5, 65.0, 8.5),
+                blocks: Vec::new(),
+                mobs: Vec::new(),
+            },
+        )
+        .unwrap();
+        let address = format!("127.0.0.1:{}", server.port);
+        let mut authority = crate::net::NetworkClient::connect(&address, "SpawnAuthority").unwrap();
+        let mut guest = crate::net::NetworkClient::connect(&address, "SpawnGuest").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline
+            && (!authority.is_connected
+                || !guest.is_connected
+                || guest.mob_authority_id != authority.local_id)
+        {
+            authority.update(0.05);
+            guest.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(authority.is_connected && guest.is_connected);
+        assert_eq!(guest.mob_authority_id, authority.local_id);
+
+        let spawn_pos = crate::core::math::Vec3::new(9.0, 65.0, 8.5);
+        guest.send_spawn_mob(crate::gameplay::mob::MobKind::Zombie, spawn_pos);
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut received = false;
+        while Instant::now() < deadline && !received {
+            received |= authority.update(0.05).into_iter().any(|event| {
+                matches!(
+                    event,
+                    crate::net::NetworkEvent::MobSpawn {
+                        kind,
+                        pos,
+                    } if kind == crate::gameplay::mob::MobKind::Zombie as u8 && pos == spawn_pos
+                )
+            });
+            guest.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(received, "mob authority should receive the client's spawn request");
+
+        authority.disconnect();
+        guest.disconnect();
         drop(server);
     }
 

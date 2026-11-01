@@ -342,6 +342,21 @@ impl RustCraftApp {
                                     }
                                 }
                             }
+                            crate::net::NetworkEvent::MobSpawn { kind, pos } => {
+                                if client.local_id == client.mob_authority_id {
+                                    if let Some(kind) =
+                                        crate::gameplay::mob::MobKind::ALL.get(kind as usize)
+                                    {
+                                        self.mob_manager.spawn_mob(*kind, pos);
+                                    } else {
+                                        crate::log_warn!(
+                                            "NETWORK",
+                                            "Rejected mob spawn with unknown kind {}",
+                                            kind
+                                        );
+                                    }
+                                }
+                            }
                             crate::net::NetworkEvent::WorldSnapshot { snapshot } => {
                                 received_world_snapshot = Some(snapshot);
                             }
@@ -2092,7 +2107,17 @@ impl RustCraftApp {
                                 hit.block_pos.y as f32 + (if hit.normal.y > 0 { 1.0 } else { 0.0 }),
                                 hit.block_pos.z as f32 + 0.5 + hit.normal.z as f32 * 0.5,
                             );
-                            self.mob_manager.spawn_mob(mob_kind, spawn_pos);
+                            let delegated_to_authority = self.net_client.as_mut().is_some_and(|client| {
+                                if client.is_connected && client.local_id != client.mob_authority_id {
+                                    client.send_spawn_mob(mob_kind, spawn_pos);
+                                    true
+                                } else {
+                                    false
+                                }
+                            });
+                            if !delegated_to_authority {
+                                self.mob_manager.spawn_mob(mob_kind, spawn_pos);
+                            }
                             self.particles.spawn_mob_hit(spawn_pos);
                             if let Some(snd) = mob_kind.idle_sound() {
                                 self.play_world_sound_varied(snd, spawn_pos, 0.9);
