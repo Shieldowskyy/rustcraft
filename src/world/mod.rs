@@ -3008,6 +3008,20 @@ mod tests {
     }
 
     #[test]
+    fn tnt_placed_on_ruststone_block_is_primed() {
+        let mut world = World::new_with_seed(12345);
+        let source = IVec3::new(4, 51, 4);
+        let tnt = source + IVec3::new(0, 1, 0);
+        world.set_block(source, BlockId::RustStoneBlock);
+        world.set_block(tnt, BlockId::Tnt);
+
+        world.update_ruststone_network(tnt, 16);
+
+        assert_eq!(world.get_block(tnt), BlockId::Air);
+        assert_eq!(world.primed_tnts.len(), 1);
+    }
+
+    #[test]
     fn test_spaced_villages_and_torch_lighting() {
         let seed: u32 = 1337;
         let mut found = None;

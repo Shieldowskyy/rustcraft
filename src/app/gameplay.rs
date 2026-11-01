@@ -2206,7 +2206,7 @@ impl RustCraftApp {
                                     let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
                                     self.play_world_sound_varied(place_sound, sound_pos, 0.85);
                                     self.request_rumble(0.2, 0.1, 45);
-                                    if matches!(place_id, BlockId::RustStone | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::Lever | BlockId::Button | BlockId::PressurePlate) {
+                                    if matches!(place_id, BlockId::Tnt | BlockId::RustStone | BlockId::RustStoneBlock | BlockId::RustStoneLamp | BlockId::Lever | BlockId::Button | BlockId::PressurePlate) {
                                         self.world.update_ruststone_network(place_pos, 16);
                                     }
                                     crate::log_info!("WORLD", "Placed block {:?} at ({}, {}, {})", place_id, place_pos.x, place_pos.y, place_pos.z);
