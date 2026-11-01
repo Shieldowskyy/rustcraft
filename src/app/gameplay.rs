@@ -17,6 +17,10 @@ use crate::world::block::{BlockId, Face};
 use crate::world::storage::{get_save_metadata, save_path};
 use super::{AppOutput, CameraPerspective, GameState, InputState, RumbleRequest, RustCraftApp};
 
+fn can_place_block_in(existing: BlockId) -> bool {
+    matches!(existing, BlockId::Air | BlockId::Water)
+}
+
 impl RustCraftApp {
     fn network_world_snapshot(&self) -> crate::net::protocol::WorldSnapshot {
         use crate::net::protocol::*;
@@ -2107,11 +2111,9 @@ impl RustCraftApp {
                             let place_pos = hit.block_pos + hit.normal;
                             let place_id = BlockId::from_u8(selected_block_id);
                             let existing = self.world.get_block(place_pos);
-                            let can_place_here = existing == BlockId::Air
-                                || (matches!(place_id, BlockId::Kelp | BlockId::Seagrass) && existing == BlockId::Water);
                             if place_id != BlockId::Air
                                 && place_id.is_placeable()
-                                && can_place_here
+                                && can_place_block_in(existing)
                             {
                                 self.hand_animation = 1.0;
                                 if place_id == BlockId::Bed {
@@ -3146,6 +3148,14 @@ mod tests {
     use crate::gameplay::player::GameMode;
     use crate::gameplay::inventory::ItemStack;
     use crate::core::math::{Vec3, IVec3};
+
+    #[test]
+    fn blocks_can_be_placed_into_water_but_not_solid_blocks() {
+        assert!(super::can_place_block_in(crate::world::BlockId::Air));
+        assert!(super::can_place_block_in(crate::world::BlockId::Water));
+        assert!(!super::can_place_block_in(crate::world::BlockId::Stone));
+        assert!(!super::can_place_block_in(crate::world::BlockId::Lava));
+    }
 
     #[test]
     fn opening_chat_releases_mouse_and_closing_it_recaptures() {
