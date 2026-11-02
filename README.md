@@ -563,5 +563,10 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 
 The MIT license does not grant rights to third-party media. Before redistributing a release, verify the provenance and license/attribution requirements for bundled music, images, fonts, and other non-code assets.
 
+### Third-party assets
+
+- **Music:** The bundled soundtrack was generated with Suno AI. Its use and redistribution remain subject to the applicable Suno terms and the rights associated with the account and plan used to generate it.
+- **`graphics/dev_logo.png`:** This is the Dasho logo, owned by EkipaDSH. It may not be used in another project without EkipaDSH's express permission. The RustCraft MIT license does not grant rights to this logo.
+
 ### Disclaimer
 RustCraft is an independent, non-commercial open-source voxel game engine and sandbox recreation developed in Rust. RustCraft is **not** an official Minecraft product and is **not** approved by, affiliated with, endorsed by, or associated with Mojang Studios or Microsoft. All trademarks, service marks, and trade names (including "Minecraft") belong to their respective owners (Mojang Synergies AB / Microsoft Corporation).
