@@ -8,8 +8,8 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
 
 | To modify / add: | Primary file/module: | Notes: |
 |---|---|---|
-| **New Block Type** | `src/world/block.rs`, `src/graphics/atlas.rs` | Add variant to `BlockId` (standard IDs 0..=162, custom modded IDs 163..=255), assign `TextureId`, add texture generator in `atlas.rs`. |
-| **New Mob Type** | `src/gameplay/mob.rs` | Add variant to `MobKind` (14 types: Pig, Cow, Chicken, Sheep, Zombie, Skeleton, Reaper, Dolphin, Cod, Salmon, Pufferfish, TropicalFish, Villager, IronGolem), define bounding boxes & AI tick, add draw calls in `software/mod.rs` and `platform/vita_gxm.rs`. |
+| **New Block Type** | `src/world/block.rs`, `src/graphics/atlas.rs` | Built-in IDs are 0..=185; mod IDs are 186..=249 (64 custom texture layers). Add variant to `BlockId`, assign `TextureId`, and update both GPU texture-layer mappings when adding a built-in texture. |
+| **New Mob Type** | `src/gameplay/mob.rs` | Add a `MobKind` variant (15 current kinds), define bounding boxes & AI tick, and add draw calls in the software and Vita renderers. |
 | **Dynamic Weather** | `src/world/weather.rs` | Manage weather states (Clear, Rain, Thunderstorm), precipitation by biome temperature (rain/snow), storm audio, lightning flash, and `/weather` commands. |
 | **Villages & Trading** | `src/world/mod.rs`, `src/gameplay/trading.rs` | Village layout generator, professions, trade offerings, emerald currency, and trading window in `src/ui/container_ui.rs`. |
 | **Field Guide** | `src/gameplay/achievements.rs`, `src/gameplay/mob.rs`, `src/ui/achievements.rs`, `src/world/storage.rs` | Track milestone branches, encountered creatures, discovered blocks, localized toasts, and per-slot progress files. |
@@ -31,7 +31,7 @@ This guide is designed for LLMs (and developers) to understand the codebase stru
 ## 2. Common Workflows
 
 ### How to Add a New Block
-1. **Define Block**: Open `src/world/block.rs` and add a new variant to `pub enum BlockId`. Note that IDs `0..=162` are reserved for standard vanilla items and blocks; `163..=255` are mapped to `BlockId::Custom(u8)`.
+1. **Define Block**: Open `src/world/block.rs` and add a new variant to `pub enum BlockId`. Built-in IDs currently occupy `0..=185`. Mod manifests use `186..=249`; do not assign custom IDs in the built-in range or above the 64 custom texture layers.
 2. **Configure Properties**: In `src/world/block.rs`, update:
    - `from_u8(v: u8)` and `to_u8(self)`
    - `name(&self)`
