@@ -54,7 +54,7 @@ Every mod requires a `mod.json` file in its folder. The root structure looks lik
 Blocks are 3D voxels placed in the world, collision-checked, meshed, and lit.
 
 ### Block Attributes
-- `id` *(number, required)*: Numerical ID from **163 to 255** (IDs 0–162 are reserved for vanilla blocks and items; custom modded blocks map to `BlockId::Custom(u8)`).
+- `id` *(number, required)*: Numerical ID from **186 to 249**. IDs 0–185 are built into RustCraft; the 64 IDs in this range correspond to the available custom texture layers.
 - `identifier` *(string, required)*: Unique string identifier (e.g. `"ruby_ore"`). Used in recipes, commands, and save files.
 - `name` *(string)*: Display name shown in tooltips, inventory, and chat.
 - `solid` *(boolean, default: `true`)*: Enables physical bounding box collision.
@@ -69,7 +69,7 @@ Blocks are 3D voxels placed in the world, collision-checked, meshed, and lit.
 ### Example Block Definition
 ```json
 {
-  "id": 140,
+  "id": 186,
   "identifier": "emerald_ore",
   "name": "Emerald Ore",
   "solid": true,
@@ -95,7 +95,7 @@ Blocks are 3D voxels placed in the world, collision-checked, meshed, and lit.
 Items exist in the player's inventory, hotbar, and dropped in the world as 3D floating items, but are not placeable as solid terrain blocks.
 
 ### Item Attributes
-- `id` *(number, required)*: Numerical ID from **163 to 255** (IDs 0–162 are reserved for vanilla blocks and items; custom modded items map to `BlockId::Custom(u8)`).
+- `id` *(number, required)*: Numerical ID from **186 to 249**. IDs are shared by all blocks and items; avoid reusing one already assigned by any loaded mod.
 - `identifier` *(string, required)*: Unique item identifier (e.g. `"ruby"`, `"ruby_apple"`).
 - `name` *(string)*: Display name in inventory and chat.
 - `is_food` *(boolean, default: `false`)*: When `true`, holding right-click eats the item.
@@ -106,7 +106,7 @@ Items exist in the player's inventory, hotbar, and dropped in the world as 3D fl
 ### Example Item & Food Definition
 ```json
 {
-  "id": 142,
+  "id": 187,
   "identifier": "emerald",
   "name": "Emerald",
   "is_food": false,
@@ -116,7 +116,7 @@ Items exist in the player's inventory, hotbar, and dropped in the world as 3D fl
   }
 },
 {
-  "id": 143,
+  "id": 188,
   "identifier": "emerald_apple",
   "name": "Emerald Apple",
   "is_food": true,
@@ -301,25 +301,25 @@ Mods can register custom slash commands (e.g. `/emerald`, `/ruby`, `/magic_heal`
 
 ---
 
-## 11. Multiplayer Automatic Mod Downloading (Source Engine Style)
+## 11. Multiplayer Mod Synchronization
 
-RustCraft features a built-in network resource synchronization system inspired by **Valve Source engine** games (Counter-Strike, Garry's Mod, Team Fortress 2):
+The server can send active mod definitions to clients using the `ServerPacket::ModSync` packet.
 
 ### How It Works
 1. **Server Setup:**
    - Any mods placed in the dedicated server's `./mods/` directory are loaded when the server starts.
    - When a player connects to the server, the server automatically transmits all active mod definitions via the `ServerPacket::ModSync` packet during the handshake sequence before spawning into the world.
-2. **Client Auto-Download:**
-   - Connecting players automatically receive and download the server's mods over the TCP connection.
-   - The files are saved locally to `./mods/<mod_name>/mod.json`, meaning players keep them permanently for future sessions and offline play.
-   - If the server has updated a mod with new blocks or recipes, the client detects the change and replaces its local copy.
-3. **Seamless Engine Reload:**
-   - As soon as the mods are downloaded, the client runtime automatically registers the new blocks, items, recipes, and drop tables.
-   - The texture atlas and GPU texture arrays are automatically updated without restarting the game.
-   - When the player enters the world, all custom server blocks placed by other players are already textured and interactable!
+2. **Client synchronization:**
+   - The client receives definitions over the game connection and saves them under `./mods/<mod_id>/mod.json`.
+   - Synchronized definitions are registered during the connection flow. Restart the client before relying on changed texture atlases; already-created renderer atlases are not rebuilt automatically in every renderer.
+   - Review synchronized files before using them. RustCraft syncs JSON definitions, not executable mod binaries.
 
 > [!TIP]
-> Players do **not** need to manually download or install any files to join a modded server. Everything is 100% automated!
+> Mod definitions are synchronized by the game, but immediate texture refresh is not guaranteed.
+
+### Compatibility note for older mod IDs
+
+Older examples used IDs below 186, which overlap built-in block and item IDs. Current mod manifests must use IDs 186–249. Back up worlds before changing existing mod IDs; saved block values are not automatically remapped. Mod ID collisions can overwrite registrations, so choose unused IDs across all loaded mods.
 
 ---
 
@@ -329,4 +329,3 @@ RustCraft comes with a pre-installed reference mod located at:
 `mods/emerald_expansion/mod.json`
 
 You can inspect or copy this mod to jumpstart your own creations!
-
