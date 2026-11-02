@@ -1,18 +1,18 @@
 # Agent Guidelines & Quickstart for RustCraft
 
-Welcome, Agent. This repository contains **RustCraft** (~71.6k LOC), a high-performance Minecraft-like voxel engine written in pure Rust supporting multiple platforms (Desktop Linux/Windows, Android, WebAssembly, PS Vita, Xbox 360).
+Welcome, Agent. This repository contains **RustCraft**, a voxel game and engine written in Rust with desktop, Android, WebAssembly, PS Vita, and Xbox 360 build targets. Runtime support varies by platform.
 
-Refer to [LLM_GUIDE.md](file:///home/shieldziak/Pobrane/rustcraft/LLM_GUIDE.md) and [ARCHITECTURE.md](file:///home/shieldziak/Pobrane/rustcraft/ARCHITECTURE.md) for exhaustive documentation.
+Refer to [LLM_GUIDE.md](LLM_GUIDE.md) and [ARCHITECTURE.md](ARCHITECTURE.md) for repository documentation.
 
 ---
 
 ## 1. Top Gotchas & Pitfalls (Read Before Editing)
 
-### A. WGPU Texture Array Limits (`TEXTURE_LAYER_COUNT > 256`)
-- **Location**: [src/graphics/gpu/mod.rs](file:///home/shieldziak/Pobrane/rustcraft/src/graphics/gpu/mod.rs) and [src/graphics/atlas.rs](file:///home/shieldziak/Pobrane/rustcraft/src/graphics/atlas.rs).
+### A. WGPU Texture Array Limits
+- **Location**: [src/graphics/gpu/mod.rs](src/graphics/gpu/mod.rs) and [src/graphics/atlas.rs](src/graphics/atlas.rs).
 - **The Issue**: By default, `wgpu::Limits::default().max_texture_array_layers` is hardcoded to **256**.
 - **Rule**:
-  1. Whenever adding textures, `TEXTURE_LAYER_COUNT` must equal `(standard_textures + 64)`.
+  1. Whenever adding textures, keep `TEXTURE_LAYER_COUNT` and the custom layer range in sync.
   2. `device.request_device` MUST pass `required_limits.max_texture_array_layers = adapter_limits.max_texture_array_layers`.
   3. Keep bidirectional mappings in sync: `layer_from_texture_id` and `texture_id_from_layer`.
   4. Verify with:
@@ -58,7 +58,7 @@ Refer to [LLM_GUIDE.md](file:///home/shieldziak/Pobrane/rustcraft/LLM_GUIDE.md) 
 
 | Component | Files | What to know |
 |---|---|---|
-| **Blocks** | `src/world/block.rs`, `src/graphics/atlas.rs` | `BlockId` 0..=162 (standard), 163..=255 (`Custom`). Map to `TextureId`. |
+| **Blocks** | `src/world/block.rs`, `src/graphics/atlas.rs` | Built-in IDs are 0..=185; mod IDs are 186..=249, matching the 64 custom texture layers. Map to `TextureId`. |
 | **Textures** | `src/graphics/atlas.rs`, `src/graphics/gpu/mod.rs` | Update `TextureId`, `generate()`, both layer mappings, and `TEXTURE_LAYER_COUNT`. |
 | **Mobs** | `src/gameplay/mob.rs`, `src/graphics/software/mod.rs` | Add variant to `MobKind`, define hitbox & AI tick, add 3D box hierarchy in `draw_mob`. |
 | **World Gen** | `src/world/mod.rs`, `src/core/noise.rs` | 20 biomes via noise axes in `get_biome_at()`. |
