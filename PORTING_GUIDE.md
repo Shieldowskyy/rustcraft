@@ -4,7 +4,9 @@ This guide provides architectural instructions for porting RustCraft to other op
 
 ---
 
-## 1. Currently Supported Platforms
+## 1. Implemented Ports and Build Targets
+
+The presence of a target or build script does not by itself mean the port has been tested on physical hardware. Runtime coverage varies; check the CI workflows and validate the target device before describing it as fully supported.
 
 ### Linux (x86_64) — Primary Platform
 * **Status**: Fully supported.
@@ -28,14 +30,14 @@ This guide provides architectural instructions for porting RustCraft to other op
   ```
 
 ### macOS (Apple Silicon / Intel)
+* **Status**: macOS build script and CI build are present; validate interactive input and rendering on the target OS before claiming full runtime support.
 * **Mouse Capture**:
-  * Implement `CGAssociateMouseAndMouseCursorPosition(false)` and `CGWarpMouseCursorPosition` in `src/platform/mouse_capture.rs` under `#[cfg(target_os = "macos")]`.
+  * `src/platform/mouse_capture.rs` currently uses its generic fallback on macOS; there is no native CoreGraphics capture implementation.
 * **Graphics**:
-  * Software rasterizer blits directly to window via minifb / winit.
-  * GPU pipeline uses Metal through `wgpu::Backends::METAL`.
+  * The desktop app uses the software renderer or WGPU backend where available. Confirm the selected backend and behavior on the target device.
 * **Build**:
   ```bash
-  cargo build --release --target aarch64-apple-darwin
+  ./scripts/build_macos.sh
   ```
 
 ### WebAssembly (Browser) — Implemented
