@@ -22,6 +22,9 @@ use crate::gameplay::recipe::{Recipe, RecipeBook};
 use crate::graphics::atlas::{Texture, TextureId, TEX_SIZE};
 use crate::world::block::{BlockId, Face};
 
+const MOD_BLOCK_ID_MIN: u8 = 186;
+const MOD_BLOCK_ID_MAX: u8 = 249;
+
 // ============================================================================
 // Mod Data Definitions
 // ============================================================================
@@ -364,7 +367,11 @@ pub fn generate_mod_textures() -> Vec<Texture> {
         let mut sorted: Vec<&CustomBlockDef> = reg.blocks_by_id.values().collect();
         sorted.sort_by_key(|b| b.id);
         for block in sorted {
-            textures.push(block.texture.clone());
+            let texture_index = (block.id - MOD_BLOCK_ID_MIN) as usize;
+            textures.resize_with(texture_index + 1, || Texture {
+                texels: vec![[0.0; 3]; TEX_SIZE * TEX_SIZE],
+            });
+            textures[texture_index] = block.texture.clone();
         }
     }
     textures
@@ -774,10 +781,15 @@ impl ModManager {
         is_item_only: bool,
         reg: &mut ModRegistry,
     ) -> Result<(), String> {
-        // ID range for custom blocks/items: 140..=254
-        let id_raw = obj.get("id").and_then(|v| v.as_u8()).ok_or("block/item requires 'id' (140-255)")?;
-        if id_raw < 140 {
-            return Err(format!("Mod block/item ID {} conflicts with vanilla IDs (0-139). Use 140..255.", id_raw));
+        let id_raw = obj
+            .get("id")
+            .and_then(|v| v.as_u8())
+            .ok_or("block/item requires 'id' (186-249)")?;
+        if !(MOD_BLOCK_ID_MIN..=MOD_BLOCK_ID_MAX).contains(&id_raw) {
+            return Err(format!(
+                "Mod block/item ID {} conflicts with vanilla IDs or exceeds the custom texture layer range. Use {}..={}.",
+                id_raw, MOD_BLOCK_ID_MIN, MOD_BLOCK_ID_MAX
+            ));
         }
 
         let identifier = obj.get("identifier").and_then(|v| v.as_str()).ok_or("requires 'identifier'")?.to_string();
@@ -824,7 +836,7 @@ impl ModManager {
             [avg_color[0] * 0.8, avg_color[1] * 0.8, avg_color[2] * 0.8],
         ];
 
-        let custom_tex_idx = (id_raw - 140) as u8;
+        let custom_tex_idx = id_raw - MOD_BLOCK_ID_MIN;
         let texture_id = TextureId::Custom(custom_tex_idx);
 
         // Optional drop definition
@@ -1515,6 +1527,17 @@ mod tests {
         assert_eq!(find_custom_block_by_name("test_ruby"), Some(BlockId::Custom(213)));
         assert_eq!(get_custom_name(212), "Ruby Ore");
         assert_eq!(get_custom_name(213), "Ruby Gem");
+        assert_eq!(get_custom_texture_id(212), TextureId::Custom(26));
+        let expected_texture = get_registry()
+            .read()
+            .unwrap()
+            .blocks_by_id
+            .get(&212)
+            .unwrap()
+            .texture
+            .texels
+            .clone();
+        assert_eq!(generate_mod_textures()[26].texels, expected_texture);
         assert!(is_custom_solid(212));
         assert_eq!(get_custom_smelting(BlockId::Custom(212)), Some(BlockId::Custom(213)));
     }
@@ -1549,7 +1572,7 @@ mod tests {
             "name": "Food Mod",
             "items": [
                 {
-                    "id": 149,
+                    "id": 186,
                     "identifier": "super_pie",
                     "name": "Super Pie",
                     "is_food": true,
@@ -1561,8 +1584,21 @@ mod tests {
         let mut book = RecipeBook::new();
         let _ = ModManager::register_mod_from_str(json, Path::new("mods/food"), &mut book).unwrap();
 
-        assert!(is_custom_food(149));
-        assert_eq!(get_custom_nutrition(149), Some((8.0, 5.0)));
+        assert!(is_custom_food(186));
+        assert_eq!(get_custom_nutrition(186), Some((8.0, 5.0)));
+    }
+
+    #[test]
+    fn test_mod_ids_reject_vanilla_and_unmapped_texture_ranges() {
+        for id in [185, 250] {
+            let json = format!(
+                r#"{{"id":"invalid_id","blocks":[{{"id":{id},"identifier":"invalid","name":"Invalid"}}]}}"#
+            );
+            let mut book = RecipeBook::new();
+            let result =
+                ModManager::register_mod_from_str(&json, Path::new("mods/invalid"), &mut book);
+            assert!(result.is_err(), "ID {id} should be rejected");
+        }
     }
 
     #[test]
