@@ -165,9 +165,10 @@ to build for the current host:
 ```
 
 Cross targets require `cross` with Docker/Podman, or a target linker and
-libraries configured for Cargo. Each package contains only the server
-executable and `server.properties`, not the game client or bundled soundtracks.
-Extract it on the target machine and run one service per process:
+libraries configured for Cargo. Each package contains the server executable,
+`server.properties`, and `install_relay_service.sh`, not the game client or
+bundled soundtracks. Extract it on the target machine and run one service per
+process:
 
 ```bash
 tar -xzf rustcraft-server-linux-arm64.tar.gz

@@ -84,7 +84,8 @@ trap 'rm -rf "$STAGE_DIR"' EXIT
 
 cp "$BINARY_PATH" "$STAGE_DIR/$BINARY_NAME"
 cp "$PROJECT_ROOT/server.properties" "$STAGE_DIR/server.properties"
-tar -czf "$ARCHIVE" -C "$STAGE_DIR" "$BINARY_NAME" server.properties
+cp "$PROJECT_ROOT/install_relay_service.sh" "$STAGE_DIR/install_relay_service.sh"
+tar -czf "$ARCHIVE" -C "$STAGE_DIR" "$BINARY_NAME" server.properties install_relay_service.sh
 
 echo "Created headless server package for $TARGET: $ARCHIVE"
 echo "Package contents:"
