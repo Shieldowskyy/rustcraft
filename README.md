@@ -1,14 +1,15 @@
 # RustCraft — Cross-Platform Voxel Sandbox Engine
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
-[![Lines of Code](https://img.shields.io/badge/lines%20of%20code-71.6k-blue.svg)](#code-statistics--lines-of-code)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20FreeBSD%20%7C%20Android%20%7C%20Xbox%20360%20%7C%20ARM64%20%7C%20ARMv7%20%7C%20ARMv6%20%7C%20RISC--V%20%7C%20x86__32%20%7C%20Win__ARM64%20%7C%20PS%20Vita%20%7C%20WASM-brightgreen.svg)]()
 
-A high-performance, modular voxel sandbox game and engine written in Rust with first-class support for **multiple platforms and architectures**:
+A voxel sandbox game and engine written in Rust, with build scripts and ports for:
 Desktop (Linux x86_64 / x86 32-bit / ARM64 / RISC-V 64, Windows x86_64 / 32-bit / ARM64, macOS, FreeBSD), Mobile (Android ARM64 / ARMv7 / x86_64 APK with multi-touch virtual controls), Consoles (Microsoft Xbox 360 Homebrew XEX2, Sony PlayStation Vita GXM GPU), Embedded Linux (Raspberry Pi Zero W / ARMv6, Raspberry Pi 2/3 / ARMv7), and Web browsers (WebAssembly / HTML5 canvas).
 
-RustCraft features a multithreaded CPU software rasterizer (tiled rasterization, sub-pixel precision, per-vertex Ambient Occlusion, distance fog, per-biome post-process color filters) with zero graphics library dependencies, a hardware-accelerated Vulkan/WGPU backend, and a bare-metal GXM GPU renderer for the PlayStation Vita (SGX543MP4) delivering smooth 60 FPS.
+Runtime support and testing vary by platform; a build script or CI compile does not imply validation on every device. RustCraft includes a multithreaded CPU software rasterizer, a WGPU hardware renderer, and a PlayStation Vita GXM renderer.
+
+See the [modding guide](MODDING_GUIDE.md), [porting guide](PORTING_GUIDE.md), and [architecture overview](ARCHITECTURE.md) for details.
 
 ---
 
@@ -57,7 +58,7 @@ RustCraft separates core engine capabilities from gameplay logic, providing huma
 * **Zero-Overhead Localization (`src/core/i18n.rs`)**:
   In-memory translation engine (`locales/*.json`) with zero runtime file I/O dependencies, dynamic in-game language switching, and Python synchronization pipeline (`scripts/sync_locales.py`).
 * **Audio & Music Subsystem (`src/audio/`)**:
-  Zero-allocation polyphonic sound engine with a 64-voice pool, priority stealing, lock-free SPSC command ring buffer, 3D spatial audio (constant-power panning, distance attenuation, acoustic occlusion through voxels, air absorption filtering), and 100% procedural waveform synthesis (zero external audio files). Plus built-in streaming soundtrack system (`src/audio/soundtrack.rs`) supporting Ogg/Opus background music, category shuffling, volume controls, and music toast notifications. Standalone Linux, Windows, macOS, FreeBSD, and Xbox 360 builds embed soundtrack files; adjacent on-disk files take precedence when present. The startup logo is embedded on all platforms. Backends for Linux (PulseAudio/ALSA), Windows, Android (AAudio), PS Vita (SceAudioOut), Xbox 360, and WebAssembly.
+  Polyphonic sound engine with procedural sound effects, a 64-voice pool, lock-free SPSC command ring buffer, and 3D spatial audio. The soundtrack player decodes Ogg/Opus music assets; these are separate from the synthesized sound effects. Audio backend availability depends on the target platform.
 * **Crash Reporter & Sentry Telemetry (`src/core/crash_reporter.rs`)**:
   Integrated panic handler capturing thread registers, stack backtraces, OS/hardware telemetry, logger ring-buffer breadcrumbs, and active world state. Generates local crash reports and supports direct telemetry upload to Sentry via `--sentry-dsn <DSN>` or `SENTRY_DSN` env var.
 * **Multiplayer Networking (`src/net/`)**:
@@ -345,7 +346,7 @@ Each biome generates fitting procedural structures: **desert wells**, **stone ru
 
 ## 7. Block, Item & Entity System
 
-RustCraft features **163 unique vanilla block and item IDs** (plus extensible modded IDs 163..=255) across building materials, agriculture, mechanisms, 16 colored wools, aquatic wildlife, emerald economy, and functional blocks:
+RustCraft defines built-in block and item IDs **0..=185**. Mods can use IDs **186..=249**, which are reserved for custom texture layers:
 
 * **Building blocks**: Grass, Dirt, Stone, Cobblestone, MossyCobblestone, Sand, Planks, Wood, Glass, Ice, Snow, Mud, Bedrock, Sandstone, SmoothStone, Bricks, Obsidian, Bookshelf, WoodenSlab, StoneSlab, CobblestoneSlab, SandstoneSlab, BrickSlab, WoodenStairs, StoneStairs, CobblestoneStairs, SandstoneStairs, BrickStairs, Ladder
 * **Fluids**: Water, Lava
@@ -362,9 +363,9 @@ RustCraft features **163 unique vanilla block and item IDs** (plus extensible mo
 * **Spawn Eggs**: PigSpawnEgg, CowSpawnEgg, ChickenSpawnEgg, SheepSpawnEgg, DolphinSpawnEgg, FishSpawnEgg, VillagerSpawnEgg, IronGolemSpawnEgg
 * **Functional blocks**: CraftingTable, Chest, Furnace / FurnaceLit, Door / DoorOpen, TNT
 
-### Living Entities & Mobs (14 Mob Types)
+### Living Entities & Mobs (15 Mob Types)
 
-RustCraft includes a complete AI entity simulation with 14 distinct mob kinds (`MobKind`):
+RustCraft includes an AI entity simulation with 15 mob kinds (`MobKind`):
 * **Passive Wildlife & Village Inhabitants**:
   * **Pig**: Roams grassy biomes, drops raw porkchops.
   * **Cow**: Roams plains and forests, drops raw beef.
@@ -377,6 +378,7 @@ RustCraft includes a complete AI entity simulation with 14 distinct mob kinds (`
   * **Zombie**: Tracks player and villagers via pathfinding, deals melee damage, burns in daylight.
   * **Skeleton**: Ranged tracker, burns in daylight, drops bones (craftable into BoneMeal).
   * **Reaper**: Silently approaches the player, hisses with an ignition countdown, and explodes creating crater voxel destruction; drops gunpowder.
+  * **Spider**: Hostile mob that pursues and attacks the player, and can climb obstacles.
 * **Aquatic Marine Life**:
   * **Dolphin**: Swims smoothly with realistic banking and surfacing, jumps gracefully, and grants the player **Dolphin's Grace** (swimming speed boost) when nearby.
   * **Cod & Salmon**: Ambient schooling fish inhabiting rivers and oceans, drop raw fish.
@@ -506,7 +508,7 @@ rustcraft/
 │   │   ├── profiler.rs         # MemoryBreakdown & RenderStats telemetry structs
 │   │   └── profiler_server.rs  # Embedded HTTP profiler web dashboard
 │   ├── world/                  # Chunks, terrain gen, meshing, storage, tile entities
-│   │   ├── block.rs            # BlockId enum (163 types) & block properties
+│   │   ├── block.rs            # Built-in IDs 0..=185 and block properties
 │   │   ├── mesher.rs           # Chunk mesh builder with AO & async meshing
 │   │   ├── storage.rs          # Binary world save/load (cross-platform paths)
 │   │   ├── tile_entity.rs      # Chest (27-slot) & Furnace smelting simulation
@@ -517,7 +519,7 @@ rustcraft/
 │   │   ├── inventory.rs        # Item stacking, hotbar (10), main inventory (27)
 │   │   ├── item.rs             # Dropped ItemEntity physics
 │   │   ├── physics.rs          # AABB collision, ice/lava friction, step-jumping
-│   │   ├── mob.rs              # MobManager: 14 mobs (Pig, Cow, Chicken, Sheep, Zombie, Skeleton, Reaper, Dolphin, Fish, Villager, IronGolem)
+│   │   ├── mob.rs              # MobManager: 15 mob kinds
 │   │   ├── trading.rs          # Villager professions, emerald trading economy & XP levels
 │   │   ├── particles.rs        # Block-break, hit sparks, explosion, rain/snow particles
 │   │   ├── recipe.rs           # 2×2 and 3×3 crafting recipe definitions
@@ -553,28 +555,13 @@ rustcraft/
     └── sce_sys/                # Vita LiveArea assets & param.sfo metadata
 ```
 
-### Code Statistics & Lines of Code
-
-| Subsystem / Directory | Description | Lines of Code |
-|---|---|---|
-| **`src/graphics/`** | Software Rayon rasterizer, WGPU backend, Camera, Font, Texture atlas (170+ tex) | ~11,420 |
-| **`src/world/`** | Voxel storage, 20 biomes, villages, weather system, chunk mesher, tile entities | ~9,730 |
-| **`src/ui/`** | HUD, inventory, minimap, trading UI, craft grids, menus, touch controls, settings | ~9,100 |
-| **`src/platform/`** | Xbox 360, PS Vita (GXM GPU), Android NDK, Windows, X11 mouse, Gamepad | ~8,260 |
-| **`src/app/`** | Core engine loop, state machine, gameplay tick, containers, menus | ~7,440 |
-| **`src/audio/`** | 64-voice polyphonic mixer, procedural synthesis, weather storm audio, soundtrack | ~6,770 |
-| **`src/gameplay/`** | AutoTest bot AI, physics/collision, inventory, crafting, 14 mobs, trading, chat | ~6,530 |
-| **`src/core/`** | Math (Vec3/Mat4), noise, settings, controls, profiler, crash reporter & Sentry, i18n | ~5,650 |
-| **`src/net/`** | Multiplayer networking protocol, packet serialization & LAN discovery | ~2,880 |
-| **`src/engine/`** | Modular engine traits, modding system, platform backend interfaces, bitmap fonts | ~2,470 |
-| **`Root & Entry Points`** | `main.rs`, `web.rs` (WASM), `cli.rs`, `build.rs`, `lib.rs` | ~1,370 |
-| **Total Rust Source** | **Complete Rust codebase (zero external engine dependencies)** | **~71,600 LOC** |
-
 ---
 
 ## 12. License & Legal Disclaimer
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+The MIT license does not grant rights to third-party media. Before redistributing a release, verify the provenance and license/attribution requirements for bundled music, images, fonts, and other non-code assets.
 
 ### Disclaimer
 RustCraft is an independent, non-commercial open-source voxel game engine and sandbox recreation developed in Rust. RustCraft is **not** an official Minecraft product and is **not** approved by, affiliated with, endorsed by, or associated with Mojang Studios or Microsoft. All trademarks, service marks, and trade names (including "Minecraft") belong to their respective owners (Mojang Synergies AB / Microsoft Corporation).
