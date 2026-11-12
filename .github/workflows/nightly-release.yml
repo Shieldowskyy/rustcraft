@@ -355,20 +355,124 @@ jobs:
       build-wasm,
       build-macos
     ]
+    if: ${{ !cancelled() && contains(needs.*.result, 'success') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all build artifacts
+      - name: Prepare Release Directory
+        run: mkdir -p release-files
+
+      - name: Download Linux x86_64 artifact
         uses: actions/download-artifact@v4
+        if: ${{ needs.build-linux-x86_64.result == 'success' }}
         with:
-          path: release-artifacts
+          name: linux-x86_64-pkg
+          path: release-files
           merge-multiple: true
 
-      - name: Prepare Release Directory
+      - name: Download Linux ARM64 artifact
+        uses: actions/download-artifact@v4
+        if: ${{ needs.build-linux-arm64.result == 'success' }}
+        with:
+          name: linux-arm64-pkg
+          path: release-files
+          merge-multiple: true
+
+      - name: Download Linux ARMv7 artifact
+        uses: actions/download-artifact@v4
+        if: ${{ needs.build-linux-armv7.result == 'success' }}
+        with:
+          name: linux-armv7-pkg
+          path: release-files
+          merge-multiple: true
+
+      - name: Download Raspberry Pi ARMv6 artifact
+        uses: actions/download-artifact@v4
+        if: ${{ needs.build-rpi-armv6.result == 'success' }}
+        with:
+          name: rpi-armv6-pkg
+          path: release-files
+          merge-multiple: true
+
+      - name: Download Linux RISC-V 64 artifact
+        uses: actions/download-artifact@v4
+        if: ${{ needs.build-linux-riscv64.result == 'success' }}
+        with:
+          name: linux-riscv64-pkg
+          path: release-files
+          merge-multiple: true
+
+      - name: Download Linux i686 artifact
+        uses: actions/download-artifact@v4
+        if: ${{ needs.build-linux-i686.result == 'success' }}
+        with:
+          name: linux-i686-pkg
+          path: release-files
+          merge-multiple: true
+
+      - name: Download FreeBSD artifact
+        uses: actions/download-artifact@v4
+        if: ${{ needs.build-freebsd.result == 'success' }}
+        with:
+          name: freebsd-x86_64-pkg
+          path: release-files
+          merge-multiple: true
+
+      - name: Download Windows x86_64 artifact
+        uses: actions/download-artifact@v4
+        if: ${{ needs.build-windows.result == 'success' }}
+        with:
+          name: windows-x86_64-pkg
+          path: release-files
+          merge-multiple: true
+
+      - name: Download Windows i686 artifact
+        uses: actions/download-artifact@v4
+        if: ${{ needs.build-windows-i686.result == 'success' }}
+        with:
+          name: windows-i686-pkg
+          path: release-files
+          merge-multiple: true
+
+      - name: Download Windows ARM64 artifact
+        uses: actions/download-artifact@v4
+        if: ${{ needs.build-windows-arm64.result == 'success' }}
+        with:
+          name: windows-arm64-pkg
+          path: release-files
+          merge-multiple: true
+
+      - name: Download PlayStation Vita artifact
+        uses: actions/download-artifact@v4
+        if: ${{ needs.build-vita.result == 'success' }}
+        with:
+          name: psvita-pkg
+          path: release-files
+          merge-multiple: true
+
+      - name: Download WASM artifact
+        uses: actions/download-artifact@v4
+        if: ${{ needs.build-wasm.result == 'success' }}
+        with:
+          name: wasm-pkg
+          path: release-files
+          merge-multiple: true
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        if: ${{ needs.build-macos.result == 'success' }}
+        with:
+          name: macos-pkg
+          path: release-files
+          merge-multiple: true
+
+      - name: Verify Release Artifacts
         run: |
-          mkdir -p release-files
-          cp release-artifacts/* release-files/ || true
+          if [ -z "$(find release-files -type f -print -quit)" ]; then
+            echo "No build artifacts are available; refusing to publish an empty release."
+            exit 1
+          fi
           ls -lh release-files/
 
       - name: Create or Update Nightly Release
@@ -380,20 +484,7 @@ jobs:
             Automated Nightly build of **RustCraft**.
             Built from commit `${{ github.sha }}` on branch `${{ github.ref_name }}`.
 
-            ### Available Packages:
-            - **PlayStation Vita:** `RustCraft.vpk`
-            - **macOS Universal 2 (Apple Silicon & Intel):** `rustcraft-macos-universal.tar.gz`, `rustcraft-macos-universal.zip`
-            - **Windows (x86_64):** `rustcraft-windows-x86_64.zip`
-            - **Windows (32-bit i686):** `rustcraft-windows-i686.zip`
-            - **Windows (ARM64 / AArch64):** `rustcraft-windows-arm64.zip`
-            - **Linux (x86_64):** `rustcraft-linux-x86_64.tar.gz`
-            - **Linux (32-bit i686):** `rustcraft-linux-i686.tar.gz`
-            - **Linux (ARM64):** `rustcraft-linux-arm64.tar.gz`
-            - **Linux (ARMv7):** `rustcraft-linux-armv7.tar.gz`
-            - **Linux (RISC-V 64):** `rustcraft-linux-riscv64.tar.gz`
-            - **Raspberry Pi Zero W (ARMv6):** `rustcraft-rpi-armv6.tar.gz`
-            - **FreeBSD (x86_64):** `rustcraft-freebsd-x86_64.tar.gz`
-            - **Web (WASM / HTML5):** `rustcraft-web-wasm.zip`
+            Only artifacts from successful platform builds are attached; platforms that fail to build are omitted.
           prerelease: true
           files: release-files/*
         env:
