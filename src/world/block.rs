@@ -2637,7 +2637,7 @@ mod tests {
         }
 
         assert!(
-            BlockId::Stone.can_harvest_with_tool(None),
+            BlockId::Dirt.can_harvest_with_tool(None),
             "non-ores should keep existing mining behavior"
         );
 

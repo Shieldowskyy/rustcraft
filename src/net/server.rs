@@ -1947,6 +1947,16 @@ mod tests {
         .unwrap();
         let address = format!("127.0.0.1:{}", server.port);
         let mut authority = crate::net::NetworkClient::connect(&address, "Authority").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline
+            && (!authority.is_connected || authority.mob_authority_id != authority.local_id)
+        {
+            authority.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(authority.is_connected);
+        assert_eq!(authority.mob_authority_id, authority.local_id);
+
         let mut attacker = crate::net::NetworkClient::connect(&address, "Attacker").unwrap();
         let deadline = Instant::now() + Duration::from_secs(3);
         while Instant::now() < deadline
@@ -2176,27 +2186,31 @@ mod tests {
             },
         )
         .unwrap();
-        let mut host =
-            crate::net::NetworkClient::connect(&format!("127.0.0.1:{}", server.port), "WorldHost")
-                .unwrap();
-        let mut observer = crate::net::NetworkClient::connect(
-            &format!("127.0.0.1:{}", server.port),
-            "WorldObserver",
-        )
-        .unwrap();
+        let address = format!("127.0.0.1:{}", server.port);
+        let mut host = crate::net::NetworkClient::connect(&address, "WorldHost").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline
+            && (!host.is_connected || host.mob_authority_id != host.local_id)
+        {
+            host.update(0.05);
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(host.is_connected);
+        assert_eq!(host.mob_authority_id, host.local_id);
+
+        let mut observer = crate::net::NetworkClient::connect(&address, "WorldObserver").unwrap();
         let deadline = Instant::now() + Duration::from_secs(3);
         while Instant::now() < deadline
             && (!host.is_connected
                 || !observer.is_connected
-                || host.mob_authority_id.is_none()
-                || observer.mob_authority_id.is_none())
+                || observer.mob_authority_id != host.local_id)
         {
             host.update(0.05);
             observer.update(0.05);
             thread::sleep(Duration::from_millis(10));
         }
         assert!(host.is_connected && observer.is_connected);
-        assert_eq!(host.mob_authority_id, observer.mob_authority_id);
+        assert_eq!(observer.mob_authority_id, host.local_id);
 
         let snapshot = WorldSnapshot {
             items: vec![WorldItemEntry {
@@ -2216,45 +2230,27 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(3);
         let mut received = false;
-        if host.local_id == host.mob_authority_id {
-            host.send_packet(&ClientPacket::WorldSnapshot {
-                snapshot: snapshot.clone(),
-            })
-            .unwrap();
-            while Instant::now() < deadline && !received {
-                host.update(0.05);
-                received |= observer.update(0.05).into_iter().any(|event| {
-                    matches!(event, crate::net::NetworkEvent::WorldSnapshot { snapshot: actual } if actual == snapshot)
-                });
-                thread::sleep(Duration::from_millis(10));
-            }
-        } else {
-            observer
-                .send_packet(&ClientPacket::WorldSnapshot {
-                    snapshot: snapshot.clone(),
-                })
-                .unwrap();
-            while Instant::now() < deadline && !received {
-                observer.update(0.05);
-                received |= host.update(0.05).into_iter().any(|event| {
-                    matches!(event, crate::net::NetworkEvent::WorldSnapshot { snapshot: actual } if actual == snapshot)
-                });
-                thread::sleep(Duration::from_millis(10));
-            }
+        host.send_packet(&ClientPacket::WorldSnapshot {
+            snapshot: snapshot.clone(),
+        })
+        .unwrap();
+        while Instant::now() < deadline && !received {
+            host.update(0.05);
+            received |= observer.update(0.05).into_iter().any(|event| {
+                matches!(event, crate::net::NetworkEvent::WorldSnapshot { snapshot: actual } if actual == snapshot)
+            });
+            thread::sleep(Duration::from_millis(10));
         }
         assert!(received, "observer should receive the authority's world snapshot");
 
-        host.disconnect();
         observer.disconnect();
         thread::sleep(Duration::from_millis(200));
-        let mut late_joiner = crate::net::NetworkClient::connect(
-            &format!("127.0.0.1:{}", server.port),
-            "WorldLateJoiner",
-        )
-        .unwrap();
+        let mut late_joiner =
+            crate::net::NetworkClient::connect(&address, "WorldLateJoiner").unwrap();
         let deadline = Instant::now() + Duration::from_secs(3);
         let mut late_joiner_received = false;
         while Instant::now() < deadline && !late_joiner_received {
+            host.update(0.05);
             late_joiner_received |= late_joiner.update(0.05).into_iter().any(|event| {
                 matches!(event, crate::net::NetworkEvent::WorldSnapshot { snapshot: actual } if actual == snapshot)
             });
@@ -2263,6 +2259,7 @@ mod tests {
         assert!(late_joiner_received, "late joiner should receive the latest snapshot");
 
         late_joiner.disconnect();
+        host.disconnect();
         drop(server);
     }
 

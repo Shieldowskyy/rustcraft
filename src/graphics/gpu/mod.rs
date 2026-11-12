@@ -1823,9 +1823,13 @@ impl VulkanContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static GPU_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_adapter_texture_array_layers() {
+        let _guard = GPU_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let instance = wgpu::Instance::default();
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -1841,6 +1845,7 @@ mod tests {
 
     #[test]
     fn test_vulkan_context_texture_array_creation() {
+        let _guard = GPU_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let atlas = TextureAtlas::generate();
         let res = VulkanContext::new(64, 64, &atlas);
         match res {

@@ -462,7 +462,12 @@ mod tests {
     #[test]
     fn test_crash_config_defaults() {
         let config = CrashReporterConfig::default();
-        assert_eq!(config.environment, "development");
+        let expected_env = if cfg!(debug_assertions) {
+            "development"
+        } else {
+            "production"
+        };
+        assert_eq!(config.environment, expected_env);
         assert!(config.sentry_enabled);
         assert_eq!(config.crash_dir, PathBuf::from("crash-reports"));
     }
