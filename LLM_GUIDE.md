@@ -158,9 +158,9 @@ When facing crashes or bugs, use this quick reference to solve issues without wa
 ### D. Testing & Falling Back on Different Renderers
 * If GPU/Vulkan fails or needs comparison against software rasterizer:
   ```bash
-  cargo run --release -- --renderer software   # Pure multi-threaded CPU software rasterizer
-  cargo run --release -- --renderer opengl     # Hardware OpenGL / GLES backend
-  cargo run --release -- --renderer vulkan     # Hardware Vulkan backend (default)
+  cargo run --release --bin rustcraft --renderer software   # Pure multi-threaded CPU software rasterizer
+  cargo run --release --bin rustcraft --renderer opengl     # Hardware OpenGL / GLES backend
+  cargo run --release --bin rustcraft --renderer vulkan     # Hardware Vulkan backend (default)
   ```
 * Or override WGPU backend via environment variable:
   ```bash
