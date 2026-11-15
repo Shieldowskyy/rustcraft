@@ -34,522 +34,91 @@ pub const CREATIVE_TABS: [&str; 6] = [
 
 pub fn creative_tab_blocks(tab: usize) -> &'static [BlockId] {
     use std::sync::OnceLock;
-    static TAB_0: OnceLock<&'static [BlockId]> = OnceLock::new();
-    static TAB_1: OnceLock<&'static [BlockId]> = OnceLock::new();
-    static TAB_2: OnceLock<&'static [BlockId]> = OnceLock::new();
-    static TAB_3: OnceLock<&'static [BlockId]> = OnceLock::new();
-    static TAB_4: OnceLock<&'static [BlockId]> = OnceLock::new();
-
-    match tab {
-        0 => *TAB_0.get_or_init(|| {
-            let mut list = vec![
-                BlockId::Grass,
-                BlockId::Dirt,
-                BlockId::Farmland,
-                BlockId::FarmlandWet,
-                BlockId::Stone,
-                BlockId::Sand,
-                BlockId::Mud,
-                BlockId::Wood,
-                BlockId::Leaves,
-                BlockId::SnowLeaves,
-                BlockId::CherryLeaves,
-                BlockId::AutumnLeaves,
-                BlockId::Sapling,
-                BlockId::Cactus,
-                BlockId::Snow,
-                BlockId::Ice,
-                BlockId::Bedrock,
-                BlockId::Water,
-                BlockId::Lava,
-                BlockId::Glass,
-                BlockId::CoalOre,
-                BlockId::IronOre,
-                BlockId::GoldOre,
-                BlockId::DiamondOre,
-                BlockId::EmeraldOre,
-                BlockId::RustStoneOre,
-                BlockId::CoalBlock,
-                BlockId::IronBlock,
-                BlockId::GoldBlock,
-                BlockId::DiamondBlock,
-                BlockId::EmeraldBlock,
-                BlockId::RustStoneBlock,
-                BlockId::Planks,
-                BlockId::WoodenSlab,
-                BlockId::StoneSlab,
-                BlockId::WoodenStairs,
-                BlockId::StoneStairs,
-                BlockId::BrickStairs,
-                BlockId::BrickSlab,
-                BlockId::Cobblestone,
-                BlockId::MossyCobblestone,
-                BlockId::CobblestoneStairs,
-                BlockId::CobblestoneSlab,
-                BlockId::Bricks,
-                BlockId::Sandstone,
-                BlockId::SandstoneStairs,
-                BlockId::SandstoneSlab,
-                BlockId::SmoothStone,
-                BlockId::Clay,
-                BlockId::Gravel,
-                BlockId::Obsidian,
-                BlockId::Bookshelf,
-                BlockId::Ladder,
-                BlockId::Door,
-                BlockId::CraftingTable,
-                BlockId::Furnace,
-                BlockId::FurnaceLit,
-                BlockId::Chest,
-                BlockId::Bed,
-                BlockId::Tnt,
-                BlockId::Torch,
-                BlockId::RustStone,
-                BlockId::RustStoneLamp,
-                BlockId::RustStoneLampLit,
-                BlockId::Lever,
-                BlockId::Button,
-                BlockId::PressurePlate,
-                BlockId::PigSpawnEgg,
-                BlockId::CowSpawnEgg,
-                BlockId::ChickenSpawnEgg,
-                BlockId::SheepSpawnEgg,
-                BlockId::VillagerSpawnEgg,
-                BlockId::IronGolemSpawnEgg,
-                BlockId::DolphinSpawnEgg,
-                BlockId::FishSpawnEgg,
-                BlockId::SpiderSpawnEgg,
-                BlockId::StringItem,
-                BlockId::SpiderEye,
-                BlockId::Kelp,
-                BlockId::Seagrass,
-                BlockId::WhiteWool,
-                BlockId::OrangeWool,
-                BlockId::MagentaWool,
-                BlockId::LightBlueWool,
-                BlockId::YellowWool,
-                BlockId::LimeWool,
-                BlockId::PinkWool,
-                BlockId::GrayWool,
-                BlockId::LightGrayWool,
-                BlockId::CyanWool,
-                BlockId::PurpleWool,
-                BlockId::BlueWool,
-                BlockId::BrownWool,
-                BlockId::GreenWool,
-                BlockId::RedWool,
-                BlockId::BlackWool,
-            ];
+    static TABS: [OnceLock<&'static [BlockId]>; 5] = [
+        OnceLock::new(), OnceLock::new(), OnceLock::new(), OnceLock::new(), OnceLock::new(),
+    ];
+    macro_rules! blk_vec { ($($b:ident),* $(,)?) => { vec![$(BlockId::$b),*] }; }
+    if tab >= 5 { return &[]; }
+    *TABS[tab].get_or_init(|| {
+        let mut list = match tab {
+            0 => blk_vec![
+                Grass, Dirt, Farmland, FarmlandWet, Stone, Sand, Mud, Wood,
+                Leaves, SnowLeaves, CherryLeaves, AutumnLeaves, Sapling, Cactus, Snow, Ice,
+                Bedrock, Water, Lava, Glass, CoalOre, IronOre, GoldOre, DiamondOre,
+                EmeraldOre, RustStoneOre, CoalBlock, IronBlock, GoldBlock, DiamondBlock, EmeraldBlock, RustStoneBlock,
+                Planks, WoodenSlab, StoneSlab, WoodenStairs, StoneStairs, BrickStairs, BrickSlab, Cobblestone,
+                MossyCobblestone, CobblestoneStairs, CobblestoneSlab, Bricks, Sandstone, SandstoneStairs, SandstoneSlab, SmoothStone,
+                Clay, Gravel, Obsidian, Bookshelf, Ladder, Door, CraftingTable, Furnace,
+                FurnaceLit, Chest, Bed, Tnt, Torch, RustStone, RustStoneLamp, RustStoneLampLit,
+                Lever, Button, PressurePlate, PigSpawnEgg, CowSpawnEgg, ChickenSpawnEgg, SheepSpawnEgg, VillagerSpawnEgg,
+                IronGolemSpawnEgg, DolphinSpawnEgg, FishSpawnEgg, SpiderSpawnEgg, StringItem, SpiderEye, Kelp, Seagrass,
+                WhiteWool, OrangeWool, MagentaWool, LightBlueWool, YellowWool, LimeWool, PinkWool, GrayWool,
+                LightGrayWool, CyanWool, PurpleWool, BlueWool, BrownWool, GreenWool, RedWool, BlackWool,
+            ],
+            1 => blk_vec![
+                WoodenPickaxe, StonePickaxe, IronPickaxe, GoldPickaxe, DiamondPickaxe, WoodenAxe, StoneAxe, IronAxe,
+                GoldAxe, DiamondAxe, WoodenShovel, StoneShovel, IronShovel, GoldShovel, DiamondShovel, WoodenSword,
+                StoneSword, IronSword, GoldSword, DiamondSword, WoodenHoe, StoneHoe, IronHoe, GoldHoe,
+                DiamondHoe, Shears, Bow, Arrow, Shield, Leather, LeatherHelmet, LeatherChestplate,
+                LeatherLeggings, LeatherBoots, IronHelmet, IronChestplate, IronLeggings, IronBoots, GoldHelmet, GoldChestplate,
+                GoldLeggings, GoldBoots, DiamondHelmet, DiamondChestplate, DiamondLeggings, DiamondBoots, Stick, Bone,
+                BoneMeal, Gunpowder, Feather, Torch, IronOunce, IronIngot, GoldOunce, GoldIngot,
+                Diamond, Emerald, EmeraldBlock, ClayBall, Brick, Flint, Clay, Gravel,
+                Cobblestone, Bricks, Sandstone, SmoothStone, Obsidian, Bookshelf, RustStone, RustStoneBlock,
+                RustStoneLamp, Lever, Button, PressurePlate, Apple, WheatSeeds, Wheat, Bread,
+                Carrot, Potato, BakedPotato, RawPorkchop, CookedPorkchop, RawBeef, CookedBeef, RawChicken,
+                CookedChicken, PigSpawnEgg, CowSpawnEgg, ChickenSpawnEgg, SheepSpawnEgg, VillagerSpawnEgg, IronGolemSpawnEgg, DolphinSpawnEgg,
+                FishSpawnEgg, SpiderSpawnEgg, SpiderEye, FishingRod, RawCod, CookedCod, RawSalmon, CookedSalmon,
+                Pufferfish, TropicalFish, DriedKelp, Sapling, Water, Lava, Door, Bed,
+                Ladder, CraftingTable, Chest, Furnace, Tnt,
+            ],
+            2 => blk_vec![
+                RustStone, RustStoneOre, RustStoneBlock, RustStoneLamp, RustStoneLampLit, RustStoneWireLit, Lever, LeverOn,
+                Button, ButtonPressed, PressurePlate, PressurePlatePressed, Tnt, Torch, Door, Chest,
+                Furnace, FurnaceLit, CraftingTable,
+            ],
+            3 => blk_vec![
+                WoodenHoe, StoneHoe, IronHoe, GoldHoe, DiamondHoe, WheatSeeds, Wheat, WheatCrop,
+                Bread, Carrot, CarrotCrop, Potato, PotatoCrop, BakedPotato, Apple, Bone,
+                BoneMeal, Sapling, Cactus, Water, Farmland, FarmlandWet, PigSpawnEgg, CowSpawnEgg,
+                ChickenSpawnEgg, SheepSpawnEgg, VillagerSpawnEgg, IronGolemSpawnEgg, DolphinSpawnEgg, FishSpawnEgg, FishingRod, RawCod,
+                CookedCod, RawSalmon, CookedSalmon, Pufferfish, TropicalFish, DriedKelp, Kelp, Seagrass,
+                RawPorkchop, CookedPorkchop, RawBeef, CookedBeef, RawChicken, CookedChicken, Feather,
+            ],
+            _ => blk_vec![
+                Grass, Dirt, Farmland, FarmlandWet, Stone, Sand, Mud, Wood,
+                Leaves, SnowLeaves, CherryLeaves, AutumnLeaves, Sapling, Cactus, Snow, Ice,
+                Water, Lava, Bedrock, CoalOre, IronOre, GoldOre, DiamondOre, EmeraldOre,
+                RustStoneOre, CoalBlock, IronBlock, GoldBlock, DiamondBlock, EmeraldBlock, RustStoneBlock, Planks,
+                WoodenSlab, StoneSlab, WoodenStairs, StoneStairs, BrickStairs, BrickSlab, Cobblestone, MossyCobblestone,
+                CobblestoneStairs, CobblestoneSlab, Bricks, Sandstone, SandstoneStairs, SandstoneSlab, SmoothStone, Clay,
+                Gravel, Obsidian, Bookshelf, Ladder, Glass, Door, CraftingTable, Furnace,
+                FurnaceLit, Chest, Bed, Tnt, Torch, RustStone, RustStoneWireLit, RustStoneLamp,
+                RustStoneLampLit, Lever, LeverOn, Button, ButtonPressed, PressurePlate, PressurePlatePressed, WoodenPickaxe,
+                StonePickaxe, IronPickaxe, GoldPickaxe, DiamondPickaxe, WoodenAxe, StoneAxe, IronAxe, GoldAxe,
+                DiamondAxe, WoodenShovel, StoneShovel, IronShovel, GoldShovel, DiamondShovel, WoodenSword, StoneSword,
+                IronSword, GoldSword, DiamondSword, WoodenHoe, StoneHoe, IronHoe, GoldHoe, DiamondHoe,
+                Shears, Bow, Arrow, Shield, Leather, LeatherHelmet, LeatherChestplate, LeatherLeggings,
+                LeatherBoots, IronHelmet, IronChestplate, IronLeggings, IronBoots, GoldHelmet, GoldChestplate, GoldLeggings,
+                GoldBoots, DiamondHelmet, DiamondChestplate, DiamondLeggings, DiamondBoots, WheatSeeds, Wheat, WheatCrop,
+                Bread, Carrot, CarrotCrop, Potato, PotatoCrop, BakedPotato, Apple, Stick,
+                Bone, BoneMeal, Gunpowder, Feather, IronOunce, IronIngot, GoldOunce, GoldIngot,
+                Diamond, Emerald, ClayBall, Brick, Flint, PigSpawnEgg, CowSpawnEgg, ChickenSpawnEgg,
+                SheepSpawnEgg, VillagerSpawnEgg, IronGolemSpawnEgg, DolphinSpawnEgg, FishSpawnEgg, SpiderSpawnEgg, StringItem, SpiderEye,
+                FishingRod, RawCod, CookedCod, RawSalmon, CookedSalmon, Pufferfish, TropicalFish, DriedKelp,
+                Kelp, Seagrass, RawPorkchop, CookedPorkchop, RawBeef, CookedBeef, RawChicken, CookedChicken,
+                WhiteWool, OrangeWool, MagentaWool, LightBlueWool, YellowWool, LimeWool, PinkWool, GrayWool,
+                LightGrayWool, CyanWool, PurpleWool, BlueWool, BrownWool, GreenWool, RedWool, BlackWool,
+            ],
+        };
+        if tab == 0 || tab == 4 {
             list.extend(crate::engine::modding::get_custom_creative_blocks());
-            Box::leak(list.into_boxed_slice())
-        }),
-        1 => *TAB_1.get_or_init(|| {
-            let mut list = vec![
-                BlockId::WoodenPickaxe,
-                BlockId::StonePickaxe,
-                BlockId::IronPickaxe,
-                BlockId::GoldPickaxe,
-                BlockId::DiamondPickaxe,
-                BlockId::WoodenAxe,
-                BlockId::StoneAxe,
-                BlockId::IronAxe,
-                BlockId::GoldAxe,
-                BlockId::DiamondAxe,
-                BlockId::WoodenShovel,
-                BlockId::StoneShovel,
-                BlockId::IronShovel,
-                BlockId::GoldShovel,
-                BlockId::DiamondShovel,
-                BlockId::WoodenSword,
-                BlockId::StoneSword,
-                BlockId::IronSword,
-                BlockId::GoldSword,
-                BlockId::DiamondSword,
-                BlockId::WoodenHoe,
-                BlockId::StoneHoe,
-                BlockId::IronHoe,
-                BlockId::GoldHoe,
-                BlockId::DiamondHoe,
-                BlockId::Shears,
-                BlockId::Bow,
-                BlockId::Arrow,
-                BlockId::Shield,
-                BlockId::Leather,
-                BlockId::LeatherHelmet,
-                BlockId::LeatherChestplate,
-                BlockId::LeatherLeggings,
-                BlockId::LeatherBoots,
-                BlockId::IronHelmet,
-                BlockId::IronChestplate,
-                BlockId::IronLeggings,
-                BlockId::IronBoots,
-                BlockId::GoldHelmet,
-                BlockId::GoldChestplate,
-                BlockId::GoldLeggings,
-                BlockId::GoldBoots,
-                BlockId::DiamondHelmet,
-                BlockId::DiamondChestplate,
-                BlockId::DiamondLeggings,
-                BlockId::DiamondBoots,
-                BlockId::Stick,
-                BlockId::Bone,
-                BlockId::BoneMeal,
-                BlockId::Gunpowder,
-                BlockId::Feather,
-                BlockId::Torch,
-                BlockId::IronOunce,
-                BlockId::IronIngot,
-                BlockId::GoldOunce,
-                BlockId::GoldIngot,
-                BlockId::Diamond,
-                BlockId::Emerald,
-                BlockId::EmeraldBlock,
-                BlockId::ClayBall,
-                BlockId::Brick,
-                BlockId::Flint,
-                BlockId::Clay,
-                BlockId::Gravel,
-                BlockId::Cobblestone,
-                BlockId::Bricks,
-                BlockId::Sandstone,
-                BlockId::SmoothStone,
-                BlockId::Obsidian,
-                BlockId::Bookshelf,
-                BlockId::RustStone,
-                BlockId::RustStoneBlock,
-                BlockId::RustStoneLamp,
-                BlockId::Lever,
-                BlockId::Button,
-                BlockId::PressurePlate,
-                BlockId::Apple,
-                BlockId::WheatSeeds,
-                BlockId::Wheat,
-                BlockId::Bread,
-                BlockId::Carrot,
-                BlockId::Potato,
-                BlockId::BakedPotato,
-                BlockId::RawPorkchop,
-                BlockId::CookedPorkchop,
-                BlockId::RawBeef,
-                BlockId::CookedBeef,
-                BlockId::RawChicken,
-                BlockId::CookedChicken,
-                BlockId::PigSpawnEgg,
-                BlockId::CowSpawnEgg,
-                BlockId::ChickenSpawnEgg,
-                BlockId::SheepSpawnEgg,
-                BlockId::VillagerSpawnEgg,
-                BlockId::IronGolemSpawnEgg,
-                BlockId::DolphinSpawnEgg,
-                BlockId::FishSpawnEgg,
-                BlockId::SpiderSpawnEgg,
-                BlockId::SpiderEye,
-                BlockId::FishingRod,
-                BlockId::RawCod,
-                BlockId::CookedCod,
-                BlockId::RawSalmon,
-                BlockId::CookedSalmon,
-                BlockId::Pufferfish,
-                BlockId::TropicalFish,
-                BlockId::DriedKelp,
-                BlockId::Sapling,
-                BlockId::Water,
-                BlockId::Lava,
-                BlockId::Door,
-                BlockId::Bed,
-                BlockId::Ladder,
-                BlockId::CraftingTable,
-                BlockId::Chest,
-                BlockId::Furnace,
-                BlockId::Tnt,
-            ];
+        }
+        if tab == 1 || tab == 4 {
             list.extend(crate::engine::modding::get_custom_creative_items());
-            Box::leak(list.into_boxed_slice())
-        }),
-        2 => *TAB_2.get_or_init(|| {
-            let list = vec![
-                BlockId::RustStone,
-                BlockId::RustStoneOre,
-                BlockId::RustStoneBlock,
-                BlockId::RustStoneLamp,
-                BlockId::RustStoneLampLit,
-                BlockId::RustStoneWireLit,
-                BlockId::Lever,
-                BlockId::LeverOn,
-                BlockId::Button,
-                BlockId::ButtonPressed,
-                BlockId::PressurePlate,
-                BlockId::PressurePlatePressed,
-                BlockId::Tnt,
-                BlockId::Torch,
-                BlockId::Door,
-                BlockId::Chest,
-                BlockId::Furnace,
-                BlockId::FurnaceLit,
-                BlockId::CraftingTable,
-            ];
-            Box::leak(list.into_boxed_slice())
-        }),
-        3 => *TAB_3.get_or_init(|| {
-            let list = vec![
-                BlockId::WoodenHoe,
-                BlockId::StoneHoe,
-                BlockId::IronHoe,
-                BlockId::GoldHoe,
-                BlockId::DiamondHoe,
-                BlockId::WheatSeeds,
-                BlockId::Wheat,
-                BlockId::WheatCrop,
-                BlockId::Bread,
-                BlockId::Carrot,
-                BlockId::CarrotCrop,
-                BlockId::Potato,
-                BlockId::PotatoCrop,
-                BlockId::BakedPotato,
-                BlockId::Apple,
-                BlockId::Bone,
-                BlockId::BoneMeal,
-                BlockId::Sapling,
-                BlockId::Cactus,
-                BlockId::Water,
-                BlockId::Farmland,
-                BlockId::FarmlandWet,
-                BlockId::PigSpawnEgg,
-                BlockId::CowSpawnEgg,
-                BlockId::ChickenSpawnEgg,
-                BlockId::SheepSpawnEgg,
-                BlockId::VillagerSpawnEgg,
-                BlockId::IronGolemSpawnEgg,
-                BlockId::DolphinSpawnEgg,
-                BlockId::FishSpawnEgg,
-                BlockId::FishingRod,
-                BlockId::RawCod,
-                BlockId::CookedCod,
-                BlockId::RawSalmon,
-                BlockId::CookedSalmon,
-                BlockId::Pufferfish,
-                BlockId::TropicalFish,
-                BlockId::DriedKelp,
-                BlockId::Kelp,
-                BlockId::Seagrass,
-                BlockId::RawPorkchop,
-                BlockId::CookedPorkchop,
-                BlockId::RawBeef,
-                BlockId::CookedBeef,
-                BlockId::RawChicken,
-                BlockId::CookedChicken,
-                BlockId::Feather,
-            ];
-            Box::leak(list.into_boxed_slice())
-        }),
-        4 => *TAB_4.get_or_init(|| {
-            let mut list = vec![
-                // Natural & Terrain
-                BlockId::Grass,
-                BlockId::Dirt,
-                BlockId::Farmland,
-                BlockId::FarmlandWet,
-                BlockId::Stone,
-                BlockId::Sand,
-                BlockId::Mud,
-                BlockId::Wood,
-                BlockId::Leaves,
-                BlockId::SnowLeaves,
-                BlockId::CherryLeaves,
-                BlockId::AutumnLeaves,
-                BlockId::Sapling,
-                BlockId::Cactus,
-                BlockId::Snow,
-                BlockId::Ice,
-                BlockId::Water,
-                BlockId::Lava,
-                BlockId::Bedrock,
-                // Ores
-                BlockId::CoalOre,
-                BlockId::IronOre,
-                BlockId::GoldOre,
-                BlockId::DiamondOre,
-                BlockId::EmeraldOre,
-                BlockId::RustStoneOre,
-                // Mineral Blocks
-                BlockId::CoalBlock,
-                BlockId::IronBlock,
-                BlockId::GoldBlock,
-                BlockId::DiamondBlock,
-                BlockId::EmeraldBlock,
-                BlockId::RustStoneBlock,
-                // Construction & Building
-                BlockId::Planks,
-                BlockId::WoodenSlab,
-                BlockId::StoneSlab,
-                BlockId::WoodenStairs,
-                BlockId::StoneStairs,
-                BlockId::BrickStairs,
-                BlockId::BrickSlab,
-                BlockId::Cobblestone,
-                BlockId::MossyCobblestone,
-                BlockId::CobblestoneStairs,
-                BlockId::CobblestoneSlab,
-                BlockId::Bricks,
-                BlockId::Sandstone,
-                BlockId::SandstoneStairs,
-                BlockId::SandstoneSlab,
-                BlockId::SmoothStone,
-                BlockId::Clay,
-                BlockId::Gravel,
-                BlockId::Obsidian,
-                BlockId::Bookshelf,
-                BlockId::Ladder,
-                BlockId::Glass,
-                BlockId::Door,
-                // Functional Blocks
-                BlockId::CraftingTable,
-                BlockId::Furnace,
-                BlockId::FurnaceLit,
-                BlockId::Chest,
-                BlockId::Bed,
-                BlockId::Tnt,
-                BlockId::Torch,
-                // RustStone / Redstone Mechanisms
-                BlockId::RustStone,
-                BlockId::RustStoneWireLit,
-                BlockId::RustStoneLamp,
-                BlockId::RustStoneLampLit,
-                BlockId::Lever,
-                BlockId::LeverOn,
-                BlockId::Button,
-                BlockId::ButtonPressed,
-                BlockId::PressurePlate,
-                BlockId::PressurePlatePressed,
-                // Pickaxes
-                BlockId::WoodenPickaxe,
-                BlockId::StonePickaxe,
-                BlockId::IronPickaxe,
-                BlockId::GoldPickaxe,
-                BlockId::DiamondPickaxe,
-                // Axes
-                BlockId::WoodenAxe,
-                BlockId::StoneAxe,
-                BlockId::IronAxe,
-                BlockId::GoldAxe,
-                BlockId::DiamondAxe,
-                // Shovels
-                BlockId::WoodenShovel,
-                BlockId::StoneShovel,
-                BlockId::IronShovel,
-                BlockId::GoldShovel,
-                BlockId::DiamondShovel,
-                // Swords
-                BlockId::WoodenSword,
-                BlockId::StoneSword,
-                BlockId::IronSword,
-                BlockId::GoldSword,
-                BlockId::DiamondSword,
-                // Hoes
-                BlockId::WoodenHoe,
-                BlockId::StoneHoe,
-                BlockId::IronHoe,
-                BlockId::GoldHoe,
-                BlockId::DiamondHoe,
-                BlockId::Shears,
-                BlockId::Bow,
-                BlockId::Arrow,
-                BlockId::Shield,
-                BlockId::Leather,
-                BlockId::LeatherHelmet,
-                BlockId::LeatherChestplate,
-                BlockId::LeatherLeggings,
-                BlockId::LeatherBoots,
-                BlockId::IronHelmet,
-                BlockId::IronChestplate,
-                BlockId::IronLeggings,
-                BlockId::IronBoots,
-                BlockId::GoldHelmet,
-                BlockId::GoldChestplate,
-                BlockId::GoldLeggings,
-                BlockId::GoldBoots,
-                BlockId::DiamondHelmet,
-                BlockId::DiamondChestplate,
-                BlockId::DiamondLeggings,
-                BlockId::DiamondBoots,
-                // Farming, Crops & Food
-                BlockId::WheatSeeds,
-                BlockId::Wheat,
-                BlockId::WheatCrop,
-                BlockId::Bread,
-                BlockId::Carrot,
-                BlockId::CarrotCrop,
-                BlockId::Potato,
-                BlockId::PotatoCrop,
-                BlockId::BakedPotato,
-                BlockId::Apple,
-                // Materials & Minerals
-                BlockId::Stick,
-                BlockId::Bone,
-                BlockId::BoneMeal,
-                BlockId::Gunpowder,
-                BlockId::Feather,
-                BlockId::IronOunce,
-                BlockId::IronIngot,
-                BlockId::GoldOunce,
-                BlockId::GoldIngot,
-                BlockId::Diamond,
-                BlockId::Emerald,
-                BlockId::ClayBall,
-                BlockId::Brick,
-                BlockId::Flint,
-                // Animals & Meats
-                BlockId::PigSpawnEgg,
-                BlockId::CowSpawnEgg,
-                BlockId::ChickenSpawnEgg,
-                BlockId::SheepSpawnEgg,
-                BlockId::VillagerSpawnEgg,
-                BlockId::IronGolemSpawnEgg,
-                BlockId::DolphinSpawnEgg,
-                BlockId::FishSpawnEgg,
-                BlockId::SpiderSpawnEgg,
-                BlockId::StringItem,
-                BlockId::SpiderEye,
-                BlockId::FishingRod,
-                BlockId::RawCod,
-                BlockId::CookedCod,
-                BlockId::RawSalmon,
-                BlockId::CookedSalmon,
-                BlockId::Pufferfish,
-                BlockId::TropicalFish,
-                BlockId::DriedKelp,
-                BlockId::Kelp,
-                BlockId::Seagrass,
-                BlockId::RawPorkchop,
-                BlockId::CookedPorkchop,
-                BlockId::RawBeef,
-                BlockId::CookedBeef,
-                BlockId::RawChicken,
-                BlockId::CookedChicken,
-                // Wool Blocks
-                BlockId::WhiteWool,
-                BlockId::OrangeWool,
-                BlockId::MagentaWool,
-                BlockId::LightBlueWool,
-                BlockId::YellowWool,
-                BlockId::LimeWool,
-                BlockId::PinkWool,
-                BlockId::GrayWool,
-                BlockId::LightGrayWool,
-                BlockId::CyanWool,
-                BlockId::PurpleWool,
-                BlockId::BlueWool,
-                BlockId::BrownWool,
-                BlockId::GreenWool,
-                BlockId::RedWool,
-                BlockId::BlackWool,
-            ];
-            list.extend(crate::engine::modding::get_custom_creative_blocks());
-            list.extend(crate::engine::modding::get_custom_creative_items());
-            Box::leak(list.into_boxed_slice())
-        }),
-        _ => &[],
-    }
+        }
+        Box::leak(list.into_boxed_slice())
+    })
 }
 
 pub struct InventoryLayout {
@@ -1549,11 +1118,20 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
     let ox = x + (size - 16 * scale) / 2;
     let oy = y + (size - 16 * scale) / 2;
 
-    let px = |buf: &mut [u32], lx: i32, ly: i32, col: u32| {
-        if lx >= 0 && lx < 16 && ly >= 0 && ly < 16 {
-            fill_rect(buf, buf_w, buf_h, ox + lx * scale, oy + ly * scale, scale, scale, col);
-        }
-    };
+    macro_rules! px {
+        ($lx:expr, $ly:expr, $col:expr) => {{
+            let (lx, ly, col) = ($lx, $ly, $col);
+            if lx >= 0 && lx < 16 && ly >= 0 && ly < 16 {
+                fill_rect(buffer, buf_w, buf_h, ox + lx * scale, oy + ly * scale, scale, scale, col);
+            }
+        }};
+    }
+    macro_rules! pts {
+        ($col:expr => $(($lx:expr, $ly:expr)),+ $(,)?) => {{
+            let c = $col;
+            $(px!($lx, $ly, c);)+
+        }};
+    }
 
     let wood_dark = pack_color(0.30, 0.18, 0.08);
     let wood_mid = pack_color(0.55, 0.35, 0.15);
@@ -1562,35 +1140,36 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
     let get_mat_colors = |b: BlockId| -> (u32, u32, u32, u32) {
         match b {
             BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword | BlockId::WoodenHoe => (
-                pack_color(0.85, 0.68, 0.42), // highlight
-                pack_color(0.68, 0.50, 0.30), // base
-                pack_color(0.48, 0.32, 0.16), // shadow
-                pack_color(0.32, 0.20, 0.10), // outline
+                pack_color(0.85, 0.68, 0.42), pack_color(0.68, 0.50, 0.30), pack_color(0.48, 0.32, 0.16), pack_color(0.32, 0.20, 0.10),
             ),
             BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword | BlockId::StoneHoe => (
-                pack_color(0.78, 0.78, 0.80), // highlight
-                pack_color(0.58, 0.58, 0.60), // base
-                pack_color(0.40, 0.40, 0.42), // shadow
-                pack_color(0.24, 0.24, 0.26), // outline
+                pack_color(0.78, 0.78, 0.80), pack_color(0.58, 0.58, 0.60), pack_color(0.40, 0.40, 0.42), pack_color(0.24, 0.24, 0.26),
             ),
             BlockId::GoldPickaxe | BlockId::GoldAxe | BlockId::GoldShovel | BlockId::GoldSword | BlockId::GoldHoe => (
-                pack_color(1.00, 0.95, 0.40), // glint
-                pack_color(0.95, 0.80, 0.20), // highlight
-                pack_color(0.80, 0.65, 0.10), // base
-                pack_color(0.50, 0.38, 0.05), // shadow
+                pack_color(1.00, 0.95, 0.40), pack_color(0.95, 0.80, 0.20), pack_color(0.80, 0.65, 0.10), pack_color(0.50, 0.38, 0.05),
             ),
             BlockId::DiamondPickaxe | BlockId::DiamondAxe | BlockId::DiamondShovel | BlockId::DiamondSword | BlockId::DiamondHoe => (
-                pack_color(0.75, 1.00, 1.00), // glint
-                pack_color(0.35, 0.90, 0.90), // highlight
-                pack_color(0.18, 0.72, 0.75), // base
-                pack_color(0.08, 0.45, 0.48), // shadow
+                pack_color(0.75, 1.00, 1.00), pack_color(0.35, 0.90, 0.90), pack_color(0.18, 0.72, 0.75), pack_color(0.08, 0.45, 0.48),
             ),
             _ => (
-                // Iron
-                pack_color(1.00, 1.00, 1.00), // glint
-                pack_color(0.90, 0.93, 0.98), // highlight
-                pack_color(0.72, 0.76, 0.84), // base
-                pack_color(0.42, 0.46, 0.54), // shadow
+                pack_color(1.00, 1.00, 1.00), pack_color(0.90, 0.93, 0.98), pack_color(0.72, 0.76, 0.84), pack_color(0.42, 0.46, 0.54),
+            ),
+        }
+    };
+
+    let get_armor_colors = |b: BlockId| -> (u32, u32, u32, u32, u32) {
+        match b {
+            BlockId::LeatherHelmet | BlockId::LeatherChestplate | BlockId::LeatherLeggings | BlockId::LeatherBoots => (
+                pack_color(0.76, 0.50, 0.28), pack_color(0.65, 0.40, 0.20), pack_color(0.52, 0.30, 0.14), pack_color(0.36, 0.18, 0.06), pack_color(0.22, 0.10, 0.04),
+            ),
+            BlockId::IronHelmet | BlockId::IronChestplate | BlockId::IronLeggings | BlockId::IronBoots => (
+                pack_color(1.0, 1.0, 1.0), pack_color(0.95, 0.96, 0.98), pack_color(0.80, 0.82, 0.86), pack_color(0.52, 0.55, 0.60), pack_color(0.24, 0.25, 0.28),
+            ),
+            BlockId::GoldHelmet | BlockId::GoldChestplate | BlockId::GoldLeggings | BlockId::GoldBoots => (
+                pack_color(1.0, 1.0, 0.7), pack_color(1.00, 0.95, 0.45), pack_color(0.92, 0.78, 0.18), pack_color(0.68, 0.52, 0.08), pack_color(0.38, 0.28, 0.04),
+            ),
+            _ => (
+                pack_color(0.88, 1.0, 1.0), pack_color(0.65, 0.98, 0.98), pack_color(0.25, 0.82, 0.85), pack_color(0.12, 0.52, 0.56), pack_color(0.06, 0.30, 0.34),
             ),
         }
     };
@@ -1598,991 +1177,443 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
     match block {
         BlockId::Stick => {
             for i in 2..=13 {
-                px(buffer, i, 15 - i, wood_mid);
-                px(buffer, i - 1, 15 - i, wood_light);
-                px(buffer, i, 16 - i, wood_dark);
+                px!(i, 15 - i, wood_mid);
+                px!(i - 1, 15 - i, wood_light);
+                px!(i, 16 - i, wood_dark);
             }
         }
         BlockId::WoodenSword | BlockId::StoneSword | BlockId::IronSword | BlockId::GoldSword | BlockId::DiamondSword => {
             let (c_glint, c_hi, c_base, c_shadow) = get_mat_colors(block);
-            // Pommel
-            px(buffer, 2, 13, wood_dark);
-            px(buffer, 1, 14, wood_mid);
-            // Grip
-            px(buffer, 3, 12, wood_mid);
-            px(buffer, 4, 11, wood_mid);
-            px(buffer, 2, 12, wood_dark);
-            px(buffer, 3, 11, wood_light);
-            // Guard
-            px(buffer, 3, 10, wood_dark);
-            px(buffer, 4, 10, c_base);
-            px(buffer, 5, 10, c_hi);
-            px(buffer, 5, 11, c_base);
-            px(buffer, 5, 12, wood_dark);
-            px(buffer, 6, 9, c_hi);
-            px(buffer, 2, 9, wood_dark);
-            // Blade
+            pts!(wood_dark => (2, 13), (2, 12), (3, 10), (5, 12), (2, 9));
+            pts!(wood_mid => (1, 14), (3, 12), (4, 11));
+            px!(3, 11, wood_light);
+            pts!(c_base => (4, 10), (5, 11));
+            pts!(c_hi => (5, 10), (6, 9), (12, 3));
             for i in 5..=11 {
-                px(buffer, i, 15 - i, c_base);
-                px(buffer, i - 1, 15 - i, c_hi);
-                px(buffer, i + 1, 15 - i, c_shadow);
+                px!(i, 15 - i, c_base);
+                px!(i - 1, 15 - i, c_hi);
+                px!(i + 1, 15 - i, c_shadow);
             }
-            // Tip
-            px(buffer, 12, 3, c_hi);
-            px(buffer, 13, 2, c_glint);
-            px(buffer, 12, 2, c_glint);
-            px(buffer, 13, 3, c_shadow);
+            pts!(c_glint => (13, 2), (12, 2));
+            px!(13, 3, c_shadow);
         }
         BlockId::WoodenPickaxe | BlockId::StonePickaxe | BlockId::IronPickaxe | BlockId::GoldPickaxe | BlockId::DiamondPickaxe => {
             let (c_glint, c_hi, c_base, c_shadow) = get_mat_colors(block);
-            // Handle
             for i in 2..=10 {
-                px(buffer, i, 15 - i, wood_mid);
-                px(buffer, i - 1, 15 - i, wood_light);
-                px(buffer, i, 16 - i, wood_dark);
+                px!(i, 15 - i, wood_mid);
+                px!(i - 1, 15 - i, wood_light);
+                px!(i, 16 - i, wood_dark);
             }
-            // Center binding
-            px(buffer, 9, 6, wood_dark);
-            px(buffer, 10, 5, wood_dark);
-
-            // Pickaxe Head
-            // Left hook
-            px(buffer, 4, 7, c_shadow);
-            px(buffer, 4, 6, c_base);
-            px(buffer, 5, 5, c_base);
-            px(buffer, 5, 4, c_hi);
-            px(buffer, 6, 4, c_base);
-            px(buffer, 7, 3, c_hi);
-            px(buffer, 8, 3, c_base);
-            // Peak / Top
-            px(buffer, 9, 2, c_hi);
-            px(buffer, 10, 2, c_hi);
-            px(buffer, 11, 2, c_glint);
-            px(buffer, 12, 2, c_glint);
-            px(buffer, 13, 2, c_glint);
-            px(buffer, 13, 3, c_hi);
-            // Right hook
-            px(buffer, 12, 4, c_base);
-            px(buffer, 12, 5, c_shadow);
-            px(buffer, 11, 5, c_base);
-            px(buffer, 11, 6, c_shadow);
-            px(buffer, 10, 7, c_shadow);
-            px(buffer, 9, 8, c_shadow);
+            pts!(wood_dark => (9, 6), (10, 5));
+            pts!(c_shadow => (4, 7), (12, 5), (11, 6), (10, 7), (9, 8));
+            pts!(c_base => (4, 6), (5, 5), (6, 4), (8, 3), (12, 4), (11, 5));
+            pts!(c_hi => (5, 4), (7, 3), (9, 2), (10, 2), (13, 3));
+            pts!(c_glint => (11, 2), (12, 2), (13, 2));
         }
         BlockId::WoodenAxe | BlockId::StoneAxe | BlockId::IronAxe | BlockId::GoldAxe | BlockId::DiamondAxe => {
             let (c_glint, c_hi, c_base, c_shadow) = get_mat_colors(block);
-            // Handle
             for i in 2..=11 {
-                px(buffer, i, 15 - i, wood_mid);
-                px(buffer, i - 1, 15 - i, wood_light);
-                px(buffer, i, 16 - i, wood_dark);
+                px!(i, 15 - i, wood_mid);
+                px!(i - 1, 15 - i, wood_light);
+                px!(i, 16 - i, wood_dark);
             }
-            // Axe Head Block
-            px(buffer, 9, 2, c_glint);
-            px(buffer, 10, 2, c_glint);
-            px(buffer, 11, 2, c_hi);
-            px(buffer, 12, 2, c_base);
-            px(buffer, 8, 3, c_glint);
-            px(buffer, 9, 3, c_hi);
-            px(buffer, 10, 3, c_base);
-            px(buffer, 11, 3, c_shadow);
-            px(buffer, 12, 3, c_shadow);
-            px(buffer, 8, 4, c_hi);
-            px(buffer, 9, 4, c_base);
-            px(buffer, 10, 4, c_base);
-            px(buffer, 8, 5, c_base);
-            px(buffer, 9, 5, c_shadow);
-            px(buffer, 7, 5, c_hi);
-            px(buffer, 7, 6, c_base);
-            px(buffer, 8, 6, c_shadow);
+            pts!(c_glint => (9, 2), (10, 2), (8, 3));
+            pts!(c_hi => (11, 2), (9, 3), (8, 4), (7, 5));
+            pts!(c_base => (12, 2), (10, 3), (9, 4), (10, 4), (8, 5), (7, 6));
+            pts!(c_shadow => (11, 3), (12, 3), (9, 5), (8, 6));
         }
         BlockId::WoodenShovel | BlockId::StoneShovel | BlockId::IronShovel | BlockId::GoldShovel | BlockId::DiamondShovel => {
             let (c_glint, c_hi, c_base, c_shadow) = get_mat_colors(block);
-            // Grip topper
-            px(buffer, 1, 13, wood_light);
-            px(buffer, 2, 14, wood_dark);
-            // Handle
+            px!(1, 13, wood_light);
+            px!(2, 14, wood_dark);
             for i in 3..=9 {
-                px(buffer, i, 15 - i, wood_mid);
-                px(buffer, i - 1, 15 - i, wood_light);
-                px(buffer, i, 16 - i, wood_dark);
+                px!(i, 15 - i, wood_mid);
+                px!(i - 1, 15 - i, wood_light);
+                px!(i, 16 - i, wood_dark);
             }
-            // Spade blade
-            px(buffer, 10, 5, c_shadow);
-            px(buffer, 11, 4, c_base);
-            px(buffer, 12, 3, c_hi);
-            px(buffer, 13, 2, c_glint);
-            px(buffer, 12, 2, c_glint);
-            px(buffer, 13, 3, c_hi);
-            px(buffer, 11, 3, c_hi);
-            px(buffer, 10, 4, c_base);
-            px(buffer, 9, 5, c_base);
-            px(buffer, 12, 4, c_shadow);
-            px(buffer, 11, 5, c_shadow);
-            px(buffer, 10, 6, c_shadow);
+            pts!(c_shadow => (10, 5), (12, 4), (11, 5), (10, 6));
+            pts!(c_base => (11, 4), (10, 4), (9, 5));
+            pts!(c_hi => (12, 3), (13, 3), (11, 3));
+            pts!(c_glint => (13, 2), (12, 2));
         }
         BlockId::WoodenHoe | BlockId::StoneHoe | BlockId::IronHoe | BlockId::GoldHoe | BlockId::DiamondHoe => {
             let (c_glint, c_hi, c_base, c_shadow) = get_mat_colors(block);
-            // Handle
             for i in 2..=10 {
-                px(buffer, i, 15 - i, wood_mid);
-                px(buffer, i - 1, 15 - i, wood_light);
-                px(buffer, i, 16 - i, wood_dark);
+                px!(i, 15 - i, wood_mid);
+                px!(i - 1, 15 - i, wood_light);
+                px!(i, 16 - i, wood_dark);
             }
-            // Hoe Head (Right-facing blade)
-            px(buffer, 9, 2, c_glint);
-            px(buffer, 10, 2, c_glint);
-            px(buffer, 11, 2, c_hi);
-            px(buffer, 12, 2, c_base);
-            px(buffer, 12, 3, c_shadow);
-            px(buffer, 12, 4, c_shadow);
-            px(buffer, 11, 3, c_base);
+            pts!(c_glint => (9, 2), (10, 2));
+            px!(11, 2, c_hi);
+            pts!(c_base => (12, 2), (11, 3));
+            pts!(c_shadow => (12, 3), (12, 4));
         }
         BlockId::CraftingTable => {
-            // Isometric Crafting Table Icon
-            let top_light = pack_color(0.78, 0.62, 0.38);
-            let top_dark = pack_color(0.58, 0.42, 0.22);
-            let side_frame = pack_color(0.32, 0.20, 0.10);
-            let side_plank = pack_color(0.64, 0.48, 0.28);
-            let iron_tool = pack_color(0.78, 0.82, 0.88);
-
-            // Top grid
+            let (top_light, top_dark, side_frame, side_plank, iron_tool) = (
+                pack_color(0.78, 0.62, 0.38), pack_color(0.58, 0.42, 0.22),
+                pack_color(0.32, 0.20, 0.10), pack_color(0.64, 0.48, 0.28), pack_color(0.78, 0.82, 0.88),
+            );
             for ly in 1..=6 {
                 for lx in 2..=13 {
-                    let in_top = (lx + ly >= 6) && (lx - ly <= 8) && (ly - lx <= 3) && (lx + ly <= 16);
-                    if in_top {
-                        let is_check = ((lx / 2) + (ly / 2)) % 2 == 0;
-                        px(buffer, lx, ly, if is_check { top_light } else { top_dark });
+                    if (lx + ly >= 6) && (lx - ly <= 8) && (ly - lx <= 3) && (lx + ly <= 16) {
+                        px!(lx, ly, if ((lx / 2) + (ly / 2)) % 2 == 0 { top_light } else { top_dark });
                     }
                 }
             }
-            // Side face Left
             for ly in 6..=14 {
-                for lx in 2..=7 {
-                    let is_border = lx == 2 || lx == 7 || ly == 14;
-                    px(buffer, lx, ly, if is_border { side_frame } else { side_plank });
+                for lx in 2..=13 {
+                    let is_border = lx == 2 || lx == 7 || lx == 8 || lx == 13 || ly == 14;
+                    px!(lx, ly, if is_border { side_frame } else { side_plank });
                 }
             }
-            // Side face Right
-            for ly in 6..=14 {
-                for lx in 8..=13 {
-                    let is_border = lx == 8 || lx == 13 || ly == 14;
-                    px(buffer, lx, ly, if is_border { side_frame } else { side_plank });
-                }
-            }
-            // Mini tool icons on side
-            px(buffer, 4, 8, iron_tool);
-            px(buffer, 4, 9, iron_tool);
-            px(buffer, 5, 9, iron_tool);
-            px(buffer, 10, 8, iron_tool);
-            px(buffer, 11, 8, iron_tool);
-            px(buffer, 10, 9, wood_dark);
+            pts!(iron_tool => (4, 8), (4, 9), (5, 9), (10, 8), (11, 8));
+            px!(10, 9, wood_dark);
         }
         BlockId::Door => {
-            let frame = pack_color(0.52, 0.36, 0.18);
-            let glass = pack_color(0.65, 0.82, 0.90);
-            let knob = pack_color(0.85, 0.75, 0.30);
-            let panel = pack_color(0.42, 0.28, 0.14);
-
+            let (frame, glass, knob, panel) = (
+                pack_color(0.52, 0.36, 0.18), pack_color(0.65, 0.82, 0.90),
+                pack_color(0.85, 0.75, 0.30), pack_color(0.42, 0.28, 0.14),
+            );
             for ly in 1..=14 {
-                for lx in 4..=11 {
-                    px(buffer, lx, ly, frame);
-                }
+                for lx in 4..=11 { px!(lx, ly, frame); }
             }
-            // Glass windows
-            for ly in 3..=6 {
-                px(buffer, 5, ly, glass);
-                px(buffer, 6, ly, glass);
-                px(buffer, 9, ly, glass);
-                px(buffer, 10, ly, glass);
-            }
-            // Knob
-            px(buffer, 10, 8, knob);
-            // Lower panels
-            for ly in 9..=12 {
-                px(buffer, 5, ly, panel);
-                px(buffer, 6, ly, panel);
-                px(buffer, 9, ly, panel);
-                px(buffer, 10, ly, panel);
-            }
+            for ly in 3..=6 { pts!(glass => (5, ly), (6, ly), (9, ly), (10, ly)); }
+            px!(10, 8, knob);
+            for ly in 9..=12 { pts!(panel => (5, ly), (6, ly), (9, ly), (10, ly)); }
         }
         BlockId::Tnt => {
-            let red = pack_color(0.85, 0.15, 0.10);
-            let white = pack_color(0.92, 0.92, 0.92);
-            let dark = pack_color(0.25, 0.05, 0.05);
-            let fuse = pack_color(0.40, 0.35, 0.30);
-
+            let (red, white, dark, fuse) = (
+                pack_color(0.85, 0.15, 0.10), pack_color(0.92, 0.92, 0.92),
+                pack_color(0.25, 0.05, 0.05), pack_color(0.40, 0.35, 0.30),
+            );
             for ly in 3..=13 {
-                for lx in 3..=12 {
-                    let is_band = ly >= 7 && ly <= 9;
-                    px(buffer, lx, ly, if is_band { white } else { red });
-                }
+                for lx in 3..=12 { px!(lx, ly, if (7..=9).contains(&ly) { white } else { red }); }
             }
-            // "TNT" lettering on band
-            px(buffer, 5, 8, dark);
-            px(buffer, 7, 8, dark);
-            px(buffer, 8, 8, dark);
-            px(buffer, 10, 8, dark);
-            // Fuse on top
-            px(buffer, 7, 1, fuse);
-            px(buffer, 7, 2, fuse);
+            pts!(dark => (5, 8), (7, 8), (8, 8), (10, 8));
+            pts!(fuse => (7, 1), (7, 2));
         }
-        BlockId::RawPorkchop => {
-            let outline = pack_color(0.48, 0.20, 0.26);
-            let base = pack_color(0.92, 0.58, 0.64);
-            let hi = pack_color(0.98, 0.78, 0.82);
-            let sh = pack_color(0.75, 0.38, 0.45);
-            let bone = pack_color(0.95, 0.95, 0.88);
-
-            // Bone tip top-right
-            px(buffer, 12, 3, bone);
-            px(buffer, 13, 2, bone);
-            px(buffer, 14, 2, bone);
-            px(buffer, 13, 4, outline);
-
-            // Meat body
+        BlockId::RawPorkchop | BlockId::CookedPorkchop => {
+            let (outline, base, hi, sh, bone) = if block == BlockId::RawPorkchop {
+                (pack_color(0.48, 0.20, 0.26), pack_color(0.92, 0.58, 0.64), pack_color(0.98, 0.78, 0.82), pack_color(0.75, 0.38, 0.45), pack_color(0.95, 0.95, 0.88))
+            } else {
+                (pack_color(0.28, 0.12, 0.05), pack_color(0.72, 0.42, 0.18), pack_color(0.90, 0.65, 0.32), pack_color(0.45, 0.22, 0.08), pack_color(0.92, 0.90, 0.82))
+            };
+            pts!(bone => (12, 3), (13, 2), (14, 2));
+            px!(13, 4, outline);
             for ly in 4..=12 {
                 for lx in 2..=11 {
-                    let in_shape = (lx + ly >= 7) && (lx + ly <= 21) && (ly - lx <= 8) && (lx - ly <= 6);
-                    if in_shape {
-                        let is_border = lx == 2 || lx == 11 || ly == 4 || ly == 12;
-                        if is_border {
-                            px(buffer, lx, ly, outline);
-                        } else if lx <= 5 && ly <= 7 {
-                            px(buffer, lx, ly, hi);
-                        } else if lx >= 8 || ly >= 10 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
+                    if (lx + ly >= 7) && (lx + ly <= 21) && (ly - lx <= 8) && (lx - ly <= 6) {
+                        let col = if lx == 2 || lx == 11 || ly == 4 || ly == 12 { outline }
+                            else if lx <= 5 && ly <= 7 { hi }
+                            else if lx >= 8 || ly >= 10 { sh }
+                            else { base };
+                        px!(lx, ly, col);
                     }
                 }
             }
         }
-        BlockId::CookedPorkchop => {
-            let outline = pack_color(0.28, 0.12, 0.05);
-            let base = pack_color(0.72, 0.42, 0.18);
-            let hi = pack_color(0.90, 0.65, 0.32);
-            let sh = pack_color(0.45, 0.22, 0.08);
-            let bone = pack_color(0.92, 0.90, 0.82);
-
-            px(buffer, 12, 3, bone);
-            px(buffer, 13, 2, bone);
-            px(buffer, 14, 2, bone);
-            px(buffer, 13, 4, outline);
-
-            for ly in 4..=12 {
-                for lx in 2..=11 {
-                    let in_shape = (lx + ly >= 7) && (lx + ly <= 21) && (ly - lx <= 8) && (lx - ly <= 6);
-                    if in_shape {
-                        let is_border = lx == 2 || lx == 11 || ly == 4 || ly == 12;
-                        if is_border {
-                            px(buffer, lx, ly, outline);
-                        } else if lx <= 5 && ly <= 7 {
-                            px(buffer, lx, ly, hi);
-                        } else if lx >= 8 || ly >= 10 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
-                    }
-                }
-            }
-        }
-        BlockId::RawBeef => {
-            let outline = pack_color(0.38, 0.08, 0.08);
-            let base = pack_color(0.82, 0.20, 0.20);
-            let hi = pack_color(0.94, 0.42, 0.42);
-            let sh = pack_color(0.52, 0.10, 0.10);
-            let fat = pack_color(0.96, 0.90, 0.88);
-
+        BlockId::RawBeef | BlockId::CookedBeef => {
+            let is_raw = block == BlockId::RawBeef;
+            let (outline, base, hi, sh, accent) = if is_raw {
+                (pack_color(0.38, 0.08, 0.08), pack_color(0.82, 0.20, 0.20), pack_color(0.94, 0.42, 0.42), pack_color(0.52, 0.10, 0.10), pack_color(0.96, 0.90, 0.88))
+            } else {
+                (pack_color(0.18, 0.08, 0.04), pack_color(0.50, 0.26, 0.14), pack_color(0.70, 0.42, 0.22), pack_color(0.28, 0.12, 0.06), pack_color(0.15, 0.06, 0.02))
+            };
             for ly in 3..=13 {
                 for lx in 2..=13 {
-                    let in_shape = (lx + ly >= 7) && (lx + ly <= 23) && (ly - lx <= 8) && (lx - ly <= 8);
-                    if in_shape {
-                        let is_border = lx == 2 || lx == 13 || ly == 3 || ly == 13;
-                        if is_border {
-                            px(buffer, lx, ly, outline);
-                        } else if (lx == 5 && ly == 7) || (lx == 6 && ly == 8) || (lx == 9 && ly == 6) {
-                            px(buffer, lx, ly, fat);
-                        } else if lx <= 6 && ly <= 6 {
-                            px(buffer, lx, ly, hi);
-                        } else if lx >= 9 || ly >= 10 {
-                            px(buffer, lx, ly, sh);
+                    if (lx + ly >= 7) && (lx + ly <= 23) && (ly - lx <= 8) && (lx - ly <= 8) {
+                        let is_acc = if is_raw {
+                            (lx == 5 && ly == 7) || (lx == 6 && ly == 8) || (lx == 9 && ly == 6)
                         } else {
-                            px(buffer, lx, ly, base);
-                        }
-                    }
-                }
-            }
-        }
-        BlockId::CookedBeef => {
-            let outline = pack_color(0.18, 0.08, 0.04);
-            let base = pack_color(0.50, 0.26, 0.14);
-            let hi = pack_color(0.70, 0.42, 0.22);
-            let sh = pack_color(0.28, 0.12, 0.06);
-            let grill = pack_color(0.15, 0.06, 0.02);
-
-            for ly in 3..=13 {
-                for lx in 2..=13 {
-                    let in_shape = (lx + ly >= 7) && (lx + ly <= 23) && (ly - lx <= 8) && (lx - ly <= 8);
-                    if in_shape {
-                        let is_border = lx == 2 || lx == 13 || ly == 3 || ly == 13;
-                        if is_border {
-                            px(buffer, lx, ly, outline);
-                        } else if (lx + ly == 12) || (lx + ly == 16) {
-                            px(buffer, lx, ly, grill);
-                        } else if lx <= 6 && ly <= 6 {
-                            px(buffer, lx, ly, hi);
-                        } else if lx >= 9 || ly >= 10 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
+                            (lx + ly == 12) || (lx + ly == 16)
+                        };
+                        let col = if lx == 2 || lx == 13 || ly == 3 || ly == 13 { outline }
+                            else if is_acc { accent }
+                            else if lx <= 6 && ly <= 6 { hi }
+                            else if lx >= 9 || ly >= 10 { sh }
+                            else { base };
+                        px!(lx, ly, col);
                     }
                 }
             }
         }
         BlockId::Apple => {
-            let outline = pack_color(0.32, 0.06, 0.06);
-            let base = pack_color(0.88, 0.14, 0.14);
-            let hi = pack_color(0.98, 0.48, 0.48);
-            let sh = pack_color(0.52, 0.08, 0.08);
-            let stem = pack_color(0.42, 0.26, 0.12);
-            let leaf = pack_color(0.35, 0.78, 0.22);
-
-            // Stem & Leaf
-            px(buffer, 8, 2, stem);
-            px(buffer, 8, 3, stem);
-            px(buffer, 9, 2, leaf);
-            px(buffer, 10, 2, leaf);
-
-            // Apple body
+            let (outline, base, hi, sh, stem, leaf) = (
+                pack_color(0.32, 0.06, 0.06), pack_color(0.88, 0.14, 0.14), pack_color(0.98, 0.48, 0.48),
+                pack_color(0.52, 0.08, 0.08), pack_color(0.42, 0.26, 0.12), pack_color(0.35, 0.78, 0.22),
+            );
+            pts!(stem => (8, 2), (8, 3));
+            pts!(leaf => (9, 2), (10, 2));
             for ly in 4..=13 {
                 for lx in 4..=12 {
-                    let in_shape = (lx + ly >= 9) && (lx + ly <= 23) && (ly - lx <= 8) && (lx - ly <= 7);
-                    if in_shape {
-                        let is_border = lx == 4 || lx == 12 || ly == 4 || ly == 13;
-                        if is_border {
-                            px(buffer, lx, ly, outline);
-                        } else if lx >= 6 && lx <= 8 && ly >= 6 && ly <= 7 {
-                            px(buffer, lx, ly, hi);
-                        } else if lx >= 10 || ly >= 11 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
+                    if (lx + ly >= 9) && (lx + ly <= 23) && (ly - lx <= 8) && (lx - ly <= 7) {
+                        let col = if lx == 4 || lx == 12 || ly == 4 || ly == 13 { outline }
+                            else if (6..=8).contains(&lx) && (6..=7).contains(&ly) { hi }
+                            else if lx >= 10 || ly >= 11 { sh }
+                            else { base };
+                        px!(lx, ly, col);
                     }
                 }
             }
         }
-        BlockId::RawChicken => {
-            let outline = pack_color(0.46, 0.24, 0.20);
-            let base = pack_color(0.92, 0.68, 0.62);
-            let hi = pack_color(0.98, 0.82, 0.78);
-            let sh = pack_color(0.76, 0.46, 0.40);
-            let bone = pack_color(0.95, 0.95, 0.88);
-            let bone_sh = pack_color(0.78, 0.76, 0.68);
-
-            // Bone tip top-right
-            px(buffer, 12, 4, bone);
-            px(buffer, 13, 3, bone);
-            px(buffer, 14, 2, bone);
-            px(buffer, 14, 3, bone_sh);
-            px(buffer, 13, 2, bone);
-            px(buffer, 12, 3, bone);
-            px(buffer, 11, 4, outline);
-            px(buffer, 14, 4, outline);
-            px(buffer, 15, 2, outline);
-            px(buffer, 13, 1, outline);
-
-            // Chicken drumstick meat body
+        BlockId::RawChicken | BlockId::CookedChicken => {
+            let (outline, base, hi, sh, bone, bone_sh) = if block == BlockId::RawChicken {
+                (pack_color(0.46, 0.24, 0.20), pack_color(0.92, 0.68, 0.62), pack_color(0.98, 0.82, 0.78), pack_color(0.76, 0.46, 0.40), pack_color(0.95, 0.95, 0.88), pack_color(0.78, 0.76, 0.68))
+            } else {
+                (pack_color(0.30, 0.12, 0.04), pack_color(0.82, 0.46, 0.14), pack_color(0.96, 0.72, 0.28), pack_color(0.55, 0.24, 0.06), pack_color(0.92, 0.90, 0.82), pack_color(0.72, 0.70, 0.62))
+            };
+            pts!(bone => (12, 4), (13, 3), (14, 2), (13, 2), (12, 3));
+            px!(14, 3, bone_sh);
+            pts!(outline => (11, 4), (14, 4), (15, 2), (13, 1));
             for ly in 4..=13 {
                 for lx in 2..=11 {
-                    let in_shape = (lx + ly >= 8) && (lx + ly <= 21) && (ly - lx <= 7) && (lx - ly <= 4);
-                    if in_shape {
-                        let is_border = lx == 2 || lx == 11 || ly == 4 || ly == 13 || (lx + ly == 8) || (lx + ly == 21);
-                        if is_border {
-                            px(buffer, lx, ly, outline);
-                        } else if lx <= 5 && ly <= 7 {
-                            px(buffer, lx, ly, hi);
-                        } else if lx >= 8 || ly >= 10 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
-                    }
-                }
-            }
-        }
-        BlockId::CookedChicken => {
-            let outline = pack_color(0.30, 0.12, 0.04);
-            let base = pack_color(0.82, 0.46, 0.14);
-            let hi = pack_color(0.96, 0.72, 0.28);
-            let sh = pack_color(0.55, 0.24, 0.06);
-            let bone = pack_color(0.92, 0.90, 0.82);
-            let bone_sh = pack_color(0.72, 0.70, 0.62);
-
-            // Bone tip top-right
-            px(buffer, 12, 4, bone);
-            px(buffer, 13, 3, bone);
-            px(buffer, 14, 2, bone);
-            px(buffer, 14, 3, bone_sh);
-            px(buffer, 13, 2, bone);
-            px(buffer, 12, 3, bone);
-            px(buffer, 11, 4, outline);
-            px(buffer, 14, 4, outline);
-            px(buffer, 15, 2, outline);
-            px(buffer, 13, 1, outline);
-
-            // Roasted drumstick meat body
-            for ly in 4..=13 {
-                for lx in 2..=11 {
-                    let in_shape = (lx + ly >= 8) && (lx + ly <= 21) && (ly - lx <= 7) && (lx - ly <= 4);
-                    if in_shape {
-                        let is_border = lx == 2 || lx == 11 || ly == 4 || ly == 13 || (lx + ly == 8) || (lx + ly == 21);
-                        if is_border {
-                            px(buffer, lx, ly, outline);
-                        } else if lx <= 5 && ly <= 7 {
-                            px(buffer, lx, ly, hi);
-                        } else if lx >= 8 || ly >= 10 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
+                    if (lx + ly >= 8) && (lx + ly <= 21) && (ly - lx <= 7) && (lx - ly <= 4) {
+                        let col = if lx == 2 || lx == 11 || ly == 4 || ly == 13 || lx + ly == 8 || lx + ly == 21 { outline }
+                            else if lx <= 5 && ly <= 7 { hi }
+                            else if lx >= 8 || ly >= 10 { sh }
+                            else { base };
+                        px!(lx, ly, col);
                     }
                 }
             }
         }
         BlockId::Feather => {
-            let outline = pack_color(0.25, 0.25, 0.28);
-            let white = pack_color(0.98, 0.98, 0.99);
-            let gray = pack_color(0.82, 0.84, 0.88);
-            let quill = pack_color(0.68, 0.62, 0.55);
-            let quill_base = pack_color(0.50, 0.44, 0.38);
-
-            // Feather shape diagonal from bottom-left (2, 13) to top-right (13, 2)
-            // Quill shaft
-            px(buffer, 2, 14, quill_base);
-            px(buffer, 3, 13, quill_base);
-            px(buffer, 4, 12, quill);
-            px(buffer, 5, 11, quill);
-            px(buffer, 6, 10, quill);
-            px(buffer, 7, 9, quill);
-            px(buffer, 8, 8, quill);
-            px(buffer, 9, 7, quill);
-            px(buffer, 10, 6, quill);
-            px(buffer, 11, 5, quill);
-            px(buffer, 12, 4, quill);
-            px(buffer, 13, 3, quill);
-
-            // Vanes
-            for y in 2..=13 {
-                for x in 2..=14 {
-                    let diag = (x as i32) - (15 - y as i32);
-                    if diag >= -2 && diag <= 3 && y >= 3 && y <= 11 && x >= 4 && x <= 13 {
-                        let is_edge = diag == 3 || diag == -2 || y == 3 || x == 13;
-                        if is_edge {
-                            px(buffer, x, y, outline);
-                        } else if (x + y) % 2 == 0 {
-                            px(buffer, x, y, white);
-                        } else {
-                            px(buffer, x, y, gray);
-                        }
+            let (outline, white, gray, quill, quill_base) = (
+                pack_color(0.25, 0.25, 0.28), pack_color(0.98, 0.98, 0.99), pack_color(0.82, 0.84, 0.88),
+                pack_color(0.68, 0.62, 0.55), pack_color(0.50, 0.44, 0.38),
+            );
+            pts!(quill_base => (2, 14), (3, 13));
+            for x in 4..=13 { px!(x, 16 - x, quill); }
+            for y in 3..=11 {
+                for x in 4..=13 {
+                    let diag = x - (15 - y);
+                    if (-2..=3).contains(&diag) {
+                        let col = if diag == 3 || diag == -2 || y == 3 || x == 13 { outline }
+                            else if (x + y) % 2 == 0 { white } else { gray };
+                        px!(x, y, col);
                     }
                 }
             }
-            // Quill tip outline
-            px(buffer, 1, 14, outline);
-            px(buffer, 2, 15, outline);
-            px(buffer, 3, 14, outline);
+            pts!(outline => (1, 14), (2, 15), (3, 14));
         }
         BlockId::Shears => {
-            let iron_hi = pack_color(0.95, 0.95, 0.98);
-            let iron_mid = pack_color(0.75, 0.75, 0.78);
-            let iron_dark = pack_color(0.45, 0.45, 0.48);
-            let bolt = pack_color(0.30, 0.30, 0.32);
-
-            // Pivot bolt
-            px(buffer, 7, 8, bolt);
-            px(buffer, 8, 8, iron_hi);
-            px(buffer, 7, 9, iron_dark);
-            px(buffer, 8, 9, bolt);
-
-            // Left blade (top-left)
-            px(buffer, 3, 3, iron_hi);
-            px(buffer, 4, 3, iron_mid);
-            px(buffer, 3, 4, iron_hi);
-            px(buffer, 4, 4, iron_mid);
-            px(buffer, 5, 4, iron_dark);
-            px(buffer, 4, 5, iron_hi);
-            px(buffer, 5, 5, iron_mid);
-            px(buffer, 6, 6, iron_hi);
-            px(buffer, 6, 7, iron_mid);
-
-            // Right blade (top-right)
-            px(buffer, 11, 3, iron_hi);
-            px(buffer, 12, 3, iron_hi);
-            px(buffer, 11, 4, iron_mid);
-            px(buffer, 12, 4, iron_dark);
-            px(buffer, 10, 4, iron_hi);
-            px(buffer, 10, 5, iron_mid);
-            px(buffer, 9, 5, iron_dark);
-            px(buffer, 9, 6, iron_hi);
-            px(buffer, 9, 7, iron_mid);
-
-            // Handles (bottom)
-            px(buffer, 6, 10, iron_dark);
-            px(buffer, 5, 11, iron_mid);
-            px(buffer, 4, 12, iron_mid);
-            px(buffer, 5, 13, iron_dark);
-            px(buffer, 6, 13, iron_dark);
-            px(buffer, 6, 12, iron_hi);
-
-            px(buffer, 9, 10, iron_dark);
-            px(buffer, 10, 11, iron_mid);
-            px(buffer, 11, 12, iron_mid);
-            px(buffer, 10, 13, iron_dark);
-            px(buffer, 9, 13, iron_dark);
-            px(buffer, 9, 12, iron_hi);
+            let (iron_hi, iron_mid, iron_dark, bolt) = (
+                pack_color(0.95, 0.95, 0.98), pack_color(0.75, 0.75, 0.78),
+                pack_color(0.45, 0.45, 0.48), pack_color(0.30, 0.30, 0.32),
+            );
+            pts!(bolt => (7, 8), (8, 9));
+            pts!(iron_hi => (8, 8), (3, 3), (3, 4), (4, 5), (6, 6), (11, 3), (12, 3), (10, 4), (9, 6), (6, 12), (9, 12));
+            pts!(iron_mid => (4, 3), (4, 4), (5, 5), (6, 7), (11, 4), (10, 5), (9, 7), (5, 11), (4, 12), (10, 11), (11, 12));
+            pts!(iron_dark => (7, 9), (5, 4), (12, 4), (9, 5), (6, 10), (5, 13), (6, 13), (9, 10), (10, 13), (9, 13));
         }
         BlockId::PigSpawnEgg | BlockId::CowSpawnEgg | BlockId::ChickenSpawnEgg | BlockId::SheepSpawnEgg | BlockId::DolphinSpawnEgg | BlockId::FishSpawnEgg | BlockId::VillagerSpawnEgg | BlockId::IronGolemSpawnEgg | BlockId::SpiderSpawnEgg => {
             let (base, spot, outline) = match block {
-                BlockId::PigSpawnEgg => (
-                    pack_color(0.95, 0.62, 0.68),
-                    pack_color(0.68, 0.32, 0.38),
-                    pack_color(0.48, 0.20, 0.25),
-                ),
-                BlockId::CowSpawnEgg => (
-                    pack_color(0.42, 0.30, 0.22),
-                    pack_color(0.85, 0.85, 0.85),
-                    pack_color(0.22, 0.15, 0.10),
-                ),
-                BlockId::ChickenSpawnEgg => (
-                    pack_color(0.95, 0.95, 0.92),
-                    pack_color(0.85, 0.15, 0.15),
-                    pack_color(0.35, 0.35, 0.30),
-                ),
-                BlockId::SheepSpawnEgg => (
-                    pack_color(0.92, 0.90, 0.88),
-                    pack_color(0.85, 0.68, 0.60),
-                    pack_color(0.40, 0.38, 0.36),
-                ),
-                BlockId::DolphinSpawnEgg => (
-                    pack_color(0.22, 0.40, 0.62),
-                    pack_color(0.85, 0.88, 0.95),
-                    pack_color(0.12, 0.22, 0.35),
-                ),
-                BlockId::FishSpawnEgg => (
-                    pack_color(0.68, 0.52, 0.32),
-                    pack_color(0.92, 0.45, 0.22),
-                    pack_color(0.38, 0.28, 0.16),
-                ),
-                BlockId::VillagerSpawnEgg => (
-                    pack_color(0.55, 0.38, 0.24),
-                    pack_color(0.78, 0.58, 0.45),
-                    pack_color(0.32, 0.20, 0.12),
-                ),
-                BlockId::IronGolemSpawnEgg => (
-                    pack_color(0.86, 0.86, 0.84),
-                    pack_color(0.45, 0.45, 0.42),
-                    pack_color(0.28, 0.28, 0.28),
-                ),
-                BlockId::SpiderSpawnEgg => (
-                    pack_color(0.20, 0.16, 0.16),
-                    pack_color(0.80, 0.12, 0.12),
-                    pack_color(0.10, 0.08, 0.08),
-                ),
-                _ => unreachable!(),
+                BlockId::PigSpawnEgg => (pack_color(0.95, 0.62, 0.68), pack_color(0.68, 0.32, 0.38), pack_color(0.48, 0.20, 0.25)),
+                BlockId::CowSpawnEgg => (pack_color(0.42, 0.30, 0.22), pack_color(0.85, 0.85, 0.85), pack_color(0.22, 0.15, 0.10)),
+                BlockId::ChickenSpawnEgg => (pack_color(0.95, 0.95, 0.92), pack_color(0.85, 0.15, 0.15), pack_color(0.35, 0.35, 0.30)),
+                BlockId::SheepSpawnEgg => (pack_color(0.92, 0.90, 0.88), pack_color(0.85, 0.68, 0.60), pack_color(0.40, 0.38, 0.36)),
+                BlockId::DolphinSpawnEgg => (pack_color(0.22, 0.40, 0.62), pack_color(0.85, 0.88, 0.95), pack_color(0.12, 0.22, 0.35)),
+                BlockId::FishSpawnEgg => (pack_color(0.68, 0.52, 0.32), pack_color(0.92, 0.45, 0.22), pack_color(0.38, 0.28, 0.16)),
+                BlockId::VillagerSpawnEgg => (pack_color(0.55, 0.38, 0.24), pack_color(0.78, 0.58, 0.45), pack_color(0.32, 0.20, 0.12)),
+                BlockId::IronGolemSpawnEgg => (pack_color(0.86, 0.86, 0.84), pack_color(0.45, 0.45, 0.42), pack_color(0.28, 0.28, 0.28)),
+                _ => (pack_color(0.20, 0.16, 0.16), pack_color(0.80, 0.12, 0.12), pack_color(0.10, 0.08, 0.08)),
             };
-
             for ly in 2..=14 {
                 for lx in 3..=12 {
                     let dx = (lx as f32 - 7.5).abs();
                     let dy = ly as f32;
-                    let width_at_y = if dy < 6.0 {
-                        (dy - 1.0) * 0.7 + 0.5
-                    } else if dy <= 11.0 {
-                        4.2
-                    } else {
-                        (14.5 - dy) * 1.1 + 0.5
-                    };
+                    let width_at_y = if dy < 6.0 { (dy - 1.0) * 0.7 + 0.5 } else if dy <= 11.0 { 4.2 } else { (14.5 - dy) * 1.1 + 0.5 };
                     if dx <= width_at_y {
-                        let is_border = dx > width_at_y - 0.9 || ly == 2 || ly == 14;
-                        if is_border {
-                            px(buffer, lx, ly, outline);
+                        if dx > width_at_y - 0.9 || ly == 2 || ly == 14 {
+                            px!(lx, ly, outline);
                         } else {
                             let is_spot = match block {
                                 BlockId::PigSpawnEgg => (lx == 6 && ly == 5) || (lx == 9 && ly == 8) || (lx == 5 && ly == 10) || (lx == 8 && ly == 12),
-                                BlockId::CowSpawnEgg => (lx == 6 && ly == 6) || (lx == 7 && ly == 6) || (lx == 9 && ly == 9) || (lx == 5 && ly == 11) || (lx == 6 && ly == 11),
+                                BlockId::CowSpawnEgg => ((lx == 6 || lx == 7) && ly == 6) || (lx == 9 && ly == 9) || ((lx == 5 || lx == 6) && ly == 11),
                                 BlockId::ChickenSpawnEgg => (lx == 7 && ly == 5) || (lx == 6 && ly == 8) || (lx == 9 && ly == 10) || (lx == 7 && ly == 12),
-                                BlockId::SheepSpawnEgg => (lx == 7 && ly == 6) || (lx == 8 && ly == 6) || (lx == 6 && ly == 9) || (lx == 9 && ly == 10) || (lx == 7 && ly == 11),
-                                BlockId::DolphinSpawnEgg => (lx == 6 && ly == 5) || (lx == 8 && ly == 8) || (lx == 6 && ly == 11) || (lx == 9 && ly == 11),
+                                BlockId::SheepSpawnEgg => ((lx == 7 || lx == 8) && ly == 6) || (lx == 6 && ly == 9) || (lx == 9 && ly == 10) || (lx == 7 && ly == 11),
+                                BlockId::DolphinSpawnEgg => (lx == 6 && ly == 5) || (lx == 8 && ly == 8) || ((lx == 6 || lx == 9) && ly == 11),
                                 BlockId::FishSpawnEgg => (lx == 7 && ly == 5) || (lx == 8 && ly == 7) || (lx == 6 && ly == 9) || (lx == 8 && ly == 12),
-                                BlockId::VillagerSpawnEgg => (lx == 6 && ly == 6) || (lx == 8 && ly == 8) || (lx == 6 && ly == 11) || (lx == 9 && ly == 11),
+                                BlockId::VillagerSpawnEgg => (lx == 6 && ly == 6) || (lx == 8 && ly == 8) || ((lx == 6 || lx == 9) && ly == 11),
                                 BlockId::IronGolemSpawnEgg => (lx == 7 && ly == 5) || (lx == 8 && ly == 8) || (lx == 6 && ly == 10) || (lx == 9 && ly == 12),
-                                BlockId::SpiderSpawnEgg => (lx == 6 && ly == 5) || (lx == 8 && ly == 8) || (lx == 5 && ly == 10) || (lx == 9 && ly == 11),
-                                _ => false,
+                                _ => (lx == 6 && ly == 5) || (lx == 8 && ly == 8) || (lx == 5 && ly == 10) || (lx == 9 && ly == 11),
                             };
-                            if is_spot {
-                                px(buffer, lx, ly, spot);
-                            } else {
-                                px(buffer, lx, ly, base);
-                            }
+                            px!(lx, ly, if is_spot { spot } else { base });
                         }
                     }
                 }
             }
         }
         BlockId::StringItem => {
-            let silk = pack_color(0.95, 0.95, 0.95);
-            let silk_dim = pack_color(0.65, 0.65, 0.68);
-            let coords = [
-                (3, 12), (4, 11), (5, 10), (6, 9), (7, 8),
-                (8, 7), (9, 6), (10, 5), (11, 4), (12, 3),
-                (5, 12), (6, 11), (7, 10), (8, 9), (9, 8),
-                (10, 7), (11, 6), (7, 6), (8, 5)
-            ];
-            for &(lx, ly) in &coords {
-                px(buffer, lx, ly, silk);
-                px(buffer, lx, ly + 1, silk_dim);
+            let (silk, silk_dim) = (pack_color(0.95, 0.95, 0.95), pack_color(0.75, 0.75, 0.78));
+            for &(lx, ly) in &[
+                (3, 12), (4, 11), (5, 10), (6, 9), (7, 8), (8, 7), (9, 6), (10, 5), (11, 4), (12, 3),
+                (5, 12), (6, 11), (7, 10), (8, 9), (9, 8), (10, 7), (11, 6), (7, 6), (8, 5),
+            ] {
+                px!(lx, ly, silk);
+                px!(lx, ly + 1, silk_dim);
             }
         }
         BlockId::SpiderEye => {
-            let red_bright = pack_color(0.92, 0.12, 0.12);
-            let red_dark = pack_color(0.55, 0.06, 0.06);
-            let highlight = pack_color(1.00, 0.70, 0.70);
-            let pupil = pack_color(0.12, 0.02, 0.02);
-            let outline = pack_color(0.28, 0.04, 0.04);
+            let (red_bright, red_dark, highlight, pupil, outline) = (
+                pack_color(0.92, 0.12, 0.12), pack_color(0.55, 0.06, 0.06),
+                pack_color(1.00, 0.70, 0.70), pack_color(0.12, 0.02, 0.02), pack_color(0.28, 0.04, 0.04),
+            );
             for ly in 3..=12 {
                 for lx in 3..=12 {
                     let d2 = (lx as f32 - 7.5).powi(2) + (ly as f32 - 7.5).powi(2);
                     if d2 <= 18.0 {
-                        if d2 > 13.0 {
-                            px(buffer, lx, ly, outline);
-                        } else if d2 <= 6.0 {
-                            px(buffer, lx, ly, red_bright);
-                        } else {
-                            px(buffer, lx, ly, red_dark);
-                        }
+                        px!(lx, ly, if d2 > 13.0 { outline } else if d2 <= 6.0 { red_bright } else { red_dark });
                     }
                 }
             }
-            px(buffer, 6, 6, highlight);
-            px(buffer, 7, 7, pupil);
-            px(buffer, 8, 7, pupil);
-            px(buffer, 7, 8, pupil);
-            px(buffer, 8, 8, pupil);
+            px!(6, 6, highlight);
+            pts!(pupil => (7, 7), (8, 7), (7, 8), (8, 8));
         }
-        BlockId::Emerald => {
-            let outline = pack_color(0.04, 0.28, 0.08);
-            let glint = pack_color(0.75, 1.00, 0.75);
-            let hi = pack_color(0.18, 0.85, 0.32);
-            let base = pack_color(0.10, 0.68, 0.22);
-            let sh = pack_color(0.06, 0.45, 0.14);
-
+        BlockId::Emerald | BlockId::Diamond => {
+            let (outline, glint, hi, base, sh) = if block == BlockId::Emerald {
+                (pack_color(0.04, 0.28, 0.08), pack_color(0.75, 1.00, 0.75), pack_color(0.18, 0.85, 0.32), pack_color(0.10, 0.68, 0.22), pack_color(0.06, 0.45, 0.14))
+            } else {
+                (pack_color(0.05, 0.35, 0.38), pack_color(0.88, 1.00, 1.00), pack_color(0.40, 0.92, 0.94), pack_color(0.20, 0.75, 0.80), pack_color(0.10, 0.52, 0.58))
+            };
             for ly in 3..=13 {
                 for lx in 3..=12 {
                     let in_shape = match ly {
-                        3 => lx >= 6 && lx <= 9,
-                        4 => lx >= 5 && lx <= 10,
-                        5 => lx >= 4 && lx <= 11,
-                        6..=7 => lx >= 3 && lx <= 12,
-                        8 => lx >= 4 && lx <= 11,
-                        9 => lx >= 5 && lx <= 10,
-                        10 => lx >= 6 && lx <= 9,
-                        11 => lx >= 6 && lx <= 9,
-                        12 => lx >= 7 && lx <= 8,
-                        13 => lx == 7 || lx == 8,
+                        3 | 10 | 11 => (6..=9).contains(&lx),
+                        4 | 9 => (5..=10).contains(&lx),
+                        5 | 8 => (4..=11).contains(&lx),
+                        6..=7 => (3..=12).contains(&lx),
+                        12 | 13 => lx == 7 || lx == 8,
                         _ => false,
                     };
                     if in_shape {
-                        let is_border = ly == 3 || ly == 13 || (ly == 6 && (lx == 3 || lx == 12)) || (ly == 7 && (lx == 3 || lx == 12)) || (ly == 12 && (lx == 7 || lx == 8));
-                        if is_border {
-                            px(buffer, lx, ly, outline);
-                        } else if ly <= 5 && lx >= 6 && lx <= 8 {
-                            px(buffer, lx, ly, glint);
-                        } else if lx <= 6 {
-                            px(buffer, lx, ly, hi);
-                        } else if lx >= 10 || ly >= 10 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
+                        let is_border = ly == 3 || ly == 13 || ((ly == 6 || ly == 7) && (lx == 3 || lx == 12)) || (ly == 12 && (lx == 7 || lx == 8));
+                        let col = if is_border { outline }
+                            else if ly <= 5 && (6..=8).contains(&lx) { glint }
+                            else if lx <= 6 { hi }
+                            else if lx >= 10 || ly >= 10 { sh }
+                            else { base };
+                        px!(lx, ly, col);
                     }
                 }
             }
-        }
-        BlockId::Diamond => {
-            let outline = pack_color(0.05, 0.35, 0.38);
-            let glint = pack_color(0.88, 1.00, 1.00);
-            let hi = pack_color(0.40, 0.92, 0.94);
-            let base = pack_color(0.20, 0.75, 0.80);
-            let sh = pack_color(0.10, 0.52, 0.58);
-
-            for ly in 3..=13 {
-                for lx in 3..=12 {
-                    let in_shape = match ly {
-                        3 => lx >= 6 && lx <= 9,
-                        4 => lx >= 5 && lx <= 10,
-                        5 => lx >= 4 && lx <= 11,
-                        6..=7 => lx >= 3 && lx <= 12,
-                        8 => lx >= 4 && lx <= 11,
-                        9 => lx >= 5 && lx <= 10,
-                        10 => lx >= 6 && lx <= 9,
-                        11 => lx >= 6 && lx <= 9,
-                        12 => lx >= 7 && lx <= 8,
-                        13 => lx == 7 || lx == 8,
-                        _ => false,
-                    };
-                    if in_shape {
-                        let is_border = ly == 3 || ly == 13 || (ly == 6 && (lx == 3 || lx == 12)) || (ly == 7 && (lx == 3 || lx == 12)) || (ly == 12 && (lx == 7 || lx == 8));
-                        if is_border {
-                            px(buffer, lx, ly, outline);
-                        } else if ly <= 5 && lx >= 6 && lx <= 8 {
-                            px(buffer, lx, ly, glint);
-                        } else if lx <= 6 {
-                            px(buffer, lx, ly, hi);
-                        } else if lx >= 10 || ly >= 10 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
-                    }
-                }
-            }
-            px(buffer, 6, 4, glint);
-            px(buffer, 7, 4, glint);
-            px(buffer, 5, 5, glint);
-            px(buffer, 7, 6, hi);
-            px(buffer, 8, 6, base);
         }
         BlockId::ClayBall => {
-            let outline = pack_color(0.35, 0.38, 0.42);
-            let hi = pack_color(0.78, 0.82, 0.88);
-            let base = pack_color(0.62, 0.65, 0.70);
-            let sh = pack_color(0.48, 0.50, 0.55);
+            let (outline, hi, base, sh) = (pack_color(0.32, 0.34, 0.38), pack_color(0.82, 0.85, 0.90), pack_color(0.66, 0.70, 0.76), pack_color(0.50, 0.53, 0.58));
             for ly in 4..=12 {
                 for lx in 4..=12 {
                     let d2 = (lx as f32 - 8.0).powi(2) + (ly as f32 - 8.0).powi(2);
-                    if d2 <= 16.0 {
-                        let is_border = d2 > 12.0;
-                        if is_border {
-                            px(buffer, lx, ly, outline);
-                        } else if lx <= 6 && ly <= 6 {
-                            px(buffer, lx, ly, hi);
-                        } else if lx >= 10 || ly >= 10 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
+                    if d2 <= 18.0 {
+                        let col = if d2 > 12.0 { outline } else if lx <= 6 && ly <= 6 { hi } else if lx >= 10 || ly >= 10 { sh } else { base };
+                        px!(lx, ly, col);
                     }
                 }
             }
         }
         BlockId::Brick => {
-            let outline = pack_color(0.38, 0.16, 0.10);
-            let hi = pack_color(0.82, 0.45, 0.35);
-            let base = pack_color(0.68, 0.32, 0.24);
-            let sh = pack_color(0.50, 0.22, 0.16);
+            let (outline, hi, base, sh) = (pack_color(0.38, 0.16, 0.10), pack_color(0.82, 0.45, 0.35), pack_color(0.68, 0.32, 0.24), pack_color(0.50, 0.22, 0.16));
             for ly in 5..=11 {
                 for lx in 3..=13 {
-                    let is_border = ly == 5 || ly == 11 || lx == 3 || lx == 13;
-                    if is_border {
-                        px(buffer, lx, ly, outline);
-                    } else if ly == 6 || lx == 4 {
-                        px(buffer, lx, ly, hi);
-                    } else if ly == 10 || lx == 12 {
-                        px(buffer, lx, ly, sh);
-                    } else {
-                        px(buffer, lx, ly, base);
-                    }
+                    let col = if ly == 5 || ly == 11 || lx == 3 || lx == 13 { outline } else if ly == 6 || lx == 4 { hi } else if ly == 10 || lx == 12 { sh } else { base };
+                    px!(lx, ly, col);
                 }
             }
         }
         BlockId::Flint => {
-            let outline = pack_color(0.10, 0.10, 0.12);
-            let hi = pack_color(0.45, 0.45, 0.48);
-            let base = pack_color(0.28, 0.28, 0.30);
-            let sh = pack_color(0.18, 0.18, 0.20);
+            let (outline, hi, base, sh) = (pack_color(0.10, 0.10, 0.12), pack_color(0.45, 0.45, 0.48), pack_color(0.28, 0.28, 0.30), pack_color(0.18, 0.18, 0.20));
             for ly in 3..=13 {
                 for lx in 4..=12 {
                     let in_shape = match ly {
-                        3..=4 => lx >= 7 && lx <= 9,
-                        5..=7 => lx >= 5 && lx <= 10,
-                        8..=10 => lx >= 4 && lx <= 12,
-                        11..=12 => lx >= 5 && lx <= 11,
-                        13 => lx >= 6 && lx <= 9,
+                        3..=4 => (7..=9).contains(&lx),
+                        5..=7 => (5..=10).contains(&lx),
+                        8..=10 => (4..=12).contains(&lx),
+                        11..=12 => (5..=11).contains(&lx),
+                        13 => (6..=9).contains(&lx),
                         _ => false,
                     };
                     if in_shape {
                         let is_border = ly == 3 || ly == 13 || (ly == 5 && (lx == 5 || lx == 10)) || (ly == 8 && (lx == 4 || lx == 12));
-                        if is_border {
-                            px(buffer, lx, ly, outline);
-                        } else if lx <= 6 && ly <= 7 {
-                            px(buffer, lx, ly, hi);
-                        } else if lx >= 10 || ly >= 11 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
+                        let col = if is_border { outline } else if lx <= 6 && ly <= 7 { hi } else if lx >= 10 || ly >= 11 { sh } else { base };
+                        px!(lx, ly, col);
                     }
                 }
             }
         }
         BlockId::Bed => {
-            let wood = pack_color(0.45, 0.28, 0.12);
-            let white = pack_color(0.92, 0.92, 0.94);
-            let red = pack_color(0.80, 0.15, 0.15);
-            let red_sh = pack_color(0.55, 0.10, 0.10);
-            let frame = pack_color(0.30, 0.18, 0.08);
-
-            // Legs
-            px(buffer, 2, 13, frame);
-            px(buffer, 2, 14, frame);
-            px(buffer, 13, 13, frame);
-            px(buffer, 13, 14, frame);
-
-            // Base wood frame
-            for lx in 2..=13 {
-                px(buffer, lx, 11, wood);
-                px(buffer, lx, 12, frame);
-            }
-            // Pillow on left
+            let (wood, white, red, red_sh, frame) = (
+                pack_color(0.45, 0.28, 0.12), pack_color(0.92, 0.92, 0.94),
+                pack_color(0.80, 0.15, 0.15), pack_color(0.55, 0.10, 0.10), pack_color(0.30, 0.18, 0.08),
+            );
+            pts!(frame => (2, 13), (2, 14), (13, 13), (13, 14), (1, 6), (1, 7), (1, 8), (1, 9), (1, 10), (1, 11));
+            for lx in 2..=13 { px!(lx, 11, wood); px!(lx, 12, frame); }
             for ly in 8..=10 {
-                for lx in 2..=5 {
-                    px(buffer, lx, ly, white);
-                }
+                for lx in 2..=5 { px!(lx, ly, white); }
+                for lx in 6..=13 { px!(lx, ly, if ly == 10 { red_sh } else { red }); }
             }
-            // Red blanket on right
-            for ly in 8..=10 {
-                for lx in 6..=13 {
-                    px(buffer, lx, ly, if ly == 10 { red_sh } else { red });
-                }
-            }
-            // Headboard post
-            px(buffer, 1, 6, frame);
-            px(buffer, 1, 7, frame);
-            px(buffer, 1, 8, frame);
-            px(buffer, 1, 9, frame);
-            px(buffer, 1, 10, frame);
-            px(buffer, 1, 11, frame);
         }
         BlockId::Ladder => {
-            let wood_rail = pack_color(0.48, 0.32, 0.16);
-            let rail_hi = pack_color(0.65, 0.45, 0.24);
-            let rung = pack_color(0.58, 0.40, 0.20);
-            let rung_sh = pack_color(0.35, 0.22, 0.10);
-
-            // Rails
+            let (wood_rail, rail_hi, rung, rung_sh) = (
+                pack_color(0.48, 0.32, 0.16), pack_color(0.65, 0.45, 0.24),
+                pack_color(0.58, 0.40, 0.20), pack_color(0.35, 0.22, 0.10),
+            );
             for ly in 1..=14 {
-                px(buffer, 3, ly, rail_hi);
-                px(buffer, 4, ly, wood_rail);
-                px(buffer, 11, ly, rail_hi);
-                px(buffer, 12, ly, wood_rail);
+                pts!(rail_hi => (3, ly), (11, ly));
+                pts!(wood_rail => (4, ly), (12, ly));
             }
-            // Rungs
             for &ry in &[3, 6, 9, 12] {
-                for lx in 5..=10 {
-                    px(buffer, lx, ry, rung);
-                    px(buffer, lx, ry + 1, rung_sh);
-                }
+                for lx in 5..=10 { px!(lx, ry, rung); px!(lx, ry + 1, rung_sh); }
             }
         }
         BlockId::Torch => {
-            let wood_light = pack_color(0.68, 0.48, 0.26);
-            let wood_mid = pack_color(0.52, 0.35, 0.18);
-            let wood_dark = pack_color(0.35, 0.22, 0.10);
-            let coal = pack_color(0.20, 0.18, 0.16);
-            let flame_core = pack_color(1.00, 1.00, 0.88);
-            let flame_gold = pack_color(1.00, 0.80, 0.15);
-            let flame_orange = pack_color(0.98, 0.42, 0.05);
-
-            // Glowing flame tip
-            px(buffer, 7, 1, flame_orange);
-            px(buffer, 8, 1, flame_gold);
-            px(buffer, 6, 2, flame_orange);
-            px(buffer, 7, 2, flame_core);
-            px(buffer, 8, 2, flame_core);
-            px(buffer, 9, 2, flame_gold);
-            px(buffer, 6, 3, flame_gold);
-            px(buffer, 7, 3, flame_core);
-            px(buffer, 8, 3, flame_gold);
-            px(buffer, 9, 3, flame_orange);
-            px(buffer, 7, 4, flame_orange);
-            px(buffer, 8, 4, flame_orange);
-
-            // Coal / wick top
-            px(buffer, 7, 5, coal);
-            px(buffer, 8, 5, coal);
-            px(buffer, 7, 6, coal);
-            px(buffer, 8, 6, wood_dark);
-
-            // Wooden stick body
+            let (wood_light, wood_mid, wood_dark, coal, flame_core, flame_gold, flame_orange) = (
+                pack_color(0.68, 0.48, 0.26), pack_color(0.52, 0.35, 0.18), pack_color(0.35, 0.22, 0.10),
+                pack_color(0.20, 0.18, 0.16), pack_color(1.00, 1.00, 0.88), pack_color(1.00, 0.80, 0.15), pack_color(0.98, 0.42, 0.05),
+            );
+            pts!(flame_orange => (7, 1), (6, 2), (9, 3), (7, 4), (8, 4));
+            pts!(flame_gold => (8, 1), (9, 2), (6, 3), (8, 3));
+            pts!(flame_core => (7, 2), (8, 2), (7, 3));
+            pts!(coal => (7, 5), (8, 5), (7, 6));
+            px!(8, 6, wood_dark);
             for ly in 7..=14 {
-                px(buffer, 7, ly, if ly % 3 == 0 { wood_light } else { wood_mid });
-                px(buffer, 8, ly, wood_dark);
+                px!(7, ly, if ly % 3 == 0 { wood_light } else { wood_mid });
+                px!(8, ly, wood_dark);
             }
         }
         BlockId::RustStone | BlockId::RustStoneWireLit => {
-            let dark = pack_color(0.45, 0.12, 0.06);
-            let base = pack_color(0.82, 0.26, 0.12);
-            let hi = pack_color(1.00, 0.48, 0.18);
-            let ember = pack_color(1.00, 0.82, 0.40);
+            let (dark, base, hi, ember) = (pack_color(0.45, 0.12, 0.06), pack_color(0.82, 0.26, 0.12), pack_color(1.00, 0.48, 0.18), pack_color(1.00, 0.82, 0.40));
             for ly in 4..=12 {
                 for lx in 4..=12 {
                     let dist_sq = (lx as f32 - 7.5).powi(2) + (ly as f32 - 7.5).powi(2);
                     if dist_sq <= 15.0 {
-                        let col = if dist_sq < 3.0 {
-                            ember
-                        } else if (lx + ly) % 3 == 0 {
-                            hi
-                        } else if (lx + ly) % 2 == 0 {
-                            base
-                        } else {
-                            dark
-                        };
-                        px(buffer, lx, ly, col);
+                        let col = if dist_sq < 3.0 { ember } else if (lx + ly) % 3 == 0 { hi } else if (lx + ly) % 2 == 0 { base } else { dark };
+                        px!(lx, ly, col);
                     }
                 }
             }
         }
         BlockId::Lever | BlockId::LeverOn => {
-            let stone_base = pack_color(0.55, 0.55, 0.58);
-            let stone_sh = pack_color(0.35, 0.35, 0.38);
-            let wood_shaft = pack_color(0.55, 0.35, 0.15);
-            let tip = pack_color(0.80, 0.25, 0.15);
+            let (stone_base, stone_sh, wood_shaft, tip) = (pack_color(0.55, 0.55, 0.58), pack_color(0.35, 0.35, 0.38), pack_color(0.55, 0.35, 0.15), pack_color(0.80, 0.25, 0.15));
             for ly in 11..=14 {
-                for lx in 4..=11 {
-                    px(buffer, lx, ly, if ly == 14 { stone_sh } else { stone_base });
-                }
+                for lx in 4..=11 { px!(lx, ly, if ly == 14 { stone_sh } else { stone_base }); }
             }
             let is_on = block == BlockId::LeverOn;
             for i in 0..7 {
-                let lx = if is_on { 9 - i / 2 } else { 6 + i / 2 };
-                let ly = 10 - i;
-                px(buffer, lx, ly, if i >= 5 { tip } else { wood_shaft });
+                px!(if is_on { 9 - i / 2 } else { 6 + i / 2 }, 10 - i, if i >= 5 { tip } else { wood_shaft });
             }
         }
         BlockId::Button | BlockId::ButtonPressed => {
-            let hi = pack_color(0.75, 0.75, 0.78);
-            let base = pack_color(0.58, 0.58, 0.60);
-            let sh = pack_color(0.38, 0.38, 0.40);
+            let (hi, base, sh) = (pack_color(0.75, 0.75, 0.78), pack_color(0.58, 0.58, 0.60), pack_color(0.38, 0.38, 0.40));
             for ly in 6..=10 {
                 for lx in 4..=11 {
-                    let col = if lx == 4 || ly == 6 { hi } else if lx == 11 || ly == 10 { sh } else { base };
-                    px(buffer, lx, ly, col);
+                    px!(lx, ly, if lx == 4 || ly == 6 { hi } else if lx == 11 || ly == 10 { sh } else { base });
                 }
             }
         }
         BlockId::PressurePlate | BlockId::PressurePlatePressed => {
-            let border = pack_color(0.40, 0.40, 0.42);
-            let base = pack_color(0.60, 0.60, 0.62);
-            let hi = pack_color(0.75, 0.75, 0.78);
+            let (border, base, hi) = (pack_color(0.40, 0.40, 0.42), pack_color(0.60, 0.60, 0.62), pack_color(0.75, 0.75, 0.78));
             for ly in 10..=13 {
                 for lx in 2..=13 {
-                    let col = if ly == 10 { hi } else if ly == 13 || lx == 2 || lx == 13 { border } else { base };
-                    px(buffer, lx, ly, col);
+                    px!(lx, ly, if ly == 10 { hi } else if ly == 13 || lx == 2 || lx == 13 { border } else { base });
                 }
             }
         }
@@ -2592,7 +1623,6 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
             let top_highlight = pack_color((color[0] * 1.25).min(1.0), (color[1] * 1.25).min(1.0), (color[2] * 1.25).min(1.0));
             let shadow = pack_color(color[0] * 0.65, color[1] * 0.65, color[2] * 0.65);
             let dark_border = pack_color(color[0] * 0.40, color[1] * 0.40, color[2] * 0.40);
-
             let half_h = size / 2;
             let start_y = y + half_h;
             fill_rect(buffer, buf_w, buf_h, x, start_y, size, half_h, packed);
@@ -2609,15 +1639,12 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
             let top_highlight = pack_color((color[0] * 1.25).min(1.0), (color[1] * 1.25).min(1.0), (color[2] * 1.25).min(1.0));
             let shadow = pack_color(color[0] * 0.65, color[1] * 0.65, color[2] * 0.65);
             let dark_border = pack_color(color[0] * 0.40, color[1] * 0.40, color[2] * 0.40);
-
             let half = size / 2;
             fill_rect(buffer, buf_w, buf_h, x, y + half, size, half, packed);
             fill_rect(buffer, buf_w, buf_h, x, y, half, half, packed);
-
             fill_rect(buffer, buf_w, buf_h, x, y, half, 2, top_highlight);
             fill_rect(buffer, buf_w, buf_h, x, y, 2, size, top_highlight);
             fill_rect(buffer, buf_w, buf_h, x + half, y + half, half, 2, top_highlight);
-
             fill_rect(buffer, buf_w, buf_h, x + half - 2, y, 2, half, shadow);
             fill_rect(buffer, buf_w, buf_h, x + size - 2, y + half, 2, half, shadow);
             fill_rect(buffer, buf_w, buf_h, x, y + size - 1, size, 1, dark_border);
@@ -2625,558 +1652,258 @@ pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: Blo
         }
         BlockId::FishingRod => {
             for i in 2..=13 {
-                px(buffer, i, 15 - i, wood_mid);
-                px(buffer, i - 1, 15 - i, wood_light);
+                px!(i, 15 - i, wood_mid);
+                px!(i - 1, 15 - i, wood_light);
             }
             let string_col = pack_color(0.88, 0.88, 0.90);
-            for y in 3..=11 {
-                px(buffer, 13, y, string_col);
-            }
-            px(buffer, 13, 12, pack_color(0.90, 0.15, 0.15));
-            px(buffer, 12, 13, pack_color(0.70, 0.70, 0.75));
-            px(buffer, 13, 13, pack_color(0.95, 0.95, 0.95));
+            for y in 3..=11 { px!(13, y, string_col); }
+            px!(13, 12, pack_color(0.90, 0.15, 0.15));
+            px!(12, 13, pack_color(0.70, 0.70, 0.75));
+            px!(13, 13, pack_color(0.95, 0.95, 0.95));
         }
         BlockId::RawCod | BlockId::CookedCod => {
             let is_cooked = block == BlockId::CookedCod;
-            let outline = if is_cooked { pack_color(0.35, 0.25, 0.12) } else { pack_color(0.30, 0.28, 0.24) };
-            let base = if is_cooked { pack_color(0.78, 0.60, 0.36) } else { pack_color(0.68, 0.62, 0.54) };
-            let belly = if is_cooked { pack_color(0.92, 0.78, 0.52) } else { pack_color(0.85, 0.82, 0.76) };
-            let fin = if is_cooked { pack_color(0.60, 0.42, 0.22) } else { pack_color(0.52, 0.46, 0.38) };
-            let eye = pack_color(0.12, 0.12, 0.12);
-
-            px(buffer, 2, 6, fin);
-            px(buffer, 2, 7, outline);
-            px(buffer, 2, 8, fin);
-            px(buffer, 3, 7, outline);
-
+            let (outline, base, belly, fin, eye) = if is_cooked {
+                (pack_color(0.35, 0.25, 0.12), pack_color(0.78, 0.60, 0.36), pack_color(0.92, 0.78, 0.52), pack_color(0.60, 0.42, 0.22), pack_color(0.12, 0.12, 0.12))
+            } else {
+                (pack_color(0.30, 0.28, 0.24), pack_color(0.68, 0.62, 0.54), pack_color(0.85, 0.82, 0.76), pack_color(0.52, 0.46, 0.38), pack_color(0.12, 0.12, 0.12))
+            };
+            pts!(fin => (2, 6), (2, 8));
+            pts!(outline => (2, 7), (3, 7), (13, 7));
             for lx in 4..=11 {
                 for ly in 6..=8 {
-                    let col = if lx >= 10 && ly == 7 { eye } else if ly == 8 { belly } else if ly == 6 { fin } else { base };
-                    px(buffer, lx, ly, col);
+                    px!(lx, ly, if lx >= 10 && ly == 7 { eye } else if ly == 8 { belly } else if ly == 6 { fin } else { base });
                 }
             }
-            for lx in 3..=12 {
-                px(buffer, lx, 5, outline);
-                px(buffer, lx, 9, outline);
-            }
-            px(buffer, 13, 7, outline);
+            for lx in 3..=12 { pts!(outline => (lx, 5), (lx, 9)); }
         }
         BlockId::RawSalmon | BlockId::CookedSalmon => {
             let is_cooked = block == BlockId::CookedSalmon;
-            let outline = if is_cooked { pack_color(0.38, 0.15, 0.08) } else { pack_color(0.38, 0.18, 0.16) };
-            let base = if is_cooked { pack_color(0.85, 0.45, 0.22) } else { pack_color(0.82, 0.32, 0.28) };
-            let belly = if is_cooked { pack_color(0.95, 0.65, 0.40) } else { pack_color(0.92, 0.55, 0.48) };
-            let fin = if is_cooked { pack_color(0.65, 0.30, 0.12) } else { pack_color(0.55, 0.20, 0.18) };
-            let eye = pack_color(0.12, 0.12, 0.12);
-
-            px(buffer, 2, 5, fin);
-            px(buffer, 2, 6, outline);
-            px(buffer, 2, 7, fin);
-            px(buffer, 3, 6, outline);
-
+            let (outline, base, belly, fin, eye) = if is_cooked {
+                (pack_color(0.38, 0.15, 0.08), pack_color(0.85, 0.45, 0.22), pack_color(0.95, 0.65, 0.40), pack_color(0.65, 0.30, 0.12), pack_color(0.12, 0.12, 0.12))
+            } else {
+                (pack_color(0.38, 0.18, 0.16), pack_color(0.82, 0.32, 0.28), pack_color(0.92, 0.55, 0.48), pack_color(0.55, 0.20, 0.18), pack_color(0.12, 0.12, 0.12))
+            };
+            pts!(fin => (2, 5), (2, 7));
+            pts!(outline => (2, 6), (3, 6), (14, 6), (14, 7));
             for lx in 4..=12 {
                 for ly in 5..=8 {
-                    let col = if lx >= 11 && ly == 6 { eye } else if ly >= 7 { belly } else if ly == 5 { fin } else { base };
-                    px(buffer, lx, ly, col);
+                    px!(lx, ly, if lx >= 11 && ly == 6 { eye } else if ly >= 7 { belly } else if ly == 5 { fin } else { base });
                 }
             }
-            for lx in 3..=13 {
-                px(buffer, lx, 4, outline);
-                px(buffer, lx, 9, outline);
-            }
-            px(buffer, 14, 6, outline);
-            px(buffer, 14, 7, outline);
+            for lx in 3..=13 { pts!(outline => (lx, 4), (lx, 9)); }
         }
         BlockId::Pufferfish => {
-            let outline = pack_color(0.40, 0.32, 0.08);
-            let base = pack_color(0.92, 0.78, 0.22);
-            let belly = pack_color(0.96, 0.92, 0.65);
-            let spike = pack_color(0.72, 0.58, 0.15);
-            let eye = pack_color(0.15, 0.25, 0.45);
-
-            px(buffer, 4, 3, spike);
-            px(buffer, 8, 2, spike);
-            px(buffer, 11, 3, spike);
-            px(buffer, 2, 8, spike);
-            px(buffer, 13, 8, spike);
-            px(buffer, 4, 12, spike);
-            px(buffer, 8, 13, spike);
-            px(buffer, 11, 12, spike);
-
+            let (outline, base, belly, spike, eye) = (
+                pack_color(0.40, 0.32, 0.08), pack_color(0.92, 0.78, 0.22),
+                pack_color(0.96, 0.92, 0.65), pack_color(0.72, 0.58, 0.15), pack_color(0.15, 0.25, 0.45),
+            );
+            pts!(spike => (4, 3), (8, 2), (11, 3), (2, 8), (13, 8), (4, 12), (8, 13), (11, 12));
             for ly in 4..=11 {
                 for lx in 4..=11 {
-                    let in_circle = (lx - 7) * (lx - 7) + (ly - 7) * (ly - 7) <= 16;
-                    if in_circle {
-                        let is_border = (lx - 7) * (lx - 7) + (ly - 7) * (ly - 7) >= 12;
-                        if is_border {
-                            px(buffer, lx, ly, outline);
-                        } else if lx == 9 && ly == 6 {
-                            px(buffer, lx, ly, eye);
-                        } else if ly >= 8 {
-                            px(buffer, lx, ly, belly);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
+                    let d2 = (lx - 7) * (lx - 7) + (ly - 7) * (ly - 7);
+                    if d2 <= 16 {
+                        px!(lx, ly, if d2 >= 12 { outline } else if lx == 9 && ly == 6 { eye } else if ly >= 8 { belly } else { base });
                     }
                 }
             }
         }
         BlockId::TropicalFish => {
-            let outline = pack_color(0.45, 0.18, 0.05);
-            let orange = pack_color(0.95, 0.48, 0.12);
-            let white = pack_color(0.96, 0.96, 0.98);
-            let fin = pack_color(0.18, 0.72, 0.85);
-            let eye = pack_color(0.10, 0.10, 0.12);
-
-            px(buffer, 2, 6, fin);
-            px(buffer, 2, 7, fin);
-            px(buffer, 2, 8, fin);
-            px(buffer, 3, 7, outline);
-
+            let (outline, orange, white, fin, eye) = (
+                pack_color(0.45, 0.18, 0.05), pack_color(0.95, 0.48, 0.12),
+                pack_color(0.96, 0.96, 0.98), pack_color(0.18, 0.72, 0.85), pack_color(0.10, 0.10, 0.12),
+            );
+            pts!(fin => (2, 6), (2, 7), (2, 8), (7, 5), (8, 5));
+            pts!(outline => (3, 7), (13, 7));
             for lx in 4..=12 {
                 for ly in 6..=8 {
-                    let is_white_stripe = lx == 6 || lx == 7 || lx == 10;
-                    let col = if lx == 11 && ly == 6 {
-                        eye
-                    } else if is_white_stripe {
-                        white
-                    } else {
-                        orange
-                    };
-                    px(buffer, lx, ly, col);
+                    let col = if lx == 11 && ly == 6 { eye } else if lx == 6 || lx == 7 || lx == 10 { white } else { orange };
+                    px!(lx, ly, col);
                 }
             }
-            px(buffer, 7, 5, fin);
-            px(buffer, 8, 5, fin);
-
-            for lx in 3..=12 {
-                px(buffer, lx, 5, outline);
-                px(buffer, lx, 9, outline);
-            }
-            px(buffer, 13, 7, outline);
+            for lx in 3..=12 { pts!(outline => (lx, 5), (lx, 9)); }
         }
         BlockId::DriedKelp => {
-            let dark = pack_color(0.12, 0.22, 0.10);
-            let mid = pack_color(0.20, 0.38, 0.16);
-            let hi = pack_color(0.28, 0.52, 0.22);
-            let tie = pack_color(0.68, 0.55, 0.30);
-
+            let (dark, mid, hi, tie) = (pack_color(0.12, 0.22, 0.10), pack_color(0.20, 0.38, 0.16), pack_color(0.28, 0.52, 0.22), pack_color(0.68, 0.55, 0.30));
             for ly in 4..=11 {
                 for lx in 4..=11 {
-                    let is_tie = ly == 7 || ly == 8;
-                    let col = if is_tie {
-                        tie
-                    } else if lx == 4 || lx == 11 || ly == 4 || ly == 11 {
-                        dark
-                    } else if (lx + ly) % 2 == 0 {
-                        hi
-                    } else {
-                        mid
-                    };
-                    px(buffer, lx, ly, col);
+                    let col = if ly == 7 || ly == 8 { tie } else if lx == 4 || lx == 11 || ly == 4 || ly == 11 { dark } else if (lx + ly) % 2 == 0 { hi } else { mid };
+                    px!(lx, ly, col);
                 }
             }
         }
         BlockId::Kelp => {
-            let stalk = pack_color(0.16, 0.32, 0.14);
-            let leaf = pack_color(0.24, 0.54, 0.20);
-            let hi = pack_color(0.35, 0.70, 0.28);
+            let (stalk, leaf, hi) = (pack_color(0.16, 0.32, 0.14), pack_color(0.24, 0.54, 0.20), pack_color(0.35, 0.70, 0.28));
             for y in 2..=14 {
-                px(buffer, 7, y, stalk);
-                px(buffer, 8, y, stalk);
-                if y % 3 == 0 {
-                    px(buffer, 5, y, leaf);
-                    px(buffer, 6, y, hi);
-                } else if y % 3 == 1 {
-                    px(buffer, 9, y, hi);
-                    px(buffer, 10, y, leaf);
-                }
+                pts!(stalk => (7, y), (8, y));
+                if y % 3 == 0 { px!(5, y, leaf); px!(6, y, hi); }
+                else if y % 3 == 1 { px!(9, y, hi); px!(10, y, leaf); }
             }
         }
         BlockId::Seagrass => {
-            let leaf1 = pack_color(0.22, 0.58, 0.24);
-            let leaf2 = pack_color(0.30, 0.68, 0.32);
-            let dark = pack_color(0.15, 0.40, 0.18);
+            let (leaf1, leaf2, dark) = (pack_color(0.22, 0.58, 0.24), pack_color(0.30, 0.68, 0.32), pack_color(0.15, 0.40, 0.18));
             for y in 5..=14 {
                 let x1 = 5 + ((14 - y) / 3);
-                px(buffer, x1, y, leaf1);
-                px(buffer, x1 + 1, y, dark);
+                px!(x1, y, leaf1); px!(x1 + 1, y, dark);
             }
             for y in 3..=14 {
                 let x2 = 9 + ((14 - y) % 2);
-                px(buffer, x2, y, leaf2);
-                px(buffer, x2 + 1, y, dark);
+                px!(x2, y, leaf2); px!(x2 + 1, y, dark);
             }
         }
         BlockId::Leather => {
-            let outline = pack_color(0.26, 0.14, 0.06);
-            let base = pack_color(0.62, 0.36, 0.16);
-            let hi = pack_color(0.76, 0.48, 0.24);
-            let sh = pack_color(0.44, 0.22, 0.08);
-
-            // Tanned animal hide shape
+            let (outline, base, hi, sh) = (pack_color(0.26, 0.14, 0.06), pack_color(0.62, 0.36, 0.16), pack_color(0.76, 0.48, 0.24), pack_color(0.44, 0.22, 0.08));
             for ly in 3..=13 {
                 for lx in 3..=13 {
                     let in_hide = match ly {
-                        3 => lx >= 6 && lx <= 10,
-                        4 => lx >= 4 && lx <= 12,
-                        5 | 6 => lx >= 3 && lx <= 13 && lx != 8,
-                        7..=9 => lx >= 4 && lx <= 12,
-                        10 | 11 => lx >= 3 && lx <= 13,
-                        12 => lx >= 4 && lx <= 12 && lx != 8,
-                        13 => (lx >= 4 && lx <= 6) || (lx >= 10 && lx <= 12),
+                        3 => (6..=10).contains(&lx),
+                        4 | 7..=9 => (4..=12).contains(&lx),
+                        5 | 6 => (3..=13).contains(&lx) && lx != 8,
+                        10 | 11 => (3..=13).contains(&lx),
+                        12 => (4..=12).contains(&lx) && lx != 8,
+                        13 => (4..=6).contains(&lx) || (10..=12).contains(&lx),
                         _ => false,
                     };
                     if in_hide {
-                        let is_edge = lx == 3 || lx == 13 || ly == 3 || ly == 13;
-                        if is_edge {
-                            px(buffer, lx, ly, outline);
-                        } else if lx <= 6 && ly <= 7 {
-                            px(buffer, lx, ly, hi);
-                        } else if lx >= 10 || ly >= 11 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
+                        let col = if lx == 3 || lx == 13 || ly == 3 || ly == 13 { outline } else if lx <= 6 && ly <= 7 { hi } else if lx >= 10 || ly >= 11 { sh } else { base };
+                        px!(lx, ly, col);
                     }
                 }
             }
         }
         BlockId::LeatherHelmet | BlockId::IronHelmet | BlockId::GoldHelmet | BlockId::DiamondHelmet => {
-            let (glint, hi, base, sh, outline) = match block {
-                BlockId::LeatherHelmet => (
-                    pack_color(0.76, 0.50, 0.28),
-                    pack_color(0.65, 0.40, 0.20),
-                    pack_color(0.52, 0.30, 0.14),
-                    pack_color(0.36, 0.18, 0.06),
-                    pack_color(0.22, 0.10, 0.04),
-                ),
-                BlockId::IronHelmet => (
-                    pack_color(1.0, 1.0, 1.0),
-                    pack_color(0.95, 0.96, 0.98),
-                    pack_color(0.80, 0.82, 0.86),
-                    pack_color(0.52, 0.55, 0.60),
-                    pack_color(0.24, 0.25, 0.28),
-                ),
-                BlockId::GoldHelmet => (
-                    pack_color(1.0, 1.0, 0.7),
-                    pack_color(1.00, 0.95, 0.45),
-                    pack_color(0.92, 0.78, 0.18),
-                    pack_color(0.68, 0.52, 0.08),
-                    pack_color(0.38, 0.28, 0.04),
-                ),
-                _ => (
-                    pack_color(0.88, 1.0, 1.0),
-                    pack_color(0.65, 0.98, 0.98),
-                    pack_color(0.25, 0.82, 0.85),
-                    pack_color(0.12, 0.52, 0.56),
-                    pack_color(0.06, 0.30, 0.34),
-                ),
-            };
-
+            let (glint, hi, base, sh, outline) = get_armor_colors(block);
             for ly in 3..=12 {
                 for lx in 3..=12 {
                     let in_helm = match ly {
-                        3 => lx >= 6 && lx <= 9,
-                        4 => lx >= 4 && lx <= 11,
-                        5..=8 => lx >= 3 && lx <= 12,
-                        9..=11 => (lx >= 3 && lx <= 5) || (lx >= 10 && lx <= 12) || (lx >= 7 && lx <= 8 && ly == 9),
-                        12 => (lx >= 3 && lx <= 5) || (lx >= 10 && lx <= 12),
+                        3 => (6..=9).contains(&lx),
+                        4 => (4..=11).contains(&lx),
+                        5..=8 => (3..=12).contains(&lx),
+                        9..=11 => (3..=5).contains(&lx) || (10..=12).contains(&lx) || ((7..=8).contains(&lx) && ly == 9),
+                        12 => (3..=5).contains(&lx) || (10..=12).contains(&lx),
                         _ => false,
                     };
                     if in_helm {
-                        let is_rim = ly == 3 || (ly == 4 && (lx == 4 || lx == 11)) || (lx == 3 || lx == 12) || ly == 12 || (ly == 8 && lx >= 6 && lx <= 9);
-                        if is_rim {
-                            px(buffer, lx, ly, outline);
-                        } else if lx <= 5 && ly <= 6 {
-                            px(buffer, lx, ly, if lx == 4 && ly == 4 { glint } else { hi });
-                        } else if lx >= 9 || ly >= 10 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
+                        let is_rim = ly == 3 || (ly == 4 && (lx == 4 || lx == 11)) || lx == 3 || lx == 12 || ly == 12 || (ly == 8 && (6..=9).contains(&lx));
+                        let col = if is_rim { outline } else if lx <= 5 && ly <= 6 { if lx == 4 && ly == 4 { glint } else { hi } } else if lx >= 9 || ly >= 10 { sh } else { base };
+                        px!(lx, ly, col);
                     }
                 }
             }
         }
         BlockId::LeatherChestplate | BlockId::IronChestplate | BlockId::GoldChestplate | BlockId::DiamondChestplate => {
-            let (glint, hi, base, sh, outline) = match block {
-                BlockId::LeatherChestplate => (
-                    pack_color(0.76, 0.50, 0.28),
-                    pack_color(0.65, 0.40, 0.20),
-                    pack_color(0.52, 0.30, 0.14),
-                    pack_color(0.36, 0.18, 0.06),
-                    pack_color(0.22, 0.10, 0.04),
-                ),
-                BlockId::IronChestplate => (
-                    pack_color(1.0, 1.0, 1.0),
-                    pack_color(0.95, 0.96, 0.98),
-                    pack_color(0.80, 0.82, 0.86),
-                    pack_color(0.52, 0.55, 0.60),
-                    pack_color(0.24, 0.25, 0.28),
-                ),
-                BlockId::GoldChestplate => (
-                    pack_color(1.0, 1.0, 0.7),
-                    pack_color(1.00, 0.95, 0.45),
-                    pack_color(0.92, 0.78, 0.18),
-                    pack_color(0.68, 0.52, 0.08),
-                    pack_color(0.38, 0.28, 0.04),
-                ),
-                _ => (
-                    pack_color(0.88, 1.0, 1.0),
-                    pack_color(0.65, 0.98, 0.98),
-                    pack_color(0.25, 0.82, 0.85),
-                    pack_color(0.12, 0.52, 0.56),
-                    pack_color(0.06, 0.30, 0.34),
-                ),
-            };
-
+            let (glint, hi, base, sh, outline) = get_armor_colors(block);
             for ly in 2..=14 {
                 for lx in 2..=13 {
                     let in_chest = match ly {
-                        2 => (lx >= 3 && lx <= 5) || (lx >= 10 && lx <= 12),
-                        3..=4 => (lx >= 2 && lx <= 5) || (lx >= 10 && lx <= 13),
-                        5..=10 => lx >= 2 && lx <= 13,
-                        11..=13 => lx >= 4 && lx <= 11,
-                        14 => lx >= 5 && lx <= 10,
+                        2 => (3..=5).contains(&lx) || (10..=12).contains(&lx),
+                        3..=4 => (2..=5).contains(&lx) || (10..=13).contains(&lx),
+                        5..=10 => (2..=13).contains(&lx),
+                        11..=13 => (4..=11).contains(&lx),
+                        14 => (5..=10).contains(&lx),
                         _ => false,
                     };
                     if in_chest {
                         let is_rim = ly == 2 || ly == 14 || lx == 2 || lx == 13 || (ly >= 11 && (lx == 4 || lx == 11)) || (ly <= 4 && (lx == 5 || lx == 10));
-                        if is_rim {
-                            px(buffer, lx, ly, outline);
-                        } else if lx <= 6 && ly <= 6 {
-                            px(buffer, lx, ly, if lx <= 4 && ly <= 3 { glint } else { hi });
-                        } else if lx >= 9 || ly >= 10 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
+                        let col = if is_rim { outline } else if lx <= 6 && ly <= 6 { if lx <= 4 && ly <= 3 { glint } else { hi } } else if lx >= 9 || ly >= 10 { sh } else { base };
+                        px!(lx, ly, col);
                     }
                 }
             }
         }
         BlockId::LeatherLeggings | BlockId::IronLeggings | BlockId::GoldLeggings | BlockId::DiamondLeggings => {
-            let (glint, hi, base, sh, outline) = match block {
-                BlockId::LeatherLeggings => (
-                    pack_color(0.76, 0.50, 0.28),
-                    pack_color(0.65, 0.40, 0.20),
-                    pack_color(0.52, 0.30, 0.14),
-                    pack_color(0.36, 0.18, 0.06),
-                    pack_color(0.22, 0.10, 0.04),
-                ),
-                BlockId::IronLeggings => (
-                    pack_color(1.0, 1.0, 1.0),
-                    pack_color(0.95, 0.96, 0.98),
-                    pack_color(0.80, 0.82, 0.86),
-                    pack_color(0.52, 0.55, 0.60),
-                    pack_color(0.24, 0.25, 0.28),
-                ),
-                BlockId::GoldLeggings => (
-                    pack_color(1.0, 1.0, 0.7),
-                    pack_color(1.00, 0.95, 0.45),
-                    pack_color(0.92, 0.78, 0.18),
-                    pack_color(0.68, 0.52, 0.08),
-                    pack_color(0.38, 0.28, 0.04),
-                ),
-                _ => (
-                    pack_color(0.88, 1.0, 1.0),
-                    pack_color(0.65, 0.98, 0.98),
-                    pack_color(0.25, 0.82, 0.85),
-                    pack_color(0.12, 0.52, 0.56),
-                    pack_color(0.06, 0.30, 0.34),
-                ),
-            };
-
+            let (glint, hi, base, sh, outline) = get_armor_colors(block);
             for ly in 2..=14 {
                 for lx in 3..=12 {
                     let in_legs = match ly {
-                        2..=5 => lx >= 3 && lx <= 12,
-                        6..=14 => (lx >= 3 && lx <= 6) || (lx >= 9 && lx <= 12),
+                        2..=5 => (3..=12).contains(&lx),
+                        6..=14 => (3..=6).contains(&lx) || (9..=12).contains(&lx),
                         _ => false,
                     };
                     if in_legs {
-                        let is_rim = ly == 2 || ly == 14 || lx == 3 || lx == 12 || (ly >= 6 && (lx == 6 || lx == 9)) || (ly == 5 && lx >= 7 && lx <= 8);
-                        if is_rim {
-                            px(buffer, lx, ly, outline);
-                        } else if lx <= 5 && ly <= 5 {
-                            px(buffer, lx, ly, if lx == 4 && ly == 3 { glint } else { hi });
-                        } else if lx >= 10 || ly >= 10 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
+                        let is_rim = ly == 2 || ly == 14 || lx == 3 || lx == 12 || (ly >= 6 && (lx == 6 || lx == 9)) || (ly == 5 && (7..=8).contains(&lx));
+                        let col = if is_rim { outline } else if lx <= 5 && ly <= 5 { if lx == 4 && ly == 3 { glint } else { hi } } else if lx >= 10 || ly >= 10 { sh } else { base };
+                        px!(lx, ly, col);
                     }
                 }
             }
         }
         BlockId::LeatherBoots | BlockId::IronBoots | BlockId::GoldBoots | BlockId::DiamondBoots => {
-            let (glint, hi, base, sh, outline) = match block {
-                BlockId::LeatherBoots => (
-                    pack_color(0.76, 0.50, 0.28),
-                    pack_color(0.65, 0.40, 0.20),
-                    pack_color(0.52, 0.30, 0.14),
-                    pack_color(0.36, 0.18, 0.06),
-                    pack_color(0.22, 0.10, 0.04),
-                ),
-                BlockId::IronBoots => (
-                    pack_color(1.0, 1.0, 1.0),
-                    pack_color(0.95, 0.96, 0.98),
-                    pack_color(0.80, 0.82, 0.86),
-                    pack_color(0.52, 0.55, 0.60),
-                    pack_color(0.24, 0.25, 0.28),
-                ),
-                BlockId::GoldBoots => (
-                    pack_color(1.0, 1.0, 0.7),
-                    pack_color(1.00, 0.95, 0.45),
-                    pack_color(0.92, 0.78, 0.18),
-                    pack_color(0.68, 0.52, 0.08),
-                    pack_color(0.38, 0.28, 0.04),
-                ),
-                _ => (
-                    pack_color(0.88, 1.0, 1.0),
-                    pack_color(0.65, 0.98, 0.98),
-                    pack_color(0.25, 0.82, 0.85),
-                    pack_color(0.12, 0.52, 0.56),
-                    pack_color(0.06, 0.30, 0.34),
-                ),
-            };
-
+            let (glint, hi, base, sh, outline) = get_armor_colors(block);
             for ly in 6..=14 {
-                // Left boot
                 for lx in 2..=6 {
-                    let in_boot = match ly {
-                        6..=9 => lx >= 3 && lx <= 6,
-                        10..=13 => lx >= 2 && lx <= 6,
-                        14 => lx >= 2 && lx <= 6,
-                        _ => false,
-                    };
-                    if in_boot {
+                    if ly >= 10 || lx >= 3 {
                         let is_rim = ly == 6 || ly == 14 || lx == 2 || lx == 6 || (ly <= 9 && lx == 3);
-                        if is_rim {
-                            px(buffer, lx, ly, outline);
-                        } else if lx <= 4 && ly <= 8 {
-                            px(buffer, lx, ly, if lx == 3 && ly == 7 { glint } else { hi });
-                        } else if lx >= 5 || ly >= 12 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
+                        let col = if is_rim { outline } else if lx <= 4 && ly <= 8 { if lx == 3 && ly == 7 { glint } else { hi } } else if lx >= 5 || ly >= 12 { sh } else { base };
+                        px!(lx, ly, col);
                     }
                 }
-                // Right boot
                 for lx in 9..=13 {
-                    let in_boot = match ly {
-                        6..=9 => lx >= 9 && lx <= 12,
-                        10..=13 => lx >= 9 && lx <= 13,
-                        14 => lx >= 9 && lx <= 13,
-                        _ => false,
-                    };
-                    if in_boot {
+                    if ly >= 10 || lx <= 12 {
                         let is_rim = ly == 6 || ly == 14 || lx == 9 || lx == 13 || (ly <= 9 && lx == 12);
-                        if is_rim {
-                            px(buffer, lx, ly, outline);
-                        } else if lx <= 10 && ly <= 8 {
-                            px(buffer, lx, ly, hi);
-                        } else if lx >= 12 || ly >= 12 {
-                            px(buffer, lx, ly, sh);
-                        } else {
-                            px(buffer, lx, ly, base);
-                        }
+                        let col = if is_rim { outline } else if lx <= 10 && ly <= 8 { hi } else if lx >= 12 || ly >= 12 { sh } else { base };
+                        px!(lx, ly, col);
                     }
                 }
             }
         }
         BlockId::Bow => {
-            let stave = wood_mid;
-            let stave_hi = wood_light;
-            let stave_sh = wood_dark;
             let string = pack_color(0.92, 0.92, 0.94);
-
-            let stave_pts = [
-                (13, 2), (12, 2), (11, 3), (9, 4), (7, 6), (6, 7), (4, 9), (3, 11), (2, 12), (2, 13)
-            ];
-            for &(sx, sy) in &stave_pts {
-                px(buffer, sx, sy, stave);
-                px(buffer, sx - 1, sy, stave_hi);
-                px(buffer, sx, sy + 1, stave_sh);
+            for &(sx, sy) in &[(13, 2), (12, 2), (11, 3), (9, 4), (7, 6), (6, 7), (4, 9), (3, 11), (2, 12), (2, 13)] {
+                px!(sx, sy, wood_mid);
+                px!(sx - 1, sy, wood_light);
+                px!(sx, sy + 1, wood_dark);
             }
-            for i in 2..=13 {
-                px(buffer, i, i, string);
-            }
+            for i in 2..=13 { px!(i, i, string); }
         }
         BlockId::Arrow => {
-            let flint = pack_color(0.40, 0.40, 0.44);
-            let flint_hi = pack_color(0.65, 0.65, 0.70);
-            let shaft = wood_mid;
-            let feather = pack_color(0.95, 0.95, 0.98);
-            let feather_sh = pack_color(0.70, 0.70, 0.75);
-
-            px(buffer, 14, 1, flint_hi);
-            px(buffer, 13, 2, flint);
-            px(buffer, 14, 2, flint);
-            px(buffer, 13, 1, flint_hi);
-            px(buffer, 12, 3, flint);
-            px(buffer, 13, 3, flint);
-
-            for i in 4..=11 {
-                px(buffer, 15 - i, i, shaft);
-            }
-
-            px(buffer, 3, 12, feather);
-            px(buffer, 2, 13, feather);
-            px(buffer, 4, 13, feather_sh);
-            px(buffer, 2, 11, feather);
-            px(buffer, 1, 12, feather_sh);
-            px(buffer, 1, 14, feather);
+            let (flint, flint_hi, feather, feather_sh) = (
+                pack_color(0.40, 0.40, 0.44), pack_color(0.65, 0.65, 0.70),
+                pack_color(0.95, 0.95, 0.98), pack_color(0.70, 0.70, 0.75),
+            );
+            pts!(flint_hi => (14, 1), (13, 1));
+            pts!(flint => (13, 2), (14, 2), (12, 3), (13, 3));
+            for i in 4..=11 { px!(15 - i, i, wood_mid); }
+            pts!(feather => (3, 12), (2, 13), (2, 11), (1, 14));
+            pts!(feather_sh => (4, 13), (1, 12));
         }
         BlockId::Shield => {
-            let iron_rim = pack_color(0.78, 0.80, 0.84);
-            let iron_hi = pack_color(0.95, 0.95, 0.98);
-            let iron_sh = pack_color(0.42, 0.44, 0.48);
-            let plank_light = pack_color(0.68, 0.48, 0.28);
-            let plank_dark = pack_color(0.48, 0.32, 0.16);
-
+            let (iron_rim, iron_hi, iron_sh, plank_light, plank_dark) = (
+                pack_color(0.78, 0.80, 0.84), pack_color(0.95, 0.95, 0.98), pack_color(0.42, 0.44, 0.48),
+                pack_color(0.68, 0.48, 0.28), pack_color(0.48, 0.32, 0.16),
+            );
             for ly in 2..=14 {
                 for lx in 3..=12 {
                     let in_shield = match ly {
-                        2 => lx >= 4 && lx <= 11,
-                        3..=9 => lx >= 3 && lx <= 12,
-                        10..=11 => lx >= 4 && lx <= 11,
-                        12..=13 => lx >= 5 && lx <= 10,
-                        14 => lx >= 6 && lx <= 9,
+                        2 | 10..=11 => (4..=11).contains(&lx),
+                        3..=9 => (3..=12).contains(&lx),
+                        12..=13 => (5..=10).contains(&lx),
+                        14 => (6..=9).contains(&lx),
                         _ => false,
                     };
                     if in_shield {
                         let is_rim = ly == 2 || ly == 14 || lx == 3 || lx == 12 || (ly >= 10 && (lx == 4 || lx == 11)) || (ly >= 12 && (lx == 5 || lx == 10));
-                        if is_rim {
-                            if lx <= 5 || ly <= 3 {
-                                px(buffer, lx, ly, iron_hi);
-                            } else if lx >= 10 || ly >= 12 {
-                                px(buffer, lx, ly, iron_sh);
-                            } else {
-                                px(buffer, lx, ly, iron_rim);
-                            }
-                        } else if (lx == 7 || lx == 8) && (ly == 7 || ly == 8) {
-                            px(buffer, lx, ly, iron_hi);
+                        let col = if is_rim {
+                            if lx <= 5 || ly <= 3 { iron_hi } else if lx >= 10 || ly >= 12 { iron_sh } else { iron_rim }
+                        } else if (7..=8).contains(&lx) && (7..=8).contains(&ly) {
+                            iron_hi
                         } else if (lx + ly) % 2 == 0 {
-                            px(buffer, lx, ly, plank_light);
+                            plank_light
                         } else {
-                            px(buffer, lx, ly, plank_dark);
-                        }
+                            plank_dark
+                        };
+                        px!(lx, ly, col);
                     }
                 }
             }
         }
         _ => {
-            // High-detail 3D beveled block
             let color = block.face_color(Face::Top);
             let packed = pack_color(color[0], color[1], color[2]);
             fill_rect(buffer, buf_w, buf_h, x, y, size, size, packed);
             let top_highlight = pack_color((color[0] * 1.25).min(1.0), (color[1] * 1.25).min(1.0), (color[2] * 1.25).min(1.0));
             let shadow = pack_color(color[0] * 0.65, color[1] * 0.65, color[2] * 0.65);
             let dark_border = pack_color(color[0] * 0.40, color[1] * 0.40, color[2] * 0.40);
-
             fill_rect(buffer, buf_w, buf_h, x, y, size, 2, top_highlight);
             fill_rect(buffer, buf_w, buf_h, x, y, 2, size, top_highlight);
             fill_rect(buffer, buf_w, buf_h, x, y + size - 2, size, 2, shadow);
