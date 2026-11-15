@@ -251,26 +251,7 @@ impl<'a> ChunkNeighborCache<'a> {
             fluid_map: None,
         };
 
-        for lx in -1..=16 {
-            for lz in -1..=16 {
-                let mut h = 0u8;
-                let mut leaf_h = 0u8;
-                for ly in (0..CHUNK_SIZE_Y).rev() {
-                    let b = cache.sample_block(lx, ly, lz);
-                    if b.is_leaf() && leaf_h == 0 {
-                        leaf_h = (ly + 1) as u8;
-                    }
-                    if b.is_opaque() {
-                        h = (ly + 1) as u8;
-                        break;
-                    }
-                }
-                let idx = ((lx + 1) * 18 + (lz + 1)) as usize;
-                cache.heightmap[idx] = h;
-                cache.leaf_heightmap[idx] = leaf_h;
-            }
-        }
-
+        cache.populate_heightmaps();
         cache
     }
 
@@ -298,12 +279,17 @@ impl<'a> ChunkNeighborCache<'a> {
             fluid_map: Some(&job.fluid_map),
         };
 
+        cache.populate_heightmaps();
+        cache
+    }
+
+    fn populate_heightmaps(&mut self) {
         for lx in -1..=16 {
             for lz in -1..=16 {
                 let mut h = 0u8;
                 let mut leaf_h = 0u8;
                 for ly in (0..CHUNK_SIZE_Y).rev() {
-                    let b = cache.sample_block(lx, ly, lz);
+                    let b = self.sample_block(lx, ly, lz);
                     if b.is_leaf() && leaf_h == 0 {
                         leaf_h = (ly + 1) as u8;
                     }
@@ -313,12 +299,19 @@ impl<'a> ChunkNeighborCache<'a> {
                     }
                 }
                 let idx = ((lx + 1) * 18 + (lz + 1)) as usize;
-                cache.heightmap[idx] = h;
-                cache.leaf_heightmap[idx] = leaf_h;
+                self.heightmap[idx] = h;
+                self.leaf_heightmap[idx] = leaf_h;
             }
         }
+    }
 
-        cache
+    #[inline(always)]
+    fn sample_voxel_lights(&self, wx: i32, wy: i32, wz: i32, y_offset: f32) -> (f32, f32) {
+        let lx = wx - self.base_x;
+        let lz = wz - self.base_z;
+        let sky = self.sample_sky_light(lx, wy, lz);
+        let block_l = self.sample_block_light(wx as f32 + 0.5, wy as f32 + y_offset, wz as f32 + 0.5);
+        (sky, block_l)
     }
 
     #[inline(always)]
@@ -467,9 +460,7 @@ pub const SUBCHUNK_SIZE: i32 = 16;
 pub const NUM_SUBCHUNKS: usize = (CHUNK_SIZE_Y / SUBCHUNK_SIZE) as usize; // 4
 
 
-pub fn build_subchunk_mesh_internal(
-    chunk: &Chunk,
-    _world: &World,
+pub fn build_subchunk_mesh_from_cache(
     sub_y: usize,
     cache: &ChunkNeighborCache,
 ) -> (Vec<Triangle>, Vec<Triangle>) {
@@ -478,7 +469,7 @@ pub fn build_subchunk_mesh_internal(
 
     let base_x = cache.base_x;
     let base_z = cache.base_z;
-    let blocks = chunk.blocks.as_slice();
+    let blocks = cache.center_blocks;
 
     let y_start = (sub_y as i32) * SUBCHUNK_SIZE;
     let y_end = y_start + SUBCHUNK_SIZE;
@@ -596,13 +587,11 @@ pub fn build_subchunk_mesh_internal(
                                 }
                             }
                         }
+                    } else if face == Face::Bottom && wy == 0 {
+                        false
                     } else {
-                        if face == Face::Bottom && wy == 0 {
-                            false
-                        } else {
-                            neighbor == BlockId::Air
-                            || (neighbor.is_transparent() && neighbor != block)
-                        }
+                        neighbor == BlockId::Air
+                        || (neighbor.is_transparent() && neighbor != block)
                     };
 
                     if visible {
@@ -620,23 +609,31 @@ pub fn build_subchunk_mesh_internal(
     (solid_tris, trans_tris)
 }
 
+pub fn build_subchunk_mesh_internal(
+    _chunk: &Chunk,
+    _world: &World,
+    sub_y: usize,
+    cache: &ChunkNeighborCache,
+) -> (Vec<Triangle>, Vec<Triangle>) {
+    build_subchunk_mesh_from_cache(sub_y, cache)
+}
+
 pub fn build_subchunk_mesh(chunk: &Chunk, world: &World, sub_y: usize) -> Vec<Triangle> {
     if sub_y >= NUM_SUBCHUNKS {
         return Vec::new();
     }
     let cache = ChunkNeighborCache::new(chunk, world);
-    let (mut solid, trans) = build_subchunk_mesh_internal(chunk, world, sub_y, &cache);
+    let (mut solid, trans) = build_subchunk_mesh_from_cache(sub_y, &cache);
     solid.extend(trans);
     solid
 }
 
-pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
+fn build_chunk_mesh_from_cache(cache: &ChunkNeighborCache) -> Vec<Triangle> {
     let mut solid_tris = Vec::with_capacity(3072);
     let mut trans_tris = Vec::with_capacity(512);
-    let cache = ChunkNeighborCache::new(chunk, world);
 
     for sub_y in 0..NUM_SUBCHUNKS {
-        let (sub_solid, sub_trans) = build_subchunk_mesh_internal(chunk, world, sub_y, &cache);
+        let (sub_solid, sub_trans) = build_subchunk_mesh_from_cache(sub_y, cache);
         solid_tris.extend(sub_solid);
         trans_tris.extend(sub_trans);
     }
@@ -645,169 +642,59 @@ pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
     solid_tris
 }
 
+pub fn build_chunk_mesh(chunk: &Chunk, world: &World) -> Vec<Triangle> {
+    let cache = ChunkNeighborCache::new(chunk, world);
+    build_chunk_mesh_from_cache(&cache)
+}
+
 pub fn build_chunk_mesh_from_job(job: &ChunkMeshJob) -> Vec<Triangle> {
-    let mut solid_tris = Vec::with_capacity(3072);
-    let mut trans_tris = Vec::with_capacity(512);
     let cache = ChunkNeighborCache::from_job(job);
-    let dummy_chunk = Chunk {
-        cx: job.key.0,
-        cz: job.key.1,
-        blocks: job.center_blocks.clone(),
-        dirty: false,
-    };
+    build_chunk_mesh_from_cache(&cache)
+}
 
-    for sub_y in 0..NUM_SUBCHUNKS {
-        let (sub_solid, sub_trans) = {
-            let mut sub_solid = Vec::with_capacity(768);
-            let mut sub_trans = Vec::with_capacity(128);
-            let base_x = cache.base_x;
-            let base_z = cache.base_z;
-            let blocks = dummy_chunk.blocks.as_slice();
+#[inline(always)]
+fn push_quad_uv(
+    tris: &mut Vec<Triangle>,
+    a: (Vec3, (f32, f32)),
+    b: (Vec3, (f32, f32)),
+    c: (Vec3, (f32, f32)),
+    d: (Vec3, (f32, f32)),
+    texture: TextureId,
+    ao: f32,
+    sky_light: f32,
+    block_light: f32,
+) {
+    let va = Vertex::lit(a.0, a.1, ao, sky_light, block_light);
+    let vb = Vertex::lit(b.0, b.1, ao, sky_light, block_light);
+    let vc = Vertex::lit(c.0, c.1, ao, sky_light, block_light);
+    let vd = Vertex::lit(d.0, d.1, ao, sky_light, block_light);
+    tris.push(Triangle { v0: va, v1: vb, v2: vc, texture });
+    tris.push(Triangle { v0: va, v1: vc, v2: vd, texture });
+}
 
-            let y_start = (sub_y as i32) * SUBCHUNK_SIZE;
-            let y_end = y_start + SUBCHUNK_SIZE;
-
-            for lx in 0..CHUNK_SIZE_X {
-                for ly in y_start..y_end {
-                    for lz in 0..CHUNK_SIZE_Z {
-                        let block_u8 = blocks[((lx << 10) | (ly << 4) | lz) as usize];
-                        if block_u8 == 0 {
-                            continue;
-                        }
-                        let block = BlockId::from_u8(block_u8);
-                        let wx = base_x + lx;
-                        let wy = ly;
-                        let wz = base_z + lz;
-
-                        if block == BlockId::Torch {
-                            emit_torch(&mut sub_solid, wx, wy, wz, &cache);
-                            continue;
-                        }
-                        if block == BlockId::Door {
-                            emit_door(&mut sub_solid, wx, wy, wz, false, &cache);
-                            continue;
-                        }
-                        if block == BlockId::DoorOpen {
-                            emit_door(&mut sub_solid, wx, wy, wz, true, &cache);
-                            continue;
-                        }
-                        if block == BlockId::Bed {
-                            emit_bed(&mut sub_solid, wx, wy, wz, &cache);
-                            continue;
-                        }
-                        if block == BlockId::WoodenSlab || block == BlockId::StoneSlab {
-                            emit_slab(&mut sub_solid, wx, wy, wz, block, &cache);
-                            continue;
-                        }
-                        if block == BlockId::WoodenStairs || block == BlockId::StoneStairs {
-                            emit_stairs(&mut sub_solid, wx, wy, wz, block, &cache);
-                            continue;
-                        }
-                        if block == BlockId::Ladder {
-                            emit_ladder(&mut sub_solid, wx, wy, wz, &cache);
-                            continue;
-                        }
-                        if block == BlockId::RustStone || block == BlockId::RustStoneWireLit {
-                            emit_ruststone_wire(&mut sub_solid, wx, wy, wz, block == BlockId::RustStoneWireLit, &cache);
-                            continue;
-                        }
-                        if block == BlockId::Lever || block == BlockId::LeverOn {
-                            emit_lever(&mut sub_solid, wx, wy, wz, block == BlockId::LeverOn, &cache);
-                            continue;
-                        }
-                        if block == BlockId::Button || block == BlockId::ButtonPressed {
-                            emit_button(&mut sub_solid, wx, wy, wz, block == BlockId::ButtonPressed, &cache);
-                            continue;
-                        }
-                        if block == BlockId::PressurePlate || block == BlockId::PressurePlatePressed {
-                            emit_pressure_plate(&mut sub_solid, wx, wy, wz, block == BlockId::PressurePlatePressed, &cache);
-                            continue;
-                        }
-                        if matches!(block, BlockId::WheatCrop | BlockId::CarrotCrop | BlockId::PotatoCrop | BlockId::Sapling | BlockId::Kelp | BlockId::Seagrass) {
-                            emit_cross(&mut sub_solid, wx, wy, wz, block.texture_id(Face::Top), &cache);
-                            if matches!(block, BlockId::Kelp | BlockId::Seagrass) {
-                                emit_waterlogged_faces(&mut sub_trans, wx, wy, wz, lx, ly, lz, &cache);
-                            }
-                            continue;
-                        }
-
-                        let is_fluid = matches!(block, BlockId::Water | BlockId::Lava);
-                        let is_trans = matches!(block, BlockId::Water | BlockId::Glass);
-
-                        for face in Face::ALL {
-                            let n = face.normal();
-                            let neighbor = cache.sample_block(lx + n.x, ly + n.y, lz + n.z);
-
-                            let visible = if is_fluid {
-                                let neighbor_loaded = match face {
-                                    Face::East => lx < CHUNK_SIZE_X - 1 || cache.east_blocks.is_some(),
-                                    Face::West => lx > 0 || cache.west_blocks.is_some(),
-                                    Face::South => lz < CHUNK_SIZE_Z - 1 || cache.south_blocks.is_some(),
-                                    Face::North => lz > 0 || cache.north_blocks.is_some(),
-                                    Face::Top | Face::Bottom => true,
-                                };
-
-                                if !neighbor_loaded {
-                                    false
-                                } else {
-                                    let same_fluid = if block == BlockId::Water {
-                                        matches!(neighbor, BlockId::Water | BlockId::Kelp | BlockId::Seagrass)
-                                    } else {
-                                        neighbor == block
-                                    };
-
-                                    match face {
-                                        Face::Top => !same_fluid,
-                                        Face::Bottom => wy > 0 && !same_fluid && (neighbor == BlockId::Air || (neighbor.is_transparent() && !same_fluid)),
-                                        _ => {
-                                            if !same_fluid {
-                                                neighbor == BlockId::Air || (neighbor.is_transparent() && !same_fluid)
-                                            } else {
-                                                let above_neighbor = cache.sample_block(lx + n.x, ly + 1, lz + n.z);
-                                                let above_same_fluid = if block == BlockId::Water {
-                                                    matches!(above_neighbor, BlockId::Water | BlockId::Kelp | BlockId::Seagrass)
-                                                } else {
-                                                    above_neighbor == block
-                                                };
-                                                if !above_same_fluid {
-                                                    let my_lvl = cache.fluid_level(IVec3::new(wx, wy, wz));
-                                                    let neighbor_lvl = cache.fluid_level(IVec3::new(wx + n.x, wy, wz + n.z));
-                                                    my_lvl > neighbor_lvl
-                                                } else {
-                                                    false
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                if face == Face::Bottom && wy == 0 {
-                                    false
-                                } else {
-                                    neighbor == BlockId::Air
-                                    || (neighbor.is_transparent() && neighbor != block)
-                                }
-                            };
-
-                            if visible {
-                                if is_trans {
-                                    emit_face(&mut sub_trans, wx, wy, wz, face, block, &cache);
-                                } else {
-                                    emit_face(&mut sub_solid, wx, wy, wz, face, block, &cache);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            (sub_solid, sub_trans)
-        };
-        solid_tris.extend(sub_solid);
-        trans_tris.extend(sub_trans);
-    }
-
-    solid_tris.extend(trans_tris);
-    solid_tris
+#[inline(always)]
+fn push_quad(
+    tris: &mut Vec<Triangle>,
+    a: Vec3,
+    b: Vec3,
+    c: Vec3,
+    d: Vec3,
+    texture: TextureId,
+    ao: f32,
+    sky_light: f32,
+    block_light: f32,
+) {
+    push_quad_uv(
+        tris,
+        (a, (0.0, 1.0)),
+        (b, (1.0, 1.0)),
+        (c, (1.0, 0.0)),
+        (d, (0.0, 0.0)),
+        texture,
+        ao,
+        sky_light,
+        block_light,
+    );
 }
 
 fn emit_torch(
@@ -822,12 +709,7 @@ fn emit_torch(
                    d: (Vec3, (f32, f32)),
                    shade: f32,
                    light: f32| {
-        let va = Vertex { pos: a.0, uv: a.1, ao: shade, sky_light: light, block_light: light };
-        let vb = Vertex { pos: b.0, uv: b.1, ao: shade, sky_light: light, block_light: light };
-        let vc = Vertex { pos: c.0, uv: c.1, ao: shade, sky_light: light, block_light: light };
-        let vd = Vertex { pos: d.0, uv: d.1, ao: shade, sky_light: light, block_light: light };
-        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture: TextureId::Torch });
-        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture: TextureId::Torch });
+        push_quad_uv(tris, a, b, c, d, TextureId::Torch, shade, light, light);
     };
 
     // 1. Central wooden torch stick (2x2 texels thick, 10 texels tall: y: 0.0 .. 0.625)
@@ -938,8 +820,7 @@ fn emit_door(
     let c011 = Vec3::new(x0, y1, z1);
     let c111 = Vec3::new(x1, y1, z1);
 
-    let sky = cache.sample_sky_light(lx, wy, lz);
-    let block_l = cache.sample_block_light(x + 0.5, y + 0.5, z + 0.5);
+    let (sky, block_l) = cache.sample_voxel_lights(wx, wy, wz, 0.5);
 
     let quad_uv = |tris: &mut Vec<Triangle>,
                    a: (Vec3, (f32, f32)),
@@ -948,119 +829,34 @@ fn emit_door(
                    d: (Vec3, (f32, f32)),
                    texture: TextureId,
                    shade: f32| {
-        let va = Vertex { pos: a.0, uv: a.1, ao: shade, sky_light: sky, block_light: block_l };
-        let vb = Vertex { pos: b.0, uv: b.1, ao: shade, sky_light: sky, block_light: block_l };
-        let vc = Vertex { pos: c.0, uv: c.1, ao: shade, sky_light: sky, block_light: block_l };
-        let vd = Vertex { pos: d.0, uv: d.1, ao: shade, sky_light: sky, block_light: block_l };
-        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture });
-        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture });
+        push_quad_uv(tris, a, b, c, d, texture, shade, sky, block_l);
     };
 
     if !is_open {
         // Closed door: Hinge is at x0 (U=0), Handle is at x1 (U=1)
         // North (Front, facing -Z)
-        quad_uv(
-            tris,
-            (c100, (1.0, 1.0)),
-            (c000, (0.0, 1.0)),
-            (c010, (0.0, 0.0)),
-            (c110, (1.0, 0.0)),
-            tex,
-            0.85,
-        );
+        quad_uv(tris, (c100, (1.0, 1.0)), (c000, (0.0, 1.0)), (c010, (0.0, 0.0)), (c110, (1.0, 0.0)), tex, 0.85);
         // South (Back, facing +Z)
-        quad_uv(
-            tris,
-            (c001, (0.0, 1.0)),
-            (c101, (1.0, 1.0)),
-            (c111, (1.0, 0.0)),
-            (c011, (0.0, 0.0)),
-            tex,
-            0.85,
-        );
+        quad_uv(tris, (c001, (0.0, 1.0)), (c101, (1.0, 1.0)), (c111, (1.0, 0.0)), (c011, (0.0, 0.0)), tex, 0.85);
         // East (Outer side edge at x1)
-        quad_uv(
-            tris,
-            (c101, (0.0, 1.0)),
-            (c100, (1.0, 1.0)),
-            (c110, (1.0, 0.0)),
-            (c111, (0.0, 0.0)),
-            side_tex,
-            0.70,
-        );
+        quad_uv(tris, (c101, (0.0, 1.0)), (c100, (1.0, 1.0)), (c110, (1.0, 0.0)), (c111, (0.0, 0.0)), side_tex, 0.70);
         // West (Hinge side edge at x0)
-        quad_uv(
-            tris,
-            (c000, (0.0, 1.0)),
-            (c001, (1.0, 1.0)),
-            (c011, (1.0, 0.0)),
-            (c010, (0.0, 0.0)),
-            side_tex,
-            0.70,
-        );
+        quad_uv(tris, (c000, (0.0, 1.0)), (c001, (1.0, 1.0)), (c011, (1.0, 0.0)), (c010, (0.0, 0.0)), side_tex, 0.70);
     } else {
         // Open door: Hinge is at z0 (U=0), Handle is at z1 (U=1)
         // East (facing +X)
-        quad_uv(
-            tris,
-            (c101, (1.0, 1.0)),
-            (c100, (0.0, 1.0)),
-            (c110, (0.0, 0.0)),
-            (c111, (1.0, 0.0)),
-            tex,
-            0.85,
-        );
+        quad_uv(tris, (c101, (1.0, 1.0)), (c100, (0.0, 1.0)), (c110, (0.0, 0.0)), (c111, (1.0, 0.0)), tex, 0.85);
         // West (facing -X)
-        quad_uv(
-            tris,
-            (c000, (0.0, 1.0)),
-            (c001, (1.0, 1.0)),
-            (c011, (1.0, 0.0)),
-            (c010, (0.0, 0.0)),
-            tex,
-            0.85,
-        );
+        quad_uv(tris, (c000, (0.0, 1.0)), (c001, (1.0, 1.0)), (c011, (1.0, 0.0)), (c010, (0.0, 0.0)), tex, 0.85);
         // North (Hinge side edge at z0)
-        quad_uv(
-            tris,
-            (c100, (0.0, 1.0)),
-            (c000, (1.0, 1.0)),
-            (c010, (1.0, 0.0)),
-            (c110, (0.0, 0.0)),
-            side_tex,
-            0.70,
-        );
+        quad_uv(tris, (c100, (0.0, 1.0)), (c000, (1.0, 1.0)), (c010, (1.0, 0.0)), (c110, (0.0, 0.0)), side_tex, 0.70);
         // South (Outer side edge at z1)
-        quad_uv(
-            tris,
-            (c001, (0.0, 1.0)),
-            (c101, (1.0, 1.0)),
-            (c111, (1.0, 0.0)),
-            (c011, (0.0, 0.0)),
-            side_tex,
-            0.70,
-        );
+        quad_uv(tris, (c001, (0.0, 1.0)), (c101, (1.0, 1.0)), (c111, (1.0, 0.0)), (c011, (0.0, 0.0)), side_tex, 0.70);
     }
     // Top & Bottom
-    quad_uv(
-        tris,
-        (c010, (0.0, 1.0)),
-        (c011, (1.0, 1.0)),
-        (c111, (1.0, 0.0)),
-        (c110, (0.0, 0.0)),
-        side_tex,
-        1.0,
-    );
+    quad_uv(tris, (c010, (0.0, 1.0)), (c011, (1.0, 1.0)), (c111, (1.0, 0.0)), (c110, (0.0, 0.0)), side_tex, 1.0);
     if wy > 0 {
-        quad_uv(
-            tris,
-            (c001, (0.0, 1.0)),
-            (c000, (1.0, 1.0)),
-            (c100, (1.0, 0.0)),
-            (c101, (0.0, 0.0)),
-            side_tex,
-            0.5,
-        );
+        quad_uv(tris, (c001, (0.0, 1.0)), (c000, (1.0, 1.0)), (c100, (1.0, 0.0)), (c101, (0.0, 0.0)), side_tex, 0.5);
     }
 }
 
@@ -1083,27 +879,18 @@ fn emit_box(
     let c011 = Vec3::new(x0, y1, z1);
     let c111 = Vec3::new(x1, y1, z1);
 
-    let mut quad = |a: Vec3, b: Vec3, c: Vec3, d: Vec3, tex: TextureId, shade: f32| {
-        let va = Vertex { pos: a, uv: (0.0, 1.0), ao: shade, sky_light: sky, block_light: block_l };
-        let vb = Vertex { pos: b, uv: (1.0, 1.0), ao: shade, sky_light: sky, block_light: block_l };
-        let vc = Vertex { pos: c, uv: (1.0, 0.0), ao: shade, sky_light: sky, block_light: block_l };
-        let vd = Vertex { pos: d, uv: (0.0, 0.0), ao: shade, sky_light: sky, block_light: block_l };
-        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture: tex });
-        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture: tex });
-    };
-
     // Top
-    quad(c010, c011, c111, c110, top_tex, 1.0);
+    push_quad(tris, c010, c011, c111, c110, top_tex, 1.0, sky, block_l);
     // North (-Z)
-    quad(c100, c000, c010, c110, side_tex, 0.85);
+    push_quad(tris, c100, c000, c010, c110, side_tex, 0.85, sky, block_l);
     // South (+Z)
-    quad(c001, c101, c111, c011, side_tex, 0.85);
+    push_quad(tris, c001, c101, c111, c011, side_tex, 0.85, sky, block_l);
     // East (+X)
-    quad(c101, c100, c110, c111, side_tex, 0.70);
+    push_quad(tris, c101, c100, c110, c111, side_tex, 0.70, sky, block_l);
     // West (-X)
-    quad(c000, c001, c011, c010, side_tex, 0.70);
+    push_quad(tris, c000, c001, c011, c010, side_tex, 0.70, sky, block_l);
     // Bottom
-    quad(c001, c000, c100, c101, bottom_tex, 0.50);
+    push_quad(tris, c001, c000, c100, c101, bottom_tex, 0.50, sky, block_l);
 }
 
 fn emit_slab(
@@ -1112,10 +899,7 @@ fn emit_slab(
     block: BlockId,
     cache: &ChunkNeighborCache,
 ) {
-    let lx = wx - cache.base_x;
-    let lz = wz - cache.base_z;
-    let sky = cache.sample_sky_light(lx, wy, lz);
-    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.25, wz as f32 + 0.5);
+    let (sky, block_l) = cache.sample_voxel_lights(wx, wy, wz, 0.25);
     let tex = if block == BlockId::StoneSlab { TextureId::Stone } else { TextureId::Planks };
     emit_box(
         tris,
@@ -1130,10 +914,7 @@ fn emit_bed(
     wx: i32, wy: i32, wz: i32,
     cache: &ChunkNeighborCache,
 ) {
-    let lx = wx - cache.base_x;
-    let lz = wz - cache.base_z;
-    let sky = cache.sample_sky_light(lx, wy, lz);
-    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.25, wz as f32 + 0.5);
+    let (sky, block_l) = cache.sample_voxel_lights(wx, wy, wz, 0.25);
     emit_box(
         tris,
         wx as f32, wy as f32, wz as f32,
@@ -1148,10 +929,7 @@ fn emit_stairs(
     block: BlockId,
     cache: &ChunkNeighborCache,
 ) {
-    let lx = wx - cache.base_x;
-    let lz = wz - cache.base_z;
-    let sky = cache.sample_sky_light(lx, wy, lz);
-    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.5, wz as f32 + 0.5);
+    let (sky, block_l) = cache.sample_voxel_lights(wx, wy, wz, 0.5);
     let tex = if block == BlockId::StoneStairs { TextureId::Stone } else { TextureId::Planks };
     // Lower full base step (0.0 .. 0.5)
     emit_box(
@@ -1176,8 +954,7 @@ fn emit_ladder(
 ) {
     let lx = wx - cache.base_x;
     let lz = wz - cache.base_z;
-    let sky = cache.sample_sky_light(lx, wy, lz);
-    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.5, wz as f32 + 0.5);
+    let (sky, block_l) = cache.sample_voxel_lights(wx, wy, wz, 0.5);
     let tex = TextureId::Ladder;
 
     let north_solid = cache.sample_block(lx, wy, lz - 1).is_solid();
@@ -1190,58 +967,13 @@ fn emit_ladder(
     let z = wz as f32;
 
     let mut quad = |a: Vec3, b: Vec3, c: Vec3, d: Vec3, shade: f32| {
-        let va = Vertex {
-            pos: a,
-            uv: (0.0, 1.0),
-            ao: shade,
-            sky_light: sky,
-            block_light: block_l,
-        };
-        let vb = Vertex {
-            pos: b,
-            uv: (1.0, 1.0),
-            ao: shade,
-            sky_light: sky,
-            block_light: block_l,
-        };
-        let vc = Vertex {
-            pos: c,
-            uv: (1.0, 0.0),
-            ao: shade,
-            sky_light: sky,
-            block_light: block_l,
-        };
-        let vd = Vertex {
-            pos: d,
-            uv: (0.0, 0.0),
-            ao: shade,
-            sky_light: sky,
-            block_light: block_l,
-        };
-        tris.push(Triangle {
-            v0: va,
-            v1: vb,
-            v2: vc,
-            texture: tex,
-        });
-        tris.push(Triangle {
-            v0: va,
-            v1: vc,
-            v2: vd,
-            texture: tex,
-        });
-        tris.push(Triangle {
-            v0: va,
-            v1: vc,
-            v2: vb,
-            texture: tex,
-        });
-        tris.push(Triangle {
-            v0: va,
-            v1: vd,
-            v2: vc,
-            texture: tex,
-        });
+        push_quad(tris, a, b, c, d, tex, shade, sky, block_l);
+        let va = Vertex::lit(a, (0.0, 1.0), shade, sky, block_l);
+        let vb = Vertex::lit(b, (1.0, 1.0), shade, sky, block_l);
+        let vc = Vertex::lit(c, (1.0, 0.0), shade, sky, block_l);
+        let vd = Vertex::lit(d, (0.0, 0.0), shade, sky, block_l);
+        tris.push(Triangle { v0: va, v1: vc, v2: vb, texture: tex });
+        tris.push(Triangle { v0: va, v1: vd, v2: vc, texture: tex });
     };
 
     if north_solid {
@@ -1271,17 +1003,9 @@ fn emit_ladder(
             Vec3::new(x_pos, y + 1.0, z + 1.0),
             0.90,
         );
-    } else if east_solid {
-        let x_pos = x + 0.95;
-        quad(
-            Vec3::new(x_pos, y, z),
-            Vec3::new(x_pos, y, z + 1.0),
-            Vec3::new(x_pos, y + 1.0, z + 1.0),
-            Vec3::new(x_pos, y + 1.0, z),
-            0.90,
-        );
     } else {
         let x_pos = x + 0.95;
+        let _ = east_solid;
         quad(
             Vec3::new(x_pos, y, z),
             Vec3::new(x_pos, y, z + 1.0),
@@ -1298,10 +1022,7 @@ fn emit_cross(
     texture: TextureId,
     cache: &ChunkNeighborCache,
 ) {
-    let lx = wx - cache.base_x;
-    let lz = wz - cache.base_z;
-    let sky = cache.sample_sky_light(lx, wy, lz);
-    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.5, wz as f32 + 0.5);
+    let (sky, block_l) = cache.sample_voxel_lights(wx, wy, wz, 0.5);
     let ao = 1.0;
 
     let x = wx as f32;
@@ -1318,22 +1039,13 @@ fn emit_cross(
     let q2 = Vec3::new(x, y + 1.0, z + 1.0);
     let q3 = Vec3::new(x + 1.0, y + 1.0, z);
 
-    let mut add_quad = |a: Vec3, b: Vec3, c: Vec3, d: Vec3| {
-        let va = Vertex { pos: a, uv: (0.0, 1.0), ao, sky_light: sky, block_light: block_l };
-        let vb = Vertex { pos: b, uv: (1.0, 1.0), ao, sky_light: sky, block_light: block_l };
-        let vc = Vertex { pos: c, uv: (1.0, 0.0), ao, sky_light: sky, block_light: block_l };
-        let vd = Vertex { pos: d, uv: (0.0, 0.0), ao, sky_light: sky, block_light: block_l };
-        tris.push(Triangle { v0: va, v1: vb, v2: vc, texture });
-        tris.push(Triangle { v0: va, v1: vc, v2: vd, texture });
-    };
-
     // Diagonal 1 front and back
-    add_quad(p0, p1, p2, p3);
-    add_quad(p1, p0, p3, p2);
+    push_quad(tris, p0, p1, p2, p3, texture, ao, sky, block_l);
+    push_quad(tris, p1, p0, p3, p2, texture, ao, sky, block_l);
 
     // Diagonal 2 front and back
-    add_quad(q0, q1, q2, q3);
-    add_quad(q1, q0, q3, q2);
+    push_quad(tris, q0, q1, q2, q3, texture, ao, sky, block_l);
+    push_quad(tris, q1, q0, q3, q2, texture, ao, sky, block_l);
 }
 
 #[inline]
@@ -1365,10 +1077,7 @@ fn emit_ruststone_wire(
     is_lit: bool,
     cache: &ChunkNeighborCache,
 ) {
-    let lx = wx - cache.base_x;
-    let lz = wz - cache.base_z;
-    let sky = cache.sample_sky_light(lx, wy, lz);
-    let raw_bl = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.1, wz as f32 + 0.5);
+    let (sky, raw_bl) = cache.sample_voxel_lights(wx, wy, wz, 0.1);
     let block_l = if is_lit { (raw_bl + 0.6).min(1.0) } else { raw_bl };
     let tex = if is_lit { TextureId::RustStoneWireLit } else { TextureId::RustStoneWire };
 
@@ -1378,12 +1087,17 @@ fn emit_ruststone_wire(
     let z0 = wz as f32;
     let z1 = wz as f32 + 1.0;
 
-    let va = Vertex { pos: Vec3::new(x0, y, z0), uv: (0.0, 1.0), ao: 1.0, sky_light: sky, block_light: block_l };
-    let vb = Vertex { pos: Vec3::new(x0, y, z1), uv: (0.0, 0.0), ao: 1.0, sky_light: sky, block_light: block_l };
-    let vc = Vertex { pos: Vec3::new(x1, y, z1), uv: (1.0, 0.0), ao: 1.0, sky_light: sky, block_light: block_l };
-    let vd = Vertex { pos: Vec3::new(x1, y, z0), uv: (1.0, 1.0), ao: 1.0, sky_light: sky, block_light: block_l };
-    tris.push(Triangle { v0: va, v1: vb, v2: vc, texture: tex });
-    tris.push(Triangle { v0: va, v1: vc, v2: vd, texture: tex });
+    push_quad_uv(
+        tris,
+        (Vec3::new(x0, y, z0), (0.0, 1.0)),
+        (Vec3::new(x0, y, z1), (0.0, 0.0)),
+        (Vec3::new(x1, y, z1), (1.0, 0.0)),
+        (Vec3::new(x1, y, z0), (1.0, 1.0)),
+        tex,
+        1.0,
+        sky,
+        block_l,
+    );
 }
 
 fn emit_lever(
@@ -1392,10 +1106,7 @@ fn emit_lever(
     is_on: bool,
     cache: &ChunkNeighborCache,
 ) {
-    let lx = wx - cache.base_x;
-    let lz = wz - cache.base_z;
-    let sky = cache.sample_sky_light(lx, wy, lz);
-    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.25, wz as f32 + 0.5);
+    let (sky, block_l) = cache.sample_voxel_lights(wx, wy, wz, 0.25);
     let tex = TextureId::Lever;
 
     emit_box(
@@ -1427,10 +1138,7 @@ fn emit_button(
     is_pressed: bool,
     cache: &ChunkNeighborCache,
 ) {
-    let lx = wx - cache.base_x;
-    let lz = wz - cache.base_z;
-    let sky = cache.sample_sky_light(lx, wy, lz);
-    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.1, wz as f32 + 0.5);
+    let (sky, block_l) = cache.sample_voxel_lights(wx, wy, wz, 0.1);
     let tex = TextureId::Button;
     let h = if is_pressed { 0.04 } else { 0.12 };
     emit_box(
@@ -1447,10 +1155,7 @@ fn emit_pressure_plate(
     is_pressed: bool,
     cache: &ChunkNeighborCache,
 ) {
-    let lx = wx - cache.base_x;
-    let lz = wz - cache.base_z;
-    let sky = cache.sample_sky_light(lx, wy, lz);
-    let block_l = cache.sample_block_light(wx as f32 + 0.5, wy as f32 + 0.1, wz as f32 + 0.5);
+    let (sky, block_l) = cache.sample_voxel_lights(wx, wy, wz, 0.1);
     let tex = TextureId::PressurePlate;
     let h = if is_pressed { 0.025 } else { 0.0625 };
     emit_box(
