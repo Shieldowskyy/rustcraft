@@ -599,6 +599,61 @@ fn draw_trash_slot(ui: &mut UiCanvas<'_>, rect: Rect, is_hovered: bool) {
     draw_trash_icon(ui.buffer, ui.width, ui.height, rect.x + 6, rect.y + 7);
 }
 
+fn draw_backpack_slots(
+    ui: &mut UiCanvas<'_>,
+    main_grid: Grid,
+    player: &Player,
+    hovered_slot: Option<InventorySlotTarget>,
+) {
+    for idx in 0..27 {
+        let is_hovered = hovered_slot == Some(InventorySlotTarget::Main(idx));
+        ui.inventory_slot(main_grid.slot(idx), player.inventory.main[idx], is_hovered, None);
+    }
+}
+
+fn draw_hotbar_slots(
+    ui: &mut UiCanvas<'_>,
+    hotbar: Grid,
+    player: &Player,
+    hovered_slot: Option<InventorySlotTarget>,
+    selected_border_color: u32,
+) {
+    for i in 0..10 {
+        let is_hovered = hovered_slot == Some(InventorySlotTarget::Hotbar(i));
+        let is_selected = player.selected_hotbar_slot as usize == i;
+        let border_override = if is_selected && !is_hovered {
+            Some(selected_border_color)
+        } else {
+            None
+        };
+        ui.inventory_slot(hotbar.slot(i), player.inventory.hotbar[i], is_hovered, border_override);
+    }
+}
+
+fn draw_crafting_2x2_slots(
+    ui: &mut UiCanvas<'_>,
+    craft_2x2: Grid,
+    arrow_x: i32,
+    arrow_y: i32,
+    output_rect: Rect,
+    player: &Player,
+    recipes: &RecipeBook,
+    hovered_slot: Option<InventorySlotTarget>,
+) {
+    for idx in 0..4 {
+        let is_hovered = hovered_slot == Some(InventorySlotTarget::Crafting2x2(idx));
+        ui.inventory_slot(craft_2x2.slot(idx), player.inventory.crafting_2x2[idx], is_hovered, None);
+    }
+    ui.text("==>", arrow_x, arrow_y, 2, 1, pack_color(0.9, 0.85, 0.3));
+    let result_item = recipes.match_grid(&player.inventory.crafting_2x2, 2, 2);
+    ui.inventory_slot(
+        output_rect,
+        result_item,
+        hovered_slot == Some(InventorySlotTarget::CraftingOutput),
+        None,
+    );
+}
+
 pub fn draw_inventory_screen(
     buffer: &mut [u32],
     width: usize,
@@ -748,17 +803,7 @@ pub fn draw_inventory_screen(
             ui.text("TRASH", start_x + 424, start_y + 226, 1, 1, pack_color(1.0, 0.4, 0.4));
 
             // Hotbar 10 slots
-            let hotbar = layout.hotbar_grid(242);
-            for i in 0..10 {
-                let is_hovered = hovered_slot == Some(InventorySlotTarget::Hotbar(i));
-                let is_selected = player.selected_hotbar_slot as usize == i;
-                let border_override = if is_selected && !is_hovered {
-                    Some(pack_color(0.4, 0.75, 1.0))
-                } else {
-                    None
-                };
-                ui.inventory_slot(hotbar.slot(i), player.inventory.hotbar[i], is_hovered, border_override);
-            }
+            draw_hotbar_slots(&mut ui, layout.hotbar_grid(242), player, hovered_slot, pack_color(0.4, 0.75, 1.0));
 
             // Trash Slot
             draw_trash_slot(&mut ui, layout.trash_rect(242), hovered_slot == Some(InventorySlotTarget::Trash));
@@ -786,49 +831,30 @@ pub fn draw_inventory_screen(
             ui.text("FLYING: ON", char_box.x + 110, char_box.y + 58, 1, 1, pack_color(0.4, 0.8, 1.0));
             ui.text("GODMODE", char_box.x + 110, char_box.y + 78, 1, 1, pack_color(0.9, 0.7, 0.3));
 
-            // 2x2 Crafting Grid
+            // 2x2 Crafting Grid, Arrow & Output slot
             ui.inset_panel(Rect::new(start_x + 208, start_y + 34, 242, 104), pack_color(0.10, 0.10, 0.12), 0.85);
             ui.text("Crafting 2x2", start_x + 220, start_y + 26, 1, 1, pack_color(0.85, 0.85, 0.85));
-            let craft_2x2 = layout.crafting_2x2_grid(42);
-            for idx in 0..4 {
-                let is_hovered = hovered_slot == Some(InventorySlotTarget::Crafting2x2(idx));
-                ui.inventory_slot(craft_2x2.slot(idx), player.inventory.crafting_2x2[idx], is_hovered, None);
-            }
-
-            // Arrow & Output slot
-            ui.text("==>", start_x + 310, start_y + 70, 2, 1, pack_color(0.9, 0.85, 0.3));
-            let result_item = recipes.match_grid(&player.inventory.crafting_2x2, 2, 2);
-            ui.inventory_slot(
+            draw_crafting_2x2_slots(
+                &mut ui,
+                layout.crafting_2x2_grid(42),
+                start_x + 310,
+                start_y + 70,
                 Rect::new(start_x + 350, start_y + 60, 42, 42),
-                result_item,
-                hovered_slot == Some(InventorySlotTarget::CraftingOutput),
-                None,
+                player,
+                recipes,
+                hovered_slot,
             );
 
             // Main 27 slots inset panel
             ui.inset_panel(Rect::new(start_x + 14, start_y + 140, 436, 126), pack_color(0.10, 0.10, 0.12), 0.85);
             ui.text("Backpack", start_x + 22, start_y + 132, 1, 1, pack_color(0.75, 0.75, 0.75));
-            let main_grid = layout.main_grid(144);
-            for idx in 0..27 {
-                let is_hovered = hovered_slot == Some(InventorySlotTarget::Main(idx));
-                ui.inventory_slot(main_grid.slot(idx), player.inventory.main[idx], is_hovered, None);
-            }
+            draw_backpack_slots(&mut ui, layout.main_grid(144), player, hovered_slot);
 
             // Hotbar & Trash inset panel
             ui.inset_panel(Rect::new(start_x + 10, start_y + 270, 444, 52), pack_color(0.10, 0.10, 0.12), 0.85);
             ui.text("Hotbar", start_x + 16, start_y + 264, 1, 1, pack_color(0.85, 0.85, 0.4));
             ui.text("TRASH", start_x + 424, start_y + 264, 1, 1, pack_color(1.0, 0.4, 0.4));
-            let hotbar = layout.hotbar_grid(276);
-            for i in 0..10 {
-                let is_hovered = hovered_slot == Some(InventorySlotTarget::Hotbar(i));
-                let is_selected = player.selected_hotbar_slot as usize == i;
-                let border_override = if is_selected && !is_hovered {
-                    Some(pack_color(0.4, 0.75, 1.0))
-                } else {
-                    None
-                };
-                ui.inventory_slot(hotbar.slot(i), player.inventory.hotbar[i], is_hovered, border_override);
-            }
+            draw_hotbar_slots(&mut ui, layout.hotbar_grid(276), player, hovered_slot, pack_color(0.4, 0.75, 1.0));
 
             draw_trash_slot(&mut ui, layout.trash_rect(276), hovered_slot == Some(InventorySlotTarget::Trash));
 
@@ -952,46 +978,27 @@ pub fn draw_inventory_screen(
             let craft_box = Rect::new(start_x + 208, start_y + 32, 242, 106);
             ui.inset_panel(craft_box, pack_color(0.10, 0.10, 0.12), 0.85);
             ui.text("CRAFTING (2x2)", craft_box.x + 12, craft_box.y + 8, 1, 1, pack_color(0.85, 0.85, 0.85));
-            let craft_2x2 = layout.crafting_2x2_grid(48);
-            for idx in 0..4 {
-                let is_hovered = hovered_slot == Some(InventorySlotTarget::Crafting2x2(idx));
-                ui.inventory_slot(craft_2x2.slot(idx), player.inventory.crafting_2x2[idx], is_hovered, None);
-            }
-
-            // Arrow & Output slot
-            ui.text("==>", start_x + 310, start_y + 78, 2, 1, pack_color(0.9, 0.85, 0.3));
-            let result_item = recipes.match_grid(&player.inventory.crafting_2x2, 2, 2);
-            ui.inventory_slot(
+            draw_crafting_2x2_slots(
+                &mut ui,
+                layout.crafting_2x2_grid(48),
+                start_x + 310,
+                start_y + 78,
                 Rect::new(start_x + 350, start_y + 68, 42, 42),
-                result_item,
-                hovered_slot == Some(InventorySlotTarget::CraftingOutput),
-                None,
+                player,
+                recipes,
+                hovered_slot,
             );
         }
 
         // Main Inventory Inset Panel
         ui.inset_panel(Rect::new(start_x + 14, start_y + 144, 436, 134), pack_color(0.10, 0.10, 0.12), 0.85);
         ui.text("BACKPACK", start_x + 22, start_y + 146, 1, 1, pack_color(0.75, 0.75, 0.80));
-        let main_grid = layout.main_grid(160);
-        for idx in 0..27 {
-            let is_hovered = hovered_slot == Some(InventorySlotTarget::Main(idx));
-            ui.inventory_slot(main_grid.slot(idx), player.inventory.main[idx], is_hovered, None);
-        }
+        draw_backpack_slots(&mut ui, layout.main_grid(160), player, hovered_slot);
 
         // Hotbar Inset Panel
         ui.inset_panel(Rect::new(start_x + 10, start_y + 282, 444, 52), pack_color(0.10, 0.10, 0.12), 0.85);
         ui.text("QUICK ACCESS HOTBAR", start_x + 16, start_y + 284, 1, 1, pack_color(0.85, 0.85, 0.40));
-        let hotbar = layout.hotbar_grid(295);
-        for i in 0..10 {
-            let is_hovered = hovered_slot == Some(InventorySlotTarget::Hotbar(i));
-            let is_selected = player.selected_hotbar_slot as usize == i;
-            let border_override = if is_selected && !is_hovered {
-                Some(pack_color(0.4, 0.7, 1.0))
-            } else {
-                None
-            };
-            ui.inventory_slot(hotbar.slot(i), player.inventory.hotbar[i], is_hovered, border_override);
-        }
+        draw_hotbar_slots(&mut ui, layout.hotbar_grid(295), player, hovered_slot, pack_color(0.4, 0.7, 1.0));
     }
 
     // Hovered Item Name Tooltip
@@ -1095,22 +1102,6 @@ fn draw_slot(
     is_hovered: bool,
 ) {
     UiCanvas::new(buffer, width, height).inventory_slot(Rect::new(x, y, w, h), item, is_hovered, None);
-}
-
-#[allow(dead_code)]
-fn draw_slot_custom(
-    buffer: &mut [u32],
-    width: usize,
-    height: usize,
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
-    item: Option<ItemStack>,
-    is_hovered: bool,
-    border_override: Option<u32>,
-) {
-    UiCanvas::new(buffer, width, height).inventory_slot(Rect::new(x, y, w, h), item, is_hovered, border_override);
 }
 
 pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: BlockId, x: i32, y: i32, size: i32) {

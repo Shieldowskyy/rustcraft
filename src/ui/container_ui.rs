@@ -14,6 +14,12 @@ fn pack_rgb(r: u8, g: u8, b: u8) -> u32 {
     (0xFF << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
 }
 
+#[inline]
+const fn centered_slot_grid(start_x: i32, panel_w: i32, y: i32, cols: usize, rows: usize) -> Grid {
+    let x = start_x + (panel_w - (cols as i32) * SLOT_STEP + SLOT_GAP) / 2;
+    Grid::square(x, y, cols, rows, SLOT_SIZE, SLOT_GAP)
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ChestSlotTarget {
     Chest(usize),
@@ -44,20 +50,17 @@ impl ChestLayout {
 
     #[inline]
     pub const fn chest_grid(&self) -> Grid {
-        let x = self.start_x + (420 - 9 * SLOT_STEP + SLOT_GAP) / 2;
-        Grid::square(x, self.start_y + 35, 9, 3, SLOT_SIZE, SLOT_GAP)
+        centered_slot_grid(self.start_x, 420, self.start_y + 35, 9, 3)
     }
 
     #[inline]
     pub const fn main_grid(&self) -> Grid {
-        let x = self.start_x + (420 - 9 * SLOT_STEP + SLOT_GAP) / 2;
-        Grid::square(x, self.start_y + 185, 9, 3, SLOT_SIZE, SLOT_GAP)
+        centered_slot_grid(self.start_x, 420, self.start_y + 185, 9, 3)
     }
 
     #[inline]
     pub const fn hotbar_grid(&self) -> Grid {
-        let x = self.start_x + (420 - 10 * SLOT_STEP + SLOT_GAP) / 2;
-        Grid::square(x, self.start_y + 325, 10, 1, SLOT_SIZE, SLOT_GAP)
+        centered_slot_grid(self.start_x, 420, self.start_y + 325, 10, 1)
     }
 
     pub fn find_slot_at(&self, mx: i32, my: i32) -> Option<ChestSlotTarget> {
@@ -103,14 +106,12 @@ impl FurnaceLayout {
 
     #[inline]
     pub const fn main_grid(&self) -> Grid {
-        let x = self.start_x + (420 - 9 * SLOT_STEP + SLOT_GAP) / 2;
-        Grid::square(x, self.start_y + 185, 9, 3, SLOT_SIZE, SLOT_GAP)
+        centered_slot_grid(self.start_x, 420, self.start_y + 185, 9, 3)
     }
 
     #[inline]
     pub const fn hotbar_grid(&self) -> Grid {
-        let x = self.start_x + (420 - 10 * SLOT_STEP + SLOT_GAP) / 2;
-        Grid::square(x, self.start_y + 325, 10, 1, SLOT_SIZE, SLOT_GAP)
+        centered_slot_grid(self.start_x, 420, self.start_y + 325, 10, 1)
     }
 
     pub fn find_slot_at(&self, mx: i32, my: i32) -> Option<FurnaceSlotTarget> {
@@ -166,17 +167,25 @@ pub fn draw_slot(
             ui.text_white(&count_str, tx, ty, 1, 1);
         }
 
-        if st.block.is_damageable() && st.durability < st.block.max_durability() {
-            let ratio = st.durability_ratio();
-            let color = if ratio > 0.6 {
-                pack_color(0.2, 0.9, 0.2)
-            } else if ratio > 0.25 {
-                pack_color(0.95, 0.75, 0.1)
-            } else {
-                pack_color(0.9, 0.2, 0.2)
-            };
-            ui.progress_bar(Rect::new(x + 4, y + size - 5, size - 8, 2), ratio, pack_color(0.0, 0.0, 0.0), color);
-        }
+        ui.item_durability_bar(Rect::new(x + 4, y + size - 5, size - 8, 2), &st);
+    }
+}
+
+fn draw_player_inventory_grids(
+    ui: &mut UiCanvas<'_>,
+    main_grid: Grid,
+    hotbar_grid: Grid,
+    player: &Player,
+    hovered_main: Option<usize>,
+    hovered_hotbar: Option<usize>,
+) {
+    for idx in 0..27 {
+        let cell = main_grid.slot(idx);
+        draw_slot(ui.buffer, ui.width, ui.height, cell.x, cell.y, SLOT_SIZE, player.inventory.main[idx], hovered_main == Some(idx));
+    }
+    for idx in 0..10 {
+        let cell = hotbar_grid.slot(idx);
+        draw_slot(ui.buffer, ui.width, ui.height, cell.x, cell.y, SLOT_SIZE, player.inventory.hotbar[idx], hovered_hotbar == Some(idx));
     }
 }
 
@@ -241,17 +250,15 @@ pub fn draw_chest_ui(
         draw_slot(ui.buffer, ui.width, ui.height, cell.x, cell.y, SLOT_SIZE, chest.items[idx], hovered == Some(ChestSlotTarget::Chest(idx)));
     }
 
-    let main_grid = layout.main_grid();
-    for idx in 0..27 {
-        let cell = main_grid.slot(idx);
-        draw_slot(ui.buffer, ui.width, ui.height, cell.x, cell.y, SLOT_SIZE, player.inventory.main[idx], hovered == Some(ChestSlotTarget::Main(idx)));
-    }
-
-    let hotbar_grid = layout.hotbar_grid();
-    for idx in 0..10 {
-        let cell = hotbar_grid.slot(idx);
-        draw_slot(ui.buffer, ui.width, ui.height, cell.x, cell.y, SLOT_SIZE, player.inventory.hotbar[idx], hovered == Some(ChestSlotTarget::Hotbar(idx)));
-    }
+    let hovered_main = match hovered {
+        Some(ChestSlotTarget::Main(i)) => Some(i),
+        _ => None,
+    };
+    let hovered_hotbar = match hovered {
+        Some(ChestSlotTarget::Hotbar(i)) => Some(i),
+        _ => None,
+    };
+    draw_player_inventory_grids(&mut ui, layout.main_grid(), layout.hotbar_grid(), player, hovered_main, hovered_hotbar);
 
     let hovered_item = hovered.and_then(|target| match target {
         ChestSlotTarget::Chest(i) => chest.items[i],
@@ -332,19 +339,16 @@ pub fn draw_furnace_ui(
     let out_r = layout.output_rect();
     draw_slot(ui.buffer, ui.width, ui.height, out_r.x, out_r.y, out_r.w, furnace.output, hovered == Some(FurnaceSlotTarget::Output));
 
-    // 6. Main Inventory Slots (9x3)
-    let main_grid = layout.main_grid();
-    for idx in 0..27 {
-        let cell = main_grid.slot(idx);
-        draw_slot(ui.buffer, ui.width, ui.height, cell.x, cell.y, SLOT_SIZE, player.inventory.main[idx], hovered == Some(FurnaceSlotTarget::Main(idx)));
-    }
-
-    // 7. Hotbar Slots (10)
-    let hotbar_grid = layout.hotbar_grid();
-    for idx in 0..10 {
-        let cell = hotbar_grid.slot(idx);
-        draw_slot(ui.buffer, ui.width, ui.height, cell.x, cell.y, SLOT_SIZE, player.inventory.hotbar[idx], hovered == Some(FurnaceSlotTarget::Hotbar(idx)));
-    }
+    // 6. Main Inventory & Hotbar Slots
+    let hovered_main = match hovered {
+        Some(FurnaceSlotTarget::Main(i)) => Some(i),
+        _ => None,
+    };
+    let hovered_hotbar = match hovered {
+        Some(FurnaceSlotTarget::Hotbar(i)) => Some(i),
+        _ => None,
+    };
+    draw_player_inventory_grids(&mut ui, layout.main_grid(), layout.hotbar_grid(), player, hovered_main, hovered_hotbar);
 
     let hovered_item = hovered.and_then(|target| match target {
         FurnaceSlotTarget::Input => furnace.input,
@@ -387,14 +391,12 @@ impl VillagerTradeLayout {
 
     #[inline]
     pub const fn main_grid(&self) -> Grid {
-        let x = self.start_x + (self.panel_w - 9 * SLOT_STEP + SLOT_GAP) / 2;
-        Grid::square(x, self.start_y + 190, 9, 3, SLOT_SIZE, SLOT_GAP)
+        centered_slot_grid(self.start_x, self.panel_w, self.start_y + 190, 9, 3)
     }
 
     #[inline]
     pub const fn hotbar_grid(&self) -> Grid {
-        let x = self.start_x + (self.panel_w - 10 * SLOT_STEP + SLOT_GAP) / 2;
-        Grid::square(x, self.start_y + 335, 10, 1, SLOT_SIZE, SLOT_GAP)
+        centered_slot_grid(self.start_x, self.panel_w, self.start_y + 335, 10, 1)
     }
 
     pub fn find_target_at(&self, mx: i32, my: i32, trade_count: usize) -> Option<VillagerTradeSlotTarget> {
@@ -537,17 +539,15 @@ pub fn draw_villager_trade_ui(
 
     ui.text("Ekwipunek gracza", layout.start_x + 18, layout.start_y + 175, 1, 1, 0xDDDDDD);
 
-    let main_grid = layout.main_grid();
-    for idx in 0..27 {
-        let cell = main_grid.slot(idx);
-        draw_slot(ui.buffer, ui.width, ui.height, cell.x, cell.y, SLOT_SIZE, player.inventory.main[idx], hovered == Some(VillagerTradeSlotTarget::Main(idx)));
-    }
-
-    let hotbar_grid = layout.hotbar_grid();
-    for idx in 0..10 {
-        let cell = hotbar_grid.slot(idx);
-        draw_slot(ui.buffer, ui.width, ui.height, cell.x, cell.y, SLOT_SIZE, player.inventory.hotbar[idx], hovered == Some(VillagerTradeSlotTarget::Hotbar(idx)));
-    }
+    let hovered_main = match hovered {
+        Some(VillagerTradeSlotTarget::Main(i)) => Some(i),
+        _ => None,
+    };
+    let hovered_hotbar = match hovered {
+        Some(VillagerTradeSlotTarget::Hotbar(i)) => Some(i),
+        _ => None,
+    };
+    draw_player_inventory_grids(&mut ui, layout.main_grid(), layout.hotbar_grid(), player, hovered_main, hovered_hotbar);
 
     let hovered_item = hovered.and_then(|target| match target {
         VillagerTradeSlotTarget::Main(i) => player.inventory.main[i],

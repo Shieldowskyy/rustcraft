@@ -785,6 +785,21 @@ impl<'a> UiCanvas<'a> {
         draw_text_light_colored_shadowed(self.buffer, self.width, self.height, label, tx, ty, 1, 1, text_color);
     }
 
+    /// Renders a color-graded durability bar at the bottom of a slot if the item is damaged.
+    pub fn item_durability_bar(&mut self, bar_rect: Rect, stack: &ItemStack) {
+        if stack.block.is_damageable() && stack.durability < stack.block.max_durability() {
+            let ratio = stack.durability_ratio();
+            let color = if ratio > 0.6 {
+                pack_color(0.2, 0.9, 0.2)
+            } else if ratio > 0.25 {
+                pack_color(0.95, 0.75, 0.1)
+            } else {
+                pack_color(0.9, 0.2, 0.2)
+            };
+            self.progress_bar(bar_rect, ratio, pack_color(0.0, 0.0, 0.0), color);
+        }
+    }
+
     /// Renders an interactive inventory/container slot with item icon, stack count, and durability bar.
     pub fn inventory_slot(
         &mut self,
@@ -819,22 +834,7 @@ impl<'a> UiCanvas<'a> {
                 self.text(count_str, tx, ty, 1, 1, pack_color(1.0, 1.0, 1.0));
             }
 
-            if stack.block.is_damageable() && stack.durability < stack.block.max_durability() {
-                let ratio = stack.durability_ratio();
-                let color = if ratio > 0.6 {
-                    pack_color(0.2, 0.9, 0.2)
-                } else if ratio > 0.25 {
-                    pack_color(0.95, 0.75, 0.1)
-                } else {
-                    pack_color(0.9, 0.2, 0.2)
-                };
-                self.progress_bar(
-                    Rect::new(r.x + 4, r.bottom() - 5, r.w - 8, 2),
-                    ratio,
-                    pack_color(0.0, 0.0, 0.0),
-                    color,
-                );
-            }
+            self.item_durability_bar(Rect::new(r.x + 4, r.bottom() - 5, r.w - 8, 2), &stack);
         }
     }
 
@@ -867,22 +867,7 @@ impl<'a> UiCanvas<'a> {
                 self.text_white(label, r.x + r.w - 10, r.y + r.h - 12, 1, 1);
             }
 
-            if stack.block.is_damageable() && stack.durability < stack.block.max_durability() {
-                let ratio = stack.durability_ratio();
-                let color = if ratio > 0.6 {
-                    pack_color(0.2, 0.9, 0.2)
-                } else if ratio > 0.25 {
-                    pack_color(0.95, 0.75, 0.1)
-                } else {
-                    pack_color(0.9, 0.2, 0.2)
-                };
-                self.progress_bar(
-                    Rect::new(r.x + 3, r.y + r.h - 4, r.w - 6, 2),
-                    ratio,
-                    pack_color(0.0, 0.0, 0.0),
-                    color,
-                );
-            }
+            self.item_durability_bar(Rect::new(r.x + 3, r.y + r.h - 4, r.w - 6, 2), stack);
         }
     }
 

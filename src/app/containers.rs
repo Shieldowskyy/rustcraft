@@ -12,6 +12,113 @@ use crate::world::block::BlockId;
 use super::{AppOutput, GameState, InputState, RustCraftApp};
 
 impl RustCraftApp {
+    fn cycle_hotbar_scroll(&mut self, input: &InputState) {
+        if input.scroll_delta < 0.0 || self.controls.is_just_pressed(Action::HotbarPrev) {
+            self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 {
+                9
+            } else {
+                self.player.selected_hotbar_slot - 1
+            };
+        }
+        if input.scroll_delta > 0.0 || self.controls.is_just_pressed(Action::HotbarNext) {
+            self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 {
+                0
+            } else {
+                self.player.selected_hotbar_slot + 1
+            };
+        }
+    }
+
+    fn is_close_container_pressed(&self, input: &InputState) -> bool {
+        self.controls.is_just_pressed(Action::Inventory)
+            || self.controls.is_just_pressed(Action::Pause)
+            || (input.key_escape && !self.prev_escape_down)
+            || input.gp_east_just_pressed
+    }
+
+    fn render_container_world_backdrop(&mut self) {
+        #[cfg(not(target_os = "vita"))]
+        {
+            self.renderer.render_frame(&mut self.world, &self.camera);
+            self.renderer.apply_biome_color_filter(self.biome_filter_tint);
+        }
+        #[cfg(target_os = "vita")]
+        {
+            self.renderer.color_buffer.fill(0x0C0C10);
+        }
+    }
+
+    fn handle_chest_player_slot_click(
+        slot: &mut Option<ItemStack>,
+        held_item: &mut Option<ItemStack>,
+        chest: &mut crate::world::tile_entity::ChestData,
+        click_left: bool,
+        click_right: bool,
+        shift_held: bool,
+    ) {
+        if click_left {
+            if shift_held {
+                if let Some(st) = slot.take() {
+                    let rem = chest.add_item(st.block, st.count);
+                    if rem > 0 {
+                        *slot = Some(ItemStack::new(st.block, rem));
+                    }
+                }
+            } else {
+                Inventory::handle_slot_left_click(slot, held_item);
+            }
+        } else if click_right {
+            Inventory::handle_slot_right_click(slot, held_item);
+        }
+    }
+
+    fn handle_furnace_player_slot_click(
+        slot: &mut Option<ItemStack>,
+        held_item: &mut Option<ItemStack>,
+        furnace: &mut crate::world::tile_entity::FurnaceData,
+        click_left: bool,
+        click_right: bool,
+        shift_held: bool,
+    ) {
+        if click_left {
+            if shift_held {
+                if let Some(mut item) = slot.take() {
+                    if crate::world::tile_entity::fuel_burn_time(item.block).is_some() {
+                        if let Some(fuel) = &mut furnace.fuel {
+                            if fuel.block == item.block && fuel.count < 64 {
+                                let to_add = item.count.min(64 - fuel.count);
+                                fuel.count += to_add;
+                                item.count -= to_add;
+                            }
+                        } else {
+                            furnace.fuel = Some(item);
+                            item.count = 0;
+                        }
+                    }
+                    if item.count > 0 {
+                        if let Some(inp) = &mut furnace.input {
+                            if inp.block == item.block && inp.count < 64 {
+                                let to_add = item.count.min(64 - inp.count);
+                                inp.count += to_add;
+                                item.count -= to_add;
+                            }
+                        } else if furnace.input.is_none() {
+                            furnace.input = Some(item);
+                            item.count = 0;
+                        }
+                    }
+                    if item.count > 0 {
+                        *slot = Some(item);
+                    }
+                }
+            } else {
+                Inventory::handle_slot_left_click(slot, held_item);
+            }
+        } else if click_right {
+            Inventory::handle_slot_right_click(slot, held_item);
+        }
+    }
+
     pub(crate) fn update_and_render_inventory(
         &mut self,
         dt: f32,
@@ -47,19 +154,10 @@ impl RustCraftApp {
                 self.player.creative_scroll = self.player.creative_scroll.saturating_sub(1);
             }
         } else {
-            if input.scroll_delta < 0.0 || self.controls.is_just_pressed(Action::HotbarPrev) {
-                self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
-            }
-            if input.scroll_delta > 0.0 || self.controls.is_just_pressed(Action::HotbarNext) {
-                self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
-            }
+            self.cycle_hotbar_scroll(input);
         }
 
-        if self.controls.is_just_pressed(Action::Inventory)
-            || self.controls.is_just_pressed(Action::Pause)
-            || (input.key_escape && !self.prev_escape_down)
-            || input.gp_east_just_pressed
-        {
+        if self.is_close_container_pressed(input) {
             self.player.inventory.return_crafting_items();
             if self.player.gamemode == GameMode::Creative {
                 self.player.inventory.held_item = None;
@@ -378,15 +476,7 @@ impl RustCraftApp {
             }
         }
 
-        #[cfg(not(target_os = "vita"))]
-        {
-            self.renderer.render_frame(&mut self.world, &self.camera);
-            self.renderer.apply_biome_color_filter(self.biome_filter_tint);
-        }
-        #[cfg(target_os = "vita")]
-        {
-            self.renderer.color_buffer.fill(0x0C0C10);
-        }
+        self.render_container_world_backdrop();
         self.renderer.draw_inventory(
             &self.player,
             inv_hovered_target,
@@ -414,19 +504,9 @@ impl RustCraftApp {
         let chest_pos = pos;
 
         self.world.update_furnaces(dt);
+        self.cycle_hotbar_scroll(input);
 
-        if input.scroll_delta < 0.0 || self.controls.is_just_pressed(Action::HotbarPrev) {
-            self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
-        }
-        if input.scroll_delta > 0.0 || self.controls.is_just_pressed(Action::HotbarNext) {
-            self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
-        }
-
-        if self.controls.is_just_pressed(Action::Inventory)
-            || self.controls.is_just_pressed(Action::Pause)
-            || (input.key_escape && !self.prev_escape_down)
-            || input.gp_east_just_pressed
-        {
+        if self.is_close_container_pressed(input) {
             if self.player.gamemode == GameMode::Creative {
                 self.player.inventory.held_item = None;
             }
@@ -485,50 +565,30 @@ impl RustCraftApp {
                         }
                     }
                     ChestSlotTarget::Main(idx) => {
-                        if click_left {
-                            if input.key_shift {
-                                if let Some(st) = self.player.inventory.main[idx].take() {
-                                    let rem = chest.add_item(st.block, st.count);
-                                    if rem > 0 {
-                                        self.player.inventory.main[idx] = Some(ItemStack::new(st.block, rem));
-                                    }
-                                }
-                            } else {
-                                Inventory::handle_slot_left_click(&mut self.player.inventory.main[idx], &mut self.player.inventory.held_item);
-                            }
-                        } else if click_right {
-                            Inventory::handle_slot_right_click(&mut self.player.inventory.main[idx], &mut self.player.inventory.held_item);
-                        }
+                        Self::handle_chest_player_slot_click(
+                            &mut self.player.inventory.main[idx],
+                            &mut self.player.inventory.held_item,
+                            chest,
+                            click_left,
+                            click_right,
+                            input.key_shift,
+                        );
                     }
                     ChestSlotTarget::Hotbar(idx) => {
-                        if click_left {
-                            if input.key_shift {
-                                if let Some(st) = self.player.inventory.hotbar[idx].take() {
-                                    let rem = chest.add_item(st.block, st.count);
-                                    if rem > 0 {
-                                        self.player.inventory.hotbar[idx] = Some(ItemStack::new(st.block, rem));
-                                    }
-                                }
-                            } else {
-                                Inventory::handle_slot_left_click(&mut self.player.inventory.hotbar[idx], &mut self.player.inventory.held_item);
-                            }
-                        } else if click_right {
-                            Inventory::handle_slot_right_click(&mut self.player.inventory.hotbar[idx], &mut self.player.inventory.held_item);
-                        }
+                        Self::handle_chest_player_slot_click(
+                            &mut self.player.inventory.hotbar[idx],
+                            &mut self.player.inventory.held_item,
+                            chest,
+                            click_left,
+                            click_right,
+                            input.key_shift,
+                        );
                     }
                 }
             }
         }
 
-        #[cfg(not(target_os = "vita"))]
-        {
-            self.renderer.render_frame(&mut self.world, &self.camera);
-            self.renderer.apply_biome_color_filter(self.biome_filter_tint);
-        }
-        #[cfg(target_os = "vita")]
-        {
-            self.renderer.color_buffer.fill(0x0C0C10);
-        }
+        self.render_container_world_backdrop();
         let chest = self.world.get_or_create_chest(chest_pos);
         draw_chest_ui(
             &mut self.renderer.color_buffer,
@@ -553,19 +613,9 @@ impl RustCraftApp {
         let furnace_pos = pos;
 
         self.world.update_furnaces(dt);
+        self.cycle_hotbar_scroll(input);
 
-        if input.scroll_delta < 0.0 || self.controls.is_just_pressed(Action::HotbarPrev) {
-            self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot <= 0 { 9 } else { self.player.selected_hotbar_slot - 1 };
-        }
-        if input.scroll_delta > 0.0 || self.controls.is_just_pressed(Action::HotbarNext) {
-            self.player.selected_hotbar_slot = if self.player.selected_hotbar_slot >= 9 { 0 } else { self.player.selected_hotbar_slot + 1 };
-        }
-
-        if self.controls.is_just_pressed(Action::Inventory)
-            || self.controls.is_just_pressed(Action::Pause)
-            || (input.key_escape && !self.prev_escape_down)
-            || input.gp_east_just_pressed
-        {
+        if self.is_close_container_pressed(input) {
             if self.player.gamemode == GameMode::Creative {
                 self.player.inventory.held_item = None;
             }
@@ -684,82 +734,24 @@ impl RustCraftApp {
                         }
                     }
                     FurnaceSlotTarget::Main(idx) => {
-                        if click_left {
-                            if input.key_shift {
-                                if let Some(mut item) = self.player.inventory.main[idx].take() {
-                                    if crate::world::tile_entity::fuel_burn_time(item.block).is_some() {
-                                        if let Some(fuel) = &mut furnace.fuel {
-                                            if fuel.block == item.block && fuel.count < 64 {
-                                                let to_add = item.count.min(64 - fuel.count);
-                                                fuel.count += to_add;
-                                                item.count -= to_add;
-                                            }
-                                        } else {
-                                            furnace.fuel = Some(item);
-                                            item.count = 0;
-                                        }
-                                    }
-                                    if item.count > 0 {
-                                        if let Some(inp) = &mut furnace.input {
-                                            if inp.block == item.block && inp.count < 64 {
-                                                let to_add = item.count.min(64 - inp.count);
-                                                inp.count += to_add;
-                                                item.count -= to_add;
-                                            }
-                                        } else if furnace.input.is_none() {
-                                            furnace.input = Some(item);
-                                            item.count = 0;
-                                        }
-                                    }
-                                    if item.count > 0 {
-                                        self.player.inventory.main[idx] = Some(item);
-                                    }
-                                }
-                            } else {
-                                Inventory::handle_slot_left_click(&mut self.player.inventory.main[idx], &mut self.player.inventory.held_item);
-                            }
-                        } else if click_right {
-                            Inventory::handle_slot_right_click(&mut self.player.inventory.main[idx], &mut self.player.inventory.held_item);
-                        }
+                        Self::handle_furnace_player_slot_click(
+                            &mut self.player.inventory.main[idx],
+                            &mut self.player.inventory.held_item,
+                            furnace,
+                            click_left,
+                            click_right,
+                            input.key_shift,
+                        );
                     }
                     FurnaceSlotTarget::Hotbar(idx) => {
-                        if click_left {
-                            if input.key_shift {
-                                if let Some(mut item) = self.player.inventory.hotbar[idx].take() {
-                                    if crate::world::tile_entity::fuel_burn_time(item.block).is_some() {
-                                        if let Some(fuel) = &mut furnace.fuel {
-                                            if fuel.block == item.block && fuel.count < 64 {
-                                                let to_add = item.count.min(64 - fuel.count);
-                                                fuel.count += to_add;
-                                                item.count -= to_add;
-                                            }
-                                        } else {
-                                            furnace.fuel = Some(item);
-                                            item.count = 0;
-                                        }
-                                    }
-                                    if item.count > 0 {
-                                        if let Some(inp) = &mut furnace.input {
-                                            if inp.block == item.block && inp.count < 64 {
-                                                let to_add = item.count.min(64 - inp.count);
-                                                inp.count += to_add;
-                                                item.count -= to_add;
-                                            }
-                                        } else if furnace.input.is_none() {
-                                            furnace.input = Some(item);
-                                            item.count = 0;
-                                        }
-                                    }
-                                    if item.count > 0 {
-                                        self.player.inventory.hotbar[idx] = Some(item);
-                                    }
-                                }
-                            } else {
-                                Inventory::handle_slot_left_click(&mut self.player.inventory.hotbar[idx], &mut self.player.inventory.held_item);
-                            }
-                        } else if click_right {
-                            Inventory::handle_slot_right_click(&mut self.player.inventory.hotbar[idx], &mut self.player.inventory.held_item);
-                        }
+                        Self::handle_furnace_player_slot_click(
+                            &mut self.player.inventory.hotbar[idx],
+                            &mut self.player.inventory.held_item,
+                            furnace,
+                            click_left,
+                            click_right,
+                            input.key_shift,
+                        );
                     }
                 }
             }
@@ -769,15 +761,7 @@ impl RustCraftApp {
             }
         }
 
-        #[cfg(not(target_os = "vita"))]
-        {
-            self.renderer.render_frame(&mut self.world, &self.camera);
-            self.renderer.apply_biome_color_filter(self.biome_filter_tint);
-        }
-        #[cfg(target_os = "vita")]
-        {
-            self.renderer.color_buffer.fill(0x0C0C10);
-        }
+        self.render_container_world_backdrop();
         let furnace = self.world.get_or_create_furnace(furnace_pos);
         draw_furnace_ui(
             &mut self.renderer.color_buffer,
@@ -803,11 +787,7 @@ impl RustCraftApp {
         self.world.update_furnaces(dt);
 
         // Close trading window
-        if self.controls.is_just_pressed(Action::Inventory)
-            || self.controls.is_just_pressed(Action::Pause)
-            || (input.key_escape && !self.prev_escape_down)
-            || input.gp_east_just_pressed
-        {
+        if self.is_close_container_pressed(input) {
             self.state = GameState::Playing;
             self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
             out.request_capture_mouse = true;
@@ -885,15 +865,7 @@ impl RustCraftApp {
         self.state = GameState::VillagerTrade { mob_id, selected_trade };
         self.prev_left_down = left_down;
 
-        #[cfg(not(target_os = "vita"))]
-        {
-            self.renderer.render_frame(&mut self.world, &self.camera);
-            self.renderer.apply_biome_color_filter(self.biome_filter_tint);
-        }
-        #[cfg(target_os = "vita")]
-        {
-            self.renderer.color_buffer.fill(0x0C0C10);
-        }
+        self.render_container_world_backdrop();
 
         let trades_clone = if let Some(mob) = self.mob_manager.mobs.iter().find(|m| m.id == mob_id) {
             mob.trades.clone()
