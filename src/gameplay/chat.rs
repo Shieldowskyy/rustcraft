@@ -1346,117 +1346,64 @@ impl ChatState {
 pub fn parse_vanilla_block_id(s: &str) -> Option<BlockId> {
     let s = s.trim().to_ascii_lowercase().replace('-', "_");
     match s.as_str() {
-        "grass" | "grass_block" | "trawa" => Some(BlockId::Grass),
-        "dirt" | "ziemia" => Some(BlockId::Dirt),
-        "stone" | "kamien" | "rock" | "cobblestone" => Some(BlockId::Stone),
-        "sand" | "piasek" => Some(BlockId::Sand),
-        "wood" | "log" | "drewno" | "oak_log" => Some(BlockId::Wood),
-        "planks" | "deski" | "wood_planks" => Some(BlockId::Planks),
-        "leaves" | "liscie" => Some(BlockId::Leaves),
-        "glass" | "szyba" => Some(BlockId::Glass),
-        "ice" | "lod" => Some(BlockId::Ice),
-        "tnt" => Some(BlockId::Tnt),
-        "crafting_table" | "workbench" => Some(BlockId::CraftingTable),
-        "chest" | "skrzynia" => Some(BlockId::Chest),
-        "furnace" | "piec" => Some(BlockId::Furnace),
-        "torch" | "pochodnia" => Some(BlockId::Torch),
-        "bedrock" => Some(BlockId::Bedrock),
-        "water" | "woda" => Some(BlockId::Water),
-        "lava" | "lawa" => Some(BlockId::Lava),
-        "mud" | "bloto" => Some(BlockId::Mud),
-        "coal_ore" | "coal" | "wegiel" => Some(BlockId::CoalOre),
-        "iron_ore" | "zelazo" => Some(BlockId::IronOre),
-        "gold_ore" | "zloto" => Some(BlockId::GoldOre),
-        "iron_ingot" | "ingot" => Some(BlockId::IronIngot),
-        "gold_ingot" => Some(BlockId::GoldIngot),
-        "iron_block" => Some(BlockId::IronBlock),
-        "gold_block" => Some(BlockId::GoldBlock),
-        "coal_block" => Some(BlockId::CoalBlock),
-        "stick" | "patyk" => Some(BlockId::Stick),
-        "apple" | "jablko" => Some(BlockId::Apple),
-        "raw_porkchop" | "porkchop" => Some(BlockId::RawPorkchop),
-        "cooked_porkchop" => Some(BlockId::CookedPorkchop),
-        "raw_beef" | "beef" => Some(BlockId::RawBeef),
-        "cooked_beef" | "steak" => Some(BlockId::CookedBeef),
-        "raw_chicken" | "chicken" => Some(BlockId::RawChicken),
-        "cooked_chicken" => Some(BlockId::CookedChicken),
-        "feather" | "pioro" => Some(BlockId::Feather),
-        "wooden_sword" => Some(BlockId::WoodenSword),
-        "stone_sword" => Some(BlockId::StoneSword),
-        "iron_sword" | "sword" | "diamond_sword" => Some(BlockId::IronSword),
-        "wooden_pickaxe" => Some(BlockId::WoodenPickaxe),
-        "stone_pickaxe" => Some(BlockId::StonePickaxe),
-        "iron_pickaxe" | "pickaxe" | "diamond_pickaxe" => Some(BlockId::IronPickaxe),
-        "wooden_axe" => Some(BlockId::WoodenAxe),
-        "stone_axe" => Some(BlockId::StoneAxe),
-        "iron_axe" | "axe" => Some(BlockId::IronAxe),
-        "wooden_shovel" => Some(BlockId::WoodenShovel),
-        "stone_shovel" => Some(BlockId::StoneShovel),
-        "iron_shovel" | "shovel" => Some(BlockId::IronShovel),
-        "pig_spawn_egg" | "pig_egg" => Some(BlockId::PigSpawnEgg),
-        "cow_spawn_egg" | "cow_egg" => Some(BlockId::CowSpawnEgg),
-        "chicken_spawn_egg" | "chicken_egg" => Some(BlockId::ChickenSpawnEgg),
-        "bone" | "kosc" => Some(BlockId::Bone),
-        "gunpowder" | "proch" => Some(BlockId::Gunpowder),
-        "ruststone" | "rdzawnik" | "redstone" => Some(BlockId::RustStone),
-        "ruststone_ore" | "ruda_rdzawnika" | "redstone_ore" => Some(BlockId::RustStoneOre),
-        "ruststone_block" | "blok_rdzawnika" | "redstone_block" => Some(BlockId::RustStoneBlock),
-        "ruststone_lamp" | "lampa_rdzawnikowa" | "lampa" | "redstone_lamp" => {
-            Some(BlockId::RustStoneLamp)
-        }
-        "lever" | "dzwignia" => Some(BlockId::Lever),
-        "button" | "przycisk" => Some(BlockId::Button),
-        "pressure_plate" | "plytka" | "plytka_naciskowa" => Some(BlockId::PressurePlate),
-        "shears" | "nozyce" => Some(BlockId::Shears),
-        "sheep_spawn_egg" | "sheep_egg" | "owca_jajko" => Some(BlockId::SheepSpawnEgg),
-        "wool" | "welna" | "white_wool" | "biala_welna" => Some(BlockId::WhiteWool),
-        "orange_wool" | "pomaranczowa_welna" => Some(BlockId::OrangeWool),
-        "magenta_wool" | "jasnofioletowa_welna" => Some(BlockId::MagentaWool),
-        "light_blue_wool" | "jasnoniebieska_welna" => Some(BlockId::LightBlueWool),
-        "yellow_wool" | "zolta_welna" => Some(BlockId::YellowWool),
-        "lime_wool" | "jasnozielona_welna" => Some(BlockId::LimeWool),
-        "pink_wool" | "rozowa_welna" => Some(BlockId::PinkWool),
-        "gray_wool" | "szara_welna" => Some(BlockId::GrayWool),
-        "light_gray_wool" | "jasnoszara_welna" => Some(BlockId::LightGrayWool),
-        "cyan_wool" | "turkusowa_welna" => Some(BlockId::CyanWool),
-        "purple_wool" | "fioletowa_welna" => Some(BlockId::PurpleWool),
-        "blue_wool" | "niebieska_welna" => Some(BlockId::BlueWool),
-        "brown_wool" | "brazowa_welna" => Some(BlockId::BrownWool),
-        "green_wool" | "zielona_welna" => Some(BlockId::GreenWool),
-        "red_wool" | "czerwona_welna" => Some(BlockId::RedWool),
-        "black_wool" | "czarna_welna" => Some(BlockId::BlackWool),
-        "kelp" | "wodorosty" => Some(BlockId::Kelp),
-        "seagrass" | "trawa_morska" => Some(BlockId::Seagrass),
-        "raw_cod" | "cod" | "dorsz" => Some(BlockId::RawCod),
-        "cooked_cod" | "pieczony_dorsz" => Some(BlockId::CookedCod),
-        "raw_salmon" | "salmon" | "losos" => Some(BlockId::RawSalmon),
-        "cooked_salmon" | "pieczony_losos" => Some(BlockId::CookedSalmon),
-        "pufferfish" | "rozdymka" => Some(BlockId::Pufferfish),
-        "tropical_fish" | "tropikalna_ryba" => Some(BlockId::TropicalFish),
-        "dried_kelp" | "suszone_wodorosty" => Some(BlockId::DriedKelp),
-        "dolphin_spawn_egg" | "dolphin_egg" | "jajko_delfina" => Some(BlockId::DolphinSpawnEgg),
-        "fish_spawn_egg" | "fish_egg" | "jajko_ryby" => Some(BlockId::FishSpawnEgg),
-        "villager_spawn_egg" | "villager_egg" | "jajko_osadnika" | "jajko_wiesniaka" => {
-            Some(BlockId::VillagerSpawnEgg)
-        }
-        "emerald" | "szmaragd" => Some(BlockId::Emerald),
-        "emerald_ore" | "ruda_szmaragdu" => Some(BlockId::EmeraldOre),
-        "emerald_block" | "blok_szmaragdu" => Some(BlockId::EmeraldBlock),
-        "fishing_rod" | "wedka" => Some(BlockId::FishingRod),
-        "string" | "nici" | "nic" => Some(BlockId::StringItem),
-        "spider_eye" | "oko_pajaka" => Some(BlockId::SpiderEye),
-        "spider_spawn_egg" | "spider_egg" | "jajko_pajaka" => Some(BlockId::SpiderSpawnEgg),
-        _ => {
-            if let Ok(id) = s.parse::<u8>() {
-                if id > 0 {
-                    return Some(BlockId::from_u8(id));
-                }
+        "rock" | "cobblestone" => return Some(BlockId::Stone),
+        "log" | "oak_log" => return Some(BlockId::Wood),
+        "wood_planks" => return Some(BlockId::Planks),
+        "workbench" => return Some(BlockId::CraftingTable),
+        "coal" => return Some(BlockId::CoalOre),
+        "zloto" => return Some(BlockId::GoldOre),
+        "ingot" => return Some(BlockId::IronIngot),
+        "porkchop" => return Some(BlockId::RawPorkchop),
+        "beef" => return Some(BlockId::RawBeef),
+        "chicken" => return Some(BlockId::RawChicken),
+        "sword" | "diamond_sword" => return Some(BlockId::IronSword),
+        "pickaxe" | "diamond_pickaxe" => return Some(BlockId::IronPickaxe),
+        "axe" => return Some(BlockId::IronAxe),
+        "shovel" => return Some(BlockId::IronShovel),
+        "pig_egg" => return Some(BlockId::PigSpawnEgg),
+        "cow_egg" => return Some(BlockId::CowSpawnEgg),
+        "chicken_egg" => return Some(BlockId::ChickenSpawnEgg),
+        "redstone" => return Some(BlockId::RustStone),
+        "redstone_ore" => return Some(BlockId::RustStoneOre),
+        "ruststone_block" | "redstone_block" => return Some(BlockId::RustStoneBlock),
+        "lampa" | "redstone_lamp" => return Some(BlockId::RustStoneLamp),
+        "plytka" => return Some(BlockId::PressurePlate),
+        "sheep_egg" | "owca_jajko" => return Some(BlockId::SheepSpawnEgg),
+        "wool" | "welna" => return Some(BlockId::WhiteWool),
+        "jasnofioletowa_welna" => return Some(BlockId::MagentaWool),
+        "turkusowa_welna" => return Some(BlockId::CyanWool),
+        "wodorosty" => return Some(BlockId::Kelp),
+        "cod" | "dorsz" => return Some(BlockId::RawCod),
+        "salmon" | "losos" => return Some(BlockId::RawSalmon),
+        "dolphin_egg" => return Some(BlockId::DolphinSpawnEgg),
+        "fish_egg" => return Some(BlockId::FishSpawnEgg),
+        "villager_egg" | "jajko_osadnika" => return Some(BlockId::VillagerSpawnEgg),
+        "nici" => return Some(BlockId::StringItem),
+        "spider_egg" | "jajko_pajaka" => return Some(BlockId::SpiderSpawnEgg),
+        _ => {}
+    }
+    for &b in &BlockId::VANILLA_ALL[1..] {
+        let mut snake = String::with_capacity(24);
+        for (i, ch) in b.variant_name().chars().enumerate() {
+            if ch.is_ascii_uppercase() && i > 0 {
+                snake.push('_');
             }
-            None
+            snake.push(ch.to_ascii_lowercase());
+        }
+        if s == snake
+            || s == b.name().to_ascii_lowercase().replace(' ', "_")
+            || s == b.name_en().to_ascii_lowercase().replace(' ', "_")
+        {
+            return Some(b);
         }
     }
+    if let Ok(id) = s.parse::<u8>() {
+        if id > 0 {
+            return Some(BlockId::from_u8(id));
+        }
+    }
+    None
 }
-
 /// Parses an item/block string into a `BlockId` (supports both vanilla and registered mod items).
 pub fn parse_block_id(s: &str) -> Option<BlockId> {
     if let Some(b) = parse_vanilla_block_id(s) {
