@@ -1980,64 +1980,18 @@ fn append_clouds(
     max_verts: usize,
     max_idx: usize,
 ) {
-    let cloud_y = 75.0f32;
-    let cloud_thickness = 4.0f32;
-    let y_bottom = cloud_y;
-    let y_top = cloud_y + cloud_thickness;
+    use crate::graphics::clouds::*;
 
-    if (player_pos.y - cloud_y).abs() > 100.0 {
+    if (player_pos.y - CLOUD_Y).abs() > CLOUD_MAX_VERTICAL_DISTANCE {
         return;
     }
 
-    let cloud_size = 12.0f32;
-    let scroll = time * 1.5;
-
-    let is_cloud = |gx: i32, gz: i32| -> bool {
-        let hx = gx.wrapping_mul(374761393i32);
-        let hz = gz.wrapping_mul(668265263i32);
-        let h = (hx ^ hz ^ hx.wrapping_mul(hz >> 3)) as u32;
-        let fx = gx as f32 * 0.16;
-        let fz = gz as f32 * 0.16;
-        let wave = (fx.sin() + fz.cos() + (fx * 0.7 + fz * 0.5).sin()) * 0.35;
-        let r = ((h >> 16) % 100) as f32 / 100.0;
-        (wave + r * 0.35) > 0.08
-    };
-
-    let cx = ((player_pos.x - scroll) / cloud_size).floor() as i32;
-    let cz = (player_pos.z / cloud_size).floor() as i32;
-
+    let (cx, cz) = cloud_origin_cell(player_pos, time);
     for dz in -5..=5 {
         for dx in -5..=5 {
-            let gx = cx + dx;
-            let gz = cz + dz;
-
-            let x_min = gx as f32 * cloud_size + scroll;
-            let x_max = x_min + cloud_size;
-            let z_min = gz as f32 * cloud_size;
-            let z_max = z_min + cloud_size;
-
-            if !is_cloud(gx, gz) {
-                continue;
-            }
-
-            let p000 = Vec3::new(x_min, y_bottom, z_min);
-            let p100 = Vec3::new(x_max, y_bottom, z_min);
-            let p110 = Vec3::new(x_max, y_top, z_min);
-            let p010 = Vec3::new(x_min, y_top, z_min);
-            let p001 = Vec3::new(x_min, y_bottom, z_max);
-            let p101 = Vec3::new(x_max, y_bottom, z_max);
-            let p111 = Vec3::new(x_max, y_top, z_max);
-            let p011 = Vec3::new(x_min, y_top, z_max);
-
-            // Top (+Y)
-            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p011, p111, p110, p010, TextureId::Snow, 1.0);
-            // Bottom (-Y)
-            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p000, p100, p101, p001, TextureId::Snow, 0.7);
-            // Sides
-            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p000, p010, p110, p100, TextureId::Snow, 0.85);
-            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p101, p111, p011, p001, TextureId::Snow, 0.85);
-            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p001, p011, p010, p000, TextureId::Snow, 0.75);
-            append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p100, p110, p111, p101, TextureId::Snow, 0.75);
+            emit_cloud_faces(cx + dx, cz + dz, player_pos, time, |p0, p1, p2, p3, shade| {
+                append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p0, p1, p2, p3, TextureId::Snow, shade);
+            });
         }
     }
 }

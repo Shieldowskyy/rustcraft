@@ -1214,31 +1214,16 @@ impl Renderer {
         rain_strength: f32,
         thunder_strength: f32,
     ) {
-        let cloud_y = 75.0f32;
-        let cloud_thickness = 4.0f32;
-        let y_bottom = cloud_y;
-        let y_top = cloud_y + cloud_thickness;
+        use crate::graphics::clouds::*;
+        let (y_bottom, y_top) = (CLOUD_Y, CLOUD_Y + CLOUD_THICKNESS);
 
-        if (player_pos.y - cloud_y).abs() > 100.0 {
+        if (player_pos.y - CLOUD_Y).abs() > CLOUD_MAX_VERTICAL_DISTANCE {
             return;
         }
 
-        let cloud_size = 12.0f32;
-        let scroll = time * 1.5;
-
-        let is_cloud = |gx: i32, gz: i32| -> bool {
-            let hx = gx.wrapping_mul(374761393i32);
-            let hz = gz.wrapping_mul(668265263i32);
-            let h = (hx ^ hz ^ hx.wrapping_mul(hz >> 3)) as u32;
-            let fx = gx as f32 * 0.16;
-            let fz = gz as f32 * 0.16;
-            let wave = (fx.sin() + fz.cos() + (fx * 0.7 + fz * 0.5).sin()) * 0.35;
-            let r = ((h >> 16) % 100) as f32 / 100.0;
-            (wave + r * 0.35) > 0.08
-        };
-
-        let cx = ((player_pos.x - scroll) / cloud_size).floor() as i32;
-        let cz = (player_pos.z / cloud_size).floor() as i32;
+        let cloud_size = CLOUD_CELL_SIZE;
+        let scroll = time * CLOUD_SCROLL_SPEED;
+        let (cx, cz) = cloud_origin_cell(player_pos, time);
 
         let alpha = 0.80f32;
 
@@ -1263,18 +1248,9 @@ impl Renderer {
                     continue;
                 }
 
-                if !is_cloud(gx, gz) {
+                if !is_cloud_cell(gx, gz) {
                     continue;
                 }
-
-                let p000 = Vec3::new(x_min, y_bottom, z_min);
-                let p100 = Vec3::new(x_max, y_bottom, z_min);
-                let p001 = Vec3::new(x_min, y_bottom, z_max);
-                let p101 = Vec3::new(x_max, y_bottom, z_max);
-                let p010 = Vec3::new(x_min, y_top, z_min);
-                let p110 = Vec3::new(x_max, y_top, z_min);
-                let p011 = Vec3::new(x_min, y_top, z_max);
-                let p111 = Vec3::new(x_max, y_top, z_max);
 
                 let draw_quad = |renderer: &mut Renderer,
                                  v0: Vec3, v1: Vec3, v2: Vec3, v3: Vec3,
@@ -1384,24 +1360,9 @@ impl Renderer {
                     emit_triangle(v0, v2, v3);
                 };
 
-                if player_pos.y >= y_top {
-                    draw_quad(self, p010, p011, p111, p110, 1.00, view_proj);
-                }
-                if player_pos.y <= y_bottom {
-                    draw_quad(self, p001, p000, p100, p101, 0.70, view_proj);
-                }
-                if player_pos.z <= z_min && !is_cloud(gx, gz - 1) {
-                    draw_quad(self, p100, p000, p010, p110, 0.85, view_proj);
-                }
-                if player_pos.z >= z_max && !is_cloud(gx, gz + 1) {
-                    draw_quad(self, p001, p101, p111, p011, 0.85, view_proj);
-                }
-                if player_pos.x <= x_min && !is_cloud(gx - 1, gz) {
-                    draw_quad(self, p000, p001, p011, p010, 0.78, view_proj);
-                }
-                if player_pos.x >= x_max && !is_cloud(gx + 1, gz) {
-                    draw_quad(self, p101, p100, p110, p111, 0.78, view_proj);
-                }
+                emit_cloud_faces(gx, gz, player_pos, time, |v0, v1, v2, v3, shade| {
+                    draw_quad(self, v0, v1, v2, v3, shade, view_proj);
+                });
             }
         }
     }
