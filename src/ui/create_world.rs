@@ -7,14 +7,15 @@ use crate::ui::draw::{draw_text_colored_shadowed, fill_rect, fill_rect_alpha, pa
 /// Calculates layout bounding boxes for interactive create-world form elements.
 ///
 /// # Returns
-/// An array of 6 rectangles `[(x, y, width, height); 6]`:
+/// An array of 7 rectangles `[(x, y, width, height); 7]`:
 /// - `0`: Name input field
 /// - `1`: Seed input field
 /// - `2`: Random seed generator button
 /// - `3`: Game mode toggle button
-/// - `4`: Create World action button
-/// - `5`: Cancel action button
-pub fn create_world_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 6] {
+/// - `4`: Quests enabled/disabled toggle button
+/// - `5`: Create World action button
+/// - `6`: Cancel action button
+pub fn create_world_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 7] {
     let cx = width as i32 / 2;
     let _ = height;
 
@@ -22,10 +23,11 @@ pub fn create_world_rects(width: usize, height: usize) -> [(i32, i32, i32, i32);
     let input_h = 36;
     let x_left = cx - input_w / 2;
 
-    let y_name = 120;
-    let y_seed = 195;
-    let y_mode = 275;
-    let y_bottom = 370;
+    let y_name = 112;
+    let y_seed = 180;
+    let y_mode = 252;
+    let y_quests = 326;
+    let y_bottom = 400;
 
     let seed_input_w = 320;
     let seed_btn_w = 130;
@@ -43,10 +45,12 @@ pub fn create_world_rects(width: usize, height: usize) -> [(i32, i32, i32, i32);
         // 2: Randomize seed button
         (seed_btn_x, y_seed, seed_btn_w, input_h),
         // 3: GameMode toggle button
-        (x_left, y_mode, input_w, 42),
-        // 4: Create World button
+        (x_left, y_mode, input_w, 40),
+        // 4: Quests toggle button
+        (x_left, y_quests, input_w, 36),
+        // 5: Create World button
         (cx - btn_w - btn_gap / 2, y_bottom, btn_w, btn_h),
-        // 5: Cancel button
+        // 6: Cancel button
         (cx + btn_gap / 2, y_bottom, btn_w, btn_h),
     ]
 }
@@ -60,7 +64,8 @@ pub fn draw_create_world_menu(
     name: &str,
     seed_str: &str,
     gamemode: GameMode,
-    focused_element: usize, // 0: Name, 1: Seed, 2: RandSeedBtn, 3: GameMode, 4: CreateBtn, 5: CancelBtn
+    quests_enabled: bool,
+    focused_element: usize, // 0: Name, 1: Seed, 2: RandSeedBtn, 3: GameMode, 4: Quests, 5: CreateBtn, 6: CancelBtn
     hovered_element: Option<usize>,
     blink_timer: f32,
     is_selected: bool,
@@ -75,9 +80,9 @@ pub fn draw_create_world_menu(
 
     // Main modal dialogue panel
     let panel_w = 540;
-    let panel_h = 450;
+    let panel_h = 465;
     let panel_x = cx - panel_w / 2;
-    let panel_y = 25;
+    let panel_y = 20;
 
     fill_rect_alpha(buffer, width, height, panel_x, panel_y, panel_w, panel_h, pack_color(0.10, 0.12, 0.16), 0.90);
     fill_rect(buffer, width, height, panel_x, panel_y, panel_w, 2, pack_color(0.35, 0.40, 0.50));
@@ -233,12 +238,51 @@ pub fn draw_create_world_menu(
     draw_text_colored_shadowed(buffer, width, height, &mode_btn_text, gx + (gw - m_tw) / 2, gy + 12, 2, 1, mode_text_color);
 
     let desc_w = font::measure_text(mode_desc, 1, 1);
-    draw_text_colored_shadowed(buffer, width, height, mode_desc, cx - desc_w / 2, gy + gh + 8, 1, 1, pack_color(0.65, 0.72, 0.82));
+    draw_text_colored_shadowed(buffer, width, height, mode_desc, cx - desc_w / 2, gy + gh + 6, 1, 1, pack_color(0.65, 0.72, 0.82));
 
-    // --- 4. CREATE WORLD BUTTON ---
-    let (bx, by, bw, bh) = rects[4];
-    let create_is_active = focused_element == 4;
-    let create_is_hover = hovered_element == Some(4);
+    // --- 4. QUESTS TOGGLE BUTTON ---
+    let (qx, qy, qw, qh) = rects[4];
+    let quests_is_active = focused_element == 4;
+    let quests_is_hover = hovered_element == Some(4);
+    let quests_border = if quests_is_active {
+        pack_color(0.98, 0.85, 0.25)
+    } else if quests_is_hover {
+        pack_color(0.5, 0.7, 1.0)
+    } else {
+        pack_color(0.25, 0.28, 0.35)
+    };
+    let quests_bg = if quests_is_hover || quests_is_active {
+        pack_color(0.25, 0.32, 0.45)
+    } else {
+        pack_color(0.16, 0.19, 0.26)
+    };
+    fill_rect(buffer, width, height, qx - 2, qy - 2, qw + 4, qh + 4, quests_border);
+    fill_rect(buffer, width, height, qx, qy, qw, qh, quests_bg);
+
+    let (q_state_lbl, q_state_col, q_desc) = if quests_enabled {
+        (
+            crate::core::i18n::t("create_world.quests_enabled"),
+            pack_color(0.45, 0.95, 0.50),
+            crate::core::i18n::t("create_world.quests_enabled_desc"),
+        )
+    } else {
+        (
+            crate::core::i18n::t("create_world.quests_disabled"),
+            pack_color(0.95, 0.48, 0.48),
+            crate::core::i18n::t("create_world.quests_disabled_desc"),
+        )
+    };
+    let q_btn_text = format!("{}: {}", crate::core::i18n::t("create_world.quests_label"), q_state_lbl);
+    let q_tw = font::measure_text(&q_btn_text, 2, 1);
+    draw_text_colored_shadowed(buffer, width, height, &q_btn_text, qx + (qw - q_tw) / 2, qy + 10, 2, 1, q_state_col);
+
+    let q_desc_w = font::measure_text(q_desc, 1, 1);
+    draw_text_colored_shadowed(buffer, width, height, q_desc, cx - q_desc_w / 2, qy + qh + 6, 1, 1, pack_color(0.65, 0.72, 0.82));
+
+    // --- 5. CREATE WORLD BUTTON ---
+    let (bx, by, bw, bh) = rects[5];
+    let create_is_active = focused_element == 5;
+    let create_is_hover = hovered_element == Some(5);
 
     let create_bg = if create_is_hover || create_is_active { pack_color(0.25, 0.65, 0.35) } else { pack_color(0.18, 0.45, 0.25) };
     let create_border = if create_is_active { pack_color(1.0, 0.95, 0.3) } else if create_is_hover { pack_color(0.6, 1.0, 0.6) } else { pack_color(0.3, 0.7, 0.4) };
@@ -251,10 +295,10 @@ pub fn draw_create_world_menu(
     let c_tw = font::measure_text(create_lbl, 1, 1);
     draw_text_colored_shadowed(buffer, width, height, create_lbl, bx + (bw - c_tw) / 2, by + (bh - 5) / 2, 1, 1, pack_color(1.0, 1.0, 1.0));
 
-    // --- 5. CANCEL BUTTON ---
-    let (ax, ay, aw, ah) = rects[5];
-    let cancel_is_active = focused_element == 5;
-    let cancel_is_hover = hovered_element == Some(5);
+    // --- 6. CANCEL BUTTON ---
+    let (ax, ay, aw, ah) = rects[6];
+    let cancel_is_active = focused_element == 6;
+    let cancel_is_hover = hovered_element == Some(6);
 
     let cancel_bg = if cancel_is_hover || cancel_is_active { pack_color(0.45, 0.25, 0.25) } else { pack_color(0.30, 0.18, 0.18) };
     let cancel_border = if cancel_is_active { pack_color(1.0, 0.95, 0.3) } else if cancel_is_hover { pack_color(1.0, 0.6, 0.6) } else { pack_color(0.55, 0.35, 0.35) };

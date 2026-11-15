@@ -79,6 +79,10 @@
     "keys": [],
     "mouse": ["Middle"],
     "gamepad": []
+  },
+  "questbook": {
+    "keys": ["J"],
+    "gamepad": []
   }
 }
 

@@ -566,6 +566,22 @@ impl RustCraftApp {
                     crate::log_info!("MENU", "Opened player inventory (crafting table: false)");
                 }
 
+                if !self.chat.is_open
+                    && self.quests.enabled
+                    && self.controls.is_just_pressed(Action::Questbook)
+                {
+                    let q_inv = self.quests.sync_inventory(&self.player.inventory);
+                    self.process_quest_completions(q_inv);
+                    let q_bio = self.quests.sync_biomes(self.achievements.visited_biome_count());
+                    self.process_quest_completions(q_bio);
+                    self.state = GameState::Questbook;
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+                    out.request_release_mouse = true;
+                    self.horiz_velocity = Vec3::zero();
+                    self.fly_velocity = Vec3::zero();
+                    crate::log_info!("MENU", "Opened questbook");
+                }
+
                 if !self.chat.is_open && input.key_m && !self.prev_m_down {
                     self.worldmap.center_x = self.camera.position.x;
                     self.worldmap.center_z = self.camera.position.z;
@@ -927,6 +943,8 @@ impl RustCraftApp {
                     let (current_biome, _) = crate::world::get_biome_at(p_block.x, p_block.z, self.world.seed);
                     let unlocked = self.achievements.visit_biome(current_biome);
                     self.process_achievement_unlocks(unlocked);
+                    let q_bio = self.quests.sync_biomes(self.achievements.visited_biome_count());
+                    self.process_quest_completions(q_bio);
                     let target_tint = current_biome.color_filter();
                     let lerp_speed = 1.8;
                     let factor = (1.0 - (-lerp_speed * dt).exp()).clamp(0.0, 1.0);
@@ -1299,6 +1317,8 @@ impl RustCraftApp {
                             if was_alive && remaining_hp <= 0.0 {
                                 let unlocked = self.achievements.record_defeated_mob();
                                 self.process_achievement_unlocks(unlocked);
+                                let q_mob = self.quests.record_mob_killed(kind);
+                                self.process_quest_completions(q_mob);
                             }
                             if kind == crate::gameplay::mob::MobKind::Villager {
                                 self.mob_manager.anger_golems_at_villager_attack(mob_pos);
@@ -1408,6 +1428,8 @@ impl RustCraftApp {
                                 self.record_discovered_block(broken_block);
                                 let unlocked = self.achievements.record_mined(broken_block);
                                 self.process_achievement_unlocks(unlocked);
+                                let q_mine = self.quests.record_mined(broken_block);
+                                self.process_quest_completions(q_mine);
                                 if let Some(mate) = bed_mate {
                                     self.world.set_block(mate, BlockId::Air);
                                 }
@@ -2188,6 +2210,8 @@ impl RustCraftApp {
                                         self.world.set_block(head_pos, BlockId::Bed);
                                         let unlocked = self.achievements.record_placed();
                                         self.process_achievement_unlocks(unlocked);
+                                        let q_place = self.quests.record_placed(BlockId::Bed);
+                                        self.process_quest_completions(q_place);
                                         let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
                                         self.play_world_sound_varied(crate::audio::SoundId::PlaceWood, sound_pos, 0.85);
                                         self.request_rumble(0.2, 0.1, 45);
@@ -2210,6 +2234,8 @@ impl RustCraftApp {
                                         self.world.set_block(top_pos, BlockId::Door);
                                         let unlocked = self.achievements.record_placed();
                                         self.process_achievement_unlocks(unlocked);
+                                        let q_place = self.quests.record_placed(BlockId::Door);
+                                        self.process_quest_completions(q_place);
                                         let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
                                         self.play_world_sound_varied(crate::audio::SoundId::PlaceWood, sound_pos, 0.85);
                                         self.request_rumble(0.2, 0.1, 45);
@@ -2227,6 +2253,8 @@ impl RustCraftApp {
                                     self.world.set_block(place_pos, place_id);
                                     let unlocked = self.achievements.record_placed();
                                     self.process_achievement_unlocks(unlocked);
+                                    let q_place = self.quests.record_placed(place_id);
+                                    self.process_quest_completions(q_place);
                                     let place_sound = crate::audio::SoundId::from_block_place(place_id);
                                     let sound_pos = Vec3::new(place_pos.x as f32 + 0.5, place_pos.y as f32 + 0.5, place_pos.z as f32 + 0.5);
                                     self.play_world_sound_varied(place_sound, sound_pos, 0.85);

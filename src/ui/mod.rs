@@ -15,6 +15,7 @@ pub mod controls_ui;
 pub mod splashes;
 pub mod dev_logo;
 pub mod achievements;
+pub mod quests;
 
 pub use clipboard::{get_clipboard, set_clipboard};
 pub use multiplayer_menu::{draw_multiplayer_menu, multiplayer_menu_rects, MAX_LAN_SERVERS_DISPLAY, MULTIPLAYER_RECT_COUNT};
@@ -45,6 +46,10 @@ pub use controls_ui::{
 pub use achievements::{
     block_catalog_entry_count, block_catalog_page_size, draw_achievement_toast,
     draw_field_guide, field_guide_tab_at,
+};
+pub use quests::{
+    draw_quest_toast, draw_questbook, questbook_card_at, questbook_claim_hit, questbook_close_hit,
+    questbook_tab_at, QUESTBOOK_VISIBLE_CARDS,
 };
 pub use minimap::{
     draw_minimap, draw_waypoint_manager, draw_worldmap, draw_world_waypoint_markers, load_waypoints,

@@ -98,6 +98,10 @@ impl AchievementProgress {
         self.unlocked.count_ones() as usize
     }
 
+    pub fn visited_biome_count(&self) -> usize {
+        self.visited_biomes.count_ones() as usize
+    }
+
     pub fn has_seen_mob(&self, mob: MobKind) -> bool {
         self.discovered_mobs & (1 << mob as u8) != 0
     }

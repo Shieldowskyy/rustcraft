@@ -464,7 +464,7 @@ impl Renderer {
     }
 
     #[inline(always)]
-    pub fn create_world_rects(&self) -> [(i32, i32, i32, i32); 6] {
+    pub fn create_world_rects(&self) -> [(i32, i32, i32, i32); 7] {
         crate::ui::create_world_rects(self.width, self.height)
     }
 
@@ -502,6 +502,7 @@ impl Renderer {
         name: &str,
         seed_str: &str,
         gamemode: crate::gameplay::player::GameMode,
+        quests_enabled: bool,
         focused_element: usize,
         hovered_element: Option<usize>,
         blink_timer: f32,
@@ -516,6 +517,7 @@ impl Renderer {
             name,
             seed_str,
             gamemode,
+            quests_enabled,
             focused_element,
             hovered_element,
             blink_timer,

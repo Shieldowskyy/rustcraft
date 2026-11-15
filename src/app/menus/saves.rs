@@ -183,6 +183,7 @@ impl RustCraftApp {
                             self.camera = Camera::new(pos);
                             self.mob_manager = MobManager::new();
                             self.load_achievements_for_slot(self.save_slot);
+                            self.load_quests_for_slot(self.save_slot);
                             self.minimap.waypoints = crate::ui::minimap::load_waypoints(self.save_slot, self.world.seed);
                             self.state = GameState::Playing;
                         }
@@ -192,6 +193,8 @@ impl RustCraftApp {
                             self.camera = Camera::new(self.world.player_position);
                             self.mob_manager = MobManager::new();
                             self.reset_achievements_for_slot(self.save_slot);
+            self.reset_quests_for_slot(self.save_slot, self.create_world_quests_enabled);
+                            self.reset_quests_for_slot(self.save_slot);
                             self.minimap.waypoints = crate::ui::minimap::load_waypoints(self.save_slot, self.world.seed);
                             self.state = GameState::Playing;
                         }
@@ -203,6 +206,7 @@ impl RustCraftApp {
                 self.create_world_name = format!("New World {:02}", self.save_select_slot);
                 self.create_world_seed = String::new();
                 self.create_world_gamemode = GameMode::Survival;
+                self.create_world_quests_enabled = true;
                 self.create_world_focus = 0;
                 self.create_world_selected = false;
                 self.state = GameState::CreateWorld;
@@ -295,16 +299,16 @@ impl RustCraftApp {
         let right_just = (right_arrow_down && !self.prev_right_arrow_down) || input.gp_dpad_right_just_pressed || input.gp_menu_right;
 
         if tab_just || down_just {
-            self.create_world_focus = (self.create_world_focus + 1) % 6;
+            self.create_world_focus = (self.create_world_focus + 1) % 7;
             self.create_world_selected = false;
         } else if up_just {
-            self.create_world_focus = if self.create_world_focus == 0 { 5 } else { self.create_world_focus - 1 };
+            self.create_world_focus = if self.create_world_focus == 0 { 6 } else { self.create_world_focus - 1 };
             self.create_world_selected = false;
-        } else if left_just && self.create_world_focus == 5 {
-            self.create_world_focus = 4;
-            self.create_world_selected = false;
-        } else if right_just && self.create_world_focus == 4 {
+        } else if left_just && self.create_world_focus == 6 {
             self.create_world_focus = 5;
+            self.create_world_selected = false;
+        } else if right_just && self.create_world_focus == 5 {
+            self.create_world_focus = 6;
             self.create_world_selected = false;
         }
 
@@ -424,17 +428,18 @@ impl RustCraftApp {
 
         let do_cancel = (escape_down && !self.prev_escape_down)
             || input.gp_east_just_pressed
-            || click_elem == Some(5)
-            || (self.create_world_focus == 5 && (enter_just || south_just));
+            || click_elem == Some(6)
+            || (self.create_world_focus == 6 && (enter_just || south_just));
 
-        let do_create = click_elem == Some(4)
-            || (enter_just && (self.create_world_focus == 0 || self.create_world_focus == 1 || self.create_world_focus == 4))
-            || (south_just && self.create_world_focus == 4);
+        let do_create = click_elem == Some(5)
+            || (enter_just && (self.create_world_focus == 0 || self.create_world_focus == 1 || self.create_world_focus == 5))
+            || (south_just && self.create_world_focus == 5);
 
         let do_rand_seed = (self.create_world_focus == 2 && (enter_just || south_just)) || click_elem == Some(2);
         let do_toggle_mode = (self.create_world_focus == 3 && (enter_just || south_just)) || click_elem == Some(3);
+        let do_toggle_quests = (self.create_world_focus == 4 && (enter_just || south_just)) || click_elem == Some(4);
 
-        if click_elem.is_none() && (do_cancel || do_create || do_rand_seed || do_toggle_mode) {
+        if click_elem.is_none() && (do_cancel || do_create || do_rand_seed || do_toggle_mode || do_toggle_quests) {
             self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
         }
 
@@ -448,6 +453,9 @@ impl RustCraftApp {
                 GameMode::Creative => GameMode::Survival,
             };
             crate::log_debug!("MENU", "Toggled world creation mode to {:?}", self.create_world_gamemode);
+        } else if do_toggle_quests {
+            self.create_world_quests_enabled = !self.create_world_quests_enabled;
+            crate::log_debug!("MENU", "Toggled world creation quests_enabled to {}", self.create_world_quests_enabled);
         } else if do_cancel {
             self.state = GameState::SaveSelect;
             crate::log_info!("MENU", "Cancelled world creation, returning to Save Selection");
@@ -475,6 +483,7 @@ impl RustCraftApp {
             self.seed = seed;
             self.player.reset(gamemode);
             self.reset_achievements_for_slot(self.save_slot);
+            self.reset_quests_for_slot(self.save_slot, self.create_world_quests_enabled);
             crate::log_info!("MENU", "Creating new world '{}' (seed: {}, mode: {:?}) in slot {}", name, seed, gamemode, self.save_slot);
 
             #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
@@ -508,6 +517,7 @@ impl RustCraftApp {
                 &self.create_world_name,
                 &self.create_world_seed,
                 self.create_world_gamemode,
+                self.create_world_quests_enabled,
                 self.create_world_focus,
                 hovered_elem,
                 self.total_time,

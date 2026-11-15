@@ -19,6 +19,7 @@ use crate::core::profiler::FrameProfiler;
 use crate::core::settings::GameSettings;
 use crate::gameplay::item::ItemEntity;
 use crate::gameplay::achievements::{AchievementId, AchievementProgress};
+use crate::gameplay::quests::QuestProgress;
 use crate::gameplay::mob::MobManager;
 use crate::gameplay::particles::ParticleSystem;
 use crate::gameplay::physics::{STANDING_EYE_OFFSET, STANDING_HEIGHT};
@@ -113,6 +114,12 @@ pub struct RustCraftApp {
     pub achievements: AchievementProgress,
     pub field_guide_tab: usize,
     pub field_guide_scroll: usize,
+    pub quests: QuestProgress,
+    pub questbook_tab: usize,
+    pub questbook_selected: usize,
+    pub questbook_scroll: usize,
+    pub quest_toast: Option<(usize, f32)>,
+    pub pending_quest_toasts: std::collections::VecDeque<usize>,
     pub lan_discovery: crate::net::LanDiscoveryClient,
     pub selected_lan_server: Option<usize>,
     pub main_menu_nick_hovered: bool,
@@ -126,7 +133,8 @@ pub struct RustCraftApp {
     pub relay_host: Option<crate::net::ReverseTunnelHost>,
     pub save_card_rects: [(i32, i32, i32, i32); VISIBLE_SAVE_ROWS],
     pub save_btn_rects: [(i32, i32, i32, i32); 4],
-    pub create_world_rects: [(i32, i32, i32, i32); 6],
+    pub create_world_rects: [(i32, i32, i32, i32); 7],
+    pub create_world_quests_enabled: bool,
     pub settings_tab: usize,
     pub settings_tab_rects: [(i32, i32, i32, i32); 4],
     pub settings_rects: [(i32, i32, i32, i32); 14],
@@ -413,6 +421,12 @@ impl RustCraftApp {
             achievements: AchievementProgress::default(),
             field_guide_tab: 0,
             field_guide_scroll: 0,
+            quests: QuestProgress::default(),
+            questbook_tab: 0,
+            questbook_selected: 0,
+            questbook_scroll: 0,
+            quest_toast: None,
+            pending_quest_toasts: std::collections::VecDeque::new(),
             lan_discovery: crate::net::LanDiscoveryClient::new(),
             selected_lan_server: None,
             main_menu_nick_hovered: false,
@@ -427,6 +441,7 @@ impl RustCraftApp {
             save_card_rects,
             save_btn_rects,
             create_world_rects,
+            create_world_quests_enabled: true,
             settings_tab_rects,
             settings_rects,
             settings_audio_rects,
@@ -555,6 +570,15 @@ impl RustCraftApp {
                     .map(|id| (id, 6.0));
             }
         }
+        if let Some((_, remaining)) = &mut self.quest_toast {
+            *remaining = (*remaining - dt).max(0.0);
+            if *remaining == 0.0 {
+                self.quest_toast = self
+                    .pending_quest_toasts
+                    .pop_front()
+                    .map(|id| (id, 5.5));
+            }
+        }
         self.renderer.total_time = self.total_time;
         self.renderer.chunk_anim = self.settings.chunk_anim;
         self.hand_animation = (self.hand_animation - dt * 3.5).max(0.0);
@@ -667,6 +691,7 @@ impl RustCraftApp {
             GameState::Playing => self.update_and_render_playing(dt, input, &mut out),
             GameState::Paused => self.update_and_render_paused(dt, input, mouse_moved, &mut out),
             GameState::AchievementTree => self.update_and_render_achievement_tree(input, &mut out),
+            GameState::Questbook => self.update_and_render_questbook(input, &mut out),
             GameState::Inventory => self.update_and_render_inventory(dt, input, mouse_moved, &mut out),
             GameState::Chest { pos } => self.update_and_render_chest(dt, input, pos, &mut out),
             GameState::Furnace { pos } => self.update_and_render_furnace(dt, input, pos, &mut out),
@@ -699,6 +724,7 @@ impl RustCraftApp {
             GameState::Playing
             | GameState::Paused
             | GameState::AchievementTree
+            | GameState::Questbook
             | GameState::Inventory
             | GameState::Chest { .. }
             | GameState::Furnace { .. }
@@ -759,7 +785,7 @@ impl RustCraftApp {
             self.fps_display,
             BlockId::from_u8(self.renderer.selected_block()).display_name(),
             if self.fly_mode { " - [FLYING]" } else { "" },
-            if matches!(self.state, GameState::Paused | GameState::AchievementTree) { " - [PAUSED]" } else { "" }
+            if matches!(self.state, GameState::Paused | GameState::AchievementTree | GameState::Questbook) { " - [PAUSED]" } else { "" }
         );
 
         if let Some(ref server) = self.profiler_server {
@@ -785,6 +811,7 @@ impl RustCraftApp {
                     GameState::Playing => "Playing",
                     GameState::Paused => "Paused",
                     GameState::AchievementTree => "Achievement Tree",
+                    GameState::Questbook => "Questbook",
                     GameState::Inventory => "Inventory",
                     GameState::Chest { .. } => "Chest",
                     GameState::Furnace { .. } => "Furnace",
@@ -832,7 +859,7 @@ impl RustCraftApp {
         }
 
         // Draw Now-Playing soundtrack toast in bottom-right corner (with progress bar on pause menu)
-        let is_paused = matches!(self.state, GameState::Paused | GameState::AchievementTree);
+        let is_paused = matches!(self.state, GameState::Paused | GameState::AchievementTree | GameState::Questbook);
         if self.settings.show_music_toast {
             self.soundtrack.draw_toast(self.renderer.pixel_buffer_mut(), self.width, self.height, is_paused, &self.audio);
         }
@@ -852,6 +879,16 @@ impl RustCraftApp {
                 self.height,
                 crate::core::i18n::t(id.name_key()),
                 crate::core::i18n::t(id.description_key()),
+            );
+        }
+        if let Some((quest_idx, _)) = self.quest_toast {
+            let key_hint = self.questbook_key_hint();
+            crate::ui::draw_quest_toast(
+                self.renderer.pixel_buffer_mut(),
+                self.width,
+                self.height,
+                quest_idx,
+                key_hint,
             );
         }
 
@@ -922,6 +959,8 @@ impl RustCraftApp {
         if self.achievements.record_item_collected(block) {
             self.persist_achievement_progress();
         }
+        let q_inv = self.quests.sync_inventory(&self.player.inventory);
+        self.process_quest_completions(q_inv);
     }
 
     pub(crate) fn record_inventory_items_collected(&mut self) {
@@ -977,6 +1016,56 @@ impl RustCraftApp {
         }
     }
 
+    pub(crate) fn questbook_key_hint(&self) -> &'static str {
+        let binding = &self.controls.config.bindings[crate::core::controls::Action::Questbook.index()];
+        binding
+            .keys
+            .first()
+            .map(|k| k.display_name())
+            .or_else(|| binding.mouse.first().map(|m| m.display_name()))
+            .or_else(|| binding.gamepad.first().map(|g| g.display_name()))
+            .unwrap_or("Esc")
+    }
+
+    pub(crate) fn process_quest_completions(&mut self, completed: Vec<usize>) {
+        if !self.quests.enabled || completed.is_empty() {
+            return;
+        }
+        self.pending_quest_toasts.extend(completed);
+        if self.quest_toast.is_none() {
+            self.quest_toast = self
+                .pending_quest_toasts
+                .pop_front()
+                .map(|id| (id, 5.5));
+        }
+        self.audio.play_sound(crate::audio::SoundId::UiClick, 0.75, 1.35);
+        if let Err(error) = crate::world::storage::save_quest_progress(self.save_slot, &self.quests) {
+            crate::log_error!("QUEST", "{}", error);
+        }
+    }
+
+    pub(crate) fn reset_quests_for_slot(&mut self, slot: u8, enabled: bool) {
+        self.quests = QuestProgress::default();
+        self.quests.enabled = enabled;
+        self.quest_toast = None;
+        self.pending_quest_toasts.clear();
+        if let Err(error) = crate::world::storage::save_quest_progress(slot, &self.quests) {
+            crate::log_error!("QUEST", "{}", error);
+        }
+    }
+
+    pub(crate) fn load_quests_for_slot(&mut self, slot: u8) {
+        self.quest_toast = None;
+        self.pending_quest_toasts.clear();
+        match crate::world::storage::load_quest_progress(slot) {
+            Ok(progress) => self.quests = progress,
+            Err(error) => {
+                crate::log_error!("QUEST", "{}", error);
+                self.quests = QuestProgress::default();
+            }
+        }
+    }
+
     pub(crate) fn save_world_progress(&mut self) -> Result<(), String> {
         let world_result = crate::world::storage::save_current_world(
             &mut self.world,
@@ -989,7 +1078,11 @@ impl RustCraftApp {
             self.save_slot,
             &self.achievements,
         );
-        let result = world_result.and(achievement_result);
+        let quest_result = crate::world::storage::save_quest_progress(
+            self.save_slot,
+            &self.quests,
+        );
+        let result = world_result.and(achievement_result).and(quest_result);
         if let Err(error) = &result {
             crate::log_error!("SAVE", "Failed to save world progress: {}", error);
         }

@@ -21,6 +21,7 @@ impl RustCraftApp {
             match result {
                 WorldLoadResult::Success(loaded_world, loaded_pos) => {
                     self.load_achievements_for_slot(self.save_slot);
+                    self.load_quests_for_slot(self.save_slot);
                     self.player.gamemode = loaded_world.gamemode;
                     if let Some(ref saved) = loaded_world.saved_player {
                         self.player.apply_saved_state(saved);
@@ -337,6 +338,132 @@ impl RustCraftApp {
             &self.achievements,
             self.field_guide_tab,
             self.field_guide_scroll,
+        );
+    }
+
+    pub(crate) fn update_and_render_questbook(
+        &mut self,
+        input: &InputState,
+        out: &mut AppOutput,
+    ) {
+        let just_clicked = input.mouse_left && !self.prev_left_down;
+
+        if input.key_escape
+            || self.controls.is_just_pressed(Action::Pause)
+            || self.controls.is_just_pressed(Action::Questbook)
+            || input.gp_east_just_pressed
+            || (just_clicked && crate::ui::questbook_close_hit(self.width, self.height, input.mouse_pos))
+        {
+            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
+            self.state = GameState::Playing;
+            out.request_capture_mouse = true;
+            return;
+        }
+
+        let cat_count = crate::gameplay::quests::QuestCategory::ALL.len();
+        let prev_tab = self.questbook_tab;
+        if (input.key_left && !self.prev_left_arrow_down) || input.gp_dpad_left_just_pressed {
+            self.questbook_tab = (self.questbook_tab + cat_count - 1) % cat_count;
+        } else if (input.key_right && !self.prev_right_arrow_down) || input.gp_dpad_right_just_pressed {
+            self.questbook_tab = (self.questbook_tab + 1) % cat_count;
+        }
+        if just_clicked {
+            if let Some(tab) = crate::ui::questbook_tab_at(self.width, self.height, input.mouse_pos) {
+                self.questbook_tab = tab;
+            }
+        }
+
+        let active_cat = crate::gameplay::quests::QuestCategory::ALL
+            .get(self.questbook_tab)
+            .copied()
+            .unwrap_or(crate::gameplay::quests::QuestCategory::Basics);
+        let cat_quests = crate::gameplay::quests::quests_in_category(active_cat);
+
+        if self.questbook_tab != prev_tab || !cat_quests.contains(&self.questbook_selected) {
+            self.questbook_selected = cat_quests.first().copied().unwrap_or(0);
+            self.questbook_scroll = 0;
+            self.audio.play_sound(crate::audio::SoundId::UiClick, 0.5, 1.05);
+        }
+
+        let max_scroll = cat_quests.len().saturating_sub(crate::ui::QUESTBOOK_VISIBLE_CARDS);
+        if input.scroll_delta > 0.0 {
+            self.questbook_scroll = self.questbook_scroll.saturating_sub(1);
+        } else if input.scroll_delta < 0.0 {
+            self.questbook_scroll = (self.questbook_scroll + 1).min(max_scroll);
+        }
+
+        if let Some(pos_in_cat) = cat_quests.iter().position(|&q| q == self.questbook_selected) {
+            let mut moved = false;
+            let mut new_pos = pos_in_cat;
+            if (input.key_up && !self.prev_up_arrow_down) || input.gp_dpad_up_just_pressed {
+                new_pos = (pos_in_cat + cat_quests.len() - 1) % cat_quests.len();
+                moved = true;
+            } else if (input.key_down && !self.prev_down_arrow_down) || input.gp_dpad_down_just_pressed {
+                new_pos = (pos_in_cat + 1) % cat_quests.len();
+                moved = true;
+            }
+            if moved {
+                self.questbook_selected = cat_quests[new_pos];
+                if new_pos < self.questbook_scroll {
+                    self.questbook_scroll = new_pos;
+                } else if new_pos >= self.questbook_scroll + crate::ui::QUESTBOOK_VISIBLE_CARDS {
+                    self.questbook_scroll = new_pos + 1 - crate::ui::QUESTBOOK_VISIBLE_CARDS;
+                }
+                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.4, 1.1);
+            }
+        }
+        self.questbook_scroll = self.questbook_scroll.min(max_scroll);
+
+        if just_clicked {
+            if let Some(q_idx) = crate::ui::questbook_card_at(
+                self.width,
+                self.height,
+                self.questbook_tab,
+                self.questbook_scroll,
+                input.mouse_pos,
+            ) {
+                self.questbook_selected = q_idx;
+                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.5, 1.0);
+            } else if crate::ui::questbook_claim_hit(self.width, self.height, input.mouse_pos) {
+                if self.quests.claim_reward(self.questbook_selected, &mut self.player.inventory) {
+                    self.audio.play_sound(crate::audio::SoundId::UiClick, 0.8, 1.3);
+                    let extra = self.quests.sync_inventory(&self.player.inventory);
+                    self.process_quest_completions(extra);
+                    let _ = crate::world::storage::save_quest_progress(self.save_slot, &self.quests);
+                }
+            }
+        }
+
+        if (input.key_enter && !self.prev_enter_down) || input.gp_south_just_pressed {
+            if self.quests.claim_reward(self.questbook_selected, &mut self.player.inventory) {
+                self.audio.play_sound(crate::audio::SoundId::UiClick, 0.8, 1.3);
+                let extra = self.quests.sync_inventory(&self.player.inventory);
+                self.process_quest_completions(extra);
+                let _ = crate::world::storage::save_quest_progress(self.save_slot, &self.quests);
+            }
+        }
+
+        self.renderer.fog_enabled = self.settings.fog;
+        #[cfg(not(target_os = "vita"))]
+        {
+            self.renderer.render_frame(&mut self.world, &self.camera);
+            self.renderer.apply_biome_color_filter(self.biome_filter_tint);
+        }
+        #[cfg(target_os = "vita")]
+        {
+            self.renderer.color_buffer.fill(0x0C0C10);
+        }
+        let key_hint = self.questbook_key_hint();
+        crate::ui::draw_questbook(
+            self.renderer.pixel_buffer_mut(),
+            self.width,
+            self.height,
+            &self.quests,
+            self.questbook_tab,
+            self.questbook_selected,
+            self.questbook_scroll,
+            key_hint,
+            input.mouse_pos,
         );
     }
 

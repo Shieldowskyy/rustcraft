@@ -215,6 +215,34 @@ pub fn save_achievement_progress(
         .map_err(|error| format!("Could not save achievement progress: {error}"))
 }
 
+/// Returns the path to questbook progress associated with a world save slot.
+pub fn quest_progress_path(slot: u8) -> std::path::PathBuf {
+    saves_dir().join(format!("rustcraft_world_{slot:02}.qst"))
+}
+
+/// Loads questbook progress for a save slot, treating a missing file as a new record.
+pub fn load_quest_progress(
+    slot: u8,
+) -> Result<crate::gameplay::quests::QuestProgress, String> {
+    let path = quest_progress_path(slot);
+    match std::fs::read(path) {
+        Ok(bytes) => crate::gameplay::quests::QuestProgress::decode(&bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(crate::gameplay::quests::QuestProgress::default())
+        }
+        Err(error) => Err(format!("Could not read quest progress: {error}")),
+    }
+}
+
+/// Writes questbook progress for a save slot.
+pub fn save_quest_progress(
+    slot: u8,
+    progress: &crate::gameplay::quests::QuestProgress,
+) -> Result<(), String> {
+    std::fs::write(quest_progress_path(slot), progress.encode())
+        .map_err(|error| format!("Could not save quest progress: {error}"))
+}
+
 /// Width and height of generated world save thumbnails in pixels.
 pub const THUMB_SIZE: usize = 56;
 

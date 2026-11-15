@@ -358,6 +358,8 @@ impl RustCraftApp {
                                 crate::log_info!("CRAFTING", "Crafted {}x {:?}", res.count, res.block);
                                 let unlocked = self.achievements.record_crafted(res.count);
                                 self.process_achievement_unlocks(unlocked);
+                                let q_craft = self.quests.record_crafted(res.block, res.count);
+                                self.process_quest_completions(q_craft);
                                 self.record_collected_item(res.block);
                                 if let Some(h) = &mut self.player.inventory.held_item {
                                     h.count += res.count;
@@ -611,6 +613,7 @@ impl RustCraftApp {
         }
 
         if click_left || click_right {
+            let mut furnace_smelted: Option<(BlockId, u8)> = None;
             let furnace = self.world.get_or_create_furnace(furnace_pos);
             if let Some(target) = hovered_target {
                 self.audio.play_sound(crate::audio::SoundId::UiClick, 0.7, 1.0);
@@ -652,18 +655,30 @@ impl RustCraftApp {
                             if input.key_shift {
                                 if let Some(out_stack) = furnace.output.take() {
                                     let rem = self.player.inventory.add_item(out_stack.block, out_stack.count);
+                                    let taken = out_stack.count.saturating_sub(rem);
+                                    if taken > 0 {
+                                        furnace_smelted = Some((out_stack.block, taken));
+                                    }
                                     if rem > 0 {
                                         furnace.output = Some(ItemStack::new(out_stack.block, rem));
                                     }
                                 }
                             } else if let Some(out_stack) = &mut furnace.output {
+                                let taken_block = out_stack.block;
+                                let taken_count = out_stack.count;
+                                let mut took = false;
                                 if let Some(held) = &mut self.player.inventory.held_item {
                                     if held.block == out_stack.block && held.count + out_stack.count <= 64 {
                                         held.count += out_stack.count;
                                         furnace.output = None;
+                                        took = true;
                                     }
                                 } else {
                                     self.player.inventory.held_item = furnace.output.take();
+                                    took = true;
+                                }
+                                if took {
+                                    furnace_smelted = Some((taken_block, taken_count));
                                 }
                             }
                         }
@@ -747,6 +762,10 @@ impl RustCraftApp {
                         }
                     }
                 }
+            }
+            if let Some((block, count)) = furnace_smelted {
+                let q_smelt = self.quests.record_smelted(block, count);
+                self.process_quest_completions(q_smelt);
             }
         }
 
@@ -853,6 +872,8 @@ impl RustCraftApp {
                 if let Some(trade) = mob.trades.get_mut(selected_trade) {
                     if trade.execute(&mut self.player) {
                         self.audio.play_sound(crate::audio::SoundId::VillagerTrade, 1.0, 1.0);
+                        let q_trade = self.quests.record_trade();
+                        self.process_quest_completions(q_trade);
                         self.particles.spawn_growth(mob_pos);
                     } else {
                         self.audio.play_sound(crate::audio::SoundId::VillagerNo, 1.0, 1.0);

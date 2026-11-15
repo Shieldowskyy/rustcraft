@@ -166,6 +166,7 @@ pub fn filter_actions(query: &str, config: &ControlsConfig, _lang: Language) -> 
                 Action::OpenChat => q.contains("czat") || q.contains("chat") || q.contains("pisz") || q == "t",
                 Action::OpenCommand => q.contains("komend") || q.contains("command") || q.contains("slash") || q == "/",
                 Action::PickBlock => q.contains("wybierz") || q.contains("pick") || q.contains("kolko") || q.contains("srodkowy") || q == "mmb",
+                Action::Questbook => q.contains("quest") || q.contains("zad") || q.contains("ksieg") || q.contains("journal") || q == "j",
             }
         })
         .collect()

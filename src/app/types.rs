@@ -60,6 +60,8 @@ pub enum GameState {
     Paused,
     /// Achievement goals and their prerequisite tree.
     AchievementTree,
+    /// Interactive Questbook menu.
+    Questbook,
     /// Player inventory & crafting screen.
     Inventory,
     /// Chest container UI.
