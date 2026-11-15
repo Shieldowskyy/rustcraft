@@ -71,9 +71,6 @@ const SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4: u32 = 1;
 const SCE_GXM_DEPTH_STENCIL_FORMAT_DF32: u32 = 0x00044000;
 const SCE_GXM_DEPTH_STENCIL_SURFACE_LINEAR: u32 = 0x00000000;
 const SCE_GXM_MULTISAMPLE_NONE: u32 = 0;
-const SCE_GXM_MULTISAMPLE_2X: u32 = 1;
-const SCE_GXM_MULTISAMPLE_4X: u32 = 2;
-const SCE_GXM_COLOR_SURFACE_DITHER_DISABLED: u32 = 0x00000000;
 const SCE_GXM_COLOR_SURFACE_DITHER_ENABLED: u32 = 0x00000008;
 const SCE_GXM_PRIMITIVE_TRIANGLES: u32 = 0x00000000;
 
@@ -81,25 +78,16 @@ const SCE_GXM_INDEX_FORMAT_U16: u32 = 0x00000000;
 const SCE_GXM_INDEX_SOURCE_INDEX_16BIT: u16 = 0;
 
 const SCE_GXM_MEMORY_ATTRIB_READ: u32 = 1;
-const SCE_GXM_MEMORY_ATTRIB_WRITE: u32 = 2;
 const SCE_GXM_MEMORY_ATTRIB_RW: u32 = 3;
 
 const SCE_GXM_CULL_NONE: u32 = 0;
 const SCE_GXM_CULL_CW: u32 = 1;
 const SCE_GXM_ATTRIBUTE_FORMAT_F32: u32 = 9;
 
-const SCE_GXM_DEPTH_FUNC_ALWAYS: u32 = 0x00000000 | 0x01000000; // Passes always (LESS_EQUAL with no test or ALWAYS)
-const SCE_GXM_DEPTH_FUNC_NEVER: u32 = 0x00000000;
-const SCE_GXM_DEPTH_FUNC_LESS: u32 = 0x00400000;
-const SCE_GXM_DEPTH_FUNC_EQUAL: u32 = 0x00800000;
 const SCE_GXM_DEPTH_FUNC_LESS_EQUAL: u32 = 0x00C00000;
-const SCE_GXM_DEPTH_FUNC_GREATER: u32 = 0x01000000;
-const SCE_GXM_DEPTH_FUNC_NOT_EQUAL: u32 = 0x01400000;
-const SCE_GXM_DEPTH_FUNC_GREATER_EQUAL: u32 = 0x01800000;
 const SCE_GXM_DEPTH_FUNC_ALWAYS_PASS: u32 = 0x01C00000;
 
 const SCE_GXM_DEPTH_WRITE_ENABLED: u32 = 0x00000000;
-const SCE_GXM_DEPTH_WRITE_DISABLED: u32 = 0x00100000;
 const SCE_GXM_TWO_SIDED_DISABLED: u32 = 0x00000000;
 const SCE_GXM_TWO_SIDED_ENABLED: u32 = 0x00000800;
 const SCE_GXM_POLYGON_MODE_TRIANGLE_FILL: u32 = 0x00000000;
@@ -109,14 +97,10 @@ const SCE_GXM_TEXTURE_BASE_FORMAT_U8U8U8U8: u32 = 0x0C000000;
 const SCE_GXM_TEXTURE_SWIZZLE4_ABGR: u32 = 0x00000000;
 const SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR: u32 = SCE_GXM_TEXTURE_BASE_FORMAT_U8U8U8U8 | SCE_GXM_TEXTURE_SWIZZLE4_ABGR;
 const SCE_GXM_TEXTURE_FILTER_POINT: u32 = 0;
-const SCE_GXM_TEXTURE_FILTER_LINEAR: u32 = 1;
-const SCE_GXM_TEXTURE_MIP_FILTER_DISABLED: u32 = 0x00000000;
-const SCE_GXM_TEXTURE_MIP_FILTER_ENABLED: u32 = 0x00000200;
 const SCE_GXM_TEXTURE_ADDR_REPEAT: u32 = 0;
 
 const SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW: u32 = 0x09408060;
 const SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE: u32 = 0x0C208060;
-const SCE_KERNEL_MEMBLOCK_TYPE_USER_RW: u32 = 0x0C20D060;
 
 const VITA_WIDTH: u32 = 960;
 const VITA_HEIGHT: u32 = 544;
@@ -356,17 +340,8 @@ extern "C" {
         height: u32,
         mipCount: u32,
     ) -> i32;
-    fn sceGxmTextureInitSwizzled(
-        texture: *mut SceGxmTexture,
-        data: *const core::ffi::c_void,
-        format: u32,
-        width: u32,
-        height: u32,
-        mipCount: u32,
-    ) -> i32;
     fn sceGxmTextureSetMinFilter(texture: *mut SceGxmTexture, filter: u32) -> i32;
     fn sceGxmTextureSetMagFilter(texture: *mut SceGxmTexture, filter: u32) -> i32;
-    fn sceGxmTextureSetMipFilter(texture: *mut SceGxmTexture, filter: u32) -> i32;
     fn sceGxmTextureSetUAddrMode(texture: *mut SceGxmTexture, mode: u32) -> i32;
     fn sceGxmTextureSetVAddrMode(texture: *mut SceGxmTexture, mode: u32) -> i32;
     fn sceGxmSetFragmentTexture(context: *mut SceGxmContext, textureIndex: u32, texture: *const SceGxmTexture) -> i32;
@@ -404,7 +379,6 @@ extern "C" {
         vertexProgramHeader: *const SceGxmProgram,
         fragmentProgram: *mut *mut SceGxmFragmentProgram,
     ) -> i32;
-    fn sceGxmShaderPatcherGetProgramFromId(programId: SceGxmShaderPatcherId) -> *const SceGxmProgram;
 
     fn sceGxmProgramCheck(program: *const SceGxmProgram) -> i32;
     fn sceGxmProgramFindParameterByName(program: *const SceGxmProgram, name: *const u8) -> *const SceGxmProgramParameter;
@@ -424,7 +398,6 @@ extern "C" {
 #[link(name = "SceDisplay_stub")]
 extern "C" {
     fn sceDisplaySetFrameBuf(pParam: *const SceDisplayFrameBuf, sync: i32) -> i32;
-    fn sceDisplayWaitVblankStart() -> i32;
 }
 
 extern "C" {
