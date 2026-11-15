@@ -501,768 +501,265 @@ impl<'a> PacketReader<'a> {
 // Serialization & Deserialization
 // -----------------------------------------------------------------------------
 
-impl ClientPacket {
-    pub fn serialize(&self) -> Vec<u8> {
-        match self {
-            ClientPacket::Handshake { protocol_version, nickname } => {
-                let mut pw = PacketWriter::new(0x01);
-                pw.write_u32(*protocol_version);
-                pw.write_string(nickname);
-                pw.finish()
+trait WireCodec: Sized {
+    fn encode(&self, pw: &mut PacketWriter);
+    fn decode(pr: &mut PacketReader<'_>) -> Result<Self, &'static str>;
+}
+
+macro_rules! impl_primitive_codec {
+    ($($ty:ty => ($w:ident, $r:ident)),* $(,)?) => {
+        $(
+            impl WireCodec for $ty {
+                #[inline(always)]
+                fn encode(&self, pw: &mut PacketWriter) { pw.$w(*self); }
+                #[inline(always)]
+                fn decode(pr: &mut PacketReader<'_>) -> Result<Self, &'static str> { pr.$r() }
             }
-            ClientPacket::PlayerMove { x, y, z, yaw, pitch, is_sneaking, is_sprinting } => {
-                let mut pw = PacketWriter::new(0x02);
-                pw.write_f32(*x);
-                pw.write_f32(*y);
-                pw.write_f32(*z);
-                pw.write_f32(*yaw);
-                pw.write_f32(*pitch);
-                pw.write_bool(*is_sneaking);
-                pw.write_bool(*is_sprinting);
-                pw.finish()
-            }
-            ClientPacket::BlockChange { x, y, z, block } => {
-                let mut pw = PacketWriter::new(0x03);
-                pw.write_i32(*x);
-                pw.write_i32(*y);
-                pw.write_i32(*z);
-                pw.write_u8(*block);
-                pw.finish()
-            }
-            ClientPacket::ChatMessage { text } => {
-                let mut pw = PacketWriter::new(0x04);
-                pw.write_string(text);
-                pw.finish()
-            }
-            ClientPacket::Ping { seq } => {
-                let mut pw = PacketWriter::new(0x05);
-                pw.write_u32(*seq);
-                pw.finish()
-            }
-            ClientPacket::Disconnect { reason } => {
-                let mut pw = PacketWriter::new(0x06);
-                pw.write_string(reason);
-                pw.finish()
-            }
-            ClientPacket::AttackPlayer { target_id, damage } => {
-                let mut pw = PacketWriter::new(0x07);
-                pw.write_u32(*target_id);
-                pw.write_f32(*damage);
-                pw.finish()
-            }
-            ClientPacket::MobSnapshot { mobs } => {
-                let mut pw = PacketWriter::new(0x08);
-                write_mob_snapshot(&mut pw, mobs);
-                pw.finish()
-            }
-            ClientPacket::PlayerDeath => PacketWriter::new(0x09).finish(),
-            ClientPacket::PlayerData { data } => {
-                let mut pw = PacketWriter::new(0x0A);
-                write_player_data(&mut pw, data);
-                pw.finish()
-            }
-            ClientPacket::Pong { seq } => {
-                let mut pw = PacketWriter::new(0x0B);
-                pw.write_u32(*seq);
-                pw.finish()
-            }
-            ClientPacket::WorldSnapshot { snapshot } => {
-                let mut pw = PacketWriter::new(0x0C);
-                write_world_snapshot(&mut pw, snapshot);
-                pw.finish()
-            }
-            ClientPacket::AttackMob { mob_id, damage } => {
-                let mut pw = PacketWriter::new(0x0D);
-                pw.write_u32(*mob_id);
-                pw.write_f32(*damage);
-                pw.finish()
-            }
-            ClientPacket::SpawnMob { kind, x, y, z } => {
-                let mut pw = PacketWriter::new(0x0E);
-                pw.write_u8(*kind);
-                pw.write_f32(*x);
-                pw.write_f32(*y);
-                pw.write_f32(*z);
-                pw.finish()
-            }
+        )*
+    };
+}
+
+impl_primitive_codec! {
+    u8 => (write_u8, read_u8),
+    bool => (write_bool, read_bool),
+    u16 => (write_u16, read_u16),
+    u32 => (write_u32, read_u32),
+    u64 => (write_u64, read_u64),
+    i32 => (write_i32, read_i32),
+    f32 => (write_f32, read_f32),
+}
+
+impl WireCodec for String {
+    #[inline(always)]
+    fn encode(&self, pw: &mut PacketWriter) { pw.write_string(self); }
+    #[inline(always)]
+    fn decode(pr: &mut PacketReader<'_>) -> Result<Self, &'static str> { pr.read_string() }
+}
+
+impl<T: WireCodec> WireCodec for Option<T> {
+    #[inline(always)]
+    fn encode(&self, pw: &mut PacketWriter) {
+        pw.write_bool(self.is_some());
+        if let Some(v) = self {
+            v.encode(pw);
         }
     }
-
-    pub fn deserialize(data: &[u8]) -> Result<Self, &'static str> {
-        let mut r = PacketReader::new(data);
-        let id = r.read_u8()?;
-        match id {
-            0x01 => {
-                let protocol_version = r.read_u32()?;
-                let nickname = r.read_string()?;
-                Ok(ClientPacket::Handshake { protocol_version, nickname })
-            }
-            0x02 => {
-                let x = r.read_f32()?;
-                let y = r.read_f32()?;
-                let z = r.read_f32()?;
-                let yaw = r.read_f32()?;
-                let pitch = r.read_f32()?;
-                let is_sneaking = r.read_bool()?;
-                let is_sprinting = r.read_bool()?;
-                Ok(ClientPacket::PlayerMove { x, y, z, yaw, pitch, is_sneaking, is_sprinting })
-            }
-            0x03 => {
-                let x = r.read_i32()?;
-                let y = r.read_i32()?;
-                let z = r.read_i32()?;
-                let block = r.read_u8()?;
-                Ok(ClientPacket::BlockChange { x, y, z, block })
-            }
-            0x04 => {
-                let text = r.read_string()?;
-                Ok(ClientPacket::ChatMessage { text })
-            }
-            0x05 => {
-                let seq = r.read_u32()?;
-                Ok(ClientPacket::Ping { seq })
-            }
-            0x06 => {
-                let reason = r.read_string()?;
-                Ok(ClientPacket::Disconnect { reason })
-            }
-            0x07 => {
-                let target_id = r.read_u32()?;
-                let damage = r.read_f32()?;
-                Ok(ClientPacket::AttackPlayer { target_id, damage })
-            }
-            0x08 => Ok(ClientPacket::MobSnapshot {
-                mobs: read_mob_snapshot(&mut r)?,
-            }),
-            0x09 => Ok(ClientPacket::PlayerDeath),
-            0x0A => Ok(ClientPacket::PlayerData {
-                data: read_player_data(&mut r)?,
-            }),
-            0x0B => Ok(ClientPacket::Pong { seq: r.read_u32()? }),
-            0x0C => Ok(ClientPacket::WorldSnapshot {
-                snapshot: read_world_snapshot(&mut r)?,
-            }),
-            0x0D => Ok(ClientPacket::AttackMob {
-                mob_id: r.read_u32()?,
-                damage: r.read_f32()?,
-            }),
-            0x0E => Ok(ClientPacket::SpawnMob {
-                kind: r.read_u8()?,
-                x: r.read_f32()?,
-                y: r.read_f32()?,
-                z: r.read_f32()?,
-            }),
-            _ => Err("Unknown client packet ID"),
+    #[inline(always)]
+    fn decode(pr: &mut PacketReader<'_>) -> Result<Self, &'static str> {
+        if pr.read_bool()? {
+            Ok(Some(T::decode(pr)?))
+        } else {
+            Ok(None)
         }
     }
 }
 
-impl ServerPacket {
-    pub fn serialize(&self) -> Vec<u8> {
-        match self {
-            ServerPacket::LoginSuccess { player_id, seed, spawn_x, spawn_y, spawn_z, time_of_day, modified_blocks } => {
-                let mut pw = PacketWriter::new(0x81);
-                pw.write_u32(*player_id);
-                pw.write_u32(*seed);
-                pw.write_f32(*spawn_x);
-                pw.write_f32(*spawn_y);
-                pw.write_f32(*spawn_z);
-                pw.write_f32(*time_of_day);
-                let count = modified_blocks.len().min(u32::MAX as usize) as u32;
-                pw.write_u32(count);
-                for &(bx, by, bz, block) in modified_blocks {
-                    pw.write_i32(bx);
-                    pw.write_i32(by);
-                    pw.write_i32(bz);
-                    pw.write_u8(block);
-                }
-                pw.finish()
-            }
-            ServerPacket::LoginDisconnect { reason } => {
-                let mut pw = PacketWriter::new(0x82);
-                pw.write_string(reason);
-                pw.finish()
-            }
-            ServerPacket::PlayerList { players } => {
-                let mut pw = PacketWriter::new(0x83);
-                pw.write_u16(players.len().min(u16::MAX as usize) as u16);
-                for p in players {
-                    pw.write_u32(p.id);
-                    pw.write_string(&p.nickname);
-                    pw.write_u32(p.ping_ms);
-                }
-                pw.finish()
-            }
-            ServerPacket::PlayerJoined { id, nickname } => {
-                let mut pw = PacketWriter::new(0x84);
-                pw.write_u32(*id);
-                pw.write_string(nickname);
-                pw.finish()
-            }
-            ServerPacket::PlayerLeft { id, nickname, reason } => {
-                let mut pw = PacketWriter::new(0x85);
-                pw.write_u32(*id);
-                pw.write_string(nickname);
-                pw.write_string(reason);
-                pw.finish()
-            }
-            ServerPacket::PlayerPositions { updates } => {
-                let mut pw = PacketWriter::new(0x86);
-                pw.write_u16(updates.len().min(u16::MAX as usize) as u16);
-                for u in updates {
-                    pw.write_u32(u.id);
-                    pw.write_f32(u.x);
-                    pw.write_f32(u.y);
-                    pw.write_f32(u.z);
-                    pw.write_f32(u.yaw);
-                    pw.write_f32(u.pitch);
-                    pw.write_bool(u.is_sneaking);
-                    pw.write_bool(u.is_sprinting);
-                }
-                pw.finish()
-            }
-            ServerPacket::BlockChange { x, y, z, block } => {
-                let mut pw = PacketWriter::new(0x87);
-                pw.write_i32(*x);
-                pw.write_i32(*y);
-                pw.write_i32(*z);
-                pw.write_u8(*block);
-                pw.finish()
-            }
-            ServerPacket::ChatMessage { sender, text, is_system } => {
-                let mut pw = PacketWriter::new(0x88);
-                pw.write_string(sender);
-                pw.write_string(text);
-                pw.write_bool(*is_system);
-                pw.finish()
-            }
-            ServerPacket::TimeSync { time_of_day } => {
-                let mut pw = PacketWriter::new(0x89);
-                pw.write_f32(*time_of_day);
-                pw.finish()
-            }
-            ServerPacket::Pong { seq } => {
-                let mut pw = PacketWriter::new(0x8A);
-                pw.write_u32(*seq);
-                pw.finish()
-            }
-            ServerPacket::Teleport { x, y, z } => {
-                let mut pw = PacketWriter::new(0x8B);
-                pw.write_f32(*x);
-                pw.write_f32(*y);
-                pw.write_f32(*z);
-                pw.finish()
-            }
-            ServerPacket::PlayerHurt { victim_id, attacker_id, damage, knockback_x, knockback_z } => {
-                let mut pw = PacketWriter::new(0x8C);
-                pw.write_u32(*victim_id);
-                pw.write_u32(*attacker_id);
-                pw.write_f32(*damage);
-                pw.write_f32(*knockback_x);
-                pw.write_f32(*knockback_z);
-                pw.finish()
-            }
-            ServerPacket::ModSync { mods } => {
-                let mut pw = PacketWriter::new(0x8D);
-                pw.write_u16(mods.len().min(u16::MAX as usize) as u16);
-                for m in mods {
-                    pw.write_string(&m.mod_id);
-                    let bytes = m.content.as_bytes();
-                    pw.write_u32(bytes.len().min(u32::MAX as usize) as u32);
-                    pw.buf.extend_from_slice(bytes);
-                }
-                pw.finish()
-            }
-            ServerPacket::MobAuthority { id } => {
-                let mut pw = PacketWriter::new(0x8E);
-                pw.write_u32(*id);
-                pw.finish()
-            }
-            ServerPacket::MobSnapshot { mobs } => {
-                let mut pw = PacketWriter::new(0x8F);
-                write_mob_snapshot(&mut pw, mobs);
-                pw.finish()
-            }
-            ServerPacket::PlayerData { data } => {
-                let mut pw = PacketWriter::new(0x90);
-                pw.write_bool(data.is_some());
-                if let Some(data) = data {
-                    write_player_data(&mut pw, data);
-                }
-                pw.finish()
-            }
-            ServerPacket::Ping { seq } => {
-                let mut pw = PacketWriter::new(0x91);
-                pw.write_u32(*seq);
-                pw.finish()
-            }
-            ServerPacket::WorldSnapshot { snapshot } => {
-                let mut pw = PacketWriter::new(0x92);
-                write_world_snapshot(&mut pw, snapshot);
-                pw.finish()
-            }
-            ServerPacket::MobAttack {
-                attacker_id,
-                mob_id,
-                damage,
-                direction_x,
-                direction_y,
-                direction_z,
-            } => {
-                let mut pw = PacketWriter::new(0x93);
-                pw.write_u32(*attacker_id);
-                pw.write_u32(*mob_id);
-                pw.write_f32(*damage);
-                pw.write_f32(*direction_x);
-                pw.write_f32(*direction_y);
-                pw.write_f32(*direction_z);
-                pw.finish()
-            }
-            ServerPacket::MobSpawn { kind, x, y, z } => {
-                let mut pw = PacketWriter::new(0x94);
-                pw.write_u8(*kind);
-                pw.write_f32(*x);
-                pw.write_f32(*y);
-                pw.write_f32(*z);
-                pw.finish()
-            }
+impl<T: WireCodec + Copy, const N: usize> WireCodec for [Option<T>; N] {
+    fn encode(&self, pw: &mut PacketWriter) {
+        for item in self {
+            item.encode(pw);
         }
     }
-
-    pub fn deserialize(data: &[u8]) -> Result<Self, &'static str> {
-        let mut r = PacketReader::new(data);
-        let id = r.read_u8()?;
-        match id {
-            0x81 => {
-                let player_id = r.read_u32()?;
-                let seed = r.read_u32()?;
-                let spawn_x = r.read_f32()?;
-                let spawn_y = r.read_f32()?;
-                let spawn_z = r.read_f32()?;
-                let time_of_day = r.read_f32()?;
-                let count = r.read_u32()? as usize;
-                let mut modified_blocks = Vec::with_capacity(count.min(4096));
-                for _ in 0..count {
-                    let bx = r.read_i32()?;
-                    let by = r.read_i32()?;
-                    let bz = r.read_i32()?;
-                    let block = r.read_u8()?;
-                    modified_blocks.push((bx, by, bz, block));
-                }
-                Ok(ServerPacket::LoginSuccess {
-                    player_id,
-                    seed,
-                    spawn_x,
-                    spawn_y,
-                    spawn_z,
-                    time_of_day,
-                    modified_blocks,
-                })
-            }
-            0x82 => {
-                let reason = r.read_string()?;
-                Ok(ServerPacket::LoginDisconnect { reason })
-            }
-            0x83 => {
-                let count = r.read_u16()? as usize;
-                let mut players = Vec::with_capacity(count.min(1024));
-                for _ in 0..count {
-                    let id = r.read_u32()?;
-                    let nickname = r.read_string()?;
-                    let ping_ms = r.read_u32()?;
-                    players.push(PlayerInfo { id, nickname, ping_ms });
-                }
-                Ok(ServerPacket::PlayerList { players })
-            }
-            0x84 => {
-                let id = r.read_u32()?;
-                let nickname = r.read_string()?;
-                Ok(ServerPacket::PlayerJoined { id, nickname })
-            }
-            0x85 => {
-                let id = r.read_u32()?;
-                let nickname = r.read_string()?;
-                let reason = r.read_string()?;
-                Ok(ServerPacket::PlayerLeft { id, nickname, reason })
-            }
-            0x86 => {
-                let count = r.read_u16()? as usize;
-                let mut updates = Vec::with_capacity(count.min(1024));
-                for _ in 0..count {
-                    let id = r.read_u32()?;
-                    let x = r.read_f32()?;
-                    let y = r.read_f32()?;
-                    let z = r.read_f32()?;
-                    let yaw = r.read_f32()?;
-                    let pitch = r.read_f32()?;
-                    let is_sneaking = r.read_bool()?;
-                    let is_sprinting = r.read_bool()?;
-                    updates.push(PlayerPosUpdate { id, x, y, z, yaw, pitch, is_sneaking, is_sprinting });
-                }
-                Ok(ServerPacket::PlayerPositions { updates })
-            }
-            0x87 => {
-                let x = r.read_i32()?;
-                let y = r.read_i32()?;
-                let z = r.read_i32()?;
-                let block = r.read_u8()?;
-                Ok(ServerPacket::BlockChange { x, y, z, block })
-            }
-            0x88 => {
-                let sender = r.read_string()?;
-                let text = r.read_string()?;
-                let is_system = r.read_bool()?;
-                Ok(ServerPacket::ChatMessage { sender, text, is_system })
-            }
-            0x89 => {
-                let time_of_day = r.read_f32()?;
-                Ok(ServerPacket::TimeSync { time_of_day })
-            }
-            0x8A => {
-                let seq = r.read_u32()?;
-                Ok(ServerPacket::Pong { seq })
-            }
-            0x8B => {
-                let x = r.read_f32()?;
-                let y = r.read_f32()?;
-                let z = r.read_f32()?;
-                Ok(ServerPacket::Teleport { x, y, z })
-            }
-            0x8C => {
-                let victim_id = r.read_u32()?;
-                let attacker_id = r.read_u32()?;
-                let damage = r.read_f32()?;
-                let knockback_x = r.read_f32()?;
-                let knockback_z = r.read_f32()?;
-                Ok(ServerPacket::PlayerHurt { victim_id, attacker_id, damage, knockback_x, knockback_z })
-            }
-            0x8D => {
-                let count = r.read_u16()? as usize;
-                let mut mods = Vec::with_capacity(count.min(256));
-                for _ in 0..count {
-                    let mod_id = r.read_string()?;
-                    let len = r.read_u32()? as usize;
-                    if r.remaining() < len {
-                        return Err("Unexpected EOF reading mod payload content");
-                    }
-                    let content_bytes = &r.data[r.cursor..r.cursor + len];
-                    r.cursor += len;
-                    let content = String::from_utf8_lossy(content_bytes).into_owned();
-                    mods.push(ModSyncEntry { mod_id, content });
-                }
-                Ok(ServerPacket::ModSync { mods })
-            }
-            0x8E => Ok(ServerPacket::MobAuthority { id: r.read_u32()? }),
-            0x8F => Ok(ServerPacket::MobSnapshot {
-                mobs: read_mob_snapshot(&mut r)?,
-            }),
-            0x90 => {
-                let data = if r.read_bool()? {
-                    Some(read_player_data(&mut r)?)
-                } else {
-                    None
-                };
-                Ok(ServerPacket::PlayerData { data })
-            }
-            0x91 => Ok(ServerPacket::Ping { seq: r.read_u32()? }),
-            0x92 => Ok(ServerPacket::WorldSnapshot {
-                snapshot: read_world_snapshot(&mut r)?,
-            }),
-            0x93 => Ok(ServerPacket::MobAttack {
-                attacker_id: r.read_u32()?,
-                mob_id: r.read_u32()?,
-                damage: r.read_f32()?,
-                direction_x: r.read_f32()?,
-                direction_y: r.read_f32()?,
-                direction_z: r.read_f32()?,
-            }),
-            0x94 => Ok(ServerPacket::MobSpawn {
-                kind: r.read_u8()?,
-                x: r.read_f32()?,
-                y: r.read_f32()?,
-                z: r.read_f32()?,
-            }),
-            _ => Err("Unknown server packet ID"),
+    fn decode(pr: &mut PacketReader<'_>) -> Result<Self, &'static str> {
+        let mut arr = [None; N];
+        for item in &mut arr {
+            *item = Option::<T>::decode(pr)?;
         }
+        Ok(arr)
     }
 }
 
-fn write_mob_snapshot(writer: &mut PacketWriter, mobs: &[MobSyncEntry]) {
-    let count = mobs.len().min(MAX_SYNCED_MOBS);
-    writer.write_u16(count as u16);
-    for mob in mobs.iter().take(count) {
-        writer.write_u32(mob.id);
-        writer.write_u8(mob.kind);
-        writer.write_f32(mob.x);
-        writer.write_f32(mob.y);
-        writer.write_f32(mob.z);
-        writer.write_f32(mob.yaw);
-        writer.write_f32(mob.health);
-        writer.write_bool(mob.is_dead);
-        writer.write_f32(mob.walk_phase);
-        writer.write_bool(mob.is_baby);
-        writer.write_u8(mob.wool_color);
-        writer.write_bool(mob.is_sheared);
-        writer.write_bool(mob.is_puffed);
-        writer.write_f32(mob.fuse);
-        writer.write_bool(mob.is_ignited);
+impl WireCodec for (i32, i32, i32) {
+    fn encode(&self, pw: &mut PacketWriter) {
+        self.0.encode(pw);
+        self.1.encode(pw);
+        self.2.encode(pw);
+    }
+    fn decode(pr: &mut PacketReader<'_>) -> Result<Self, &'static str> {
+        Ok((i32::decode(pr)?, i32::decode(pr)?, i32::decode(pr)?))
     }
 }
 
-fn read_mob_snapshot(reader: &mut PacketReader<'_>) -> Result<Vec<MobSyncEntry>, &'static str> {
-    let count = reader.read_u16()? as usize;
-    if count > MAX_SYNCED_MOBS {
-        return Err("Mob snapshot exceeds maximum entity count");
+impl WireCodec for (i32, i32, i32, u8) {
+    fn encode(&self, pw: &mut PacketWriter) {
+        self.0.encode(pw);
+        self.1.encode(pw);
+        self.2.encode(pw);
+        self.3.encode(pw);
     }
-    let mut mobs = Vec::with_capacity(count);
+    fn decode(pr: &mut PacketReader<'_>) -> Result<Self, &'static str> {
+        Ok((i32::decode(pr)?, i32::decode(pr)?, i32::decode(pr)?, u8::decode(pr)?))
+    }
+}
+
+macro_rules! impl_struct_codec {
+    ($($ty:ident { $($field:ident),+ $(,)? }),* $(,)?) => {
+        $(
+            impl WireCodec for $ty {
+                fn encode(&self, pw: &mut PacketWriter) {
+                    $(self.$field.encode(pw);)+
+                }
+                fn decode(pr: &mut PacketReader<'_>) -> Result<Self, &'static str> {
+                    Ok(Self {
+                        $($field: WireCodec::decode(pr)?,)+
+                    })
+                }
+            }
+        )*
+    };
+}
+
+impl_struct_codec! {
+    PlayerInfo { id, nickname, ping_ms },
+    PlayerPosUpdate { id, x, y, z, yaw, pitch, is_sneaking, is_sprinting },
+    MobSyncEntry { id, kind, x, y, z, yaw, health, is_dead, walk_phase, is_baby, wool_color, is_sheared, is_puffed, fuse, is_ignited },
+    PlayerItemStack { block, count, durability },
+    PlayerData { x, y, z, health, max_health, hunger, max_hunger, saturation, exhaustion, air, selected_hotbar_slot, hotbar, main, armor, offhand, spawn_point },
+    WorldItemEntry { x, y, z, velocity_x, velocity_y, velocity_z, block, count, pickup_delay, age },
+    ChestSnapshot { x, y, z, items },
+    FurnaceSnapshot { x, y, z, input, fuel, output, burn_time_remaining, burn_time_total, cook_progress },
+    PrimedTntEntry { x, y, z, velocity_x, velocity_y, velocity_z, fuse },
+    ArrowEntry { x, y, z, velocity_x, velocity_y, velocity_z, shooter_is_player, in_ground, lifetime, damage },
+    LightningEntry { x, y, z, timer, max_duration, seed },
+}
+
+fn write_vec_u16<T: WireCodec>(pw: &mut PacketWriter, slice: &[T], max_len: usize) {
+    let count = slice.len().min(max_len);
+    pw.write_u16(count as u16);
+    for item in slice.iter().take(count) {
+        item.encode(pw);
+    }
+}
+
+fn read_vec_u16_checked<T: WireCodec>(pr: &mut PacketReader<'_>, max_len: usize, err: &'static str) -> Result<Vec<T>, &'static str> {
+    let count = pr.read_u16()? as usize;
+    if count > max_len {
+        return Err(err);
+    }
+    let mut vec = Vec::with_capacity(count);
     for _ in 0..count {
-        mobs.push(MobSyncEntry {
-            id: reader.read_u32()?,
-            kind: reader.read_u8()?,
-            x: reader.read_f32()?,
-            y: reader.read_f32()?,
-            z: reader.read_f32()?,
-            yaw: reader.read_f32()?,
-            health: reader.read_f32()?,
-            is_dead: reader.read_bool()?,
-            walk_phase: reader.read_f32()?,
-            is_baby: reader.read_bool()?,
-            wool_color: reader.read_u8()?,
-            is_sheared: reader.read_bool()?,
-            is_puffed: reader.read_bool()?,
-            fuse: reader.read_f32()?,
-            is_ignited: reader.read_bool()?,
-        });
+        vec.push(T::decode(pr)?);
     }
-    Ok(mobs)
+    Ok(vec)
 }
 
-fn write_world_snapshot(writer: &mut PacketWriter, snapshot: &WorldSnapshot) {
-    let items = snapshot.items.len().min(MAX_SYNCED_WORLD_ITEMS);
-    writer.write_u16(items as u16);
-    for item in snapshot.items.iter().take(items) {
-        for value in [
-            item.x,
-            item.y,
-            item.z,
-            item.velocity_x,
-            item.velocity_y,
-            item.velocity_z,
-        ] {
-            writer.write_f32(value);
-        }
-        writer.write_u8(item.block);
-        writer.write_u8(item.count);
-        writer.write_f32(item.pickup_delay);
-        writer.write_f32(item.age);
+fn read_vec_u16_capped<T: WireCodec>(pr: &mut PacketReader<'_>, cap_hint: usize) -> Result<Vec<T>, &'static str> {
+    let count = pr.read_u16()? as usize;
+    let mut vec = Vec::with_capacity(count.min(cap_hint));
+    for _ in 0..count {
+        vec.push(T::decode(pr)?);
     }
+    Ok(vec)
+}
 
-    let chests = snapshot.chests.len().min(MAX_SYNCED_TILE_ENTITIES);
-    writer.write_u16(chests as u16);
-    for chest in snapshot.chests.iter().take(chests) {
-        writer.write_i32(chest.x);
-        writer.write_i32(chest.y);
-        writer.write_i32(chest.z);
-        for item in chest.items {
-            write_optional_item(writer, item);
-        }
+impl WireCodec for Vec<MobSyncEntry> {
+    fn encode(&self, pw: &mut PacketWriter) {
+        write_vec_u16(pw, self, MAX_SYNCED_MOBS);
     }
-
-    let furnaces = snapshot.furnaces.len().min(MAX_SYNCED_TILE_ENTITIES);
-    writer.write_u16(furnaces as u16);
-    for furnace in snapshot.furnaces.iter().take(furnaces) {
-        writer.write_i32(furnace.x);
-        writer.write_i32(furnace.y);
-        writer.write_i32(furnace.z);
-        write_optional_item(writer, furnace.input);
-        write_optional_item(writer, furnace.fuel);
-        write_optional_item(writer, furnace.output);
-        writer.write_f32(furnace.burn_time_remaining);
-        writer.write_f32(furnace.burn_time_total);
-        writer.write_f32(furnace.cook_progress);
-    }
-
-    let tnts = snapshot.primed_tnts.len().min(MAX_SYNCED_PROJECTILES);
-    writer.write_u16(tnts as u16);
-    for tnt in snapshot.primed_tnts.iter().take(tnts) {
-        for value in [
-            tnt.x,
-            tnt.y,
-            tnt.z,
-            tnt.velocity_x,
-            tnt.velocity_y,
-            tnt.velocity_z,
-            tnt.fuse,
-        ] {
-            writer.write_f32(value);
-        }
-    }
-
-    let arrows = snapshot.arrows.len().min(MAX_SYNCED_PROJECTILES);
-    writer.write_u16(arrows as u16);
-    for arrow in snapshot.arrows.iter().take(arrows) {
-        for value in [
-            arrow.x,
-            arrow.y,
-            arrow.z,
-            arrow.velocity_x,
-            arrow.velocity_y,
-            arrow.velocity_z,
-        ] {
-            writer.write_f32(value);
-        }
-        writer.write_bool(arrow.shooter_is_player);
-        writer.write_bool(arrow.in_ground);
-        writer.write_f32(arrow.lifetime);
-        writer.write_f32(arrow.damage);
-    }
-
-    let weather = &snapshot.weather;
-    writer.write_u8(weather.current_type);
-    writer.write_f32(weather.timer);
-    writer.write_f32(weather.rain_strength);
-    writer.write_f32(weather.thunder_strength);
-    writer.write_f32(weather.lightning_timer);
-    writer.write_f32(weather.lightning_flash);
-    writer.write_u64(weather.rng_state);
-    let lightning = weather.active_lightning.len().min(64);
-    writer.write_u8(lightning as u8);
-    for bolt in weather.active_lightning.iter().take(lightning) {
-        writer.write_f32(bolt.x);
-        writer.write_f32(bolt.y);
-        writer.write_f32(bolt.z);
-        writer.write_f32(bolt.timer);
-        writer.write_f32(bolt.max_duration);
-        writer.write_u32(bolt.seed);
+    fn decode(pr: &mut PacketReader<'_>) -> Result<Self, &'static str> {
+        read_vec_u16_checked(pr, MAX_SYNCED_MOBS, "Mob snapshot exceeds maximum entity count")
     }
 }
 
-fn read_world_snapshot(reader: &mut PacketReader<'_>) -> Result<WorldSnapshot, &'static str> {
-    let item_count = reader.read_u16()? as usize;
-    if item_count > MAX_SYNCED_WORLD_ITEMS {
-        return Err("World snapshot exceeds maximum item count");
+impl WireCodec for Vec<PlayerInfo> {
+    fn encode(&self, pw: &mut PacketWriter) {
+        write_vec_u16(pw, self, u16::MAX as usize);
     }
-    let mut items = Vec::with_capacity(item_count);
-    for _ in 0..item_count {
-        items.push(WorldItemEntry {
-            x: reader.read_f32()?,
-            y: reader.read_f32()?,
-            z: reader.read_f32()?,
-            velocity_x: reader.read_f32()?,
-            velocity_y: reader.read_f32()?,
-            velocity_z: reader.read_f32()?,
-            block: reader.read_u8()?,
-            count: reader.read_u8()?,
-            pickup_delay: reader.read_f32()?,
-            age: reader.read_f32()?,
-        });
+    fn decode(pr: &mut PacketReader<'_>) -> Result<Self, &'static str> {
+        read_vec_u16_capped(pr, 1024)
     }
+}
 
-    let chest_count = reader.read_u16()? as usize;
-    if chest_count > MAX_SYNCED_TILE_ENTITIES {
-        return Err("World snapshot exceeds maximum chest count");
+impl WireCodec for Vec<PlayerPosUpdate> {
+    fn encode(&self, pw: &mut PacketWriter) {
+        write_vec_u16(pw, self, u16::MAX as usize);
     }
-    let mut chests = Vec::with_capacity(chest_count);
-    for _ in 0..chest_count {
-        let x = reader.read_i32()?;
-        let y = reader.read_i32()?;
-        let z = reader.read_i32()?;
-        let mut items = [None; 27];
-        for item in &mut items {
-            *item = read_optional_item(reader)?;
+    fn decode(pr: &mut PacketReader<'_>) -> Result<Self, &'static str> {
+        read_vec_u16_capped(pr, 1024)
+    }
+}
+
+impl WireCodec for Vec<(i32, i32, i32, u8)> {
+    fn encode(&self, pw: &mut PacketWriter) {
+        let count = self.len().min(u32::MAX as usize) as u32;
+        pw.write_u32(count);
+        for item in self {
+            item.encode(pw);
         }
-        chests.push(ChestSnapshot { x, y, z, items });
     }
+    fn decode(pr: &mut PacketReader<'_>) -> Result<Self, &'static str> {
+        let count = pr.read_u32()? as usize;
+        let mut vec = Vec::with_capacity(count.min(4096));
+        for _ in 0..count {
+            vec.push(WireCodec::decode(pr)?);
+        }
+        Ok(vec)
+    }
+}
 
-    let furnace_count = reader.read_u16()? as usize;
-    if furnace_count > MAX_SYNCED_TILE_ENTITIES {
-        return Err("World snapshot exceeds maximum furnace count");
+impl WireCodec for Vec<ModSyncEntry> {
+    fn encode(&self, pw: &mut PacketWriter) {
+        pw.write_u16(self.len().min(u16::MAX as usize) as u16);
+        for m in self {
+            pw.write_string(&m.mod_id);
+            let bytes = m.content.as_bytes();
+            pw.write_u32(bytes.len().min(u32::MAX as usize) as u32);
+            pw.buf.extend_from_slice(bytes);
+        }
     }
-    let mut furnaces = Vec::with_capacity(furnace_count);
-    for _ in 0..furnace_count {
-        furnaces.push(FurnaceSnapshot {
-            x: reader.read_i32()?,
-            y: reader.read_i32()?,
-            z: reader.read_i32()?,
-            input: read_optional_item(reader)?,
-            fuel: read_optional_item(reader)?,
-            output: read_optional_item(reader)?,
-            burn_time_remaining: reader.read_f32()?,
-            burn_time_total: reader.read_f32()?,
-            cook_progress: reader.read_f32()?,
-        });
+    fn decode(pr: &mut PacketReader<'_>) -> Result<Self, &'static str> {
+        let count = pr.read_u16()? as usize;
+        let mut mods = Vec::with_capacity(count.min(256));
+        for _ in 0..count {
+            let mod_id = pr.read_string()?;
+            let len = pr.read_u32()? as usize;
+            if pr.remaining() < len {
+                return Err("Unexpected EOF reading mod payload content");
+            }
+            let content_bytes = &pr.data[pr.cursor..pr.cursor + len];
+            pr.cursor += len;
+            let content = String::from_utf8_lossy(content_bytes).into_owned();
+            mods.push(ModSyncEntry { mod_id, content });
+        }
+        Ok(mods)
     }
+}
 
-    let tnt_count = reader.read_u16()? as usize;
-    if tnt_count > MAX_SYNCED_PROJECTILES {
-        return Err("World snapshot exceeds maximum primed TNT count");
+impl WireCodec for WeatherSnapshot {
+    fn encode(&self, pw: &mut PacketWriter) {
+        self.current_type.encode(pw);
+        self.timer.encode(pw);
+        self.rain_strength.encode(pw);
+        self.thunder_strength.encode(pw);
+        self.lightning_timer.encode(pw);
+        self.lightning_flash.encode(pw);
+        self.rng_state.encode(pw);
+        let lightning = self.active_lightning.len().min(64);
+        pw.write_u8(lightning as u8);
+        for bolt in self.active_lightning.iter().take(lightning) {
+            bolt.encode(pw);
+        }
     }
-    let mut primed_tnts = Vec::with_capacity(tnt_count);
-    for _ in 0..tnt_count {
-        primed_tnts.push(PrimedTntEntry {
-            x: reader.read_f32()?,
-            y: reader.read_f32()?,
-            z: reader.read_f32()?,
-            velocity_x: reader.read_f32()?,
-            velocity_y: reader.read_f32()?,
-            velocity_z: reader.read_f32()?,
-            fuse: reader.read_f32()?,
-        });
-    }
-
-    let arrow_count = reader.read_u16()? as usize;
-    if arrow_count > MAX_SYNCED_PROJECTILES {
-        return Err("World snapshot exceeds maximum arrow count");
-    }
-    let mut arrows = Vec::with_capacity(arrow_count);
-    for _ in 0..arrow_count {
-        arrows.push(ArrowEntry {
-            x: reader.read_f32()?,
-            y: reader.read_f32()?,
-            z: reader.read_f32()?,
-            velocity_x: reader.read_f32()?,
-            velocity_y: reader.read_f32()?,
-            velocity_z: reader.read_f32()?,
-            shooter_is_player: reader.read_bool()?,
-            in_ground: reader.read_bool()?,
-            lifetime: reader.read_f32()?,
-            damage: reader.read_f32()?,
-        });
-    }
-
-    let current_type = reader.read_u8()?;
-    if current_type > 2 {
-        return Err("World snapshot contains unknown weather type");
-    }
-    let timer = reader.read_f32()?;
-    let rain_strength = reader.read_f32()?;
-    let thunder_strength = reader.read_f32()?;
-    let lightning_timer = reader.read_f32()?;
-    let lightning_flash = reader.read_f32()?;
-    let rng_state = reader.read_u64()?;
-    let lightning_count = reader.read_u8()? as usize;
-    if lightning_count > 64 {
-        return Err("World snapshot exceeds maximum lightning count");
-    }
-    let mut active_lightning = Vec::with_capacity(lightning_count);
-    for _ in 0..lightning_count {
-        active_lightning.push(LightningEntry {
-            x: reader.read_f32()?,
-            y: reader.read_f32()?,
-            z: reader.read_f32()?,
-            timer: reader.read_f32()?,
-            max_duration: reader.read_f32()?,
-            seed: reader.read_u32()?,
-        });
-    }
-
-    let snapshot = WorldSnapshot {
-        items,
-        chests,
-        furnaces,
-        primed_tnts,
-        arrows,
-        weather: WeatherSnapshot {
+    fn decode(pr: &mut PacketReader<'_>) -> Result<Self, &'static str> {
+        let current_type = pr.read_u8()?;
+        if current_type > 2 {
+            return Err("World snapshot contains unknown weather type");
+        }
+        let timer = pr.read_f32()?;
+        let rain_strength = pr.read_f32()?;
+        let thunder_strength = pr.read_f32()?;
+        let lightning_timer = pr.read_f32()?;
+        let lightning_flash = pr.read_f32()?;
+        let rng_state = pr.read_u64()?;
+        let lightning_count = pr.read_u8()? as usize;
+        if lightning_count > 64 {
+            return Err("World snapshot exceeds maximum lightning count");
+        }
+        let mut active_lightning = Vec::with_capacity(lightning_count);
+        for _ in 0..lightning_count {
+            active_lightning.push(LightningEntry::decode(pr)?);
+        }
+        Ok(Self {
             current_type,
             timer,
             rain_strength,
@@ -1271,189 +768,116 @@ fn read_world_snapshot(reader: &mut PacketReader<'_>) -> Result<WorldSnapshot, &
             lightning_flash,
             rng_state,
             active_lightning,
-        },
-    };
-    if !world_snapshot_is_finite(&snapshot) {
-        return Err("World snapshot contains non-finite values");
+        })
     }
-    Ok(snapshot)
+}
+
+impl WireCodec for WorldSnapshot {
+    fn encode(&self, pw: &mut PacketWriter) {
+        write_vec_u16(pw, &self.items, MAX_SYNCED_WORLD_ITEMS);
+        write_vec_u16(pw, &self.chests, MAX_SYNCED_TILE_ENTITIES);
+        write_vec_u16(pw, &self.furnaces, MAX_SYNCED_TILE_ENTITIES);
+        write_vec_u16(pw, &self.primed_tnts, MAX_SYNCED_PROJECTILES);
+        write_vec_u16(pw, &self.arrows, MAX_SYNCED_PROJECTILES);
+        self.weather.encode(pw);
+    }
+    fn decode(pr: &mut PacketReader<'_>) -> Result<Self, &'static str> {
+        let snapshot = Self {
+            items: read_vec_u16_checked(pr, MAX_SYNCED_WORLD_ITEMS, "World snapshot exceeds maximum item count")?,
+            chests: read_vec_u16_checked(pr, MAX_SYNCED_TILE_ENTITIES, "World snapshot exceeds maximum chest count")?,
+            furnaces: read_vec_u16_checked(pr, MAX_SYNCED_TILE_ENTITIES, "World snapshot exceeds maximum furnace count")?,
+            primed_tnts: read_vec_u16_checked(pr, MAX_SYNCED_PROJECTILES, "World snapshot exceeds maximum primed TNT count")?,
+            arrows: read_vec_u16_checked(pr, MAX_SYNCED_PROJECTILES, "World snapshot exceeds maximum arrow count")?,
+            weather: WeatherSnapshot::decode(pr)?,
+        };
+        if !world_snapshot_is_finite(&snapshot) {
+            return Err("World snapshot contains non-finite values");
+        }
+        Ok(snapshot)
+    }
 }
 
 fn world_snapshot_is_finite(snapshot: &WorldSnapshot) -> bool {
-    let weather = &snapshot.weather;
-    [
-        weather.timer,
-        weather.rain_strength,
-        weather.thunder_strength,
-        weather.lightning_timer,
-        weather.lightning_flash,
-    ]
-    .iter()
-    .all(|value| value.is_finite())
-        && snapshot.items.iter().all(|item| {
-            [
-                item.x,
-                item.y,
-                item.z,
-                item.velocity_x,
-                item.velocity_y,
-                item.velocity_z,
-                item.pickup_delay,
-                item.age,
-            ]
-            .iter()
-            .all(|value| value.is_finite())
-        })
-        && snapshot.furnaces.iter().all(|furnace| {
-            [
-                furnace.burn_time_remaining,
-                furnace.burn_time_total,
-                furnace.cook_progress,
-            ]
-            .iter()
-            .all(|value| value.is_finite())
-        })
-        && snapshot.primed_tnts.iter().all(|tnt| {
-            [
-                tnt.x,
-                tnt.y,
-                tnt.z,
-                tnt.velocity_x,
-                tnt.velocity_y,
-                tnt.velocity_z,
-                tnt.fuse,
-            ]
-            .iter()
-            .all(|value| value.is_finite())
-        })
-        && snapshot.arrows.iter().all(|arrow| {
-            [
-                arrow.x,
-                arrow.y,
-                arrow.z,
-                arrow.velocity_x,
-                arrow.velocity_y,
-                arrow.velocity_z,
-                arrow.lifetime,
-                arrow.damage,
-            ]
-            .iter()
-            .all(|value| value.is_finite())
-        })
-        && weather.active_lightning.iter().all(|bolt| {
-            [
-                bolt.x,
-                bolt.y,
-                bolt.z,
-                bolt.timer,
-                bolt.max_duration,
-            ]
-            .iter()
-            .all(|value| value.is_finite())
-        })
+    let w = &snapshot.weather;
+    [w.timer, w.rain_strength, w.thunder_strength, w.lightning_timer, w.lightning_flash].iter().all(|v| v.is_finite())
+        && snapshot.items.iter().all(|i| [i.x, i.y, i.z, i.velocity_x, i.velocity_y, i.velocity_z, i.pickup_delay, i.age].iter().all(|v| v.is_finite()))
+        && snapshot.furnaces.iter().all(|f| [f.burn_time_remaining, f.burn_time_total, f.cook_progress].iter().all(|v| v.is_finite()))
+        && snapshot.primed_tnts.iter().all(|t| [t.x, t.y, t.z, t.velocity_x, t.velocity_y, t.velocity_z, t.fuse].iter().all(|v| v.is_finite()))
+        && snapshot.arrows.iter().all(|a| [a.x, a.y, a.z, a.velocity_x, a.velocity_y, a.velocity_z, a.lifetime, a.damage].iter().all(|v| v.is_finite()))
+        && w.active_lightning.iter().all(|b| [b.x, b.y, b.z, b.timer, b.max_duration].iter().all(|v| v.is_finite()))
 }
 
-fn write_optional_item(writer: &mut PacketWriter, item: Option<PlayerItemStack>) {
-    writer.write_bool(item.is_some());
-    if let Some(item) = item {
-        writer.write_u8(item.block);
-        writer.write_u8(item.count);
-        writer.write_u16(item.durability);
-    }
-}
+macro_rules! impl_packet_codec {
+    ($enum_ty:ident, $unknown_err:literal, $( $opcode:literal => $variant:ident $( { $($field:ident),+ } )? ),* $(,)?) => {
+        impl $enum_ty {
+            pub fn serialize(&self) -> Vec<u8> {
+                match self {
+                    $(
+                        Self::$variant $( { $($field),+ } )? => {
+                            #[allow(unused_mut)]
+                            let mut pw = PacketWriter::new($opcode);
+                            $( $( $field.encode(&mut pw); )+ )?
+                            pw.finish()
+                        }
+                    )*
+                }
+            }
 
-fn read_optional_item(reader: &mut PacketReader<'_>) -> Result<Option<PlayerItemStack>, &'static str> {
-    if reader.read_bool()? {
-        Ok(Some(PlayerItemStack {
-            block: reader.read_u8()?,
-            count: reader.read_u8()?,
-            durability: reader.read_u16()?,
-        }))
-    } else {
-        Ok(None)
-    }
-}
-
-fn write_player_data(writer: &mut PacketWriter, data: &PlayerData) {
-    writer.write_f32(data.x);
-    writer.write_f32(data.y);
-    writer.write_f32(data.z);
-    writer.write_f32(data.health);
-    writer.write_f32(data.max_health);
-    writer.write_f32(data.hunger);
-    writer.write_f32(data.max_hunger);
-    writer.write_f32(data.saturation);
-    writer.write_f32(data.exhaustion);
-    writer.write_f32(data.air);
-    writer.write_u8(data.selected_hotbar_slot);
-    for item in data.hotbar {
-        write_optional_item(writer, item);
-    }
-    for item in data.main {
-        write_optional_item(writer, item);
-    }
-    for item in data.armor {
-        write_optional_item(writer, item);
-    }
-    write_optional_item(writer, data.offhand);
-    writer.write_bool(data.spawn_point.is_some());
-    if let Some((x, y, z)) = data.spawn_point {
-        writer.write_i32(x);
-        writer.write_i32(y);
-        writer.write_i32(z);
-    }
-}
-
-fn read_player_data(reader: &mut PacketReader<'_>) -> Result<PlayerData, &'static str> {
-    let x = reader.read_f32()?;
-    let y = reader.read_f32()?;
-    let z = reader.read_f32()?;
-    let health = reader.read_f32()?;
-    let max_health = reader.read_f32()?;
-    let hunger = reader.read_f32()?;
-    let max_hunger = reader.read_f32()?;
-    let saturation = reader.read_f32()?;
-    let exhaustion = reader.read_f32()?;
-    let air = reader.read_f32()?;
-    let selected_hotbar_slot = reader.read_u8()?;
-    let mut hotbar = [None; 10];
-    for item in &mut hotbar {
-        *item = read_optional_item(reader)?;
-    }
-    let mut main = [None; 27];
-    for item in &mut main {
-        *item = read_optional_item(reader)?;
-    }
-    let mut armor = [None; 4];
-    for item in &mut armor {
-        *item = read_optional_item(reader)?;
-    }
-    let offhand = read_optional_item(reader)?;
-    let spawn_point = if reader.read_bool()? {
-        Some((reader.read_i32()?, reader.read_i32()?, reader.read_i32()?))
-    } else {
-        None
+            pub fn deserialize(data: &[u8]) -> Result<Self, &'static str> {
+                let mut pr = PacketReader::new(data);
+                let id = pr.read_u8()?;
+                match id {
+                    $(
+                        $opcode => Ok(Self::$variant $( { $($field: WireCodec::decode(&mut pr)?),+ } )?),
+                    )*
+                    _ => Err($unknown_err),
+                }
+            }
+        }
     };
-    Ok(PlayerData {
-        x,
-        y,
-        z,
-        health,
-        max_health,
-        hunger,
-        max_hunger,
-        saturation,
-        exhaustion,
-        air,
-        selected_hotbar_slot,
-        hotbar,
-        main,
-        armor,
-        offhand,
-        spawn_point,
-    })
 }
 
+impl_packet_codec! {
+    ClientPacket, "Unknown client packet ID",
+    0x01 => Handshake { protocol_version, nickname },
+    0x02 => PlayerMove { x, y, z, yaw, pitch, is_sneaking, is_sprinting },
+    0x03 => BlockChange { x, y, z, block },
+    0x04 => ChatMessage { text },
+    0x05 => Ping { seq },
+    0x06 => Disconnect { reason },
+    0x07 => AttackPlayer { target_id, damage },
+    0x08 => MobSnapshot { mobs },
+    0x09 => PlayerDeath,
+    0x0A => PlayerData { data },
+    0x0B => Pong { seq },
+    0x0C => WorldSnapshot { snapshot },
+    0x0D => AttackMob { mob_id, damage },
+    0x0E => SpawnMob { kind, x, y, z },
+}
+
+impl_packet_codec! {
+    ServerPacket, "Unknown server packet ID",
+    0x81 => LoginSuccess { player_id, seed, spawn_x, spawn_y, spawn_z, time_of_day, modified_blocks },
+    0x82 => LoginDisconnect { reason },
+    0x83 => PlayerList { players },
+    0x84 => PlayerJoined { id, nickname },
+    0x85 => PlayerLeft { id, nickname, reason },
+    0x86 => PlayerPositions { updates },
+    0x87 => BlockChange { x, y, z, block },
+    0x88 => ChatMessage { sender, text, is_system },
+    0x89 => TimeSync { time_of_day },
+    0x8A => Pong { seq },
+    0x8B => Teleport { x, y, z },
+    0x8C => PlayerHurt { victim_id, attacker_id, damage, knockback_x, knockback_z },
+    0x8D => ModSync { mods },
+    0x8E => MobAuthority { id },
+    0x8F => MobSnapshot { mobs },
+    0x90 => PlayerData { data },
+    0x91 => Ping { seq },
+    0x92 => WorldSnapshot { snapshot },
+    0x93 => MobAttack { attacker_id, mob_id, damage, direction_x, direction_y, direction_z },
+    0x94 => MobSpawn { kind, x, y, z },
+}
 /// Helper to decode complete frames from a raw incoming byte stream buffer.
 pub fn extract_packets(buffer: &mut Vec<u8>) -> Result<Vec<Vec<u8>>, &'static str> {
     let mut packets = Vec::new();
