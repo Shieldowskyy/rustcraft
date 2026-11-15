@@ -458,7 +458,14 @@ impl GpuMem {
         }
     }
 
-    pub fn alloc_gpu(name: &[u8], size: usize, mem_type: u32, attribs: u32) -> Option<Self> {
+    /// Allocates a kernel memblock (with CDRAM -> uncached fallback), then maps it via `map`.
+    fn alloc_mapped(
+        name: &[u8],
+        size: usize,
+        mem_type: u32,
+        kind: MemKind,
+        map: impl FnOnce(*mut core::ffi::c_void, u32) -> i32,
+    ) -> Option<Self> {
         let mut aligned = Self::align_size(mem_type, size);
         let mut uid = unsafe {
             sceKernelAllocMemBlock(name.as_ptr(), mem_type, aligned as u32, core::ptr::null())
@@ -470,83 +477,32 @@ impl GpuMem {
                 sceKernelAllocMemBlock(name.as_ptr(), SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, aligned as u32, core::ptr::null())
             };
         }
-
         if uid < 0 {
             return None;
         }
 
         let mut ptr: *mut core::ffi::c_void = core::ptr::null_mut();
-        if unsafe { sceKernelGetMemBlockBase(uid, &mut ptr) } != SCE_OK {
+        if unsafe { sceKernelGetMemBlockBase(uid, &mut ptr) } != SCE_OK || map(ptr, aligned as u32) != SCE_OK {
             unsafe { sceKernelFreeMemBlock(uid); }
             return None;
         }
 
-        if unsafe { sceGxmMapMemory(ptr, aligned as u32, attribs) } != SCE_OK {
-            unsafe { sceKernelFreeMemBlock(uid); }
-            return None;
-        }
+        Some(Self { uid, ptr, size: aligned, kind })
+    }
 
-        Some(Self {
-            uid,
-            ptr,
-            size: aligned,
-            kind: MemKind::GxmMap,
-        })
+    pub fn alloc_gpu(name: &[u8], size: usize, mem_type: u32, attribs: u32) -> Option<Self> {
+        Self::alloc_mapped(name, size, mem_type, MemKind::GxmMap, |p, s| unsafe { sceGxmMapMemory(p, s, attribs) })
     }
 
     pub fn alloc_vertex_usse(name: &[u8], size: usize, out_offset: &mut u32) -> Option<Self> {
-        let aligned = (size + 4095) & !4095;
-        let uid = unsafe {
-            sceKernelAllocMemBlock(name.as_ptr(), SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, aligned as u32, core::ptr::null())
-        };
-        if uid < 0 {
-            return None;
-        }
-
-        let mut ptr: *mut core::ffi::c_void = core::ptr::null_mut();
-        if unsafe { sceKernelGetMemBlockBase(uid, &mut ptr) } != SCE_OK {
-            unsafe { sceKernelFreeMemBlock(uid); }
-            return None;
-        }
-
-        if unsafe { sceGxmMapVertexUsseMemory(ptr, aligned as u32, out_offset) } != SCE_OK {
-            unsafe { sceKernelFreeMemBlock(uid); }
-            return None;
-        }
-
-        Some(Self {
-            uid,
-            ptr,
-            size: aligned,
-            kind: MemKind::VertexUsse,
+        Self::alloc_mapped(name, size, SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, MemKind::VertexUsse, |p, s| unsafe {
+            sceGxmMapVertexUsseMemory(p, s, out_offset)
         })
     }
 
     pub fn alloc_fragment_usse(name: &[u8], size: usize, out_offset: &mut u32) -> Option<Self> {
-        let aligned = (size + 4095) & !4095;
-        let uid = unsafe {
-            sceKernelAllocMemBlock(name.as_ptr(), SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, aligned as u32, core::ptr::null())
-        };
-        if uid < 0 {
-            return None;
-        }
-
-        let mut ptr: *mut core::ffi::c_void = core::ptr::null_mut();
-        if unsafe { sceKernelGetMemBlockBase(uid, &mut ptr) } != SCE_OK {
-            unsafe { sceKernelFreeMemBlock(uid); }
-            return None;
-        }
-
-        if unsafe { sceGxmMapFragmentUsseMemory(ptr, aligned as u32, out_offset) } != SCE_OK {
-            unsafe { sceKernelFreeMemBlock(uid); }
-            return None;
-        }
-
-        Some(Self {
-            uid,
-            ptr,
-            size: aligned,
-            kind: MemKind::FragmentUsse,
+        Self::alloc_mapped(name, size, SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, MemKind::FragmentUsse, |p, s| unsafe {
+            sceGxmMapFragmentUsseMemory(p, s, out_offset)
         })
     }
 
