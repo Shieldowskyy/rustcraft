@@ -5,166 +5,74 @@ use crate::app::InputState;
 
 pub const ACTION_COUNT: usize = 21;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Action {
-    MoveForward = 0,
-    MoveBackward = 1,
-    StrafeLeft = 2,
-    StrafeRight = 3,
-    Jump = 4,
-    Sneak = 5,
-    Sprint = 6,
-    Inventory = 7,
-    DropItem = 8,
-    ToggleFly = 9,
-    ToggleGamemode = 10,
-    Pause = 11,
-    Save = 12,
-    AttackBreak = 13,
-    UsePlace = 14,
-    HotbarPrev = 15,
-    HotbarNext = 16,
-    OpenChat = 17,
-    OpenCommand = 18,
-    PickBlock = 19,
-    Questbook = 20,
+macro_rules! define_actions {
+    ($(($idx:literal, $var:ident, $str:literal, $($pat:literal)|+, $pl:literal, $en:literal)),* $(,)?) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum Action {
+            $($var = $idx,)*
+        }
+
+        impl Action {
+            pub const ALL: [Action; ACTION_COUNT] = [$(Action::$var),*];
+
+            pub fn as_str(&self) -> &'static str {
+                match self {
+                    $(Action::$var => $str,)*
+                }
+            }
+
+            pub fn from_str(s: &str) -> Option<Self> {
+                let s = s.trim().to_ascii_lowercase();
+                match s.as_str() {
+                    $($($pat)|+ => Some(Action::$var),)*
+                    _ => None,
+                }
+            }
+
+            #[inline(always)]
+            pub fn index(self) -> usize {
+                self as usize
+            }
+
+            pub fn display_name(&self, lang: crate::core::i18n::Language) -> &'static str {
+                match lang {
+                    crate::core::i18n::Language::Polish => match self {
+                        $(Action::$var => $pl,)*
+                    },
+                    crate::core::i18n::Language::English => match self {
+                        $(Action::$var => $en,)*
+                    },
+                }
+            }
+        }
+    };
+}
+
+define_actions! {
+    (0, MoveForward, "move_forward", "move_forward" | "forward", "Ruch do przodu", "Move Forward"),
+    (1, MoveBackward, "move_backward", "move_backward" | "backward", "Ruch do tyłu", "Move Backward"),
+    (2, StrafeLeft, "strafe_left", "strafe_left" | "left", "Ruch w lewo", "Strafe Left"),
+    (3, StrafeRight, "strafe_right", "strafe_right" | "right", "Ruch w prawo", "Strafe Right"),
+    (4, Jump, "jump", "jump", "Skok", "Jump"),
+    (5, Sneak, "sneak", "sneak" | "crouch", "Skradanie / Kucanie", "Sneak / Crouch"),
+    (6, Sprint, "sprint", "sprint" | "run", "Sprint / Bieg", "Sprint"),
+    (7, Inventory, "inventory", "inventory", "Otwórz ekwipunek", "Open Inventory"),
+    (8, DropItem, "drop_item", "drop_item" | "drop", "Wyrzuć trzymany przedmiot", "Drop Item"),
+    (9, ToggleFly, "toggle_fly", "toggle_fly" | "fly", "Przełącz tryb latania", "Toggle Fly Mode"),
+    (10, ToggleGamemode, "toggle_gamemode", "toggle_gamemode" | "gamemode", "Przełącz tryb gry", "Toggle Game Mode"),
+    (11, Pause, "pause", "pause" | "menu", "Menu gry / Pauza", "Pause / Game Menu"),
+    (12, Save, "save", "save" | "quick_save", "Szybki zapis świata", "Quick Save World"),
+    (13, AttackBreak, "attack_break", "attack_break" | "attack" | "break", "Atak / Niszczenie bloku", "Attack / Break Block"),
+    (14, UsePlace, "use_place", "use_place" | "use" | "place", "Użycie / Postawienie bloku", "Use / Place Block"),
+    (15, HotbarPrev, "hotbar_prev", "hotbar_prev" | "prev_slot", "Poprzedni slot paska", "Previous Hotbar Slot"),
+    (16, HotbarNext, "hotbar_next", "hotbar_next" | "next_slot", "Następny slot paska", "Next Hotbar Slot"),
+    (17, OpenChat, "open_chat", "open_chat" | "chat", "Otwórz czat", "Open Chat"),
+    (18, OpenCommand, "open_command", "open_command" | "command" | "slash", "Otwórz wiersz poleceń", "Open Command"),
+    (19, PickBlock, "pick_block", "pick_block" | "pick", "Wybierz blok (Pick Block)", "Pick Block"),
+    (20, Questbook, "questbook", "questbook" | "quests" | "journal", "Księga zadań (Questbook)", "Questbook"),
 }
 
 impl Action {
-    pub const ALL: [Action; ACTION_COUNT] = [
-        Action::MoveForward,
-        Action::MoveBackward,
-        Action::StrafeLeft,
-        Action::StrafeRight,
-        Action::Jump,
-        Action::Sneak,
-        Action::Sprint,
-        Action::Inventory,
-        Action::DropItem,
-        Action::ToggleFly,
-        Action::ToggleGamemode,
-        Action::Pause,
-        Action::Save,
-        Action::AttackBreak,
-        Action::UsePlace,
-        Action::HotbarPrev,
-        Action::HotbarNext,
-        Action::OpenChat,
-        Action::OpenCommand,
-        Action::PickBlock,
-        Action::Questbook,
-    ];
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Action::MoveForward => "move_forward",
-            Action::MoveBackward => "move_backward",
-            Action::StrafeLeft => "strafe_left",
-            Action::StrafeRight => "strafe_right",
-            Action::Jump => "jump",
-            Action::Sneak => "sneak",
-            Action::Sprint => "sprint",
-            Action::Inventory => "inventory",
-            Action::DropItem => "drop_item",
-            Action::ToggleFly => "toggle_fly",
-            Action::ToggleGamemode => "toggle_gamemode",
-            Action::Pause => "pause",
-            Action::Save => "save",
-            Action::AttackBreak => "attack_break",
-            Action::UsePlace => "use_place",
-            Action::HotbarPrev => "hotbar_prev",
-            Action::HotbarNext => "hotbar_next",
-            Action::OpenChat => "open_chat",
-            Action::OpenCommand => "open_command",
-            Action::PickBlock => "pick_block",
-            Action::Questbook => "questbook",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        let s = s.trim().to_ascii_lowercase();
-        match s.as_str() {
-            "move_forward" | "forward" => Some(Action::MoveForward),
-            "move_backward" | "backward" => Some(Action::MoveBackward),
-            "strafe_left" | "left" => Some(Action::StrafeLeft),
-            "strafe_right" | "right" => Some(Action::StrafeRight),
-            "jump" => Some(Action::Jump),
-            "sneak" | "crouch" => Some(Action::Sneak),
-            "sprint" | "run" => Some(Action::Sprint),
-            "inventory" => Some(Action::Inventory),
-            "drop_item" | "drop" => Some(Action::DropItem),
-            "toggle_fly" | "fly" => Some(Action::ToggleFly),
-            "toggle_gamemode" | "gamemode" => Some(Action::ToggleGamemode),
-            "pause" | "menu" => Some(Action::Pause),
-            "save" | "quick_save" => Some(Action::Save),
-            "attack_break" | "attack" | "break" => Some(Action::AttackBreak),
-            "use_place" | "use" | "place" => Some(Action::UsePlace),
-            "hotbar_prev" | "prev_slot" => Some(Action::HotbarPrev),
-            "hotbar_next" | "next_slot" => Some(Action::HotbarNext),
-            "open_chat" | "chat" => Some(Action::OpenChat),
-            "open_command" | "command" | "slash" => Some(Action::OpenCommand),
-            "pick_block" | "pick" => Some(Action::PickBlock),
-            "questbook" | "quests" | "journal" => Some(Action::Questbook),
-            _ => None,
-        }
-    }
-
-    #[inline(always)]
-    pub fn index(self) -> usize {
-        self as usize
-    }
-
-    pub fn display_name(&self, lang: crate::core::i18n::Language) -> &'static str {
-        match lang {
-            crate::core::i18n::Language::Polish => match self {
-                Action::MoveForward => "Ruch do przodu",
-                Action::MoveBackward => "Ruch do tyłu",
-                Action::StrafeLeft => "Ruch w lewo",
-                Action::StrafeRight => "Ruch w prawo",
-                Action::Jump => "Skok",
-                Action::Sneak => "Skradanie / Kucanie",
-                Action::Sprint => "Sprint / Bieg",
-                Action::Inventory => "Otwórz ekwipunek",
-                Action::DropItem => "Wyrzuć trzymany przedmiot",
-                Action::ToggleFly => "Przełącz tryb latania",
-                Action::ToggleGamemode => "Przełącz tryb gry",
-                Action::Pause => "Menu gry / Pauza",
-                Action::Save => "Szybki zapis świata",
-                Action::AttackBreak => "Atak / Niszczenie bloku",
-                Action::UsePlace => "Użycie / Postawienie bloku",
-                Action::HotbarPrev => "Poprzedni slot paska",
-                Action::HotbarNext => "Następny slot paska",
-                Action::OpenChat => "Otwórz czat",
-                Action::OpenCommand => "Otwórz wiersz poleceń",
-                Action::PickBlock => "Wybierz blok (Pick Block)",
-                Action::Questbook => "Księga zadań (Questbook)",
-            },
-            crate::core::i18n::Language::English => match self {
-                Action::MoveForward => "Move Forward",
-                Action::MoveBackward => "Move Backward",
-                Action::StrafeLeft => "Strafe Left",
-                Action::StrafeRight => "Strafe Right",
-                Action::Jump => "Jump",
-                Action::Sneak => "Sneak / Crouch",
-                Action::Sprint => "Sprint",
-                Action::Inventory => "Open Inventory",
-                Action::DropItem => "Drop Item",
-                Action::ToggleFly => "Toggle Fly Mode",
-                Action::ToggleGamemode => "Toggle Game Mode",
-                Action::Pause => "Pause / Game Menu",
-                Action::Save => "Quick Save World",
-                Action::AttackBreak => "Attack / Break Block",
-                Action::UsePlace => "Use / Place Block",
-                Action::HotbarPrev => "Previous Hotbar Slot",
-                Action::HotbarNext => "Next Hotbar Slot",
-                Action::OpenChat => "Open Chat",
-                Action::OpenCommand => "Open Command",
-                Action::PickBlock => "Pick Block",
-                Action::Questbook => "Questbook",
-            },
-        }
-    }
-
     pub fn category(&self, lang: crate::core::i18n::Language) -> &'static str {
         match lang {
             crate::core::i18n::Language::Polish => match self {
@@ -183,269 +91,158 @@ impl Action {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum KeyCode {
-    // Letters
-    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
-    // Digits
-    Key0, Key1, Key2, Key3, Key4, Key5, Key6, Key7, Key8, Key9,
-    // Function keys (F1 to F24)
-    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
-    F13, F14, F15, F16, F17, F18, F19, F20, F21, F22, F23, F24,
-    // Modifiers & special keys
-    Space, Shift, LeftShift, RightShift, Ctrl, LeftCtrl, RightCtrl, Alt, LeftAlt, RightAlt,
-    Tab, Enter, Escape, Backspace, Delete, Insert, Home, End, PageUp, PageDown,
-    Up, Down, Left, Right,
-    CapsLock, NumLock, ScrollLock,
-    // Punctuation & symbols
-    Minus, Equal, LeftBracket, RightBracket, Semicolon, Apostrophe, Grave, Backslash, Slash, Comma, Period,
-    // Numpad
-    NumPad0, NumPad1, NumPad2, NumPad3, NumPad4, NumPad5, NumPad6, NumPad7, NumPad8, NumPad9,
-    NumPadDot, NumPadSlash, NumPadAsterisk, NumPadMinus, NumPadPlus, NumPadEnter,
+
+macro_rules! define_keycodes {
+    ($(($var:ident, $disp:literal, $str:literal, $($pat:literal)|+)),* $(,)?) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum KeyCode {
+            $($var,)*
+        }
+
+        impl KeyCode {
+            pub const ALL: [KeyCode; 114] = [$(KeyCode::$var),*];
+
+            pub fn display_name(&self) -> &'static str {
+                match self {
+                    $(KeyCode::$var => $disp,)*
+                }
+            }
+
+            pub fn as_str(&self) -> &'static str {
+                match self {
+                    $(KeyCode::$var => $str,)*
+                }
+            }
+
+            pub fn from_str(s: &str) -> Option<Self> {
+                let s = s.trim().to_ascii_lowercase();
+                match s.as_str() {
+                    $($($pat)|+ => Some(KeyCode::$var),)*
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+define_keycodes! {
+    (A, "A", "A", "a"),
+    (B, "B", "B", "b"),
+    (C, "C", "C", "c"),
+    (D, "D", "D", "d"),
+    (E, "E", "E", "e"),
+    (F, "F", "F", "f"),
+    (G, "G", "G", "g"),
+    (H, "H", "H", "h"),
+    (I, "I", "I", "i"),
+    (J, "J", "J", "j"),
+    (K, "K", "K", "k"),
+    (L, "L", "L", "l"),
+    (M, "M", "M", "m"),
+    (N, "N", "N", "n"),
+    (O, "O", "O", "o"),
+    (P, "P", "P", "p"),
+    (Q, "Q", "Q", "q"),
+    (R, "R", "R", "r"),
+    (S, "S", "S", "s"),
+    (T, "T", "T", "t"),
+    (U, "U", "U", "u"),
+    (V, "V", "V", "v"),
+    (W, "W", "W", "w"),
+    (X, "X", "X", "x"),
+    (Y, "Y", "Y", "y"),
+    (Z, "Z", "Z", "z"),
+    (Key0, "0", "0", "0" | "key0"),
+    (Key1, "1", "1", "1" | "key1"),
+    (Key2, "2", "2", "2" | "key2"),
+    (Key3, "3", "3", "3" | "key3"),
+    (Key4, "4", "4", "4" | "key4"),
+    (Key5, "5", "5", "5" | "key5"),
+    (Key6, "6", "6", "6" | "key6"),
+    (Key7, "7", "7", "7" | "key7"),
+    (Key8, "8", "8", "8" | "key8"),
+    (Key9, "9", "9", "9" | "key9"),
+    (F1, "F1", "F1", "f1"),
+    (F2, "F2", "F2", "f2"),
+    (F3, "F3", "F3", "f3"),
+    (F4, "F4", "F4", "f4"),
+    (F5, "F5", "F5", "f5"),
+    (F6, "F6", "F6", "f6"),
+    (F7, "F7", "F7", "f7"),
+    (F8, "F8", "F8", "f8"),
+    (F9, "F9", "F9", "f9"),
+    (F10, "F10", "F10", "f10"),
+    (F11, "F11", "F11", "f11"),
+    (F12, "F12", "F12", "f12"),
+    (F13, "F13", "F13", "f13"),
+    (F14, "F14", "F14", "f14"),
+    (F15, "F15", "F15", "f15"),
+    (F16, "F16", "F16", "f16"),
+    (F17, "F17", "F17", "f17"),
+    (F18, "F18", "F18", "f18"),
+    (F19, "F19", "F19", "f19"),
+    (F20, "F20", "F20", "f20"),
+    (F21, "F21", "F21", "f21"),
+    (F22, "F22", "F22", "f22"),
+    (F23, "F23", "F23", "f23"),
+    (F24, "F24", "F24", "f24"),
+    (Space, "Spacja", "Space", "space"),
+    (Shift, "Shift", "Shift", "shift"),
+    (LeftShift, "LShift", "LeftShift", "leftshift" | "lshift"),
+    (RightShift, "RShift", "RightShift", "rightshift" | "rshift"),
+    (Ctrl, "Ctrl", "Control", "control" | "ctrl"),
+    (LeftCtrl, "LCtrl", "LeftControl", "leftcontrol" | "lctrl"),
+    (RightCtrl, "RCtrl", "RightControl", "rightcontrol" | "rctrl"),
+    (Alt, "Alt", "Alt", "alt"),
+    (LeftAlt, "LAlt", "LeftAlt", "leftalt" | "lalt"),
+    (RightAlt, "RAlt", "RightAlt", "rightalt" | "ralt"),
+    (Tab, "Tab", "Tab", "tab"),
+    (Enter, "Enter", "Enter", "enter" | "return"),
+    (Escape, "Esc", "Escape", "escape" | "esc"),
+    (Backspace, "Backspace", "Backspace", "backspace"),
+    (Delete, "Delete", "Delete", "delete" | "del"),
+    (Insert, "Insert", "Insert", "insert" | "ins"),
+    (Home, "Home", "Home", "home"),
+    (End, "End", "End", "end"),
+    (PageUp, "PageUp", "PageUp", "pageup" | "pgup"),
+    (PageDown, "PageDown", "PageDown", "pagedown" | "pgdn"),
+    (Up, "Góra", "Up", "up"),
+    (Down, "Dół", "Down", "down"),
+    (Left, "Lewo", "Left", "left"),
+    (Right, "Prawo", "Right", "right"),
+    (CapsLock, "Caps Lock", "CapsLock", "capslock" | "caps"),
+    (NumLock, "Num Lock", "NumLock", "numlock"),
+    (ScrollLock, "Scroll Lock", "ScrollLock", "scrolllock"),
+    (Minus, "-", "Minus", "-" | "minus"),
+    (Equal, "=", "Equal", "=" | "equal" | "equals"),
+    (LeftBracket, "[", "LeftBracket", "[" | "leftbracket"),
+    (RightBracket, "]", "RightBracket", "]" | "rightbracket"),
+    (Semicolon, ";", "Semicolon", ";" | "semicolon"),
+    (Apostrophe, "'", "Apostrophe", "'" | "apostrophe" | "quote"),
+    (Grave, "`", "Grave", "`" | "grave" | "backquote" | "tilde"),
+    (Backslash, "\\", "Backslash", "\\" | "backslash"),
+    (Slash, "/", "Slash", "/" | "slash"),
+    (Comma, ",", "Comma", "," | "comma"),
+    (Period, ".", "Period", "." | "period" | "dot"),
+    (NumPad0, "Num 0", "NumPad0", "numpad0"),
+    (NumPad1, "Num 1", "NumPad1", "numpad1"),
+    (NumPad2, "Num 2", "NumPad2", "numpad2"),
+    (NumPad3, "Num 3", "NumPad3", "numpad3"),
+    (NumPad4, "Num 4", "NumPad4", "numpad4"),
+    (NumPad5, "Num 5", "NumPad5", "numpad5"),
+    (NumPad6, "Num 6", "NumPad6", "numpad6"),
+    (NumPad7, "Num 7", "NumPad7", "numpad7"),
+    (NumPad8, "Num 8", "NumPad8", "numpad8"),
+    (NumPad9, "Num 9", "NumPad9", "numpad9"),
+    (NumPadDot, "Num .", "NumPadDot", "numpaddot"),
+    (NumPadSlash, "Num /", "NumPadSlash", "numpadslash"),
+    (NumPadAsterisk, "Num *", "NumPadAsterisk", "numpadasterisk" | "numpadmultiply"),
+    (NumPadMinus, "Num -", "NumPadMinus", "numpadminus"),
+    (NumPadPlus, "Num +", "NumPadPlus", "numpadplus"),
+    (NumPadEnter, "Num Enter", "NumPadEnter", "numpadenter"),
 }
 
 impl KeyCode {
-    pub const ALL: [KeyCode; 114] = [
-        KeyCode::A, KeyCode::B, KeyCode::C, KeyCode::D, KeyCode::E, KeyCode::F, KeyCode::G,
-        KeyCode::H, KeyCode::I, KeyCode::J, KeyCode::K, KeyCode::L, KeyCode::M, KeyCode::N,
-        KeyCode::O, KeyCode::P, KeyCode::Q, KeyCode::R, KeyCode::S, KeyCode::T, KeyCode::U,
-        KeyCode::V, KeyCode::W, KeyCode::X, KeyCode::Y, KeyCode::Z,
-        KeyCode::Key0, KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4,
-        KeyCode::Key5, KeyCode::Key6, KeyCode::Key7, KeyCode::Key8, KeyCode::Key9,
-        KeyCode::F1, KeyCode::F2, KeyCode::F3, KeyCode::F4, KeyCode::F5, KeyCode::F6,
-        KeyCode::F7, KeyCode::F8, KeyCode::F9, KeyCode::F10, KeyCode::F11, KeyCode::F12,
-        KeyCode::F13, KeyCode::F14, KeyCode::F15, KeyCode::F16, KeyCode::F17, KeyCode::F18,
-        KeyCode::F19, KeyCode::F20, KeyCode::F21, KeyCode::F22, KeyCode::F23, KeyCode::F24,
-        KeyCode::Space, KeyCode::Shift, KeyCode::LeftShift, KeyCode::RightShift,
-        KeyCode::Ctrl, KeyCode::LeftCtrl, KeyCode::RightCtrl,
-        KeyCode::Alt, KeyCode::LeftAlt, KeyCode::RightAlt,
-        KeyCode::Tab, KeyCode::Enter, KeyCode::Escape, KeyCode::Backspace, KeyCode::Delete,
-        KeyCode::Insert, KeyCode::Home, KeyCode::End, KeyCode::PageUp, KeyCode::PageDown,
-        KeyCode::Up, KeyCode::Down, KeyCode::Left, KeyCode::Right,
-        KeyCode::CapsLock, KeyCode::NumLock, KeyCode::ScrollLock,
-        KeyCode::Minus, KeyCode::Equal, KeyCode::LeftBracket, KeyCode::RightBracket,
-        KeyCode::Semicolon, KeyCode::Apostrophe, KeyCode::Grave, KeyCode::Backslash, KeyCode::Slash,
-        KeyCode::Comma, KeyCode::Period,
-        KeyCode::NumPad0, KeyCode::NumPad1, KeyCode::NumPad2, KeyCode::NumPad3, KeyCode::NumPad4,
-        KeyCode::NumPad5, KeyCode::NumPad6, KeyCode::NumPad7, KeyCode::NumPad8, KeyCode::NumPad9,
-        KeyCode::NumPadDot, KeyCode::NumPadSlash, KeyCode::NumPadAsterisk, KeyCode::NumPadMinus,
-        KeyCode::NumPadPlus, KeyCode::NumPadEnter,
-    ];
-
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            KeyCode::A => "A", KeyCode::B => "B", KeyCode::C => "C", KeyCode::D => "D",
-            KeyCode::E => "E", KeyCode::F => "F", KeyCode::G => "G", KeyCode::H => "H",
-            KeyCode::I => "I", KeyCode::J => "J", KeyCode::K => "K", KeyCode::L => "L",
-            KeyCode::M => "M", KeyCode::N => "N", KeyCode::O => "O", KeyCode::P => "P",
-            KeyCode::Q => "Q", KeyCode::R => "R", KeyCode::S => "S", KeyCode::T => "T",
-            KeyCode::U => "U", KeyCode::V => "V", KeyCode::W => "W", KeyCode::X => "X",
-            KeyCode::Y => "Y", KeyCode::Z => "Z",
-            KeyCode::Key0 => "0", KeyCode::Key1 => "1", KeyCode::Key2 => "2", KeyCode::Key3 => "3",
-            KeyCode::Key4 => "4", KeyCode::Key5 => "5", KeyCode::Key6 => "6", KeyCode::Key7 => "7",
-            KeyCode::Key8 => "8", KeyCode::Key9 => "9",
-            KeyCode::F1 => "F1", KeyCode::F2 => "F2", KeyCode::F3 => "F3", KeyCode::F4 => "F4",
-            KeyCode::F5 => "F5", KeyCode::F6 => "F6", KeyCode::F7 => "F7", KeyCode::F8 => "F8",
-            KeyCode::F9 => "F9", KeyCode::F10 => "F10", KeyCode::F11 => "F11", KeyCode::F12 => "F12",
-            KeyCode::F13 => "F13", KeyCode::F14 => "F14", KeyCode::F15 => "F15", KeyCode::F16 => "F16",
-            KeyCode::F17 => "F17", KeyCode::F18 => "F18", KeyCode::F19 => "F19", KeyCode::F20 => "F20",
-            KeyCode::F21 => "F21", KeyCode::F22 => "F22", KeyCode::F23 => "F23", KeyCode::F24 => "F24",
-            KeyCode::Space => "Spacja",
-            KeyCode::Shift => "Shift",
-            KeyCode::LeftShift => "LShift",
-            KeyCode::RightShift => "RShift",
-            KeyCode::Ctrl => "Ctrl",
-            KeyCode::LeftCtrl => "LCtrl",
-            KeyCode::RightCtrl => "RCtrl",
-            KeyCode::Alt => "Alt",
-            KeyCode::LeftAlt => "LAlt",
-            KeyCode::RightAlt => "RAlt",
-            KeyCode::Tab => "Tab",
-            KeyCode::Enter => "Enter",
-            KeyCode::Escape => "Esc",
-            KeyCode::Backspace => "Backspace",
-            KeyCode::Delete => "Delete",
-            KeyCode::Insert => "Insert",
-            KeyCode::Home => "Home",
-            KeyCode::End => "End",
-            KeyCode::PageUp => "PageUp",
-            KeyCode::PageDown => "PageDown",
-            KeyCode::Up => "Góra",
-            KeyCode::Down => "Dół",
-            KeyCode::Left => "Lewo",
-            KeyCode::Right => "Prawo",
-            KeyCode::CapsLock => "Caps Lock",
-            KeyCode::NumLock => "Num Lock",
-            KeyCode::ScrollLock => "Scroll Lock",
-            KeyCode::Minus => "-",
-            KeyCode::Equal => "=",
-            KeyCode::LeftBracket => "[",
-            KeyCode::RightBracket => "]",
-            KeyCode::Semicolon => ";",
-            KeyCode::Apostrophe => "'",
-            KeyCode::Grave => "`",
-            KeyCode::Backslash => "\\",
-            KeyCode::Slash => "/",
-            KeyCode::Comma => ",",
-            KeyCode::Period => ".",
-            KeyCode::NumPad0 => "Num 0", KeyCode::NumPad1 => "Num 1", KeyCode::NumPad2 => "Num 2",
-            KeyCode::NumPad3 => "Num 3", KeyCode::NumPad4 => "Num 4", KeyCode::NumPad5 => "Num 5",
-            KeyCode::NumPad6 => "Num 6", KeyCode::NumPad7 => "Num 7", KeyCode::NumPad8 => "Num 8",
-            KeyCode::NumPad9 => "Num 9", KeyCode::NumPadDot => "Num .", KeyCode::NumPadSlash => "Num /",
-            KeyCode::NumPadAsterisk => "Num *", KeyCode::NumPadMinus => "Num -", KeyCode::NumPadPlus => "Num +",
-            KeyCode::NumPadEnter => "Num Enter",
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            KeyCode::A => "A", KeyCode::B => "B", KeyCode::C => "C", KeyCode::D => "D",
-            KeyCode::E => "E", KeyCode::F => "F", KeyCode::G => "G", KeyCode::H => "H",
-            KeyCode::I => "I", KeyCode::J => "J", KeyCode::K => "K", KeyCode::L => "L",
-            KeyCode::M => "M", KeyCode::N => "N", KeyCode::O => "O", KeyCode::P => "P",
-            KeyCode::Q => "Q", KeyCode::R => "R", KeyCode::S => "S", KeyCode::T => "T",
-            KeyCode::U => "U", KeyCode::V => "V", KeyCode::W => "W", KeyCode::X => "X",
-            KeyCode::Y => "Y", KeyCode::Z => "Z",
-            KeyCode::Key0 => "0", KeyCode::Key1 => "1", KeyCode::Key2 => "2", KeyCode::Key3 => "3",
-            KeyCode::Key4 => "4", KeyCode::Key5 => "5", KeyCode::Key6 => "6", KeyCode::Key7 => "7",
-            KeyCode::Key8 => "8", KeyCode::Key9 => "9",
-            KeyCode::F1 => "F1", KeyCode::F2 => "F2", KeyCode::F3 => "F3", KeyCode::F4 => "F4",
-            KeyCode::F5 => "F5", KeyCode::F6 => "F6", KeyCode::F7 => "F7", KeyCode::F8 => "F8",
-            KeyCode::F9 => "F9", KeyCode::F10 => "F10", KeyCode::F11 => "F11", KeyCode::F12 => "F12",
-            KeyCode::F13 => "F13", KeyCode::F14 => "F14", KeyCode::F15 => "F15", KeyCode::F16 => "F16",
-            KeyCode::F17 => "F17", KeyCode::F18 => "F18", KeyCode::F19 => "F19", KeyCode::F20 => "F20",
-            KeyCode::F21 => "F21", KeyCode::F22 => "F22", KeyCode::F23 => "F23", KeyCode::F24 => "F24",
-            KeyCode::Space => "Space",
-            KeyCode::Shift => "Shift",
-            KeyCode::LeftShift => "LeftShift",
-            KeyCode::RightShift => "RightShift",
-            KeyCode::Ctrl => "Control",
-            KeyCode::LeftCtrl => "LeftControl",
-            KeyCode::RightCtrl => "RightControl",
-            KeyCode::Alt => "Alt",
-            KeyCode::LeftAlt => "LeftAlt",
-            KeyCode::RightAlt => "RightAlt",
-            KeyCode::Tab => "Tab",
-            KeyCode::Enter => "Enter",
-            KeyCode::Escape => "Escape",
-            KeyCode::Backspace => "Backspace",
-            KeyCode::Delete => "Delete",
-            KeyCode::Insert => "Insert",
-            KeyCode::Home => "Home",
-            KeyCode::End => "End",
-            KeyCode::PageUp => "PageUp",
-            KeyCode::PageDown => "PageDown",
-            KeyCode::Up => "Up",
-            KeyCode::Down => "Down",
-            KeyCode::Left => "Left",
-            KeyCode::Right => "Right",
-            KeyCode::CapsLock => "CapsLock",
-            KeyCode::NumLock => "NumLock",
-            KeyCode::ScrollLock => "ScrollLock",
-            KeyCode::Minus => "Minus",
-            KeyCode::Equal => "Equal",
-            KeyCode::LeftBracket => "LeftBracket",
-            KeyCode::RightBracket => "RightBracket",
-            KeyCode::Semicolon => "Semicolon",
-            KeyCode::Apostrophe => "Apostrophe",
-            KeyCode::Grave => "Grave",
-            KeyCode::Backslash => "Backslash",
-            KeyCode::Slash => "Slash",
-            KeyCode::Comma => "Comma",
-            KeyCode::Period => "Period",
-            KeyCode::NumPad0 => "NumPad0", KeyCode::NumPad1 => "NumPad1", KeyCode::NumPad2 => "NumPad2",
-            KeyCode::NumPad3 => "NumPad3", KeyCode::NumPad4 => "NumPad4", KeyCode::NumPad5 => "NumPad5",
-            KeyCode::NumPad6 => "NumPad6", KeyCode::NumPad7 => "NumPad7", KeyCode::NumPad8 => "NumPad8",
-            KeyCode::NumPad9 => "NumPad9", KeyCode::NumPadDot => "NumPadDot", KeyCode::NumPadSlash => "NumPadSlash",
-            KeyCode::NumPadAsterisk => "NumPadAsterisk", KeyCode::NumPadMinus => "NumPadMinus", KeyCode::NumPadPlus => "NumPadPlus",
-            KeyCode::NumPadEnter => "NumPadEnter",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        let s = s.trim().to_ascii_lowercase();
-        match s.as_str() {
-            "a" => Some(KeyCode::A), "b" => Some(KeyCode::B), "c" => Some(KeyCode::C),
-            "d" => Some(KeyCode::D), "e" => Some(KeyCode::E), "f" => Some(KeyCode::F),
-            "g" => Some(KeyCode::G), "h" => Some(KeyCode::H), "i" => Some(KeyCode::I),
-            "j" => Some(KeyCode::J), "k" => Some(KeyCode::K), "l" => Some(KeyCode::L),
-            "m" => Some(KeyCode::M), "n" => Some(KeyCode::N), "o" => Some(KeyCode::O),
-            "p" => Some(KeyCode::P), "q" => Some(KeyCode::Q), "r" => Some(KeyCode::R),
-            "s" => Some(KeyCode::S), "t" => Some(KeyCode::T), "u" => Some(KeyCode::U),
-            "v" => Some(KeyCode::V), "w" => Some(KeyCode::W), "x" => Some(KeyCode::X),
-            "y" => Some(KeyCode::Y), "z" => Some(KeyCode::Z),
-
-            "0" | "key0" => Some(KeyCode::Key0), "1" | "key1" => Some(KeyCode::Key1),
-            "2" | "key2" => Some(KeyCode::Key2), "3" | "key3" => Some(KeyCode::Key3),
-            "4" | "key4" => Some(KeyCode::Key4), "5" | "key5" => Some(KeyCode::Key5),
-            "6" | "key6" => Some(KeyCode::Key6), "7" | "key7" => Some(KeyCode::Key7),
-            "8" | "key8" => Some(KeyCode::Key8), "9" | "key9" => Some(KeyCode::Key9),
-
-            "f1" => Some(KeyCode::F1), "f2" => Some(KeyCode::F2), "f3" => Some(KeyCode::F3),
-            "f4" => Some(KeyCode::F4), "f5" => Some(KeyCode::F5), "f6" => Some(KeyCode::F6),
-            "f7" => Some(KeyCode::F7), "f8" => Some(KeyCode::F8), "f9" => Some(KeyCode::F9),
-            "f10" => Some(KeyCode::F10), "f11" => Some(KeyCode::F11), "f12" => Some(KeyCode::F12),
-            "f13" => Some(KeyCode::F13), "f14" => Some(KeyCode::F14), "f15" => Some(KeyCode::F15),
-            "f16" => Some(KeyCode::F16), "f17" => Some(KeyCode::F17), "f18" => Some(KeyCode::F18),
-            "f19" => Some(KeyCode::F19), "f20" => Some(KeyCode::F20), "f21" => Some(KeyCode::F21),
-            "f22" => Some(KeyCode::F22), "f23" => Some(KeyCode::F23), "f24" => Some(KeyCode::F24),
-
-            "space" => Some(KeyCode::Space),
-            "shift" => Some(KeyCode::Shift),
-            "leftshift" | "lshift" => Some(KeyCode::LeftShift),
-            "rightshift" | "rshift" => Some(KeyCode::RightShift),
-            "control" | "ctrl" => Some(KeyCode::Ctrl),
-            "leftcontrol" | "lctrl" => Some(KeyCode::LeftCtrl),
-            "rightcontrol" | "rctrl" => Some(KeyCode::RightCtrl),
-            "alt" => Some(KeyCode::Alt),
-            "leftalt" | "lalt" => Some(KeyCode::LeftAlt),
-            "rightalt" | "ralt" => Some(KeyCode::RightAlt),
-
-            "escape" | "esc" => Some(KeyCode::Escape),
-            "enter" | "return" => Some(KeyCode::Enter),
-            "tab" => Some(KeyCode::Tab),
-            "backspace" => Some(KeyCode::Backspace),
-            "delete" | "del" => Some(KeyCode::Delete),
-            "insert" | "ins" => Some(KeyCode::Insert),
-            "home" => Some(KeyCode::Home),
-            "end" => Some(KeyCode::End),
-            "pageup" | "pgup" => Some(KeyCode::PageUp),
-            "pagedown" | "pgdn" => Some(KeyCode::PageDown),
-
-            "up" => Some(KeyCode::Up),
-            "down" => Some(KeyCode::Down),
-            "left" => Some(KeyCode::Left),
-            "right" => Some(KeyCode::Right),
-
-            "capslock" | "caps" => Some(KeyCode::CapsLock),
-            "numlock" => Some(KeyCode::NumLock),
-            "scrolllock" => Some(KeyCode::ScrollLock),
-
-            "-" | "minus" => Some(KeyCode::Minus),
-            "=" | "equal" | "equals" => Some(KeyCode::Equal),
-            "[" | "leftbracket" => Some(KeyCode::LeftBracket),
-            "]" | "rightbracket" => Some(KeyCode::RightBracket),
-            ";" | "semicolon" => Some(KeyCode::Semicolon),
-            "'" | "apostrophe" | "quote" => Some(KeyCode::Apostrophe),
-            "`" | "grave" | "backquote" | "tilde" => Some(KeyCode::Grave),
-            "\\" | "backslash" => Some(KeyCode::Backslash),
-            "/" | "slash" => Some(KeyCode::Slash),
-            "," | "comma" => Some(KeyCode::Comma),
-            "." | "period" | "dot" => Some(KeyCode::Period),
-
-            "numpad0" => Some(KeyCode::NumPad0), "numpad1" => Some(KeyCode::NumPad1),
-            "numpad2" => Some(KeyCode::NumPad2), "numpad3" => Some(KeyCode::NumPad3),
-            "numpad4" => Some(KeyCode::NumPad4), "numpad5" => Some(KeyCode::NumPad5),
-            "numpad6" => Some(KeyCode::NumPad6), "numpad7" => Some(KeyCode::NumPad7),
-            "numpad8" => Some(KeyCode::NumPad8), "numpad9" => Some(KeyCode::NumPad9),
-            "numpaddot" => Some(KeyCode::NumPadDot), "numpadslash" => Some(KeyCode::NumPadSlash),
-            "numpadasterisk" | "numpadmultiply" => Some(KeyCode::NumPadAsterisk),
-            "numpadminus" => Some(KeyCode::NumPadMinus), "numpadplus" => Some(KeyCode::NumPadPlus),
-            "numpadenter" => Some(KeyCode::NumPadEnter),
-            _ => None,
-        }
-    }
-
     #[inline]
     pub fn is_down(&self, input: &InputState) -> bool {
         if input.is_key_down(*self) {

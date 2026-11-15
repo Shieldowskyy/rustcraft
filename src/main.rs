@@ -250,193 +250,65 @@ fn main() {
                         _ => {}
                     }
                 } else {
-                    match key {
-                        Key::A => typed_chars.push(if is_shift { 'A' } else { 'a' }),
-                        Key::B => typed_chars.push(if is_shift { 'B' } else { 'b' }),
-                        Key::C => typed_chars.push(if is_shift { 'C' } else { 'c' }),
-                        Key::D => typed_chars.push(if is_shift { 'D' } else { 'd' }),
-                        Key::E => typed_chars.push(if is_shift { 'E' } else { 'e' }),
-                        Key::F => typed_chars.push(if is_shift { 'F' } else { 'f' }),
-                        Key::G => typed_chars.push(if is_shift { 'G' } else { 'g' }),
-                        Key::H => typed_chars.push(if is_shift { 'H' } else { 'h' }),
-                        Key::I => typed_chars.push(if is_shift { 'I' } else { 'i' }),
-                        Key::J => typed_chars.push(if is_shift { 'J' } else { 'j' }),
-                        Key::K => typed_chars.push(if is_shift { 'K' } else { 'k' }),
-                        Key::L => typed_chars.push(if is_shift { 'L' } else { 'l' }),
-                        Key::M => typed_chars.push(if is_shift { 'M' } else { 'm' }),
-                        Key::N => typed_chars.push(if is_shift { 'N' } else { 'n' }),
-                        Key::O => typed_chars.push(if is_shift { 'O' } else { 'o' }),
-                        Key::P => typed_chars.push(if is_shift { 'P' } else { 'p' }),
-                        Key::Q => typed_chars.push(if is_shift { 'Q' } else { 'q' }),
-                        Key::R => typed_chars.push(if is_shift { 'R' } else { 'r' }),
-                        Key::S => typed_chars.push(if is_shift { 'S' } else { 's' }),
-                        Key::T => typed_chars.push(if is_shift { 'T' } else { 't' }),
-                        Key::U => typed_chars.push(if is_shift { 'U' } else { 'u' }),
-                        Key::V => typed_chars.push(if is_shift { 'V' } else { 'v' }),
-                        Key::W => typed_chars.push(if is_shift { 'W' } else { 'w' }),
-                        Key::X => typed_chars.push(if is_shift { 'X' } else { 'x' }),
-                        Key::Y => typed_chars.push(if is_shift { 'Y' } else { 'y' }),
-                        Key::Z => typed_chars.push(if is_shift { 'Z' } else { 'z' }),
-                        Key::Key0 => typed_chars.push(if is_shift { ')' } else { '0' }),
-                        Key::Key1 => typed_chars.push(if is_shift { '!' } else { '1' }),
-                        Key::Key2 => typed_chars.push(if is_shift { '@' } else { '2' }),
-                        Key::Key3 => typed_chars.push(if is_shift { '#' } else { '3' }),
-                        Key::Key4 => typed_chars.push(if is_shift { '$' } else { '4' }),
-                        Key::Key5 => typed_chars.push(if is_shift { '%' } else { '5' }),
-                        Key::Key6 => typed_chars.push(if is_shift { '^' } else { '6' }),
-                        Key::Key7 => typed_chars.push(if is_shift { '&' } else { '7' }),
-                        Key::Key8 => typed_chars.push(if is_shift { '*' } else { '8' }),
-                        Key::Key9 => typed_chars.push(if is_shift { '(' } else { '9' }),
-                        Key::Space => typed_chars.push(' '),
-                        Key::Minus | Key::NumPadMinus => typed_chars.push(if is_shift { '_' } else { '-' }),
-                        Key::Period | Key::NumPadDot => typed_chars.push('.'),
-                        Key::Slash | Key::NumPadSlash => typed_chars.push(if is_shift { '?' } else { '/' }),
-                        Key::Semicolon => typed_chars.push(if is_shift { ':' } else { ';' }),
-                        Key::Equal | Key::NumPadPlus => typed_chars.push(if is_shift { '+' } else { '=' }),
-                        Key::Comma => typed_chars.push(if is_shift { '<' } else { ',' }),
-                        Key::Apostrophe => typed_chars.push(if is_shift { '"' } else { '\'' }),
-                        Key::Backslash => typed_chars.push(if is_shift { '|' } else { '\\' }),
-                        Key::LeftBracket => typed_chars.push(if is_shift { '{' } else { '[' }),
-                        Key::RightBracket => typed_chars.push(if is_shift { '}' } else { ']' }),
-                        Key::Backquote => typed_chars.push(if is_shift { '~' } else { '`' }),
-                        Key::NumPad0 => typed_chars.push('0'),
-                        Key::NumPad1 => typed_chars.push('1'),
-                        Key::NumPad2 => typed_chars.push('2'),
-                        Key::NumPad3 => typed_chars.push('3'),
-                        Key::NumPad4 => typed_chars.push('4'),
-                        Key::NumPad5 => typed_chars.push('5'),
-                        Key::NumPad6 => typed_chars.push('6'),
-                        Key::NumPad7 => typed_chars.push('7'),
-                        Key::NumPad8 => typed_chars.push('8'),
-                        Key::NumPad9 => typed_chars.push('9'),
-                        _ => {}
+                    macro_rules! push_typed {
+                        ($k:ident, $($v:ident => ($lo:literal, $hi:literal)),* $(,)?) => {
+                            match $k {
+                                $(Key::$v => typed_chars.push(if is_shift { $hi } else { $lo }),)*
+                                Key::Space => typed_chars.push(' '),
+                                Key::Minus | Key::NumPadMinus => typed_chars.push(if is_shift { '_' } else { '-' }),
+                                Key::Period | Key::NumPadDot => typed_chars.push('.'),
+                                Key::Slash | Key::NumPadSlash => typed_chars.push(if is_shift { '?' } else { '/' }),
+                                Key::Equal | Key::NumPadPlus => typed_chars.push(if is_shift { '+' } else { '=' }),
+                                _ => {}
+                            }
+                        };
                     }
+                    push_typed!(key,
+                        A => ('a', 'A'), B => ('b', 'B'), C => ('c', 'C'), D => ('d', 'D'), E => ('e', 'E'), F => ('f', 'F'),
+                        G => ('g', 'G'), H => ('h', 'H'), I => ('i', 'I'), J => ('j', 'J'), K => ('k', 'K'), L => ('l', 'L'),
+                        M => ('m', 'M'), N => ('n', 'N'), O => ('o', 'O'), P => ('p', 'P'), Q => ('q', 'Q'), R => ('r', 'R'),
+                        S => ('s', 'S'), T => ('t', 'T'), U => ('u', 'U'), V => ('v', 'V'), W => ('w', 'W'), X => ('x', 'X'),
+                        Y => ('y', 'Y'), Z => ('z', 'Z'),
+                        Key0 => ('0', ')'), Key1 => ('1', '!'), Key2 => ('2', '@'), Key3 => ('3', '#'), Key4 => ('4', '$'),
+                        Key5 => ('5', '%'), Key6 => ('6', '^'), Key7 => ('7', '&'), Key8 => ('8', '*'), Key9 => ('9', '('),
+                        Semicolon => (';', ':'), Comma => (',', '<'), Apostrophe => ('\'', '"'), Backslash => ('\\', '|'),
+                        LeftBracket => ('[', '{'), RightBracket => (']', '}'), Backquote => ('`', '~'),
+                        NumPad0 => ('0', '0'), NumPad1 => ('1', '1'), NumPad2 => ('2', '2'), NumPad3 => ('3', '3'), NumPad4 => ('4', '4'),
+                        NumPad5 => ('5', '5'), NumPad6 => ('6', '6'), NumPad7 => ('7', '7'), NumPad8 => ('8', '8'), NumPad9 => ('9', '9'),
+                    );
                 }
             }
         }
 
         let mut keys_down = std::collections::HashSet::new();
         for key in window.get_keys() {
-            match key {
-                Key::A => { keys_down.insert(rustcraft::core::controls::KeyCode::A); }
-                Key::B => { keys_down.insert(rustcraft::core::controls::KeyCode::B); }
-                Key::C => { keys_down.insert(rustcraft::core::controls::KeyCode::C); }
-                Key::D => { keys_down.insert(rustcraft::core::controls::KeyCode::D); }
-                Key::E => { keys_down.insert(rustcraft::core::controls::KeyCode::E); }
-                Key::F => { keys_down.insert(rustcraft::core::controls::KeyCode::F); }
-                Key::G => { keys_down.insert(rustcraft::core::controls::KeyCode::G); }
-                Key::H => { keys_down.insert(rustcraft::core::controls::KeyCode::H); }
-                Key::I => { keys_down.insert(rustcraft::core::controls::KeyCode::I); }
-                Key::J => { keys_down.insert(rustcraft::core::controls::KeyCode::J); }
-                Key::K => { keys_down.insert(rustcraft::core::controls::KeyCode::K); }
-                Key::L => { keys_down.insert(rustcraft::core::controls::KeyCode::L); }
-                Key::M => { keys_down.insert(rustcraft::core::controls::KeyCode::M); }
-                Key::N => { keys_down.insert(rustcraft::core::controls::KeyCode::N); }
-                Key::O => { keys_down.insert(rustcraft::core::controls::KeyCode::O); }
-                Key::P => { keys_down.insert(rustcraft::core::controls::KeyCode::P); }
-                Key::Q => { keys_down.insert(rustcraft::core::controls::KeyCode::Q); }
-                Key::R => { keys_down.insert(rustcraft::core::controls::KeyCode::R); }
-                Key::S => { keys_down.insert(rustcraft::core::controls::KeyCode::S); }
-                Key::T => { keys_down.insert(rustcraft::core::controls::KeyCode::T); }
-                Key::U => { keys_down.insert(rustcraft::core::controls::KeyCode::U); }
-                Key::V => { keys_down.insert(rustcraft::core::controls::KeyCode::V); }
-                Key::W => { keys_down.insert(rustcraft::core::controls::KeyCode::W); }
-                Key::X => { keys_down.insert(rustcraft::core::controls::KeyCode::X); }
-                Key::Y => { keys_down.insert(rustcraft::core::controls::KeyCode::Y); }
-                Key::Z => { keys_down.insert(rustcraft::core::controls::KeyCode::Z); }
-                Key::Key0 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key0); }
-                Key::Key1 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key1); }
-                Key::Key2 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key2); }
-                Key::Key3 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key3); }
-                Key::Key4 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key4); }
-                Key::Key5 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key5); }
-                Key::Key6 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key6); }
-                Key::Key7 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key7); }
-                Key::Key8 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key8); }
-                Key::Key9 => { keys_down.insert(rustcraft::core::controls::KeyCode::Key9); }
-                Key::F1 => { keys_down.insert(rustcraft::core::controls::KeyCode::F1); }
-                Key::F2 => { keys_down.insert(rustcraft::core::controls::KeyCode::F2); }
-                Key::F3 => { keys_down.insert(rustcraft::core::controls::KeyCode::F3); }
-                Key::F4 => { keys_down.insert(rustcraft::core::controls::KeyCode::F4); }
-                Key::F5 => { keys_down.insert(rustcraft::core::controls::KeyCode::F5); }
-                Key::F6 => { keys_down.insert(rustcraft::core::controls::KeyCode::F6); }
-                Key::F7 => { keys_down.insert(rustcraft::core::controls::KeyCode::F7); }
-                Key::F8 => { keys_down.insert(rustcraft::core::controls::KeyCode::F8); }
-                Key::F9 => { keys_down.insert(rustcraft::core::controls::KeyCode::F9); }
-                Key::F10 => { keys_down.insert(rustcraft::core::controls::KeyCode::F10); }
-                Key::F11 => { keys_down.insert(rustcraft::core::controls::KeyCode::F11); }
-                Key::F12 => { keys_down.insert(rustcraft::core::controls::KeyCode::F12); }
-                Key::F13 => { keys_down.insert(rustcraft::core::controls::KeyCode::F13); }
-                Key::F14 => { keys_down.insert(rustcraft::core::controls::KeyCode::F14); }
-                Key::F15 => { keys_down.insert(rustcraft::core::controls::KeyCode::F15); }
-                Key::Space => { keys_down.insert(rustcraft::core::controls::KeyCode::Space); }
-                Key::LeftShift => {
-                    keys_down.insert(rustcraft::core::controls::KeyCode::Shift);
-                    keys_down.insert(rustcraft::core::controls::KeyCode::LeftShift);
-                }
-                Key::RightShift => {
-                    keys_down.insert(rustcraft::core::controls::KeyCode::Shift);
-                    keys_down.insert(rustcraft::core::controls::KeyCode::RightShift);
-                }
-                Key::LeftCtrl => {
-                    keys_down.insert(rustcraft::core::controls::KeyCode::Ctrl);
-                    keys_down.insert(rustcraft::core::controls::KeyCode::LeftCtrl);
-                }
-                Key::RightCtrl => {
-                    keys_down.insert(rustcraft::core::controls::KeyCode::Ctrl);
-                    keys_down.insert(rustcraft::core::controls::KeyCode::RightCtrl);
-                }
-                Key::LeftAlt => {
-                    keys_down.insert(rustcraft::core::controls::KeyCode::Alt);
-                    keys_down.insert(rustcraft::core::controls::KeyCode::LeftAlt);
-                }
-                Key::RightAlt => {
-                    keys_down.insert(rustcraft::core::controls::KeyCode::Alt);
-                    keys_down.insert(rustcraft::core::controls::KeyCode::RightAlt);
-                }
-                Key::Tab => { keys_down.insert(rustcraft::core::controls::KeyCode::Tab); }
-                Key::Enter => { keys_down.insert(rustcraft::core::controls::KeyCode::Enter); }
-                Key::Escape => { keys_down.insert(rustcraft::core::controls::KeyCode::Escape); }
-                Key::Backspace => { keys_down.insert(rustcraft::core::controls::KeyCode::Backspace); }
-                Key::Delete => { keys_down.insert(rustcraft::core::controls::KeyCode::Delete); }
-                Key::Insert => { keys_down.insert(rustcraft::core::controls::KeyCode::Insert); }
-                Key::Home => { keys_down.insert(rustcraft::core::controls::KeyCode::Home); }
-                Key::End => { keys_down.insert(rustcraft::core::controls::KeyCode::End); }
-                Key::PageUp => { keys_down.insert(rustcraft::core::controls::KeyCode::PageUp); }
-                Key::PageDown => { keys_down.insert(rustcraft::core::controls::KeyCode::PageDown); }
-                Key::Up => { keys_down.insert(rustcraft::core::controls::KeyCode::Up); }
-                Key::Down => { keys_down.insert(rustcraft::core::controls::KeyCode::Down); }
-                Key::Left => { keys_down.insert(rustcraft::core::controls::KeyCode::Left); }
-                Key::Right => { keys_down.insert(rustcraft::core::controls::KeyCode::Right); }
-                Key::Minus => { keys_down.insert(rustcraft::core::controls::KeyCode::Minus); }
-                Key::Equal => { keys_down.insert(rustcraft::core::controls::KeyCode::Equal); }
-                Key::LeftBracket => { keys_down.insert(rustcraft::core::controls::KeyCode::LeftBracket); }
-                Key::RightBracket => { keys_down.insert(rustcraft::core::controls::KeyCode::RightBracket); }
-                Key::Semicolon => { keys_down.insert(rustcraft::core::controls::KeyCode::Semicolon); }
-                Key::Apostrophe => { keys_down.insert(rustcraft::core::controls::KeyCode::Apostrophe); }
-                Key::Backquote => { keys_down.insert(rustcraft::core::controls::KeyCode::Grave); }
-                Key::Backslash => { keys_down.insert(rustcraft::core::controls::KeyCode::Backslash); }
-                Key::Slash => { keys_down.insert(rustcraft::core::controls::KeyCode::Slash); }
-                Key::Comma => { keys_down.insert(rustcraft::core::controls::KeyCode::Comma); }
-                Key::Period => { keys_down.insert(rustcraft::core::controls::KeyCode::Period); }
-                Key::NumPad0 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad0); }
-                Key::NumPad1 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad1); }
-                Key::NumPad2 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad2); }
-                Key::NumPad3 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad3); }
-                Key::NumPad4 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad4); }
-                Key::NumPad5 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad5); }
-                Key::NumPad6 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad6); }
-                Key::NumPad7 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad7); }
-                Key::NumPad8 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad8); }
-                Key::NumPad9 => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPad9); }
-                Key::NumPadDot => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPadDot); }
-                Key::NumPadSlash => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPadSlash); }
-                Key::NumPadAsterisk => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPadAsterisk); }
-                Key::NumPadMinus => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPadMinus); }
-                Key::NumPadPlus => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPadPlus); }
-                Key::NumPadEnter => { keys_down.insert(rustcraft::core::controls::KeyCode::NumPadEnter); }
-                _ => {}
+            use rustcraft::core::controls::KeyCode;
+            macro_rules! map_minifb_keys {
+                ($k:ident, $($same:ident),* ; $($from:ident => [$($to:ident),+]),* $(,)?) => {
+                    match $k {
+                        $(Key::$same => { keys_down.insert(KeyCode::$same); })*
+                        $(Key::$from => { $(keys_down.insert(KeyCode::$to);)+ })*
+                        _ => {}
+                    }
+                };
             }
+            map_minifb_keys!(key,
+                A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
+                Key0, Key1, Key2, Key3, Key4, Key5, Key6, Key7, Key8, Key9,
+                F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15,
+                Space, Tab, Enter, Escape, Backspace, Delete, Insert, Home, End, PageUp, PageDown,
+                Up, Down, Left, Right, Minus, Equal, LeftBracket, RightBracket, Semicolon, Apostrophe,
+                Backslash, Slash, Comma, Period,
+                NumPad0, NumPad1, NumPad2, NumPad3, NumPad4, NumPad5, NumPad6, NumPad7, NumPad8, NumPad9,
+                NumPadDot, NumPadSlash, NumPadAsterisk, NumPadMinus, NumPadPlus, NumPadEnter;
+                Backquote => [Grave],
+                LeftShift => [Shift, LeftShift],
+                RightShift => [Shift, RightShift],
+                LeftCtrl => [Ctrl, LeftCtrl],
+                RightCtrl => [Ctrl, RightCtrl],
+                LeftAlt => [Alt, LeftAlt],
+                RightAlt => [Alt, RightAlt],
+            );
         }
         mouse_capture.poll_extra_keys(&mut keys_down);
         let (extra_mouse4, extra_mouse5, extra_mouse_arr) = mouse_capture.poll_extra_buttons();
