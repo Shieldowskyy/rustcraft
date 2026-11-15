@@ -1946,6 +1946,547 @@ fn ray_aabb_intersect(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f
     Some(if t_min >= 0.0 { t_min } else { t_max })
 }
 
+
+#[derive(Copy, Clone, Debug)]
+pub struct MobBox {
+    pub center: Vec3,
+    pub size: Vec3,
+    pub yaw: f32,
+    pub pitch: f32,
+    pub roll: f32,
+    pub origin: Vec3,
+    pub tex_top: crate::graphics::atlas::TextureId,
+    pub tex_bottom: crate::graphics::atlas::TextureId,
+    pub tex_side: crate::graphics::atlas::TextureId,
+    pub tex_front: crate::graphics::atlas::TextureId,
+}
+
+impl MobBox {
+    #[inline(always)]
+    #[allow(clippy::too_many_arguments)]
+    pub const fn new(
+        center: Vec3,
+        size: Vec3,
+        yaw: f32,
+        pitch: f32,
+        roll: f32,
+        origin: Vec3,
+        tex_top: crate::graphics::atlas::TextureId,
+        tex_bottom: crate::graphics::atlas::TextureId,
+        tex_side: crate::graphics::atlas::TextureId,
+        tex_front: crate::graphics::atlas::TextureId,
+    ) -> Self {
+        Self { center, size, yaw, pitch, roll, origin, tex_top, tex_bottom, tex_side, tex_front }
+    }
+
+    #[inline(always)]
+    pub const fn uniform(
+        center: Vec3,
+        size: Vec3,
+        yaw: f32,
+        pitch: f32,
+        roll: f32,
+        origin: Vec3,
+        tex: crate::graphics::atlas::TextureId,
+    ) -> Self {
+        Self::new(center, size, yaw, pitch, roll, origin, tex, tex, tex, tex)
+    }
+
+    #[inline(always)]
+    #[allow(clippy::too_many_arguments)]
+    pub const fn with_front(
+        center: Vec3,
+        size: Vec3,
+        yaw: f32,
+        pitch: f32,
+        roll: f32,
+        origin: Vec3,
+        tex_body: crate::graphics::atlas::TextureId,
+        tex_front: crate::graphics::atlas::TextureId,
+    ) -> Self {
+        Self::new(center, size, yaw, pitch, roll, origin, tex_body, tex_body, tex_body, tex_front)
+    }
+
+    #[inline]
+    pub fn world_corners(&self) -> [Vec3; 8] {
+        let half = Vec3::new(self.size.x * 0.5, self.size.y * 0.5, self.size.z * 0.5);
+        let local_corners = [
+            self.center + Vec3::new(-half.x, -half.y, -half.z),
+            self.center + Vec3::new(half.x, -half.y, -half.z),
+            self.center + Vec3::new(half.x, half.y, -half.z),
+            self.center + Vec3::new(-half.x, half.y, -half.z),
+            self.center + Vec3::new(-half.x, -half.y, half.z),
+            self.center + Vec3::new(half.x, -half.y, half.z),
+            self.center + Vec3::new(half.x, half.y, half.z),
+            self.center + Vec3::new(-half.x, half.y, half.z),
+        ];
+        let (sp, cp) = if self.pitch != 0.0 { self.pitch.sin_cos() } else { (0.0, 1.0) };
+        let (sr, cr) = if self.roll != 0.0 { self.roll.sin_cos() } else { (0.0, 1.0) };
+        let (sy, cy) = self.yaw.sin_cos();
+        local_corners.map(|p| {
+            let p_pitch = if self.pitch != 0.0 {
+                Vec3::new(p.x, p.y * cp - p.z * sp, p.y * sp + p.z * cp)
+            } else {
+                p
+            };
+            let p_roll = if self.roll != 0.0 {
+                Vec3::new(p_pitch.x * cr - p_pitch.y * sr, p_pitch.x * sr + p_pitch.y * cr, p_pitch.z)
+            } else {
+                p_pitch
+            };
+            let p_yaw = Vec3::new(p_roll.x * cy + p_roll.z * sy, p_roll.y, -p_roll.x * sy + p_roll.z * cy);
+            self.origin + p_yaw
+        })
+    }
+
+    #[inline]
+    pub fn emit_visible_faces<F>(&self, camera_pos: Vec3, mut on_face: F)
+    where
+        F: FnMut(Vec3, Vec3, Vec3, Vec3, crate::graphics::atlas::TextureId, f32),
+    {
+        let world_pts = self.world_corners();
+        let mut check_face = |i0: usize, i1: usize, i2: usize, i3: usize, tex: crate::graphics::atlas::TextureId, shade: f32| {
+            let (p0, p1, p2, p3) = (world_pts[i0], world_pts[i1], world_pts[i2], world_pts[i3]);
+            let normal = (p1 - p0).cross(p3 - p0);
+            let center = (p0 + p1 + p2 + p3) * 0.25;
+            if (center - camera_pos).dot(normal) < 0.0 {
+                on_face(p0, p1, p2, p3, tex, shade);
+            }
+        };
+        check_face(7, 6, 2, 3, self.tex_top, 1.00);
+        check_face(4, 0, 1, 5, self.tex_bottom, 0.50);
+        check_face(4, 5, 6, 7, self.tex_front, 0.85);
+        check_face(1, 0, 3, 2, self.tex_side, 0.85);
+        check_face(0, 4, 7, 3, self.tex_side, 0.70);
+        check_face(5, 1, 2, 6, self.tex_side, 0.70);
+    }
+}
+
+pub fn emit_mob_boxes<F: FnMut(MobBox)>(mob: &Mob, mut emit: F) {
+    use crate::graphics::atlas::TextureId;
+    let death_t = (mob.death_timer / 0.8).clamp(0.0, 1.0);
+    let roll_angle = death_t * std::f32::consts::FRAC_PI_2;
+    let base_pos = mob.pos;
+    let yaw = mob.yaw;
+    let leg_swing = mob.walk_phase.sin() * 0.65;
+
+    match mob.kind {
+        MobKind::Pig => {
+            let scale = if mob.is_baby { 0.5f32 } else { 1.0f32 };
+            emit(MobBox::uniform(Vec3::new(0.0, 0.45 * scale, 0.0), Vec3::new(0.65 * scale, 0.45 * scale, 0.90 * scale), yaw, 0.0, roll_angle, base_pos, TextureId::PigSkin));
+
+            let head_pos = base_pos + Vec3::new(yaw.sin() * 0.48 * scale, 0.52 * scale, yaw.cos() * 0.48 * scale);
+            let head_yaw = yaw + mob.head_yaw_offset;
+            emit(MobBox::with_front(Vec3::zero(), Vec3::new(0.48 * scale, 0.48 * scale, 0.48 * scale), head_yaw, 0.0, roll_angle, head_pos, TextureId::PigSkin, TextureId::PigFace));
+
+            let snout_pos = head_pos + Vec3::new(head_yaw.sin() * 0.28 * scale, -0.06 * scale, head_yaw.cos() * 0.28 * scale);
+            emit(MobBox::with_front(Vec3::zero(), Vec3::new(0.24 * scale, 0.18 * scale, 0.12 * scale), head_yaw, 0.0, roll_angle, snout_pos, TextureId::PigSkin, TextureId::PigSnout));
+
+            let leg_offsets = [
+                (-0.22 * scale, -0.28 * scale, leg_swing),
+                (0.22 * scale, -0.28 * scale, -leg_swing),
+                (-0.22 * scale, 0.28 * scale, -leg_swing),
+                (0.22 * scale, 0.28 * scale, leg_swing),
+            ];
+
+            for &(lx, lz, swing) in &leg_offsets {
+                let rotated_x = lx * yaw.cos() + lz * yaw.sin();
+                let rotated_z = -lx * yaw.sin() + lz * yaw.cos();
+                let leg_origin = base_pos + Vec3::new(rotated_x, 0.30 * scale, rotated_z);
+
+                emit(MobBox::uniform(Vec3::new(0.0, -0.15 * scale, 0.0), Vec3::new(0.20 * scale, 0.30 * scale, 0.20 * scale), yaw, swing, roll_angle, leg_origin, TextureId::PigSkin));
+            }
+        }
+        MobKind::Cow => {
+            let scale = if mob.is_baby { 0.5f32 } else { 1.0f32 };
+            emit(MobBox::uniform(Vec3::new(0.0, 0.78 * scale, 0.0), Vec3::new(0.75 * scale, 0.65 * scale, 1.15 * scale), yaw, 0.0, roll_angle, base_pos, TextureId::CowSkin));
+
+            if !mob.is_baby {
+                let udder_pos = base_pos + Vec3::new(0.0, 0.44 * scale, 0.0);
+                emit(MobBox::uniform(Vec3::zero(), Vec3::new(0.28 * scale, 0.12 * scale, 0.36 * scale), yaw, 0.0, roll_angle, udder_pos, TextureId::CowUdder));
+            }
+
+            let head_pos = base_pos + Vec3::new(yaw.sin() * 0.62 * scale, 0.95 * scale, yaw.cos() * 0.62 * scale);
+            let head_yaw = yaw + mob.head_yaw_offset;
+            emit(MobBox::with_front(Vec3::zero(), Vec3::new(0.48 * scale, 0.48 * scale, 0.46 * scale), head_yaw, 0.0, roll_angle, head_pos, TextureId::CowSkin, TextureId::CowFace));
+
+            let snout_pos = head_pos + Vec3::new(head_yaw.sin() * 0.26 * scale, -0.10 * scale, head_yaw.cos() * 0.26 * scale);
+            emit(MobBox::with_front(Vec3::zero(), Vec3::new(0.34 * scale, 0.22 * scale, 0.16 * scale), head_yaw, 0.0, roll_angle, snout_pos, TextureId::CowSkin, TextureId::CowSnout));
+
+            if !mob.is_baby {
+                for side in [-1.0f32, 1.0f32] {
+                    let horn_x = side * 0.28 * scale * head_yaw.cos();
+                    let horn_z = -side * 0.28 * scale * head_yaw.sin();
+                    let horn_pos = head_pos + Vec3::new(horn_x, 0.26 * scale, horn_z);
+                    emit(MobBox::uniform(Vec3::zero(), Vec3::new(0.10 * scale, 0.18 * scale, 0.10 * scale), head_yaw, 0.0, roll_angle, horn_pos, TextureId::CowHorns));
+                }
+            }
+
+            let leg_offsets = [
+                (-0.25 * scale, -0.38 * scale, leg_swing),
+                (0.25 * scale, -0.38 * scale, -leg_swing),
+                (-0.25 * scale, 0.38 * scale, -leg_swing),
+                (0.25 * scale, 0.38 * scale, leg_swing),
+            ];
+
+            for &(lx, lz, swing) in &leg_offsets {
+                let rotated_x = lx * yaw.cos() + lz * yaw.sin();
+                let rotated_z = -lx * yaw.sin() + lz * yaw.cos();
+                let leg_origin = base_pos + Vec3::new(rotated_x, 0.50 * scale, rotated_z);
+
+                emit(MobBox::uniform(Vec3::new(0.0, -0.25 * scale, 0.0), Vec3::new(0.22 * scale, 0.50 * scale, 0.22 * scale), yaw, swing, roll_angle, leg_origin, TextureId::CowSkin));
+            }
+        }
+        MobKind::Chicken => {
+            let scale = if mob.is_baby { 0.5f32 } else { 1.0f32 };
+            emit(MobBox::uniform(Vec3::new(0.0, 0.34 * scale, 0.0), Vec3::new(0.36 * scale, 0.30 * scale, 0.44 * scale), yaw, 0.0, roll_angle, base_pos, TextureId::ChickenFeathers));
+
+            let head_pos = base_pos + Vec3::new(yaw.sin() * 0.22 * scale, 0.48 * scale, yaw.cos() * 0.22 * scale);
+            let head_yaw = yaw + mob.head_yaw_offset;
+            emit(MobBox::with_front(Vec3::zero(), Vec3::new(0.28 * scale, 0.28 * scale, 0.24 * scale), head_yaw, 0.0, roll_angle, head_pos, TextureId::ChickenFeathers, TextureId::ChickenFace));
+
+            let beak_pos = head_pos + Vec3::new(head_yaw.sin() * 0.14 * scale, -0.03 * scale, head_yaw.cos() * 0.14 * scale);
+            emit(MobBox::uniform(Vec3::zero(), Vec3::new(0.12 * scale, 0.06 * scale, 0.08 * scale), head_yaw, 0.0, roll_angle, beak_pos, TextureId::ChickenBeak));
+
+            if !mob.is_baby {
+                let wattle_pos = head_pos + Vec3::new(head_yaw.sin() * 0.13 * scale, -0.08 * scale, head_yaw.cos() * 0.13 * scale);
+                emit(MobBox::uniform(Vec3::zero(), Vec3::new(0.06 * scale, 0.08 * scale, 0.06 * scale), head_yaw, 0.0, roll_angle, wattle_pos, TextureId::ChickenWattle));
+            }
+
+            let flap = (mob.walk_phase.sin() * 0.45).abs();
+            let left_wing_origin = base_pos + Vec3::new(-0.20 * scale * yaw.cos(), 0.38 * scale, 0.20 * scale * yaw.sin());
+            emit(MobBox::uniform(Vec3::new(-0.02 * scale, -0.06 * scale, 0.0), Vec3::new(0.06 * scale, 0.20 * scale, 0.30 * scale), yaw, 0.0, roll_angle - flap, left_wing_origin, TextureId::ChickenFeathers));
+
+            let right_wing_origin = base_pos + Vec3::new(0.20 * scale * yaw.cos(), 0.38 * scale, -0.20 * scale * yaw.sin());
+            emit(MobBox::uniform(Vec3::new(0.02 * scale, -0.06 * scale, 0.0), Vec3::new(0.06 * scale, 0.20 * scale, 0.30 * scale), yaw, 0.0, roll_angle + flap, right_wing_origin, TextureId::ChickenFeathers));
+
+            let leg_offsets = [
+                (-0.08 * scale, -0.02 * scale, leg_swing),
+                (0.08 * scale, -0.02 * scale, -leg_swing),
+            ];
+
+            for &(lx, lz, swing) in &leg_offsets {
+                let rotated_x = lx * yaw.cos() + lz * yaw.sin();
+                let rotated_z = -lx * yaw.sin() + lz * yaw.cos();
+                let leg_origin = base_pos + Vec3::new(rotated_x, 0.20 * scale, rotated_z);
+
+                emit(MobBox::uniform(Vec3::new(0.0, -0.10 * scale, 0.0), Vec3::new(0.08 * scale, 0.20 * scale, 0.08 * scale), yaw, swing, roll_angle, leg_origin, TextureId::ChickenLeg));
+            }
+        }
+        MobKind::Sheep => {
+            let scale = if mob.is_baby { 0.5f32 } else { 1.0f32 };
+            let wool_block = crate::world::block::BlockId::wool_block_from_color(mob.wool_color);
+            let wool_tex = wool_block.texture_id(crate::world::block::Face::Top);
+
+            // Torso / Fleece
+            if !mob.is_sheared {
+                emit(MobBox::uniform(Vec3::new(0.0, 0.72 * scale, 0.0), Vec3::new(0.72 * scale, 0.62 * scale, 1.02 * scale), yaw, 0.0, roll_angle, base_pos, wool_tex));
+            } else {
+                emit(MobBox::uniform(Vec3::new(0.0, 0.72 * scale, 0.0), Vec3::new(0.56 * scale, 0.52 * scale, 0.92 * scale), yaw, 0.0, roll_angle, base_pos, TextureId::SheepSkin));
+            }
+
+            // Head (tilted down when grazing)
+            let head_pitch = if mob.eat_grass_timer > 0.0 { 0.75 } else { 0.0 };
+            let head_y = if mob.eat_grass_timer > 0.0 { 0.44 * scale } else { 0.86 * scale };
+            let head_fwd = if mob.eat_grass_timer > 0.0 { 0.64 * scale } else { 0.54 * scale };
+            let head_pos = base_pos + Vec3::new(yaw.sin() * head_fwd, head_y, yaw.cos() * head_fwd);
+            let head_yaw = yaw + mob.head_yaw_offset;
+
+            emit(MobBox::with_front(Vec3::zero(), Vec3::new(0.42 * scale, 0.42 * scale, 0.44 * scale), head_yaw, head_pitch, roll_angle, head_pos, TextureId::SheepSkin, TextureId::SheepFace));
+
+            if !mob.is_sheared {
+                emit(MobBox::uniform(Vec3::new(0.0, 0.12 * scale, -0.04 * scale), Vec3::new(0.44 * scale, 0.22 * scale, 0.36 * scale), head_yaw, head_pitch, roll_angle, head_pos, wool_tex));
+            }
+
+            // 4 Legs
+            let leg_offsets = [
+                (-0.20, -0.32, leg_swing),
+                (0.20, -0.32, -leg_swing),
+                (-0.20, 0.32, -leg_swing),
+                (0.20, 0.32, leg_swing),
+            ];
+
+            for &(lx, lz, swing) in &leg_offsets {
+                let rotated_x = (lx * scale) * yaw.cos() + (lz * scale) * yaw.sin();
+                let rotated_z = -(lx * scale) * yaw.sin() + (lz * scale) * yaw.cos();
+                let leg_origin = base_pos + Vec3::new(rotated_x, 0.48 * scale, rotated_z);
+
+                emit(MobBox::uniform(Vec3::new(0.0, -0.24 * scale, 0.0), Vec3::new(0.18 * scale, 0.48 * scale, 0.18 * scale), yaw, swing, roll_angle, leg_origin, TextureId::SheepSkin));
+
+                if !mob.is_sheared {
+                    emit(MobBox::uniform(Vec3::new(0.0, -0.12 * scale, 0.0), Vec3::new(0.24 * scale, 0.24 * scale, 0.24 * scale), yaw, swing, roll_angle, leg_origin, wool_tex));
+                }
+            }
+        }
+        MobKind::Zombie => {
+            emit(MobBox::new(Vec3::new(0.0, 1.07, 0.0), Vec3::new(0.48, 0.70, 0.26), yaw, 0.0, roll_angle, base_pos, TextureId::ZombieShirt, TextureId::ZombiePants, TextureId::ZombieShirt, TextureId::ZombieShirt));
+
+            let head_pos = base_pos + Vec3::new(0.0, 1.44, 0.0);
+            let head_yaw = yaw + mob.head_yaw_offset;
+            emit(MobBox::with_front(Vec3::new(0.0, 0.24, 0.0), Vec3::new(0.48, 0.48, 0.48), head_yaw, 0.0, roll_angle, head_pos, TextureId::ZombieSkin, TextureId::ZombieFace));
+
+            let arm_pitch = -1.45f32;
+            let arm_offsets = [
+                (-0.36f32, 1.36f32),
+                (0.36f32, 1.36f32),
+            ];
+            for &(ax, ay) in &arm_offsets {
+                let rotated_x = ax * yaw.cos();
+                let rotated_z = -ax * yaw.sin();
+                let arm_origin = base_pos + Vec3::new(rotated_x, ay, rotated_z);
+
+                emit(MobBox::new(Vec3::new(0.0, -0.32, 0.0), Vec3::new(0.24, 0.64, 0.24), yaw, arm_pitch, roll_angle, arm_origin, TextureId::ZombieShirt, TextureId::ZombieSkin, TextureId::ZombieSkin, TextureId::ZombieSkin));
+            }
+
+            let leg_offsets = [
+                (-0.14f32, leg_swing),
+                (0.14f32, -leg_swing),
+            ];
+            for &(lx, swing) in &leg_offsets {
+                let rotated_x = lx * yaw.cos();
+                let rotated_z = -lx * yaw.sin();
+                let leg_origin = base_pos + Vec3::new(rotated_x, 0.72, rotated_z);
+
+                emit(MobBox::uniform(Vec3::new(0.0, -0.36, 0.0), Vec3::new(0.24, 0.72, 0.24), yaw, swing, roll_angle, leg_origin, TextureId::ZombiePants));
+            }
+        }
+        MobKind::Skeleton => {
+            emit(MobBox::with_front(Vec3::new(0.0, 1.07, 0.0), Vec3::new(0.44, 0.70, 0.24), yaw, 0.0, roll_angle, base_pos, TextureId::SkeletonBone, TextureId::SkeletonBody));
+
+            let head_pos = base_pos + Vec3::new(0.0, 1.44, 0.0);
+            let head_yaw = yaw + mob.head_yaw_offset;
+            emit(MobBox::with_front(Vec3::new(0.0, 0.23, 0.0), Vec3::new(0.46, 0.46, 0.46), head_yaw, 0.0, roll_angle, head_pos, TextureId::SkeletonBone, TextureId::SkeletonFace));
+
+            let arm_pitch = -1.35f32;
+            let arm_offsets = [
+                (-0.32f32, 1.36f32),
+                (0.32f32, 1.36f32),
+            ];
+            for &(ax, ay) in &arm_offsets {
+                let rotated_x = ax * yaw.cos();
+                let rotated_z = -ax * yaw.sin();
+                let arm_origin = base_pos + Vec3::new(rotated_x, ay, rotated_z);
+
+                emit(MobBox::uniform(Vec3::new(0.0, -0.32, 0.0), Vec3::new(0.18, 0.64, 0.18), yaw, arm_pitch, roll_angle, arm_origin, TextureId::SkeletonBone));
+            }
+
+            let leg_offsets = [
+                (-0.13f32, leg_swing),
+                (0.13f32, -leg_swing),
+            ];
+            for &(lx, swing) in &leg_offsets {
+                let rotated_x = lx * yaw.cos();
+                let rotated_z = -lx * yaw.sin();
+                let leg_origin = base_pos + Vec3::new(rotated_x, 0.72, rotated_z);
+
+                emit(MobBox::uniform(Vec3::new(0.0, -0.36, 0.0), Vec3::new(0.18, 0.72, 0.18), yaw, swing, roll_angle, leg_origin, TextureId::SkeletonBone));
+            }
+        }
+        MobKind::Reaper => {
+            let swell = if mob.fuse > 0.0 { 1.0 + (mob.fuse / 1.5).min(1.0) * 0.22 } else { 1.0 };
+            emit(MobBox::uniform(Vec3::new(0.0, 0.72 * swell, 0.0), Vec3::new(0.44 * swell, 0.72 * swell, 0.24 * swell), yaw, 0.0, roll_angle, base_pos, TextureId::ReaperSkin));
+
+            let head_pos = base_pos + Vec3::new(0.0, 1.08 * swell, 0.0);
+            let head_yaw = yaw + mob.head_yaw_offset;
+            emit(MobBox::with_front(Vec3::new(0.0, 0.24 * swell, 0.0), Vec3::new(0.48 * swell, 0.48 * swell, 0.48 * swell), head_yaw, 0.0, roll_angle, head_pos, TextureId::ReaperSkin, TextureId::ReaperFace));
+
+            let leg_offsets = [
+                (-0.13f32, 0.14f32, leg_swing),
+                (0.13f32, 0.14f32, -leg_swing),
+                (-0.13f32, -0.14f32, -leg_swing),
+                (0.13f32, -0.14f32, leg_swing),
+            ];
+            for &(lx, lz, swing) in &leg_offsets {
+                let rotated_x = lx * yaw.cos() + lz * yaw.sin();
+                let rotated_z = -lx * yaw.sin() + lz * yaw.cos();
+                let leg_origin = base_pos + Vec3::new(rotated_x * swell, 0.36 * swell, rotated_z * swell);
+
+                emit(MobBox::uniform(Vec3::new(0.0, -0.18 * swell, 0.0), Vec3::new(0.22 * swell, 0.36 * swell, 0.22 * swell), yaw, swing, roll_angle, leg_origin, TextureId::ReaperSkin));
+            }
+        }
+        MobKind::Dolphin => {
+            let scale = if mob.is_baby { 0.5f32 } else { 1.0f32 };
+            let swim_pitch = mob.swim_pitch;
+
+            // Streamlined Torso
+            emit(MobBox::new(Vec3::new(0.0, 0.35 * scale, 0.0), Vec3::new(0.48 * scale, 0.42 * scale, 0.95 * scale), yaw, swim_pitch, roll_angle, base_pos, TextureId::DolphinSkin, TextureId::DolphinBelly, TextureId::DolphinSkin, TextureId::DolphinSkin));
+
+            // Snout / Beak
+            emit(MobBox::new(Vec3::new(0.0, 0.28 * scale, 0.60 * scale), Vec3::new(0.24 * scale, 0.18 * scale, 0.32 * scale), yaw, swim_pitch, roll_angle, base_pos, TextureId::DolphinSkin, TextureId::DolphinBelly, TextureId::DolphinSkin, TextureId::DolphinSkin));
+
+            // Dorsal Fin
+            emit(MobBox::uniform(Vec3::new(0.0, 0.64 * scale, -0.06 * scale), Vec3::new(0.08 * scale, 0.28 * scale, 0.24 * scale), yaw, swim_pitch, roll_angle, base_pos, TextureId::DolphinSkin));
+
+            // Pectoral Flippers
+            for side in &[-1.0f32, 1.0f32] {
+                emit(MobBox::new(Vec3::new(side * 0.32 * scale, 0.24 * scale, 0.20 * scale), Vec3::new(0.24 * scale, 0.06 * scale, 0.22 * scale), yaw + side * 0.25, swim_pitch, roll_angle + side * 0.3, base_pos, TextureId::DolphinSkin, TextureId::DolphinBelly, TextureId::DolphinSkin, TextureId::DolphinSkin));
+            }
+
+            // Tail Fluke (flaps up and down)
+            let fluke_pitch = swim_pitch + (mob.walk_phase).sin() * 0.38;
+            emit(MobBox::uniform(Vec3::new(0.0, 0.35 * scale, -0.80 * scale), Vec3::new(0.55 * scale, 0.06 * scale, 0.28 * scale), yaw, fluke_pitch, roll_angle, base_pos, TextureId::DolphinSkin));
+        }
+        MobKind::Cod => {
+            let tail_swish = (mob.walk_phase).sin() * 0.42;
+            let swim_pitch = mob.swim_pitch;
+
+            emit(MobBox::uniform(Vec3::new(0.0, 0.16, 0.0), Vec3::new(0.18, 0.24, 0.48), yaw, swim_pitch, roll_angle, base_pos, TextureId::CodSkin));
+
+            emit(MobBox::uniform(Vec3::new(0.0, 0.16, -0.32), Vec3::new(0.04, 0.22, 0.20), yaw + tail_swish, swim_pitch, roll_angle, base_pos, TextureId::CodSkin));
+        }
+        MobKind::Salmon => {
+            let tail_swish = (mob.walk_phase).sin() * 0.45;
+            let swim_pitch = mob.swim_pitch;
+
+            emit(MobBox::uniform(Vec3::new(0.0, 0.20, -0.05), Vec3::new(0.22, 0.30, 0.55), yaw, swim_pitch, roll_angle, base_pos, TextureId::SalmonSkin));
+
+            emit(MobBox::uniform(Vec3::new(0.0, 0.20, 0.30), Vec3::new(0.20, 0.26, 0.22), yaw, swim_pitch, roll_angle, base_pos, TextureId::CodSkin));
+
+            emit(MobBox::uniform(Vec3::new(0.0, 0.20, -0.42), Vec3::new(0.04, 0.28, 0.26), yaw + tail_swish, swim_pitch, roll_angle, base_pos, TextureId::SalmonSkin));
+        }
+        MobKind::Pufferfish => {
+            let is_puffed = mob.is_puffed;
+            let (size, y_center) = if is_puffed {
+                (Vec3::new(0.65, 0.65, 0.65), 0.35)
+            } else {
+                (Vec3::new(0.28, 0.28, 0.28), 0.16)
+            };
+
+            emit(MobBox::with_front(Vec3::new(0.0, y_center, 0.0), size, yaw, mob.swim_pitch, roll_angle, base_pos, TextureId::PufferfishSkin, TextureId::Pufferfish));
+
+            // Fin flutter
+            let fin_flap = (mob.walk_phase * 2.0).sin() * 0.4;
+            for side in &[-1.0f32, 1.0f32] {
+                emit(MobBox::uniform(Vec3::new(side * (size.x * 0.55), y_center, 0.0), Vec3::new(0.04, 0.14, 0.14), yaw + side * 0.2, mob.swim_pitch + fin_flap, roll_angle + side * 0.3, base_pos, TextureId::PufferfishSkin));
+            }
+        }
+        MobKind::TropicalFish => {
+            let tail_swish = (mob.walk_phase).sin() * 0.50;
+            let swim_pitch = mob.swim_pitch;
+
+            emit(MobBox::with_front(Vec3::new(0.0, 0.16, 0.0), Vec3::new(0.14, 0.26, 0.36), yaw, swim_pitch, roll_angle, base_pos, TextureId::TropicalFishSkin, TextureId::TropicalFish));
+
+            emit(MobBox::uniform(Vec3::new(0.0, 0.16, -0.24), Vec3::new(0.04, 0.24, 0.18), yaw + tail_swish, swim_pitch, roll_angle, base_pos, TextureId::TropicalFishSkin));
+
+            emit(MobBox::uniform(Vec3::new(0.0, 0.34, 0.0), Vec3::new(0.04, 0.14, 0.18), yaw, swim_pitch, roll_angle, base_pos, TextureId::TropicalFishSkin));
+        }
+        MobKind::Villager => {
+            let robe_tex = match mob.villager_profession {
+                1 => TextureId::VillagerRobeLibrarian,
+                2 => TextureId::VillagerRobeBlacksmith,
+                3 => TextureId::VillagerRobeCleric,
+                4 => TextureId::VillagerRobeButcher,
+                _ => TextureId::VillagerRobe,
+            };
+
+            // Main robe / body
+            emit(MobBox::uniform(Vec3::new(0.0, 0.88, 0.0), Vec3::new(0.50, 0.88, 0.38), yaw, 0.0, roll_angle, base_pos, robe_tex));
+
+            // Folded arms
+            emit(MobBox::with_front(Vec3::new(0.0, 0.98, 0.16), Vec3::new(0.54, 0.24, 0.22), yaw, 0.0, roll_angle, base_pos, robe_tex, TextureId::VillagerArms));
+
+            // Head
+            let head_pos = base_pos + Vec3::new(0.0, 1.34, 0.0);
+            let head_yaw = yaw + mob.head_yaw_offset;
+            emit(MobBox::with_front(Vec3::new(0.0, 0.26, 0.0), Vec3::new(0.48, 0.52, 0.48), head_yaw, 0.0, roll_angle, head_pos, TextureId::VillagerSkin, TextureId::VillagerFace));
+
+            // 3D Villager Nose
+            emit(MobBox::uniform(Vec3::new(0.0, 0.16, 0.28), Vec3::new(0.12, 0.22, 0.14), head_yaw, 0.0, roll_angle, head_pos, TextureId::VillagerSkin));
+
+            // Legs walking beneath robe
+            let leg_offsets = [
+                (-0.13f32, leg_swing * 0.6),
+                (0.13f32, -leg_swing * 0.6),
+            ];
+            for &(lx, swing) in &leg_offsets {
+                let rotated_x = lx * yaw.cos();
+                let rotated_z = -lx * yaw.sin();
+                let leg_origin = base_pos + Vec3::new(rotated_x, 0.44, rotated_z);
+
+                emit(MobBox::new(Vec3::new(0.0, -0.22, 0.0), Vec3::new(0.20, 0.44, 0.20), yaw, swing, roll_angle, leg_origin, TextureId::VillagerRobe, TextureId::VillagerSkin, TextureId::VillagerRobe, TextureId::VillagerRobe));
+            }
+        }
+        MobKind::IronGolem => {
+            // Massive Iron Golem model (height 2.7m)
+            // 1. Lower torso / waist
+            emit(MobBox::uniform(Vec3::new(0.0, 1.10, 0.0), Vec3::new(0.72, 0.52, 0.46), yaw, 0.0, roll_angle, base_pos, TextureId::IronGolemBody));
+
+            // 2. Huge Upper Chest
+            emit(MobBox::uniform(Vec3::new(0.0, 1.70, 0.0), Vec3::new(1.16, 0.76, 0.66), yaw, 0.0, roll_angle, base_pos, TextureId::IronGolemBody));
+
+            // 3. Head & Nose
+            let head_pos = base_pos + Vec3::new(0.0, 2.08, 0.12);
+            let head_yaw = yaw + mob.head_yaw_offset;
+            emit(MobBox::with_front(Vec3::new(0.0, 0.26, 0.0), Vec3::new(0.52, 0.56, 0.48), head_yaw, 0.0, roll_angle, head_pos, TextureId::IronGolemBody, TextureId::IronGolemHead));
+
+            emit(MobBox::uniform(Vec3::new(0.0, 0.16, 0.28), Vec3::new(0.12, 0.24, 0.14), head_yaw, 0.0, roll_angle, head_pos, TextureId::IronGolemBody));
+
+            // 4. Heavy Legs
+            let leg_offsets = [
+                (-0.25f32, leg_swing * 0.45),
+                (0.25f32, -leg_swing * 0.45),
+            ];
+            for &(lx, swing) in &leg_offsets {
+                let rotated_x = lx * yaw.cos();
+                let rotated_z = -lx * yaw.sin();
+                let leg_origin = base_pos + Vec3::new(rotated_x, 0.84, rotated_z);
+
+                emit(MobBox::uniform(Vec3::new(0.0, -0.42, 0.0), Vec3::new(0.32, 0.84, 0.32), yaw, swing, roll_angle, leg_origin, TextureId::IronGolemBody));
+            }
+
+            // 5. Long Heavy Arms
+            let arm_offsets = [
+                (-0.70f32, -leg_swing * 0.5),
+                (0.70f32, leg_swing * 0.5),
+            ];
+            for &(ax, swing) in &arm_offsets {
+                let rotated_x = ax * yaw.cos();
+                let rotated_z = -ax * yaw.sin();
+                let arm_origin = base_pos + Vec3::new(rotated_x, 1.95, rotated_z);
+
+                emit(MobBox::uniform(Vec3::new(0.0, -0.70, 0.0), Vec3::new(0.28, 1.45, 0.34), yaw, swing, roll_angle, arm_origin, TextureId::IronGolemBody));
+            }
+        }
+        MobKind::Spider => {
+            let scale = if mob.is_baby { 0.5f32 } else { 1.0f32 };
+            // Thorax (middle body)
+            emit(MobBox::uniform(Vec3::new(0.0, 0.32 * scale, 0.0), Vec3::new(0.38 * scale, 0.32 * scale, 0.44 * scale), yaw, 0.0, roll_angle, base_pos, TextureId::SpiderSkin));
+
+            // Head (front)
+            let head_pos = base_pos + Vec3::new(yaw.sin() * 0.38 * scale, 0.34 * scale, yaw.cos() * 0.38 * scale);
+            let head_yaw = yaw + mob.head_yaw_offset;
+            emit(MobBox::with_front(Vec3::zero(), Vec3::new(0.46 * scale, 0.38 * scale, 0.44 * scale), head_yaw, 0.0, roll_angle, head_pos, TextureId::SpiderSkin, TextureId::SpiderFace));
+
+            // Abdomen (rear)
+            let abdomen_pos = base_pos - Vec3::new(yaw.sin() * 0.52 * scale, -0.06 * scale, yaw.cos() * 0.52 * scale);
+            emit(MobBox::uniform(Vec3::zero(), Vec3::new(0.68 * scale, 0.48 * scale, 0.72 * scale), yaw, 0.0, roll_angle, abdomen_pos, TextureId::SpiderSkin));
+
+            // 8 Spider Legs (4 pairs)
+            let z_offsets = [0.18f32, 0.06, -0.06, -0.18];
+            for (i, &lz) in z_offsets.iter().enumerate() {
+                let swing_sign = if i % 2 == 0 { 1.0f32 } else { -1.0f32 };
+                let leg_pitch = leg_swing * swing_sign * 0.6;
+
+                // Left leg
+                let lx_left = -0.22f32 * scale;
+                let rot_xl = lx_left * yaw.cos() + (lz * scale) * yaw.sin();
+                let rot_zl = -lx_left * yaw.sin() + (lz * scale) * yaw.cos();
+                let leg_origin_l = base_pos + Vec3::new(rot_xl, 0.32 * scale, rot_zl);
+
+                emit(MobBox::uniform(Vec3::new(-0.25 * scale, -0.08 * scale, 0.0), Vec3::new(0.55 * scale, 0.10 * scale, 0.10 * scale), yaw, leg_pitch, roll_angle + 0.35, leg_origin_l, TextureId::SpiderSkin));
+
+                // Right leg
+                let lx_right = 0.22f32 * scale;
+                let rot_xr = lx_right * yaw.cos() + (lz * scale) * yaw.sin();
+                let rot_zr = -lx_right * yaw.sin() + (lz * scale) * yaw.cos();
+                let leg_origin_r = base_pos + Vec3::new(rot_xr, 0.32 * scale, rot_zr);
+
+                emit(MobBox::uniform(Vec3::new(0.25 * scale, -0.08 * scale, 0.0), Vec3::new(0.55 * scale, 0.10 * scale, 0.10 * scale), yaw, -leg_pitch, roll_angle - 0.35, leg_origin_r, TextureId::SpiderSkin));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
