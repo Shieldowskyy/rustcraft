@@ -2434,82 +2434,31 @@ fn append_procedural_tool_3d(
     max_verts: usize,
     max_idx: usize,
 ) {
-    let mat_tex = match block {
-        BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword => TextureId::Planks,
-        BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword => TextureId::Stone,
-        BlockId::IronPickaxe | BlockId::IronAxe | BlockId::IronShovel | BlockId::IronSword => TextureId::IronOre,
-        _ => TextureId::WoodSide,
-    };
-    let handle_tex = TextureId::WoodSide;
-
-    let mut cube = |offset: Vec3, sz: [f32; 3], tex: TextureId| {
-        append_cube_oriented(
-            pos + offset,
-            tool_right,
-            tool_up,
-            tool_forward,
-            sz,
-            tex,
-            tex,
-            tex,
-            vb,
-            ib,
-            v_count,
-            i_count,
-            max_verts,
-            max_idx,
-        );
-    };
-
-    match block {
-        BlockId::Stick => {
-            cube(Vec3::zero(), [0.016 * scale, 0.26 * scale, 0.016 * scale], handle_tex);
-        }
-        BlockId::WoodenSword | BlockId::StoneSword | BlockId::IronSword => {
-            // Pommel
-            cube(-tool_up * (0.16 * scale), [0.024 * scale, 0.018 * scale, 0.024 * scale], handle_tex);
-            // Grip
-            cube(-tool_up * (0.08 * scale), [0.016 * scale, 0.065 * scale, 0.016 * scale], handle_tex);
-            // Crossguard
-            cube(Vec3::zero(), [0.085 * scale, 0.016 * scale, 0.026 * scale], mat_tex);
-            // Blade
-            cube(tool_up * (0.20 * scale), [0.038 * scale, 0.180 * scale, 0.010 * scale], mat_tex);
-            // Tip
-            cube(tool_up * (0.41 * scale), [0.020 * scale, 0.040 * scale, 0.008 * scale], mat_tex);
-        }
-        BlockId::WoodenPickaxe | BlockId::StonePickaxe | BlockId::IronPickaxe => {
-            // Handle
-            cube(Vec3::zero(), [0.015 * scale, 0.28 * scale, 0.015 * scale], handle_tex);
-            // Head center mount
-            cube(tool_up * (0.26 * scale), [0.032 * scale, 0.032 * scale, 0.032 * scale], mat_tex);
-            // Head crossbar
-            cube(tool_up * (0.27 * scale), [0.130 * scale, 0.024 * scale, 0.024 * scale], mat_tex);
-            // Left & right pick tips
-            cube(tool_up * (0.23 * scale) - tool_right * (0.12 * scale), [0.018 * scale, 0.032 * scale, 0.018 * scale], mat_tex);
-            cube(tool_up * (0.23 * scale) + tool_right * (0.12 * scale), [0.018 * scale, 0.032 * scale, 0.018 * scale], mat_tex);
-        }
-        BlockId::WoodenAxe | BlockId::StoneAxe | BlockId::IronAxe => {
-            // Handle
-            cube(Vec3::zero(), [0.015 * scale, 0.28 * scale, 0.015 * scale], handle_tex);
-            // Axe Head Main
-            cube(tool_up * (0.22 * scale) + tool_right * (0.045 * scale), [0.048 * scale, 0.065 * scale, 0.022 * scale], mat_tex);
-            // Blade edge
-            cube(tool_up * (0.21 * scale) + tool_right * (0.088 * scale), [0.014 * scale, 0.078 * scale, 0.012 * scale], mat_tex);
-            // Poll (rear)
-            cube(tool_up * (0.25 * scale) - tool_right * (0.024 * scale), [0.020 * scale, 0.028 * scale, 0.020 * scale], mat_tex);
-        }
-        BlockId::WoodenShovel | BlockId::StoneShovel | BlockId::IronShovel => {
-            // Handle
-            cube(Vec3::zero(), [0.015 * scale, 0.28 * scale, 0.015 * scale], handle_tex);
-            // Grip Topper
-            cube(-tool_up * (0.27 * scale), [0.042 * scale, 0.014 * scale, 0.018 * scale], handle_tex);
-            // Spade Blade
-            cube(tool_up * (0.33 * scale), [0.065 * scale, 0.075 * scale, 0.012 * scale], mat_tex);
-            // Spade Tip
-            cube(tool_up * (0.42 * scale), [0.038 * scale, 0.018 * scale, 0.010 * scale], mat_tex);
-        }
-        _ => {}
-    }
+    crate::gameplay::item::emit_procedural_tool_boxes(
+        block,
+        pos,
+        tool_right,
+        tool_up,
+        scale,
+        |part_pos, sz, tex| {
+            append_cube_oriented(
+                part_pos,
+                tool_right,
+                tool_up,
+                tool_forward,
+                sz,
+                tex,
+                tex,
+                tex,
+                vb,
+                ib,
+                v_count,
+                i_count,
+                max_verts,
+                max_idx,
+            );
+        },
+    );
 }
 
 fn append_meat_3d(
@@ -2526,63 +2475,31 @@ fn append_meat_3d(
     max_verts: usize,
     max_idx: usize,
 ) {
-    let meat_tex = match block {
-        BlockId::RawPorkchop => TextureId::RawPorkchop,
-        BlockId::CookedPorkchop => TextureId::CookedPorkchop,
-        BlockId::RawBeef => TextureId::RawBeef,
-        BlockId::CookedBeef => TextureId::CookedBeef,
-        BlockId::RawChicken => TextureId::RawChicken,
-        BlockId::CookedChicken => TextureId::CookedChicken,
-        _ => TextureId::RawBeef,
-    };
-    let bone_tex = TextureId::Bone;
-
-    let mut cube = |offset: Vec3, sz: [f32; 3], tex: TextureId| {
-        append_cube_oriented(
-            pos + offset,
-            meat_right,
-            meat_up,
-            meat_forward,
-            sz,
-            tex,
-            tex,
-            tex,
-            vb,
-            ib,
-            v_count,
-            i_count,
-            max_verts,
-            max_idx,
-        );
-    };
-
-    match block {
-        BlockId::RawPorkchop | BlockId::CookedPorkchop => {
-            // Main chop slab
-            cube(Vec3::zero(), [0.065 * scale, 0.080 * scale, 0.024 * scale], meat_tex);
-            // Secondary curved meat lobe
-            cube(meat_right * (0.045 * scale) - meat_up * (0.025 * scale), [0.035 * scale, 0.055 * scale, 0.022 * scale], meat_tex);
-            // Bone nub on corner
-            cube(-meat_right * (0.055 * scale) + meat_up * (0.085 * scale), [0.020 * scale, 0.030 * scale, 0.016 * scale], bone_tex);
-        }
-        BlockId::RawBeef | BlockId::CookedBeef => {
-            // Main steak cut
-            cube(Vec3::zero(), [0.085 * scale, 0.070 * scale, 0.026 * scale], meat_tex);
-            // Rib bone along edge
-            cube(-meat_right * (0.065 * scale) + meat_up * (0.020 * scale), [0.020 * scale, 0.045 * scale, 0.022 * scale], bone_tex);
-            // Outer tapered lobe
-            cube(meat_right * (0.050 * scale) - meat_up * (0.030 * scale), [0.045 * scale, 0.035 * scale, 0.024 * scale], meat_tex);
-        }
-        BlockId::RawChicken | BlockId::CookedChicken => {
-            // Plump drumstick meat
-            cube(meat_up * (0.035 * scale), [0.055 * scale, 0.065 * scale, 0.048 * scale], meat_tex);
-            // Bone handle
-            cube(-meat_up * (0.055 * scale), [0.016 * scale, 0.040 * scale, 0.016 * scale], bone_tex);
-            // Knuckle joint
-            cube(-meat_up * (0.095 * scale), [0.028 * scale, 0.016 * scale, 0.024 * scale], bone_tex);
-        }
-        _ => {}
-    }
+    crate::gameplay::item::emit_meat_boxes(
+        block,
+        pos,
+        meat_right,
+        meat_up,
+        scale,
+        |part_pos, sz, tex| {
+            append_cube_oriented(
+                part_pos,
+                meat_right,
+                meat_up,
+                meat_forward,
+                sz,
+                tex,
+                tex,
+                tex,
+                vb,
+                ib,
+                v_count,
+                i_count,
+                max_verts,
+                max_idx,
+            );
+        },
+    );
 }
 
 fn append_feather_3d(
@@ -2598,40 +2515,30 @@ fn append_feather_3d(
     max_verts: usize,
     max_idx: usize,
 ) {
-    let quill_tex = TextureId::Bone;
-    let feather_tex = TextureId::ChickenFeathers;
-
-    let mut cube = |offset: Vec3, sz: [f32; 3], tex: TextureId| {
-        append_cube_oriented(
-            pos + offset,
-            feather_right,
-            feather_up,
-            feather_forward,
-            sz,
-            tex,
-            tex,
-            tex,
-            vb,
-            ib,
-            v_count,
-            i_count,
-            max_verts,
-            max_idx,
-        );
-    };
-
-    // 1. Central quill shaft
-    cube(feather_up * (0.015 * scale), [0.008 * scale, 0.140 * scale, 0.008 * scale], quill_tex);
-    // 2. Quill base
-    cube(-feather_up * (0.135 * scale), [0.006 * scale, 0.035 * scale, 0.006 * scale], quill_tex);
-    // 3. Lower vanes
-    cube(-feather_up * (0.045 * scale) + feather_right * (0.012 * scale), [0.038 * scale, 0.045 * scale, 0.005 * scale], feather_tex);
-    // 4. Middle main broad vanes
-    cube(feather_up * (0.040 * scale) + feather_right * (0.016 * scale), [0.052 * scale, 0.055 * scale, 0.005 * scale], feather_tex);
-    // 5. Upper tapered tip
-    cube(feather_up * (0.115 * scale) + feather_right * (0.008 * scale), [0.030 * scale, 0.038 * scale, 0.004 * scale], feather_tex);
-    // 6. Feather apex tip
-    cube(feather_up * (0.155 * scale), [0.012 * scale, 0.018 * scale, 0.004 * scale], feather_tex);
+    crate::gameplay::item::emit_feather_boxes(
+        pos,
+        feather_right,
+        feather_up,
+        scale,
+        |part_pos, sz, tex| {
+            append_cube_oriented(
+                part_pos,
+                feather_right,
+                feather_up,
+                feather_forward,
+                sz,
+                tex,
+                tex,
+                tex,
+                vb,
+                ib,
+                v_count,
+                i_count,
+                max_verts,
+                max_idx,
+            );
+        },
+    );
 }
 
 fn append_hand_3d(

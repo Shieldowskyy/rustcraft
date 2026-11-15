@@ -1869,18 +1869,13 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
         // Armor: Helmet
         if let Some(helmet) = &armor[0] {
             if let Some(tex) = Self::armor_material_texture(helmet.block) {
-                self.draw_oriented_box(
+                self.draw_uniform_oriented_box(
                     head_origin,
                     Vec3::new(0.0, 0.25, 0.0),
                     Vec3::new(0.54, 0.54, 0.54),
                     head_forward,
                     player_right,
                     head_up,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
                     tex,
                     hurt_tint,
                     camera_pos,
@@ -1966,7 +1961,7 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
         if let Some(chest) = &armor[1] {
             if let Some(tex) = Self::armor_material_texture(chest.block) {
                 // Torso box
-                self.draw_oriented_box(
+                self.draw_uniform_oriented_box(
                     body_origin,
                     Vec3::new(0.0, 0.35 - sneak_y_drop * 0.5, 0.0) + sneak_forward * 0.5,
                     Vec3::new(0.54, 0.72, 0.32),
@@ -1974,50 +1969,28 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
                     player_right,
                     torso_up,
                     tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
                     hurt_tint,
                     camera_pos,
                     view_proj,
                 );
                 // Shoulder pads
-                self.draw_oriented_box(
-                    left_shoulder_origin,
-                    Vec3::new(0.0, -0.16, 0.0),
-                    Vec3::new(0.28, 0.36, 0.28),
-                    left_arm_forward,
-                    player_right,
-                    left_arm_up,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    hurt_tint,
-                    camera_pos,
-                    view_proj,
-                );
-                self.draw_oriented_box(
-                    right_shoulder_origin,
-                    Vec3::new(0.0, -0.16, 0.0),
-                    Vec3::new(0.28, 0.36, 0.28),
-                    right_arm_forward,
-                    player_right,
-                    right_arm_up,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    hurt_tint,
-                    camera_pos,
-                    view_proj,
-                );
+                for &(shoulder_origin, arm_forward, arm_up) in &[
+                    (left_shoulder_origin, left_arm_forward, left_arm_up),
+                    (right_shoulder_origin, right_arm_forward, right_arm_up),
+                ] {
+                    self.draw_uniform_oriented_box(
+                        shoulder_origin,
+                        Vec3::new(0.0, -0.16, 0.0),
+                        Vec3::new(0.28, 0.36, 0.28),
+                        arm_forward,
+                        player_right,
+                        arm_up,
+                        tex,
+                        hurt_tint,
+                        camera_pos,
+                        view_proj,
+                    );
+                }
             }
         }
 
@@ -2087,7 +2060,7 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
         if let Some(legs) = &armor[2] {
             if let Some(tex) = Self::armor_material_texture(legs.block) {
                 // Belt/pelvis
-                self.draw_oriented_box(
+                self.draw_uniform_oriented_box(
                     body_origin,
                     Vec3::new(0.0, 0.12 - sneak_y_drop * 0.5, 0.0) + sneak_forward * 0.5,
                     Vec3::new(0.52, 0.24, 0.30),
@@ -2095,93 +2068,51 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
                     player_right,
                     torso_up,
                     tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
                     hurt_tint,
                     camera_pos,
                     view_proj,
                 );
-                // Left legging
-                self.draw_oriented_box(
-                    left_hip_origin,
-                    Vec3::new(0.0, -0.24, 0.0),
-                    Vec3::new(0.27, 0.48, 0.27),
-                    left_leg_forward,
-                    player_right,
-                    left_leg_up,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    hurt_tint,
-                    camera_pos,
-                    view_proj,
-                );
-                // Right legging
-                self.draw_oriented_box(
-                    right_hip_origin,
-                    Vec3::new(0.0, -0.24, 0.0),
-                    Vec3::new(0.27, 0.48, 0.27),
-                    right_leg_forward,
-                    player_right,
-                    right_leg_up,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    hurt_tint,
-                    camera_pos,
-                    view_proj,
-                );
+                // Left & right leggings
+                for &(hip_origin, leg_forward, leg_up) in &[
+                    (left_hip_origin, left_leg_forward, left_leg_up),
+                    (right_hip_origin, right_leg_forward, right_leg_up),
+                ] {
+                    self.draw_uniform_oriented_box(
+                        hip_origin,
+                        Vec3::new(0.0, -0.24, 0.0),
+                        Vec3::new(0.27, 0.48, 0.27),
+                        leg_forward,
+                        player_right,
+                        leg_up,
+                        tex,
+                        hurt_tint,
+                        camera_pos,
+                        view_proj,
+                    );
+                }
             }
         }
 
         // Armor: Boots
         if let Some(boots) = &armor[3] {
             if let Some(tex) = Self::armor_material_texture(boots.block) {
-                // Left boot
-                self.draw_oriented_box(
-                    left_hip_origin,
-                    Vec3::new(0.0, -0.58, 0.0),
-                    Vec3::new(0.28, 0.28, 0.28),
-                    left_leg_forward,
-                    player_right,
-                    left_leg_up,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    hurt_tint,
-                    camera_pos,
-                    view_proj,
-                );
-                // Right boot
-                self.draw_oriented_box(
-                    right_hip_origin,
-                    Vec3::new(0.0, -0.58, 0.0),
-                    Vec3::new(0.28, 0.28, 0.28),
-                    right_leg_forward,
-                    player_right,
-                    right_leg_up,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    tex,
-                    hurt_tint,
-                    camera_pos,
-                    view_proj,
-                );
+                for &(hip_origin, leg_forward, leg_up) in &[
+                    (left_hip_origin, left_leg_forward, left_leg_up),
+                    (right_hip_origin, right_leg_forward, right_leg_up),
+                ] {
+                    self.draw_uniform_oriented_box(
+                        hip_origin,
+                        Vec3::new(0.0, -0.58, 0.0),
+                        Vec3::new(0.28, 0.28, 0.28),
+                        leg_forward,
+                        player_right,
+                        leg_up,
+                        tex,
+                        hurt_tint,
+                        camera_pos,
+                        view_proj,
+                    );
+                }
             }
         }
 
@@ -2243,6 +2174,39 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
             None,
             &[None, None, None, None],
             camera,
+            view_proj,
+        );
+    }
+
+    #[inline]
+    fn draw_uniform_oriented_box(
+        &mut self,
+        origin: Vec3,
+        center: Vec3,
+        size: Vec3,
+        forward: Vec3,
+        right: Vec3,
+        up: Vec3,
+        tex: TextureId,
+        hurt_tint: f32,
+        camera_pos: Vec3,
+        view_proj: &Mat4,
+    ) {
+        self.draw_oriented_box(
+            origin,
+            center,
+            size,
+            forward,
+            right,
+            up,
+            tex,
+            tex,
+            tex,
+            tex,
+            tex,
+            tex,
+            hurt_tint,
+            camera_pos,
             view_proj,
         );
     }
@@ -2389,250 +2353,16 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
         scale: f32,
         view_proj: &Mat4,
     ) {
-        use crate::world::block::BlockId;
-        let mat_tex = match block {
-            BlockId::WoodenPickaxe | BlockId::WoodenAxe | BlockId::WoodenShovel | BlockId::WoodenSword | BlockId::WoodenHoe => TextureId::Planks,
-            BlockId::StonePickaxe | BlockId::StoneAxe | BlockId::StoneShovel | BlockId::StoneSword | BlockId::StoneHoe => TextureId::Stone,
-            BlockId::IronPickaxe | BlockId::IronAxe | BlockId::IronShovel | BlockId::IronSword | BlockId::IronHoe => TextureId::IronOre,
-            BlockId::GoldPickaxe | BlockId::GoldAxe | BlockId::GoldShovel | BlockId::GoldSword | BlockId::GoldHoe => TextureId::GoldBlock,
-            BlockId::DiamondPickaxe | BlockId::DiamondAxe | BlockId::DiamondShovel | BlockId::DiamondSword | BlockId::DiamondHoe => TextureId::DiamondBlock,
-            _ => TextureId::WoodSide,
-        };
-        let handle_tex = TextureId::WoodSide;
-
-        match block {
-            BlockId::Stick => {
-                // Slender wooden rod
-                self.draw_cube_3d(
-                    pos,
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.016 * scale, 0.26 * scale, 0.016 * scale],
-                    handle_tex,
-                    view_proj,
-                );
-            }
-            BlockId::WoodenSword | BlockId::StoneSword | BlockId::IronSword | BlockId::GoldSword | BlockId::DiamondSword => {
-                // Pommel
-                self.draw_cube_3d(
-                    pos - tool_up * (0.16 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.024 * scale, 0.018 * scale, 0.024 * scale],
-                    handle_tex,
-                    view_proj,
-                );
-                // Grip
-                self.draw_cube_3d(
-                    pos - tool_up * (0.08 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.016 * scale, 0.065 * scale, 0.016 * scale],
-                    handle_tex,
-                    view_proj,
-                );
-                // Crossguard
-                self.draw_cube_3d(
-                    pos,
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.085 * scale, 0.016 * scale, 0.026 * scale],
-                    mat_tex,
-                    view_proj,
-                );
-                // Blade
-                self.draw_cube_3d(
-                    pos + tool_up * (0.20 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.038 * scale, 0.180 * scale, 0.010 * scale],
-                    mat_tex,
-                    view_proj,
-                );
-                // Tip
-                self.draw_cube_3d(
-                    pos + tool_up * (0.41 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.020 * scale, 0.040 * scale, 0.008 * scale],
-                    mat_tex,
-                    view_proj,
-                );
-            }
-            BlockId::WoodenPickaxe | BlockId::StonePickaxe | BlockId::IronPickaxe | BlockId::GoldPickaxe | BlockId::DiamondPickaxe => {
-                // Handle
-                self.draw_cube_3d(
-                    pos,
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.015 * scale, 0.28 * scale, 0.015 * scale],
-                    handle_tex,
-                    view_proj,
-                );
-                // Head center mount
-                self.draw_cube_3d(
-                    pos + tool_up * (0.26 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.032 * scale, 0.032 * scale, 0.032 * scale],
-                    mat_tex,
-                    view_proj,
-                );
-                // Head crossbar
-                self.draw_cube_3d(
-                    pos + tool_up * (0.27 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.130 * scale, 0.024 * scale, 0.024 * scale],
-                    mat_tex,
-                    view_proj,
-                );
-                // Left & right pick tips
-                self.draw_cube_3d(
-                    pos + tool_up * (0.23 * scale) - tool_right * (0.12 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.018 * scale, 0.032 * scale, 0.018 * scale],
-                    mat_tex,
-                    view_proj,
-                );
-                self.draw_cube_3d(
-                    pos + tool_up * (0.23 * scale) + tool_right * (0.12 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.018 * scale, 0.032 * scale, 0.018 * scale],
-                    mat_tex,
-                    view_proj,
-                );
-            }
-            BlockId::WoodenAxe | BlockId::StoneAxe | BlockId::IronAxe | BlockId::GoldAxe | BlockId::DiamondAxe => {
-                // Handle
-                self.draw_cube_3d(
-                    pos,
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.015 * scale, 0.28 * scale, 0.015 * scale],
-                    handle_tex,
-                    view_proj,
-                );
-                // Axe Head Main
-                self.draw_cube_3d(
-                    pos + tool_up * (0.22 * scale) + tool_right * (0.045 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.048 * scale, 0.065 * scale, 0.022 * scale],
-                    mat_tex,
-                    view_proj,
-                );
-                // Blade edge
-                self.draw_cube_3d(
-                    pos + tool_up * (0.21 * scale) + tool_right * (0.088 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.014 * scale, 0.078 * scale, 0.012 * scale],
-                    mat_tex,
-                    view_proj,
-                );
-                // Poll (rear)
-                self.draw_cube_3d(
-                    pos + tool_up * (0.25 * scale) - tool_right * (0.024 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.020 * scale, 0.028 * scale, 0.020 * scale],
-                    mat_tex,
-                    view_proj,
-                );
-            }
-            BlockId::WoodenShovel | BlockId::StoneShovel | BlockId::IronShovel | BlockId::GoldShovel | BlockId::DiamondShovel => {
-                // Handle
-                self.draw_cube_3d(
-                    pos,
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.015 * scale, 0.28 * scale, 0.015 * scale],
-                    handle_tex,
-                    view_proj,
-                );
-                // Grip Topper
-                self.draw_cube_3d(
-                    pos - tool_up * (0.27 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.042 * scale, 0.014 * scale, 0.018 * scale],
-                    handle_tex,
-                    view_proj,
-                );
-                // Spade Blade
-                self.draw_cube_3d(
-                    pos + tool_up * (0.33 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.065 * scale, 0.075 * scale, 0.012 * scale],
-                    mat_tex,
-                    view_proj,
-                );
-                // Spade Tip
-                self.draw_cube_3d(
-                    pos + tool_up * (0.42 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.038 * scale, 0.018 * scale, 0.010 * scale],
-                    mat_tex,
-                    view_proj,
-                );
-            }
-            BlockId::WoodenHoe | BlockId::StoneHoe | BlockId::IronHoe | BlockId::GoldHoe | BlockId::DiamondHoe => {
-                // Handle
-                self.draw_cube_3d(
-                    pos,
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.015 * scale, 0.28 * scale, 0.015 * scale],
-                    handle_tex,
-                    view_proj,
-                );
-                // Hoe Head (Right-facing blade)
-                self.draw_cube_3d(
-                    pos + tool_up * (0.26 * scale) + tool_right * (0.04 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.08 * scale, 0.024 * scale, 0.024 * scale],
-                    mat_tex,
-                    view_proj,
-                );
-                self.draw_cube_3d(
-                    pos + tool_up * (0.22 * scale) + tool_right * (0.07 * scale),
-                    tool_right,
-                    tool_up,
-                    tool_forward,
-                    [0.024 * scale, 0.06 * scale, 0.02 * scale],
-                    mat_tex,
-                    view_proj,
-                );
-            }
-            _ => {}
-        }
+        crate::gameplay::item::emit_procedural_tool_boxes(
+            block,
+            pos,
+            tool_right,
+            tool_up,
+            scale,
+            |part_pos, half, tex| {
+                self.draw_cube_3d(part_pos, tool_right, tool_up, tool_forward, half, tex, view_proj);
+            },
+        );
     }
 
     pub fn draw_meat_3d(
@@ -2645,117 +2375,16 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
         scale: f32,
         view_proj: &Mat4,
     ) {
-        use crate::world::block::BlockId;
-        let meat_tex = match block {
-            BlockId::RawPorkchop => TextureId::RawPorkchop,
-            BlockId::CookedPorkchop => TextureId::CookedPorkchop,
-            BlockId::RawBeef => TextureId::RawBeef,
-            BlockId::CookedBeef => TextureId::CookedBeef,
-            BlockId::RawChicken => TextureId::RawChicken,
-            BlockId::CookedChicken => TextureId::CookedChicken,
-            _ => TextureId::RawBeef,
-        };
-        let bone_tex = TextureId::Bone;
-
-        match block {
-            BlockId::RawPorkchop | BlockId::CookedPorkchop => {
-                // Main chop slab
-                self.draw_cube_3d(
-                    pos,
-                    meat_right,
-                    meat_up,
-                    meat_forward,
-                    [0.065 * scale, 0.080 * scale, 0.024 * scale],
-                    meat_tex,
-                    view_proj,
-                );
-                // Secondary curved meat lobe
-                self.draw_cube_3d(
-                    pos + meat_right * (0.045 * scale) - meat_up * (0.025 * scale),
-                    meat_right,
-                    meat_up,
-                    meat_forward,
-                    [0.035 * scale, 0.055 * scale, 0.022 * scale],
-                    meat_tex,
-                    view_proj,
-                );
-                // Bone nub on corner
-                self.draw_cube_3d(
-                    pos - meat_right * (0.055 * scale) + meat_up * (0.085 * scale),
-                    meat_right,
-                    meat_up,
-                    meat_forward,
-                    [0.020 * scale, 0.030 * scale, 0.016 * scale],
-                    bone_tex,
-                    view_proj,
-                );
-            }
-            BlockId::RawBeef | BlockId::CookedBeef => {
-                // Main steak cut
-                self.draw_cube_3d(
-                    pos,
-                    meat_right,
-                    meat_up,
-                    meat_forward,
-                    [0.085 * scale, 0.070 * scale, 0.026 * scale],
-                    meat_tex,
-                    view_proj,
-                );
-                // Rib bone along edge
-                self.draw_cube_3d(
-                    pos - meat_right * (0.065 * scale) + meat_up * (0.020 * scale),
-                    meat_right,
-                    meat_up,
-                    meat_forward,
-                    [0.020 * scale, 0.045 * scale, 0.022 * scale],
-                    bone_tex,
-                    view_proj,
-                );
-                // Outer tapered lobe
-                self.draw_cube_3d(
-                    pos + meat_right * (0.050 * scale) - meat_up * (0.030 * scale),
-                    meat_right,
-                    meat_up,
-                    meat_forward,
-                    [0.045 * scale, 0.035 * scale, 0.024 * scale],
-                    meat_tex,
-                    view_proj,
-                );
-            }
-            BlockId::RawChicken | BlockId::CookedChicken => {
-                // Plump drumstick meat
-                self.draw_cube_3d(
-                    pos + meat_up * (0.035 * scale),
-                    meat_right,
-                    meat_up,
-                    meat_forward,
-                    [0.055 * scale, 0.065 * scale, 0.048 * scale],
-                    meat_tex,
-                    view_proj,
-                );
-                // Bone handle
-                self.draw_cube_3d(
-                    pos - meat_up * (0.055 * scale),
-                    meat_right,
-                    meat_up,
-                    meat_forward,
-                    [0.016 * scale, 0.040 * scale, 0.016 * scale],
-                    bone_tex,
-                    view_proj,
-                );
-                // Knuckle joint
-                self.draw_cube_3d(
-                    pos - meat_up * (0.095 * scale),
-                    meat_right,
-                    meat_up,
-                    meat_forward,
-                    [0.028 * scale, 0.016 * scale, 0.024 * scale],
-                    bone_tex,
-                    view_proj,
-                );
-            }
-            _ => {}
-        }
+        crate::gameplay::item::emit_meat_boxes(
+            block,
+            pos,
+            meat_right,
+            meat_up,
+            scale,
+            |part_pos, half, tex| {
+                self.draw_cube_3d(part_pos, meat_right, meat_up, meat_forward, half, tex, view_proj);
+            },
+        );
     }
 
     pub fn draw_feather_3d(
@@ -2767,73 +2396,14 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
         scale: f32,
         view_proj: &Mat4,
     ) {
-        let quill_tex = TextureId::Bone;
-        let feather_tex = TextureId::ChickenFeathers;
-
-        // 1. Central quill shaft (slender shaft running through the feather)
-        self.draw_cube_3d(
-            pos + feather_up * (0.015 * scale),
+        crate::gameplay::item::emit_feather_boxes(
+            pos,
             feather_right,
             feather_up,
-            feather_forward,
-            [0.008 * scale, 0.140 * scale, 0.008 * scale],
-            quill_tex,
-            view_proj,
-        );
-
-        // 2. Quill base (calamus / bare quill tip sticking out at bottom)
-        self.draw_cube_3d(
-            pos - feather_up * (0.135 * scale),
-            feather_right,
-            feather_up,
-            feather_forward,
-            [0.006 * scale, 0.035 * scale, 0.006 * scale],
-            quill_tex,
-            view_proj,
-        );
-
-        // 3. Lower vanes (feather barbs on both sides of lower shaft)
-        self.draw_cube_3d(
-            pos - feather_up * (0.045 * scale) + feather_right * (0.012 * scale),
-            feather_right,
-            feather_up,
-            feather_forward,
-            [0.038 * scale, 0.045 * scale, 0.005 * scale],
-            feather_tex,
-            view_proj,
-        );
-
-        // 4. Middle main broad vanes (broadest section of the feather)
-        self.draw_cube_3d(
-            pos + feather_up * (0.040 * scale) + feather_right * (0.016 * scale),
-            feather_right,
-            feather_up,
-            feather_forward,
-            [0.052 * scale, 0.055 * scale, 0.005 * scale],
-            feather_tex,
-            view_proj,
-        );
-
-        // 5. Upper tapered tip (tapering to a fine tip at the top)
-        self.draw_cube_3d(
-            pos + feather_up * (0.115 * scale) + feather_right * (0.008 * scale),
-            feather_right,
-            feather_up,
-            feather_forward,
-            [0.030 * scale, 0.038 * scale, 0.004 * scale],
-            feather_tex,
-            view_proj,
-        );
-
-        // 6. Feather apex tip
-        self.draw_cube_3d(
-            pos + feather_up * (0.155 * scale),
-            feather_right,
-            feather_up,
-            feather_forward,
-            [0.012 * scale, 0.018 * scale, 0.004 * scale],
-            feather_tex,
-            view_proj,
+            scale,
+            |part_pos, half, tex| {
+                self.draw_cube_3d(part_pos, feather_right, feather_up, feather_forward, half, tex, view_proj);
+            },
         );
     }
 
@@ -2846,33 +2416,9 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
         scale: f32,
         view_proj: &Mat4,
     ) {
-        self.draw_cube_3d(
-            pos,
-            arrow_right,
-            arrow_up,
-            arrow_forward,
-            [0.008 * scale, 0.15 * scale, 0.008 * scale],
-            TextureId::WoodSide,
-            view_proj,
-        );
-        self.draw_cube_3d(
-            pos + arrow_up * (0.17 * scale),
-            arrow_right,
-            arrow_up,
-            arrow_forward,
-            [0.018 * scale, 0.025 * scale, 0.018 * scale],
-            TextureId::IronOre,
-            view_proj,
-        );
-        self.draw_cube_3d(
-            pos - arrow_up * (0.12 * scale),
-            arrow_right,
-            arrow_up,
-            arrow_forward,
-            [0.032 * scale, 0.025 * scale, 0.004 * scale],
-            TextureId::ChickenFeathers,
-            view_proj,
-        );
+        crate::gameplay::item::emit_arrow_boxes(pos, arrow_up, scale, |part_pos, half, tex| {
+            self.draw_cube_3d(part_pos, arrow_right, arrow_up, arrow_forward, half, tex, view_proj);
+        });
     }
 
     pub fn draw_hand_3d(
@@ -3057,26 +2603,9 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
         scale: f32,
         view_proj: &Mat4,
     ) {
-        // Torch stick body
-        self.draw_cube_3d(
-            pos,
-            right,
-            up,
-            forward,
-            [0.025 * scale, 0.20 * scale, 0.025 * scale],
-            TextureId::Torch,
-            view_proj,
-        );
-        // Torch flame head
-        self.draw_cube_3d(
-            pos + up * (0.16 * scale),
-            right,
-            up,
-            forward,
-            [0.038 * scale, 0.05 * scale, 0.038 * scale],
-            TextureId::Torch,
-            view_proj,
-        );
+        crate::gameplay::item::emit_torch_boxes(pos, up, scale, |part_pos, half, tex| {
+            self.draw_cube_3d(part_pos, right, up, forward, half, tex, view_proj);
+        });
     }
 
     pub fn draw_celestials(&mut self, camera: &Camera, view_proj: &Mat4, day_fraction: f32) {
@@ -3419,31 +2948,7 @@ fn armor_material_texture(block: crate::world::block::BlockId) -> Option<Texture
         texture: TextureId,
         view_proj: &Mat4,
     ) {
-        let corner = |x: f32, y: f32, z: f32| {
-            center + right * (x * half[0]) + up * (y * half[1]) + forward * (z * half[2])
-        };
-        let faces = [
-            ([corner(-1.0, -1.0, 1.0), corner(1.0, -1.0, 1.0), corner(1.0, 1.0, 1.0), corner(-1.0, 1.0, 1.0)]),
-            ([corner(1.0, -1.0, -1.0), corner(-1.0, -1.0, -1.0), corner(-1.0, 1.0, -1.0), corner(1.0, 1.0, -1.0)]),
-            ([corner(-1.0, -1.0, -1.0), corner(-1.0, -1.0, 1.0), corner(-1.0, 1.0, 1.0), corner(-1.0, 1.0, -1.0)]),
-            ([corner(1.0, -1.0, 1.0), corner(1.0, -1.0, -1.0), corner(1.0, 1.0, -1.0), corner(1.0, 1.0, 1.0)]),
-            ([corner(-1.0, 1.0, 1.0), corner(1.0, 1.0, 1.0), corner(1.0, 1.0, -1.0), corner(-1.0, 1.0, -1.0)]),
-            ([corner(-1.0, -1.0, -1.0), corner(1.0, -1.0, -1.0), corner(1.0, -1.0, 1.0), corner(-1.0, -1.0, 1.0)]),
-        ];
-        for corners in faces {
-            let vertices = [
-                Vertex::new(corners[0], (0.0, 1.0), 1.0),
-                Vertex::new(corners[1], (1.0, 1.0), 1.0),
-                Vertex::new(corners[2], (1.0, 0.0), 1.0),
-                Vertex::new(corners[3], (0.0, 0.0), 1.0),
-            ];
-            let first = Triangle { v0: vertices[0], v1: vertices[1], v2: vertices[2], texture };
-            let second = Triangle { v0: vertices[0], v1: vertices[2], v2: vertices[3], texture };
-            self.raster_triangle(&first, view_proj);
-            self.raster_triangle(&second, view_proj);
-            self.raster_triangle(&Triangle { v0: first.v2, v1: first.v1, v2: first.v0, texture }, view_proj);
-            self.raster_triangle(&Triangle { v0: second.v2, v1: second.v1, v2: second.v0, texture }, view_proj);
-        }
+        self.draw_multitex_cube_3d(center, right, up, forward, half, texture, texture, texture, view_proj);
     }
 
     fn draw_multitex_cube_3d(
