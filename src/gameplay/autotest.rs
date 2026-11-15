@@ -12,7 +12,8 @@ use crate::gameplay::item::ItemEntity;
 use crate::gameplay::mob::MobKind;
 use crate::gameplay::physics::STANDING_HEIGHT;
 use crate::gameplay::player::GameMode;
-use crate::ui::draw::{draw_text_colored_shadowed, fill_rect, fill_rect_alpha, pack_color};
+use crate::ui::draw::pack_color;
+use crate::ui::widgets::{Rect, UiCanvas};
 use crate::world::block::{BlockId, Face};
 use crate::world::tile_entity::{ChestData, FurnaceData};
 
@@ -608,15 +609,16 @@ impl AutoTestRunner {
         let banner_h = 60;
         let x = (width as i32 - banner_w) / 2;
         let y = 14;
+        let banner_rect = Rect::new(x, y, banner_w, banner_h);
+        let mut ui = UiCanvas::new(buffer, width, height);
 
         // Glassmorphic translucent dark background
-        fill_rect_alpha(buffer, width, height, x, y, banner_w, banner_h, pack_color(0.04, 0.08, 0.14), 0.88);
-        fill_rect(buffer, width, height, x, y, banner_w, 2, pack_color(0.20, 0.75, 0.95));
-        fill_rect(buffer, width, height, x, y + banner_h - 2, banner_w, 2, pack_color(0.20, 0.75, 0.95));
+        ui.fill_alpha(banner_rect, pack_color(0.04, 0.08, 0.14), 0.88);
+        ui.fill(Rect::new(x, y, banner_w, 2), pack_color(0.20, 0.75, 0.95));
+        ui.fill(Rect::new(x, y + banner_h - 2, banner_w, 2), pack_color(0.20, 0.75, 0.95));
 
         // Title and status
-        let title = "AUTOTEST BOT ACTIVE";
-        draw_text_colored_shadowed(buffer, width, height, title, x + 12, y + 8, 2, 1, pack_color(0.98, 0.88, 0.35));
+        ui.text("AUTOTEST BOT ACTIVE", x + 12, y + 8, 2, 1, pack_color(0.98, 0.88, 0.35));
 
         let current_stage_idx = match self.stage {
             AutoTestStage::Init => 0,
@@ -639,46 +641,45 @@ impl AutoTestRunner {
         };
 
         let status_line = format!("Stage [{}/15]: {:?} | Passed: {}/{}", current_stage_idx, self.stage, self.passed_count(), 15);
-        draw_text_colored_shadowed(buffer, width, height, &status_line, x + 12, y + 28, 1, 1, pack_color(0.70, 0.90, 1.0));
+        ui.text(&status_line, x + 12, y + 28, 1, 1, pack_color(0.70, 0.90, 1.0));
 
         // Animated progress bar at bottom of banner
         let bar_pad = 12;
-        let bar_w = banner_w - bar_pad * 2;
-        let bar_h = 4;
-        let bar_x = x + bar_pad;
-        let bar_y = y + banner_h - 8;
-        fill_rect(buffer, width, height, bar_x, bar_y, bar_w, bar_h, pack_color(0.12, 0.18, 0.28));
         let progress = (current_stage_idx as f32 / 15.0).clamp(0.0, 1.0);
-        let filled_w = (bar_w as f32 * progress) as i32;
-        if filled_w > 0 {
-            fill_rect(buffer, width, height, bar_x, bar_y, filled_w, bar_h, pack_color(0.25, 0.90, 0.45));
-        }
+        ui.progress_bar(
+            Rect::new(x + bar_pad, y + banner_h - 8, banner_w - bar_pad * 2, 4),
+            progress,
+            pack_color(0.12, 0.18, 0.28),
+            pack_color(0.25, 0.90, 0.45),
+        );
     }
 
     /// Renders the complete test summary card when testing finishes.
     fn render_completion_card(&self, buffer: &mut [u32], width: usize, height: usize) {
-        // Full screen dark scrim backdrop
-        fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.02, 0.04, 0.08), 0.88);
+        let mut ui = UiCanvas::new(buffer, width, height);
+        ui.backdrop(None, pack_color(0.02, 0.04, 0.08), 0.88);
 
         let card_w = 860.min(width as i32 - 24);
         let card_h = 490.min(height as i32 - 20);
-        let cx = width as i32 / 2;
-        let cy = height as i32 / 2;
-        let x = cx - card_w / 2;
-        let y = cy - card_h / 2;
+        let card_rect = Rect::centered_in(width, height, card_w, card_h);
+        let cx = ui.cx();
+        let x = card_rect.x;
+        let y = card_rect.y;
 
-        // Card background & double border
-        fill_rect_alpha(buffer, width, height, x, y, card_w, card_h, pack_color(0.06, 0.09, 0.16), 0.98);
-        fill_rect(buffer, width, height, x, y, card_w, 2, pack_color(0.30, 0.55, 0.85));
-        fill_rect(buffer, width, height, x, y + card_h - 2, card_w, 2, pack_color(0.30, 0.55, 0.85));
-        fill_rect(buffer, width, height, x, y, 2, card_h, pack_color(0.30, 0.55, 0.85));
-        fill_rect(buffer, width, height, x + card_w - 2, y, 2, card_h, pack_color(0.30, 0.55, 0.85));
+        // Card background & border
+        ui.fill_alpha(card_rect, pack_color(0.06, 0.09, 0.16), 0.98);
+        ui.border(card_rect, 2, pack_color(0.30, 0.55, 0.85));
 
         // Header Title
-        let title = "RUSTCRAFT AUTOTEST SUITE";
-        draw_text_colored_shadowed(buffer, width, height, title, cx - 180, y + 15, 3, 2, pack_color(0.98, 0.88, 0.45));
-        let subtitle = "Automated Diagnostic Engine & Compliance Verification";
-        draw_text_colored_shadowed(buffer, width, height, subtitle, cx - 165, y + 42, 1, 1, pack_color(0.65, 0.78, 0.92));
+        ui.text("RUSTCRAFT AUTOTEST SUITE", cx - 180, y + 15, 3, 2, pack_color(0.98, 0.88, 0.45));
+        ui.text(
+            "Automated Diagnostic Engine & Compliance Verification",
+            cx - 165,
+            y + 42,
+            1,
+            1,
+            pack_color(0.65, 0.78, 0.92),
+        );
 
         // Result Banner (Big positive/negative indicator)
         let is_pos = self.is_positive();
@@ -689,22 +690,27 @@ impl AutoTestRunner {
         let banner_box_h = 38;
         let banner_x = x + 30;
         let banner_y = y + 58;
+        let banner_rect = Rect::new(banner_x, banner_y, banner_box_w, banner_box_h);
 
-        if is_pos {
-            // Positive green banner
-            fill_rect(buffer, width, height, banner_x, banner_y, banner_box_w, banner_box_h, pack_color(0.08, 0.35, 0.16));
-            fill_rect(buffer, width, height, banner_x, banner_y, banner_box_w, 2, pack_color(0.30, 0.95, 0.40));
-            fill_rect(buffer, width, height, banner_x, banner_y + banner_box_h - 2, banner_box_w, 2, pack_color(0.30, 0.95, 0.40));
-            let banner_text = format!("RESULT: POSITIVE  -  ALL {}/{} TESTS PASSED", passed, total);
-            draw_text_colored_shadowed(buffer, width, height, &banner_text, cx - 195, banner_y + 11, 2, 2, pack_color(1.0, 1.0, 1.0));
+        let (banner_bg, banner_edge, banner_text, text_x) = if is_pos {
+            (
+                pack_color(0.08, 0.35, 0.16),
+                pack_color(0.30, 0.95, 0.40),
+                format!("RESULT: POSITIVE  -  ALL {}/{} TESTS PASSED", passed, total),
+                cx - 195,
+            )
         } else {
-            // Negative red banner
-            fill_rect(buffer, width, height, banner_x, banner_y, banner_box_w, banner_box_h, pack_color(0.45, 0.10, 0.10));
-            fill_rect(buffer, width, height, banner_x, banner_y, banner_box_w, 2, pack_color(0.95, 0.30, 0.30));
-            fill_rect(buffer, width, height, banner_x, banner_y + banner_box_h - 2, banner_box_w, 2, pack_color(0.95, 0.30, 0.30));
-            let banner_text = format!("RESULT: NEGATIVE  -  {}/{} TESTS PASSED", passed, total);
-            draw_text_colored_shadowed(buffer, width, height, &banner_text, cx - 180, banner_y + 11, 2, 2, pack_color(1.0, 1.0, 1.0));
-        }
+            (
+                pack_color(0.45, 0.10, 0.10),
+                pack_color(0.95, 0.30, 0.30),
+                format!("RESULT: NEGATIVE  -  {}/{} TESTS PASSED", passed, total),
+                cx - 180,
+            )
+        };
+        ui.fill(banner_rect, banner_bg);
+        ui.fill(Rect::new(banner_x, banner_y, banner_box_w, 2), banner_edge);
+        ui.fill(Rect::new(banner_x, banner_y + banner_box_h - 2, banner_box_w, 2), banner_edge);
+        ui.text_white(&banner_text, text_x, banner_y + 11, 2, 2);
 
         // Two-column list of all 15 tests
         let col1_x = x + 30;
@@ -719,25 +725,22 @@ impl AutoTestRunner {
                 (col2_x, row_start_y + (idx - 8) as i32 * row_step_y)
             };
 
-            // Badge [PASS] or [FAIL]
             if r.passed {
-                draw_text_colored_shadowed(buffer, width, height, "[PASS]", rx, ry, 1, 1, pack_color(0.25, 0.95, 0.40));
+                ui.text("[PASS]", rx, ry, 1, 1, pack_color(0.25, 0.95, 0.40));
             } else {
-                draw_text_colored_shadowed(buffer, width, height, "[FAIL]", rx, ry, 1, 1, pack_color(0.95, 0.25, 0.25));
+                ui.text("[FAIL]", rx, ry, 1, 1, pack_color(0.95, 0.25, 0.25));
             }
 
-            // Name
             let label = format!("{:02}. {}", r.id, r.name);
-            draw_text_colored_shadowed(buffer, width, height, &label, rx + 42, ry, 1, 1, pack_color(0.95, 0.95, 0.95));
+            ui.text(&label, rx + 42, ry, 1, 1, pack_color(0.95, 0.95, 0.95));
 
-            // Short detail / duration
             let detail = format!("{}ms", r.duration_ms);
-            draw_text_colored_shadowed(buffer, width, height, &detail, rx + 325, ry, 1, 1, pack_color(0.60, 0.75, 0.85));
+            ui.text(&detail, rx + 325, ry, 1, 1, pack_color(0.60, 0.75, 0.85));
         }
 
         // Footer telemetry and dismissal guide
         let footer_y = y + card_h - 38;
-        fill_rect(buffer, width, height, x + 20, footer_y - 8, card_w - 40, 1, pack_color(0.20, 0.35, 0.50));
+        ui.fill(Rect::new(x + 20, footer_y - 8, card_w - 40, 1), pack_color(0.20, 0.35, 0.50));
 
         let summary = format!(
             "Score: {}/{} | Status: {} | Total Time: {:.2}s",
@@ -746,10 +749,10 @@ impl AutoTestRunner {
             if is_pos { "POSITIVE" } else { "NEGATIVE" },
             self.total_time
         );
-        draw_text_colored_shadowed(buffer, width, height, &summary, x + 30, footer_y, 1, 1, pack_color(0.75, 0.85, 0.95));
+        ui.text(&summary, x + 30, footer_y, 1, 1, pack_color(0.75, 0.85, 0.95));
 
         let prompt = "Press [ESC], [ENTER] or Controller [A] / [START] to dismiss";
-        draw_text_colored_shadowed(buffer, width, height, prompt, x + card_w - 380, footer_y, 1, 1, pack_color(0.95, 0.85, 0.45));
+        ui.text(prompt, x + card_w - 380, footer_y, 1, 1, pack_color(0.95, 0.85, 0.45));
     }
 
     /// Renders a small persistent badge at the top-right if user dismissed the full completion modal.
@@ -762,16 +765,17 @@ impl AutoTestRunner {
         let badge_h = 24;
         let x = width as i32 - badge_w - 12;
         let y = 10;
+        let mut ui = UiCanvas::new(buffer, width, height);
 
-        fill_rect_alpha(buffer, width, height, x, y, badge_w, badge_h, pack_color(0.04, 0.08, 0.12), 0.85);
+        ui.fill_alpha(Rect::new(x, y, badge_w, badge_h), pack_color(0.04, 0.08, 0.12), 0.85);
 
         let border_col = if is_pos {
             pack_color(0.25, 0.95, 0.40)
         } else {
             pack_color(0.95, 0.25, 0.25)
         };
-        fill_rect(buffer, width, height, x, y, badge_w, 1, border_col);
-        fill_rect(buffer, width, height, x, y + badge_h - 1, badge_w, 1, border_col);
+        ui.fill(Rect::new(x, y, badge_w, 1), border_col);
+        ui.fill(Rect::new(x, y + badge_h - 1, badge_w, 1), border_col);
 
         let text = format!(
             "AUTOTEST: {} ({}/{}) [ESC: Report]",
@@ -779,7 +783,7 @@ impl AutoTestRunner {
             passed,
             total
         );
-        draw_text_colored_shadowed(buffer, width, height, &text, x + 8, y + 7, 1, 1, border_col);
+        ui.text(&text, x + 8, y + 7, 1, 1, border_col);
     }
 }
 

@@ -1,7 +1,8 @@
 use crate::gameplay::inventory::ItemStack;
 use crate::gameplay::player::{GameMode, Player};
 use crate::gameplay::recipe::RecipeBook;
-use crate::ui::draw::{draw_text_colored_shadowed, draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color};
+use crate::ui::draw::{fill_rect, fill_rect_alpha, pack_color};
+use crate::ui::widgets::{Grid, Rect, UiCanvas};
 use crate::world::block::{BlockId, Face};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -568,234 +569,140 @@ impl InventoryLayout {
         }
     }
 
+    #[inline]
+    pub const fn creative_tabs_grid(&self) -> Grid {
+        Grid::new(self.start_x - 3, self.start_y - 24, CREATIVE_TABS.len(), 1, 75, 26, 79, 26)
+    }
+
+    #[inline]
+    pub const fn creative_items_grid(&self) -> Grid {
+        Grid::square(self.start_x + 22, self.start_y + 36, 9, 4, 38, 4)
+    }
+
+    #[inline]
+    pub const fn hotbar_grid(&self, offset_y: i32) -> Grid {
+        Grid::square(self.start_x + 16, self.start_y + offset_y, 10, 1, 38, 2)
+    }
+
+    #[inline]
+    pub const fn main_grid(&self, offset_y: i32) -> Grid {
+        Grid::square(self.start_x + 22, self.start_y + offset_y, 9, 3, 38, 4)
+    }
+
+    #[inline]
+    pub const fn armor_grid(&self, offset_x: i32, offset_y: i32) -> Grid {
+        Grid::square(self.start_x + offset_x, self.start_y + offset_y, 1, 4, 24, 2)
+    }
+
+    #[inline]
+    pub const fn crafting_2x2_grid(&self, offset_y: i32) -> Grid {
+        Grid::square(self.start_x + 220, self.start_y + offset_y, 2, 2, 36, 4)
+    }
+
+    #[inline]
+    pub const fn crafting_3x3_grid(&self) -> Grid {
+        Grid::square(self.start_x + 40, self.start_y + 35, 3, 3, 36, 4)
+    }
+
+    #[inline]
+    pub const fn trash_rect(&self, offset_y: i32) -> Rect {
+        Rect::new(self.start_x + 420, self.start_y + offset_y, 36, 38)
+    }
+
     pub fn find_slot_at(&self, px: i32, py: i32, player: &Player) -> Option<InventorySlotTarget> {
         if player.gamemode == GameMode::Creative {
-            // Check top tabs (6 tabs)
-            for i in 0..CREATIVE_TABS.len() {
-                let tab_x = self.start_x - 3 + i as i32 * 79;
-                let tab_y = self.start_y - 24;
-                if px >= tab_x && px < tab_x + 75 && py >= tab_y && py < tab_y + 26 {
-                    return Some(InventorySlotTarget::CreativeTab(i));
-                }
+            if let Some(tab_idx) = self.creative_tabs_grid().hit_test(px, py) {
+                return Some(InventorySlotTarget::CreativeTab(tab_idx));
             }
 
             if player.creative_tab < CREATIVE_TABS.len() - 1 {
-                // Creative item grid (9 cols x 4 rows) with scroll offset
                 let blocks = creative_tab_blocks(player.creative_tab);
                 let total_rows = (blocks.len() + 8) / 9;
                 let max_scroll = total_rows.saturating_sub(4);
                 let scroll_row = player.creative_scroll.min(max_scroll);
                 let scroll_offset = scroll_row * 9;
 
-                let grid_x = self.start_x + 22;
-                let grid_y = self.start_y + 36;
-                for row in 0..4 {
-                    for col in 0..9 {
-                        let idx = scroll_offset + row * 9 + col;
-                        if idx < blocks.len() {
-                            let x = grid_x + col as i32 * 42;
-                            let y = grid_y + row as i32 * 42;
-                            if px >= x && px < x + 38 && py >= y && py < y + 38 {
-                                return Some(InventorySlotTarget::Creative(blocks[idx].to_u8()));
-                            }
-                        }
+                if let Some(cell_idx) = self.creative_items_grid().hit_test(px, py) {
+                    let idx = scroll_offset + cell_idx;
+                    if idx < blocks.len() {
+                        return Some(InventorySlotTarget::Creative(blocks[idx].to_u8()));
                     }
                 }
 
-                // Scrollbar Up and Down buttons
                 let sb_x = self.start_x + 404;
-                if px >= sb_x && px < sb_x + 18 {
-                    if py >= self.start_y + 36 && py < self.start_y + 54 {
-                        return Some(InventorySlotTarget::CreativeScrollUp);
-                    }
-                    if py >= self.start_y + 186 && py < self.start_y + 204 {
-                        return Some(InventorySlotTarget::CreativeScrollDown);
-                    }
+                if Rect::new(sb_x, self.start_y + 36, 18, 18).contains_point(px, py) {
+                    return Some(InventorySlotTarget::CreativeScrollUp);
+                }
+                if Rect::new(sb_x, self.start_y + 186, 18, 18).contains_point(px, py) {
+                    return Some(InventorySlotTarget::CreativeScrollDown);
                 }
 
-                // Hotbar: 10 slots
-                let hotbar_x = self.start_x + 16;
-                let hotbar_y = self.start_y + 242;
-                for i in 0..10 {
-                    let x = hotbar_x + i as i32 * 40;
-                    let y = hotbar_y;
-                    if px >= x && px < x + 38 && py >= y && py < y + 38 {
-                        return Some(InventorySlotTarget::Hotbar(i));
-                    }
+                if let Some(slot) = self.hotbar_grid(242).hit_test(px, py) {
+                    return Some(InventorySlotTarget::Hotbar(slot));
                 }
-
-                // Trash slot
-                let trash_x = self.start_x + 420;
-                let trash_y = self.start_y + 242;
-                if px >= trash_x && px < trash_x + 36 && py >= trash_y && py < trash_y + 38 {
+                if self.trash_rect(242).contains_point(px, py) {
                     return Some(InventorySlotTarget::Trash);
                 }
-
                 return None;
             } else {
-                // Tab 3: Survival Inventory in Creative
-                // Hotbar: 10 slots
-                let hotbar_x = self.start_x + 16;
-                let hotbar_y = self.start_y + 276;
-                for i in 0..10 {
-                    let x = hotbar_x + i as i32 * 40;
-                    let y = hotbar_y;
-                    if px >= x && px < x + 38 && py >= y && py < y + 38 {
-                        return Some(InventorySlotTarget::Hotbar(i));
-                    }
+                // Survival Inventory tab inside Creative
+                if let Some(slot) = self.hotbar_grid(276).hit_test(px, py) {
+                    return Some(InventorySlotTarget::Hotbar(slot));
                 }
-
-                // Trash slot
-                let trash_x = self.start_x + 420;
-                let trash_y = self.start_y + 276;
-                if px >= trash_x && px < trash_x + 36 && py >= trash_y && py < trash_y + 38 {
+                if self.trash_rect(276).contains_point(px, py) {
                     return Some(InventorySlotTarget::Trash);
                 }
-
-                // Armor slots (4 vertical slots)
-                let armor_x = self.start_x + 22;
-                let armor_y_start = self.start_y + 36;
-                for i in 0..4 {
-                    let y = armor_y_start + i * 26;
-                    if px >= armor_x && px < armor_x + 24 && py >= y && py < y + 24 {
-                        return Some(InventorySlotTarget::Armor(i as usize));
-                    }
+                if let Some(i) = self.armor_grid(22, 36).hit_test(px, py) {
+                    return Some(InventorySlotTarget::Armor(i));
                 }
-                // Offhand slot
-                let offhand_x = self.start_x + 82;
-                let offhand_y = self.start_y + 114;
-                if px >= offhand_x && px < offhand_x + 24 && py >= offhand_y && py < offhand_y + 24 {
+                if Rect::new(self.start_x + 82, self.start_y + 114, 24, 24).contains_point(px, py) {
                     return Some(InventorySlotTarget::Offhand);
                 }
-
-                // Main inventory: 3 rows x 9 cols (27 slots)
-                let main_x = self.start_x + 22;
-                let main_y = self.start_y + 144;
-                for row in 0..3 {
-                    for col in 0..9 {
-                        let x = main_x + col as i32 * 42;
-                        let y = main_y + row as i32 * 42;
-                        if px >= x && px < x + 38 && py >= y && py < y + 38 {
-                            return Some(InventorySlotTarget::Main(row * 9 + col));
-                        }
-                    }
+                if let Some(slot) = self.main_grid(144).hit_test(px, py) {
+                    return Some(InventorySlotTarget::Main(slot));
                 }
-
-                // 2x2 crafting grid
-                let craft_x = self.start_x + 220;
-                let craft_y = self.start_y + 42;
-                for row in 0..2 {
-                    for col in 0..2 {
-                        let x = craft_x + col as i32 * 40;
-                        let y = craft_y + row as i32 * 40;
-                        if px >= x && px < x + 36 && py >= y && py < y + 36 {
-                            return Some(InventorySlotTarget::Crafting2x2(row * 2 + col));
-                        }
-                    }
+                if let Some(slot) = self.crafting_2x2_grid(42).hit_test(px, py) {
+                    return Some(InventorySlotTarget::Crafting2x2(slot));
                 }
-                // 2x2 Output slot
-                let out_x = self.start_x + 350;
-                let out_y = self.start_y + 60;
-                if px >= out_x && px < out_x + 42 && py >= out_y && py < out_y + 42 {
+                if Rect::new(self.start_x + 350, self.start_y + 60, 42, 42).contains_point(px, py) {
                     return Some(InventorySlotTarget::CraftingOutput);
                 }
-
                 return None;
             }
         }
 
         // Survival Mode (regular)
-        let hotbar_x = self.start_x + 16;
-        let hotbar_y = self.start_y + 295;
-        for i in 0..10 {
-            let x = hotbar_x + i as i32 * 40;
-            let y = hotbar_y;
-            if px >= x && px < x + 38 && py >= y && py < y + 38 {
-                return Some(InventorySlotTarget::Hotbar(i));
-            }
+        if let Some(slot) = self.hotbar_grid(295).hit_test(px, py) {
+            return Some(InventorySlotTarget::Hotbar(slot));
         }
-
-        // Main inventory: 3 rows x 9 cols (27 slots)
-        let main_x = self.start_x + 22;
-        let main_y = self.start_y + 160;
-        for row in 0..3 {
-            for col in 0..9 {
-                let x = main_x + col as i32 * 42;
-                let y = main_y + row as i32 * 42;
-                if px >= x && px < x + 38 && py >= y && py < y + 38 {
-                    return Some(InventorySlotTarget::Main(row * 9 + col));
-                }
-            }
+        if let Some(slot) = self.main_grid(160).hit_test(px, py) {
+            return Some(InventorySlotTarget::Main(slot));
         }
 
         if self.crafting_table_open {
-            // Armor slots (4 vertical slots inside right preview panel)
-            let armor_x = self.start_x + 300;
-            let armor_y_start = self.start_y + 34;
-            for i in 0..4 {
-                let y = armor_y_start + i * 26;
-                if px >= armor_x && px < armor_x + 24 && py >= y && py < y + 24 {
-                    return Some(InventorySlotTarget::Armor(i as usize));
-                }
+            if let Some(i) = self.armor_grid(300, 34).hit_test(px, py) {
+                return Some(InventorySlotTarget::Armor(i));
             }
-            // Offhand slot
-            let offhand_x = self.start_x + 360;
-            let offhand_y = self.start_y + 112;
-            if px >= offhand_x && px < offhand_x + 24 && py >= offhand_y && py < offhand_y + 24 {
+            if Rect::new(self.start_x + 360, self.start_y + 112, 24, 24).contains_point(px, py) {
                 return Some(InventorySlotTarget::Offhand);
             }
-
-            // 3x3 crafting grid
-            let craft_x = self.start_x + 40;
-            let craft_y = self.start_y + 35;
-            for row in 0..3 {
-                for col in 0..3 {
-                    let x = craft_x + col as i32 * 40;
-                    let y = craft_y + row as i32 * 40;
-                    if px >= x && px < x + 36 && py >= y && py < y + 36 {
-                        return Some(InventorySlotTarget::Crafting3x3(row * 3 + col));
-                    }
-                }
+            if let Some(slot) = self.crafting_3x3_grid().hit_test(px, py) {
+                return Some(InventorySlotTarget::Crafting3x3(slot));
             }
-            // 3x3 Output slot
-            let out_x = self.start_x + 230;
-            let out_y = self.start_y + 75;
-            if px >= out_x && px < out_x + 42 && py >= out_y && py < out_y + 42 {
+            if Rect::new(self.start_x + 230, self.start_y + 75, 42, 42).contains_point(px, py) {
                 return Some(InventorySlotTarget::CraftingOutput);
             }
         } else {
-            // Armor slots (4 vertical slots on left of Steve)
-            let armor_x = self.start_x + 18;
-            let armor_y_start = self.start_y + 34;
-            for i in 0..4 {
-                let y = armor_y_start + i * 26;
-                if px >= armor_x && px < armor_x + 24 && py >= y && py < y + 24 {
-                    return Some(InventorySlotTarget::Armor(i as usize));
-                }
+            if let Some(i) = self.armor_grid(18, 34).hit_test(px, py) {
+                return Some(InventorySlotTarget::Armor(i));
             }
-            // Offhand slot
-            let offhand_x = self.start_x + 78;
-            let offhand_y = self.start_y + 112;
-            if px >= offhand_x && px < offhand_x + 24 && py >= offhand_y && py < offhand_y + 24 {
+            if Rect::new(self.start_x + 78, self.start_y + 112, 24, 24).contains_point(px, py) {
                 return Some(InventorySlotTarget::Offhand);
             }
-
-            // 2x2 crafting grid
-            let craft_x = self.start_x + 220;
-            let craft_y = self.start_y + 48;
-            for row in 0..2 {
-                for col in 0..2 {
-                    let x = craft_x + col as i32 * 40;
-                    let y = craft_y + row as i32 * 40;
-                    if px >= x && px < x + 36 && py >= y && py < y + 36 {
-                        return Some(InventorySlotTarget::Crafting2x2(row * 2 + col));
-                    }
-                }
+            if let Some(slot) = self.crafting_2x2_grid(48).hit_test(px, py) {
+                return Some(InventorySlotTarget::Crafting2x2(slot));
             }
-            // 2x2 Output slot
-            let out_x = self.start_x + 350;
-            let out_y = self.start_y + 68;
-            if px >= out_x && px < out_x + 42 && py >= out_y && py < out_y + 42 {
+            if Rect::new(self.start_x + 350, self.start_y + 68, 42, 42).contains_point(px, py) {
                 return Some(InventorySlotTarget::CraftingOutput);
             }
         }
@@ -815,9 +722,7 @@ impl InventoryLayout {
             return None;
         }
 
-        let button_x = self.start_x + 190;
-        let button_y = self.start_y + 36;
-        if px >= button_x && px < button_x + 88 && py >= button_y && py < button_y + 20 {
+        if Rect::new(self.start_x + 190, self.start_y + 36, 88, 20).contains_point(px, py) {
             return Some(InventorySlotTarget::RecipeBookToggle);
         }
 
@@ -828,9 +733,9 @@ impl InventoryLayout {
         let list_x = self.start_x + 302;
         let list_y = self.start_y + 51;
         let first = recipe_book_scroll.min(unlocked_recipe_indices.len());
-        for (row, &recipe_index) in unlocked_recipe_indices.iter().skip(first).take(5).enumerate() {
-            let y = list_y + row as i32 * 15;
-            if px >= list_x + 3 && px < list_x + 147 && py >= y && py < y + 15 {
+        let rows_grid = Grid::new(list_x + 3, list_y, 1, 5, 144, 15, 144, 15);
+        if let Some(row) = rows_grid.hit_test(px, py) {
+            if let Some(&recipe_index) = unlocked_recipe_indices.get(first + row) {
                 return Some(InventorySlotTarget::RecipeEntry(recipe_index));
             }
         }
@@ -1081,6 +986,50 @@ pub fn draw_armor_and_offhand_slots(
     }
 }
 
+fn draw_player_vitals_panel(ui: &mut UiCanvas<'_>, x: i32, y: i32, bar_w: i32, player: &Player) {
+    ui.text("PLAYER", x, y + 10, 1, 1, pack_color(1.0, 0.88, 0.25));
+
+    let hp_text = format!("HP: {}/20", player.health as i32);
+    ui.text(&hp_text, x, y + 24, 1, 1, pack_color(1.0, 0.35, 0.35));
+    let hp_ratio = (player.health / 20.0).clamp(0.0, 1.0);
+    ui.progress_bar(
+        Rect::new(x, y + 36, bar_w, 4),
+        hp_ratio,
+        pack_color(0.25, 0.05, 0.05),
+        pack_color(0.9, 0.2, 0.2),
+    );
+
+    let hunger_text = format!("HUNGER: {}/20", player.hunger as i32);
+    ui.text(&hunger_text, x, y + 46, 1, 1, pack_color(1.0, 0.65, 0.2));
+    let hunger_ratio = (player.hunger / player.max_hunger.max(1.0)).clamp(0.0, 1.0);
+    ui.progress_bar(
+        Rect::new(x, y + 58, bar_w, 4),
+        hunger_ratio,
+        pack_color(0.25, 0.15, 0.05),
+        pack_color(0.9, 0.55, 0.15),
+    );
+
+    let def = player.armor_defense_points();
+    if def > 0.0 {
+        let def_text = format!("ARMOR: {:.0}", def);
+        ui.text(&def_text, x, y + 68, 1, 1, pack_color(0.8, 0.85, 0.95));
+    } else if player.fire_timer > 0.0 {
+        ui.text("BURNING!", x, y + 70, 1, 1, pack_color(1.0, 0.5, 0.1));
+    } else {
+        ui.text("STATUS: OK", x, y + 70, 1, 1, pack_color(0.4, 0.85, 0.4));
+    }
+}
+
+fn draw_trash_slot(ui: &mut UiCanvas<'_>, rect: Rect, is_hovered: bool) {
+    let trash_border = if is_hovered {
+        pack_color(1.0, 0.25, 0.25)
+    } else {
+        pack_color(0.45, 0.18, 0.18)
+    };
+    ui.bordered_box(rect, 2, pack_color(0.16, 0.08, 0.08), trash_border);
+    draw_trash_icon(ui.buffer, ui.width, ui.height, rect.x + 6, rect.y + 7);
+}
+
 pub fn draw_inventory_screen(
     buffer: &mut [u32],
     width: usize,
@@ -1096,7 +1045,8 @@ pub fn draw_inventory_screen(
     mouse_pos: Option<(f32, f32)>,
     is_gamepad_active: bool,
 ) {
-    fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.0, 0.0, 0.0), 0.55);
+    let mut ui = UiCanvas::new(buffer, width, height);
+    ui.backdrop(None, pack_color(0.0, 0.0, 0.0), 0.55);
 
     let layout = InventoryLayout::new(width, height, crafting_table_open);
     let start_x = layout.start_x;
@@ -1104,9 +1054,9 @@ pub fn draw_inventory_screen(
 
     if player.gamemode == GameMode::Creative {
         // Draw 6 Top Tabs
-        for i in 0..CREATIVE_TABS.len() {
-            let tab_x = start_x - 3 + i as i32 * 79;
-            let tab_y = start_y - 24;
+        let tabs_grid = layout.creative_tabs_grid();
+        for (i, &label) in CREATIVE_TABS.iter().enumerate() {
+            let tab_rect = tabs_grid.slot(i);
             let is_active = player.creative_tab == i;
             let is_hovered = hovered_slot == Some(InventorySlotTarget::CreativeTab(i));
 
@@ -1126,10 +1076,10 @@ pub fn draw_inventory_screen(
                 pack_color(0.30, 0.30, 0.34)
             };
 
-            fill_rect(buffer, width, height, tab_x, tab_y, 75, 26, bg_color);
-            fill_rect(buffer, width, height, tab_x, tab_y, 75, 2, border_top);
-            fill_rect(buffer, width, height, tab_x, tab_y, 2, 26, border_top);
-            fill_rect(buffer, width, height, tab_x + 73, tab_y, 2, 26, pack_color(0.06, 0.06, 0.08));
+            ui.fill(tab_rect, bg_color);
+            ui.fill(Rect::new(tab_rect.x, tab_rect.y, tab_rect.w, 2), border_top);
+            ui.fill(Rect::new(tab_rect.x, tab_rect.y, 2, tab_rect.h), border_top);
+            ui.fill(Rect::new(tab_rect.right() - 2, tab_rect.y, 2, tab_rect.h), pack_color(0.06, 0.06, 0.08));
 
             let text_color = if is_active {
                 pack_color(1.0, 0.95, 0.3)
@@ -1138,20 +1088,13 @@ pub fn draw_inventory_screen(
             } else {
                 pack_color(0.55, 0.55, 0.60)
             };
-
-            let label = CREATIVE_TABS[i];
-            let tw = crate::graphics::font::measure_text(label, 1, 1);
-            let tx = tab_x + (75 - tw) / 2;
-            let ty = tab_y + 8;
-            draw_text_colored_shadowed(buffer, width, height, label, tx, ty, 1, 1, text_color);
+            ui.text_centered_x(label, tab_rect.center_x(), tab_rect.y + 8, 1, 1, text_color);
         }
 
         // Main creative window frame
-        fill_rect_alpha(buffer, width, height, start_x - 8, start_y, 480, 360, pack_color(0.14, 0.14, 0.16), 0.98);
-        fill_rect(buffer, width, height, start_x - 8, start_y, 480, 3, pack_color(0.38, 0.38, 0.42));
-        fill_rect(buffer, width, height, start_x - 8, start_y + 357, 480, 3, pack_color(0.05, 0.05, 0.06));
-        fill_rect(buffer, width, height, start_x - 8, start_y, 3, 360, pack_color(0.38, 0.38, 0.42));
-        fill_rect(buffer, width, height, start_x + 469, start_y, 3, 360, pack_color(0.05, 0.05, 0.06));
+        let win_rect = Rect::new(start_x - 8, start_y, 480, 360);
+        ui.fill_alpha(win_rect, pack_color(0.14, 0.14, 0.16), 0.98);
+        ui.bevel_border(win_rect, 3, pack_color(0.38, 0.38, 0.42), pack_color(0.05, 0.05, 0.06));
 
         if player.creative_tab < CREATIVE_TABS.len() - 1 {
             // Category title
@@ -1163,7 +1106,7 @@ pub fn draw_inventory_screen(
                 4 => "ALL ITEMS & BLOCKS",
                 _ => "",
             };
-            draw_text_shadowed(buffer, width, height, title, start_x + 18, start_y + 14, 2, 1);
+            ui.text_white(title, start_x + 18, start_y + 14, 2, 1);
 
             // Creative block grid (9 cols x 4 rows) with scroll offset
             let blocks = creative_tab_blocks(player.creative_tab);
@@ -1172,22 +1115,16 @@ pub fn draw_inventory_screen(
             let scroll_row = player.creative_scroll.min(max_scroll);
             let scroll_offset = scroll_row * 9;
 
-            let grid_x = start_x + 22;
-            let grid_y = start_y + 36;
-            for row in 0..4 {
-                for col in 0..9 {
-                    let idx = scroll_offset + row * 9 + col;
-                    let x = grid_x + col as i32 * 42;
-                    let y = grid_y + row as i32 * 42;
-
-                    if idx < blocks.len() {
-                        let block = blocks[idx];
-                        let is_hovered = hovered_slot == Some(InventorySlotTarget::Creative(block.to_u8()));
-                        draw_slot_custom(buffer, width, height, x, y, 38, 38, Some(ItemStack::new(block, 64)), is_hovered, None);
-                    } else {
-                        // Empty slot frame
-                        draw_slot_custom(buffer, width, height, x, y, 38, 38, None, false, Some(pack_color(0.18, 0.18, 0.20)));
-                    }
+            let items_grid = layout.creative_items_grid();
+            for cell_idx in 0..36 {
+                let idx = scroll_offset + cell_idx;
+                let cell = items_grid.slot(cell_idx);
+                if idx < blocks.len() {
+                    let block = blocks[idx];
+                    let is_hovered = hovered_slot == Some(InventorySlotTarget::Creative(block.to_u8()));
+                    ui.inventory_slot(cell, Some(ItemStack::new(block, 64)), is_hovered, None);
+                } else {
+                    ui.inventory_slot(cell, None, false, Some(pack_color(0.18, 0.18, 0.20)));
                 }
             }
 
@@ -1198,16 +1135,16 @@ pub fn draw_inventory_screen(
 
             // Up button
             let up_bg = if is_up_hover { pack_color(0.28, 0.28, 0.32) } else { pack_color(0.18, 0.18, 0.22) };
-            fill_rect(buffer, width, height, sb_x, start_y + 36, 18, 16, up_bg);
-            fill_rect(buffer, width, height, sb_x, start_y + 36, 18, 1, pack_color(0.4, 0.4, 0.45));
-            draw_text_colored_shadowed(buffer, width, height, "^", sb_x + 6, start_y + 40, 1, 1, pack_color(0.9, 0.9, 0.95));
+            ui.fill(Rect::new(sb_x, start_y + 36, 18, 16), up_bg);
+            ui.fill(Rect::new(sb_x, start_y + 36, 18, 1), pack_color(0.4, 0.4, 0.45));
+            ui.text("^", sb_x + 6, start_y + 40, 1, 1, pack_color(0.9, 0.9, 0.95));
 
             // Track
             let track_y = start_y + 54;
             let track_h = 130;
-            fill_rect(buffer, width, height, sb_x, track_y, 18, track_h, pack_color(0.10, 0.10, 0.12));
-            fill_rect(buffer, width, height, sb_x, track_y, 1, track_h, pack_color(0.06, 0.06, 0.08));
-            fill_rect(buffer, width, height, sb_x + 17, track_y, 1, track_h, pack_color(0.22, 0.22, 0.26));
+            ui.fill(Rect::new(sb_x, track_y, 18, track_h), pack_color(0.10, 0.10, 0.12));
+            ui.fill(Rect::new(sb_x, track_y, 1, track_h), pack_color(0.06, 0.06, 0.08));
+            ui.fill(Rect::new(sb_x + 17, track_y, 1, track_h), pack_color(0.22, 0.22, 0.26));
 
             // Thumb
             let thumb_h = if total_rows > 4 {
@@ -1220,36 +1157,30 @@ pub fn draw_inventory_screen(
             } else {
                 track_y
             };
-            fill_rect(buffer, width, height, sb_x + 2, thumb_y, 14, thumb_h, pack_color(0.38, 0.38, 0.44));
-            fill_rect(buffer, width, height, sb_x + 2, thumb_y, 14, 1, pack_color(0.55, 0.55, 0.62));
-            fill_rect(buffer, width, height, sb_x + 2, thumb_y, 1, thumb_h, pack_color(0.55, 0.55, 0.62));
-            fill_rect(buffer, width, height, sb_x + 15, thumb_y, 1, thumb_h, pack_color(0.20, 0.20, 0.24));
-            fill_rect(buffer, width, height, sb_x + 2, thumb_y + thumb_h - 1, 14, 1, pack_color(0.20, 0.20, 0.24));
+            let thumb_rect = Rect::new(sb_x + 2, thumb_y, 14, thumb_h);
+            ui.fill(thumb_rect, pack_color(0.38, 0.38, 0.44));
+            ui.bevel_border(thumb_rect, 1, pack_color(0.55, 0.55, 0.62), pack_color(0.20, 0.20, 0.24));
 
             // Down button
             let down_bg = if is_down_hover { pack_color(0.28, 0.28, 0.32) } else { pack_color(0.18, 0.18, 0.22) };
-            fill_rect(buffer, width, height, sb_x, start_y + 186, 18, 16, down_bg);
-            fill_rect(buffer, width, height, sb_x, start_y + 186, 18, 1, pack_color(0.4, 0.4, 0.45));
-            draw_text_colored_shadowed(buffer, width, height, "v", sb_x + 6, start_y + 190, 1, 1, pack_color(0.9, 0.9, 0.95));
+            ui.fill(Rect::new(sb_x, start_y + 186, 18, 16), down_bg);
+            ui.fill(Rect::new(sb_x, start_y + 186, 18, 1), pack_color(0.4, 0.4, 0.45));
+            ui.text("v", sb_x + 6, start_y + 190, 1, 1, pack_color(0.9, 0.9, 0.95));
 
             // Row counter
             if total_rows > 4 {
                 let row_info = format!("{}/{}", scroll_row + 1, max_scroll + 1);
-                let rw = crate::graphics::font::measure_text(&row_info, 1, 1);
-                draw_text_colored_shadowed(buffer, width, height, &row_info, sb_x + 18 - rw, start_y + 206, 1, 1, pack_color(0.60, 0.60, 0.65));
+                ui.text_right(&row_info, sb_x + 18, start_y + 206, 1, 1, pack_color(0.60, 0.60, 0.65));
             }
 
             // Divider & Hotbar Header
-            fill_rect(buffer, width, height, start_x + 16, start_y + 218, 432, 2, pack_color(0.25, 0.25, 0.28));
-            draw_text_colored_shadowed(buffer, width, height, "QUICK ACCESS HOTBAR", start_x + 16, start_y + 226, 1, 1, pack_color(0.85, 0.85, 0.4));
-            draw_text_colored_shadowed(buffer, width, height, "TRASH", start_x + 424, start_y + 226, 1, 1, pack_color(1.0, 0.4, 0.4));
+            ui.fill(Rect::new(start_x + 16, start_y + 218, 432, 2), pack_color(0.25, 0.25, 0.28));
+            ui.text("QUICK ACCESS HOTBAR", start_x + 16, start_y + 226, 1, 1, pack_color(0.85, 0.85, 0.4));
+            ui.text("TRASH", start_x + 424, start_y + 226, 1, 1, pack_color(1.0, 0.4, 0.4));
 
             // Hotbar 10 slots
-            let hotbar_x = start_x + 16;
-            let hotbar_y = start_y + 242;
+            let hotbar = layout.hotbar_grid(242);
             for i in 0..10 {
-                let x = hotbar_x + i as i32 * 40;
-                let y = hotbar_y;
                 let is_hovered = hovered_slot == Some(InventorySlotTarget::Hotbar(i));
                 let is_selected = player.selected_hotbar_slot as usize == i;
                 let border_override = if is_selected && !is_hovered {
@@ -1257,21 +1188,11 @@ pub fn draw_inventory_screen(
                 } else {
                     None
                 };
-                draw_slot_custom(buffer, width, height, x, y, 38, 38, player.inventory.hotbar[i], is_hovered, border_override);
+                ui.inventory_slot(hotbar.slot(i), player.inventory.hotbar[i], is_hovered, border_override);
             }
 
             // Trash Slot
-            let trash_x = start_x + 420;
-            let trash_y = start_y + 242;
-            let is_trash_hover = hovered_slot == Some(InventorySlotTarget::Trash);
-            let trash_border = if is_trash_hover {
-                pack_color(1.0, 0.25, 0.25)
-            } else {
-                pack_color(0.45, 0.18, 0.18)
-            };
-            fill_rect(buffer, width, height, trash_x, trash_y, 36, 38, trash_border);
-            fill_rect(buffer, width, height, trash_x + 2, trash_y + 2, 32, 34, pack_color(0.16, 0.08, 0.08));
-            draw_trash_icon(buffer, width, height, trash_x + 6, trash_y + 7);
+            draw_trash_slot(&mut ui, layout.trash_rect(242), hovered_slot == Some(InventorySlotTarget::Trash));
 
             // Controls Footer
             let creative_footer = if is_gamepad_active {
@@ -1279,102 +1200,57 @@ pub fn draw_inventory_screen(
             } else {
                 "LMB: TAKE (64) | SHIFT+LMB: TO HOTBAR | 1-0: SELECT SLOT | [E]/[ESC]: CLOSE"
             };
-            draw_text_colored_shadowed(
-                buffer, width, height,
-                creative_footer,
-                start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75)
-            );
+            ui.text(creative_footer, start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75));
         } else {
-            // Tab 3: Survival Inventory inside Creative
-            draw_text_shadowed(buffer, width, height, "SURVIVAL INVENTORY", start_x + 18, start_y + 14, 2, 1);
+            // Tab 5: Survival Inventory inside Creative
+            ui.text_white("SURVIVAL INVENTORY", start_x + 18, start_y + 14, 2, 1);
 
             // Character Preview Box
-            let box_x = start_x + 18;
-            let box_y = start_y + 34;
-            let box_w = 180;
-            let box_h = 104;
-            fill_rect_alpha(buffer, width, height, box_x, box_y, box_w, box_h, pack_color(0.08, 0.08, 0.10), 0.95);
-            fill_rect(buffer, width, height, box_x, box_y, box_w, 2, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, box_x, box_y, 2, box_h, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, box_x, box_y + box_h - 2, box_w, 2, pack_color(0.26, 0.26, 0.30));
-            fill_rect(buffer, width, height, box_x + box_w - 2, box_y, 2, box_h, pack_color(0.26, 0.26, 0.30));
+            let char_box = Rect::new(start_x + 18, start_y + 34, 180, 104);
+            ui.inset_panel(char_box, pack_color(0.08, 0.08, 0.10), 0.95);
+            ui.fill_alpha(Rect::new(char_box.x + 12, char_box.y + 86, 64, 12), pack_color(0.14, 0.14, 0.18), 0.7);
+            draw_player_inventory_preview(ui.buffer, ui.width, ui.height, char_box.x + 52, char_box.y + 54, mouse_pos, &player.inventory.armor, &player.inventory.offhand);
+            draw_armor_and_offhand_slots(ui.buffer, ui.width, ui.height, start_x + 22, start_y + 36, start_x + 82, start_y + 114, player, hovered_slot);
 
-            // Character floor shadow & model
-            fill_rect_alpha(buffer, width, height, box_x + 12, box_y + 86, 64, 12, pack_color(0.14, 0.14, 0.18), 0.7);
-            draw_player_inventory_preview(buffer, width, height, box_x + 52, box_y + 54, mouse_pos, &player.inventory.armor, &player.inventory.offhand);
-
-            // Armor slots & Off-hand slot
-            draw_armor_and_offhand_slots(buffer, width, height, start_x + 22, start_y + 36, start_x + 82, start_y + 114, player, hovered_slot);
-
-            draw_text_colored_shadowed(buffer, width, height, "PLAYER", box_x + 110, box_y + 16, 1, 1, pack_color(1.0, 0.88, 0.25));
-            draw_text_colored_shadowed(buffer, width, height, "CREATIVE", box_x + 110, box_y + 38, 1, 1, pack_color(0.4, 0.9, 0.4));
-            draw_text_colored_shadowed(buffer, width, height, "FLYING: ON", box_x + 110, box_y + 58, 1, 1, pack_color(0.4, 0.8, 1.0));
-            draw_text_colored_shadowed(buffer, width, height, "GODMODE", box_x + 110, box_y + 78, 1, 1, pack_color(0.9, 0.7, 0.3));
+            ui.text("PLAYER", char_box.x + 110, char_box.y + 16, 1, 1, pack_color(1.0, 0.88, 0.25));
+            ui.text("CREATIVE", char_box.x + 110, char_box.y + 38, 1, 1, pack_color(0.4, 0.9, 0.4));
+            ui.text("FLYING: ON", char_box.x + 110, char_box.y + 58, 1, 1, pack_color(0.4, 0.8, 1.0));
+            ui.text("GODMODE", char_box.x + 110, char_box.y + 78, 1, 1, pack_color(0.9, 0.7, 0.3));
 
             // 2x2 Crafting Grid
-            let craft_panel_x = start_x + 208;
-            let craft_panel_y = start_y + 34;
-            fill_rect_alpha(buffer, width, height, craft_panel_x, craft_panel_y, 242, 104, pack_color(0.10, 0.10, 0.12), 0.85);
-            fill_rect(buffer, width, height, craft_panel_x, craft_panel_y, 242, 2, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, craft_panel_x, craft_panel_y, 2, 104, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, craft_panel_x, craft_panel_y + 102, 242, 2, pack_color(0.26, 0.26, 0.30));
-            fill_rect(buffer, width, height, craft_panel_x + 240, craft_panel_y, 2, 104, pack_color(0.26, 0.26, 0.30));
-
-            draw_text_colored_shadowed(buffer, width, height, "Crafting 2x2", start_x + 220, start_y + 26, 1, 1, pack_color(0.85, 0.85, 0.85));
-            let craft_x = start_x + 220;
-            let craft_y = start_y + 42;
-            for row in 0..2 {
-                for col in 0..2 {
-                    let idx = row * 2 + col;
-                    let x = craft_x + col as i32 * 40;
-                    let y = craft_y + row as i32 * 40;
-                    let is_hovered = hovered_slot == Some(InventorySlotTarget::Crafting2x2(idx));
-                    draw_slot(buffer, width, height, x, y, 36, 36, player.inventory.crafting_2x2[idx], is_hovered);
-                }
+            ui.inset_panel(Rect::new(start_x + 208, start_y + 34, 242, 104), pack_color(0.10, 0.10, 0.12), 0.85);
+            ui.text("Crafting 2x2", start_x + 220, start_y + 26, 1, 1, pack_color(0.85, 0.85, 0.85));
+            let craft_2x2 = layout.crafting_2x2_grid(42);
+            for idx in 0..4 {
+                let is_hovered = hovered_slot == Some(InventorySlotTarget::Crafting2x2(idx));
+                ui.inventory_slot(craft_2x2.slot(idx), player.inventory.crafting_2x2[idx], is_hovered, None);
             }
 
             // Arrow & Output slot
-            draw_text_colored_shadowed(buffer, width, height, "==>", start_x + 310, start_y + 70, 2, 1, pack_color(0.9, 0.85, 0.3));
-            let out_x = start_x + 350;
-            let out_y = start_y + 60;
+            ui.text("==>", start_x + 310, start_y + 70, 2, 1, pack_color(0.9, 0.85, 0.3));
             let result_item = recipes.match_grid(&player.inventory.crafting_2x2, 2, 2);
-            let is_out_hovered = hovered_slot == Some(InventorySlotTarget::CraftingOutput);
-            draw_slot(buffer, width, height, out_x, out_y, 42, 42, result_item, is_out_hovered);
+            ui.inventory_slot(
+                Rect::new(start_x + 350, start_y + 60, 42, 42),
+                result_item,
+                hovered_slot == Some(InventorySlotTarget::CraftingOutput),
+                None,
+            );
 
             // Main 27 slots inset panel
-            fill_rect_alpha(buffer, width, height, start_x + 14, start_y + 140, 436, 126, pack_color(0.10, 0.10, 0.12), 0.85);
-            fill_rect(buffer, width, height, start_x + 14, start_y + 140, 436, 2, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, start_x + 14, start_y + 140, 2, 126, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, start_x + 14, start_y + 264, 436, 2, pack_color(0.26, 0.26, 0.30));
-            fill_rect(buffer, width, height, start_x + 448, start_y + 140, 2, 126, pack_color(0.26, 0.26, 0.30));
-
-            draw_text_colored_shadowed(buffer, width, height, "Backpack", start_x + 22, start_y + 132, 1, 1, pack_color(0.75, 0.75, 0.75));
-            let main_x = start_x + 22;
-            let main_y = start_y + 144;
-            for row in 0..3 {
-                for col in 0..9 {
-                    let idx = row * 9 + col;
-                    let x = main_x + col as i32 * 42;
-                    let y = main_y + row as i32 * 42;
-                    let is_hovered = hovered_slot == Some(InventorySlotTarget::Main(idx));
-                    draw_slot(buffer, width, height, x, y, 38, 38, player.inventory.main[idx], is_hovered);
-                }
+            ui.inset_panel(Rect::new(start_x + 14, start_y + 140, 436, 126), pack_color(0.10, 0.10, 0.12), 0.85);
+            ui.text("Backpack", start_x + 22, start_y + 132, 1, 1, pack_color(0.75, 0.75, 0.75));
+            let main_grid = layout.main_grid(144);
+            for idx in 0..27 {
+                let is_hovered = hovered_slot == Some(InventorySlotTarget::Main(idx));
+                ui.inventory_slot(main_grid.slot(idx), player.inventory.main[idx], is_hovered, None);
             }
 
             // Hotbar & Trash inset panel
-            fill_rect_alpha(buffer, width, height, start_x + 10, start_y + 270, 444, 52, pack_color(0.10, 0.10, 0.12), 0.85);
-            fill_rect(buffer, width, height, start_x + 10, start_y + 270, 444, 2, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, start_x + 10, start_y + 270, 2, 52, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, start_x + 10, start_y + 320, 444, 2, pack_color(0.26, 0.26, 0.30));
-            fill_rect(buffer, width, height, start_x + 452, start_y + 270, 2, 52, pack_color(0.26, 0.26, 0.30));
-
-            draw_text_colored_shadowed(buffer, width, height, "Hotbar", start_x + 16, start_y + 264, 1, 1, pack_color(0.85, 0.85, 0.4));
-            draw_text_colored_shadowed(buffer, width, height, "TRASH", start_x + 424, start_y + 264, 1, 1, pack_color(1.0, 0.4, 0.4));
-            let hotbar_x = start_x + 16;
-            let hotbar_y = start_y + 276;
+            ui.inset_panel(Rect::new(start_x + 10, start_y + 270, 444, 52), pack_color(0.10, 0.10, 0.12), 0.85);
+            ui.text("Hotbar", start_x + 16, start_y + 264, 1, 1, pack_color(0.85, 0.85, 0.4));
+            ui.text("TRASH", start_x + 424, start_y + 264, 1, 1, pack_color(1.0, 0.4, 0.4));
+            let hotbar = layout.hotbar_grid(276);
             for i in 0..10 {
-                let x = hotbar_x + i as i32 * 40;
-                let y = hotbar_y;
                 let is_hovered = hovered_slot == Some(InventorySlotTarget::Hotbar(i));
                 let is_selected = player.selected_hotbar_slot as usize == i;
                 let border_override = if is_selected && !is_hovered {
@@ -1382,16 +1258,10 @@ pub fn draw_inventory_screen(
                 } else {
                     None
                 };
-                draw_slot_custom(buffer, width, height, x, y, 38, 38, player.inventory.hotbar[i], is_hovered, border_override);
+                ui.inventory_slot(hotbar.slot(i), player.inventory.hotbar[i], is_hovered, border_override);
             }
 
-            let trash_x = start_x + 420;
-            let trash_y = start_y + 276;
-            let is_trash_hover = hovered_slot == Some(InventorySlotTarget::Trash);
-            let trash_border = if is_trash_hover { pack_color(1.0, 0.25, 0.25) } else { pack_color(0.45, 0.18, 0.18) };
-            fill_rect(buffer, width, height, trash_x, trash_y, 36, 38, trash_border);
-            fill_rect(buffer, width, height, trash_x + 2, trash_y + 2, 32, 34, pack_color(0.16, 0.08, 0.08));
-            draw_trash_icon(buffer, width, height, trash_x + 6, trash_y + 7);
+            draw_trash_slot(&mut ui, layout.trash_rect(276), hovered_slot == Some(InventorySlotTarget::Trash));
 
             // Controls Footer
             let footer = if is_gamepad_active {
@@ -1399,36 +1269,28 @@ pub fn draw_inventory_screen(
             } else {
                 "LPM: ALL | PPM: 1 ITEM/HALF | SHIFT+LPM: MOVE | [E]/[ESC]: CLOSE"
             };
-            draw_text_colored_shadowed(
-                buffer, width, height,
-                footer,
-                start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75)
-            );
+            ui.text(footer, start_x + 16, start_y + 338, 1, 1, pack_color(0.7, 0.7, 0.75));
         }
     } else {
         // Survival Mode
-        let win_x = start_x - 8;
-        let win_y = start_y;
-        let win_w = 480;
-        let win_h = 360;
+        let win_rect = Rect::new(start_x - 8, start_y, 480, 360);
+        let win_x = win_rect.x;
+        let win_y = win_rect.y;
+        let win_w = win_rect.w;
+        let win_h = win_rect.h;
 
-        // Main window panel background
-        fill_rect_alpha(buffer, width, height, win_x, win_y, win_w, win_h, pack_color(0.15, 0.15, 0.18), 0.98);
-        // Beveled window borders
-        fill_rect(buffer, width, height, win_x, win_y, win_w, 3, pack_color(0.38, 0.38, 0.44));
-        fill_rect(buffer, width, height, win_x, win_y, 3, win_h, pack_color(0.38, 0.38, 0.44));
-        fill_rect(buffer, width, height, win_x, win_y + win_h - 3, win_w, 3, pack_color(0.05, 0.05, 0.06));
-        fill_rect(buffer, width, height, win_x + win_w - 3, win_y, 3, win_h, pack_color(0.05, 0.05, 0.06));
-        // Inner highlight
-        fill_rect(buffer, width, height, win_x + 3, win_y + 3, win_w - 6, 1, pack_color(0.48, 0.48, 0.54));
+        // Main window panel background & borders
+        ui.fill_alpha(win_rect, pack_color(0.15, 0.15, 0.18), 0.98);
+        ui.bevel_border(win_rect, 3, pack_color(0.38, 0.38, 0.44), pack_color(0.05, 0.05, 0.06));
+        ui.fill(Rect::new(win_x + 3, win_y + 3, win_w - 6, 1), pack_color(0.48, 0.48, 0.54));
 
         // Window Header Bar
-        fill_rect(buffer, width, height, win_x + 3, win_y + 3, win_w - 6, 25, pack_color(0.11, 0.11, 0.14));
-        fill_rect(buffer, width, height, win_x + 3, win_y + 27, win_w - 6, 1, pack_color(0.07, 0.07, 0.09));
+        ui.fill(Rect::new(win_x + 3, win_y + 3, win_w - 6, 25), pack_color(0.11, 0.11, 0.14));
+        ui.fill(Rect::new(win_x + 3, win_y + 27, win_w - 6, 1), pack_color(0.07, 0.07, 0.09));
 
         let title = if crafting_table_open { "CRAFTING TABLE" } else { "INVENTORY" };
-        draw_text_colored_shadowed(buffer, width, height, title, win_x + 14, win_y + 7, 2, 1, pack_color(1.0, 0.88, 0.25));
-        draw_text_colored_shadowed(buffer, width, height, "[SURVIVAL]", win_x + win_w - 90, win_y + 9, 1, 1, pack_color(0.45, 0.85, 0.50));
+        ui.text(title, win_x + 14, win_y + 7, 2, 1, pack_color(1.0, 0.88, 0.25));
+        ui.text("[SURVIVAL]", win_x + win_w - 90, win_y + 9, 1, 1, pack_color(0.45, 0.85, 0.50));
 
         let surv_footer = if is_gamepad_active {
             "[A]: ALL | [X]: 1 ITEM/HALF | [Y]: QUICK MOVE | [B]: CLOSE"
@@ -1436,26 +1298,17 @@ pub fn draw_inventory_screen(
             "LMB: ALL | RMB: 1 ITEM / HALF | [E]/[ESC]/[B]: CLOSE"
         };
         // Window Footer Bar
-        fill_rect(buffer, width, height, win_x + 3, win_y + win_h - 22, win_w - 6, 19, pack_color(0.11, 0.11, 0.14));
-        fill_rect(buffer, width, height, win_x + 3, win_y + win_h - 22, win_w - 6, 1, pack_color(0.07, 0.07, 0.09));
-        draw_text_colored_shadowed(buffer, width, height, surv_footer, win_x + 12, win_y + win_h - 16, 1, 1, pack_color(0.70, 0.70, 0.75));
+        ui.fill(Rect::new(win_x + 3, win_y + win_h - 22, win_w - 6, 19), pack_color(0.11, 0.11, 0.14));
+        ui.fill(Rect::new(win_x + 3, win_y + win_h - 22, win_w - 6, 1), pack_color(0.07, 0.07, 0.09));
+        ui.text(surv_footer, win_x + 12, win_y + win_h - 16, 1, 1, pack_color(0.70, 0.70, 0.75));
 
         // Crafting section
         if crafting_table_open {
             // 3x3 crafting inset panel
-            let craft_box_x = start_x + 14;
-            let craft_box_y = start_y + 30;
-            let craft_box_w = 276;
-            let craft_box_h = 108;
-            fill_rect_alpha(buffer, width, height, craft_box_x, craft_box_y, craft_box_w, craft_box_h, pack_color(0.10, 0.10, 0.12), 0.85);
-            fill_rect(buffer, width, height, craft_box_x, craft_box_y, craft_box_w, 2, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, craft_box_x, craft_box_y, 2, craft_box_h, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, craft_box_x, craft_box_y + craft_box_h - 2, craft_box_w, 2, pack_color(0.26, 0.26, 0.30));
-            fill_rect(buffer, width, height, craft_box_x + craft_box_w - 2, craft_box_y, 2, craft_box_h, pack_color(0.26, 0.26, 0.30));
+            ui.inset_panel(Rect::new(start_x + 14, start_y + 30, 276, 108), pack_color(0.10, 0.10, 0.12), 0.85);
+            ui.text("3x3 Grid", start_x + 40, start_y + 20, 1, 1, pack_color(0.8, 0.8, 0.8));
 
-            draw_text_colored_shadowed(buffer, width, height, "3x3 Grid", start_x + 40, start_y + 20, 1, 1, pack_color(0.8, 0.8, 0.8));
-            let recipe_button_x = start_x + 190;
-            let recipe_button_y = start_y + 36;
+            let recipe_button = Rect::new(start_x + 190, start_y + 36, 88, 20);
             let recipe_button_hovered = hovered_slot == Some(InventorySlotTarget::RecipeBookToggle);
             let recipe_button_color = if recipe_book_open {
                 pack_color(0.46, 0.32, 0.10)
@@ -1464,246 +1317,103 @@ pub fn draw_inventory_screen(
             } else {
                 pack_color(0.18, 0.18, 0.22)
             };
-            fill_rect(buffer, width, height, recipe_button_x, recipe_button_y, 88, 20, recipe_button_color);
-            fill_rect(buffer, width, height, recipe_button_x, recipe_button_y, 88, 1, pack_color(0.44, 0.44, 0.49));
-            draw_text_colored_shadowed(
-                buffer,
-                width,
-                height,
-                "RECIPE BOOK",
-                recipe_button_x + 6,
-                recipe_button_y + 6,
-                1,
-                1,
-                pack_color(1.0, 0.88, 0.25),
-            );
+            ui.fill(recipe_button, recipe_button_color);
+            ui.fill(Rect::new(recipe_button.x, recipe_button.y, recipe_button.w, 1), pack_color(0.44, 0.44, 0.49));
+            ui.text("RECIPE BOOK", recipe_button.x + 6, recipe_button.y + 6, 1, 1, pack_color(1.0, 0.88, 0.25));
+
             // 3x3 input slots
-            let craft_x = start_x + 40;
-            let craft_y = start_y + 35;
-            for row in 0..3 {
-                for col in 0..3 {
-                    let idx = row * 3 + col;
-                    let x = craft_x + col as i32 * 40;
-                    let y = craft_y + row as i32 * 40;
-                    let is_hovered = hovered_slot == Some(InventorySlotTarget::Crafting3x3(idx));
-                    draw_slot(buffer, width, height, x, y, 36, 36, player.inventory.crafting_3x3[idx], is_hovered);
-                }
+            let craft_3x3 = layout.crafting_3x3_grid();
+            for idx in 0..9 {
+                let is_hovered = hovered_slot == Some(InventorySlotTarget::Crafting3x3(idx));
+                ui.inventory_slot(craft_3x3.slot(idx), player.inventory.crafting_3x3[idx], is_hovered, None);
             }
 
-            // Arrow
-            draw_text_colored_shadowed(buffer, width, height, "==>", start_x + 175, start_y + 85, 2, 1, pack_color(0.9, 0.85, 0.3));
-
-            // 3x3 Output slot
-            let out_x = start_x + 230;
-            let out_y = start_y + 75;
+            // Arrow & 3x3 Output slot
+            ui.text("==>", start_x + 175, start_y + 85, 2, 1, pack_color(0.9, 0.85, 0.3));
             let result_item = recipes.match_grid(&player.inventory.crafting_3x3, 3, 3);
-            let is_out_hovered = hovered_slot == Some(InventorySlotTarget::CraftingOutput);
-            draw_slot(buffer, width, height, out_x, out_y, 42, 42, result_item, is_out_hovered);
+            ui.inventory_slot(
+                Rect::new(start_x + 230, start_y + 75, 42, 42),
+                result_item,
+                hovered_slot == Some(InventorySlotTarget::CraftingOutput),
+                None,
+            );
 
             // Character preview box on the right of crafting table
-            let char_box_x = start_x + 300;
-            let char_box_y = start_y + 30;
-            let char_box_w = 150;
-            let char_box_h = 108;
-            fill_rect_alpha(buffer, width, height, char_box_x, char_box_y, char_box_w, char_box_h, pack_color(0.08, 0.08, 0.10), 0.95);
-            fill_rect(buffer, width, height, char_box_x, char_box_y, char_box_w, 2, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, char_box_x, char_box_y, 2, char_box_h, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, char_box_x, char_box_y + char_box_h - 2, char_box_w, 2, pack_color(0.26, 0.26, 0.30));
-            fill_rect(buffer, width, height, char_box_x + char_box_w - 2, char_box_y, 2, char_box_h, pack_color(0.26, 0.26, 0.30));
-
-            // Armor slots & Offhand slot
-            draw_armor_and_offhand_slots(buffer, width, height, start_x + 300, start_y + 34, start_x + 360, start_y + 112, player, hovered_slot);
-
-            fill_rect_alpha(buffer, width, height, char_box_x + 30, char_box_y + 88, 45, 12, pack_color(0.14, 0.14, 0.18), 0.7);
-            draw_player_inventory_preview(buffer, width, height, char_box_x + 50, char_box_y + 54, mouse_pos, &player.inventory.armor, &player.inventory.offhand);
-
-            draw_text_colored_shadowed(buffer, width, height, "PLAYER", char_box_x + 75, char_box_y + 10, 1, 1, pack_color(1.0, 0.88, 0.25));
-            let hp_text = format!("HP: {}/20", player.health as i32);
-            draw_text_colored_shadowed(buffer, width, height, &hp_text, char_box_x + 75, char_box_y + 24, 1, 1, pack_color(1.0, 0.35, 0.35));
-            let hp_ratio = (player.health / 20.0).clamp(0.0, 1.0);
-            fill_rect(buffer, width, height, char_box_x + 75, char_box_y + 36, 68, 4, pack_color(0.25, 0.05, 0.05));
-            fill_rect(buffer, width, height, char_box_x + 75, char_box_y + 36, (68.0 * hp_ratio) as i32, 4, pack_color(0.9, 0.2, 0.2));
-
-            let hunger_text = format!("HUNGER: {}/20", player.hunger as i32);
-            draw_text_colored_shadowed(buffer, width, height, &hunger_text, char_box_x + 75, char_box_y + 46, 1, 1, pack_color(1.0, 0.65, 0.2));
-            let hunger_ratio = (player.hunger / player.max_hunger.max(1.0)).clamp(0.0, 1.0);
-            fill_rect(buffer, width, height, char_box_x + 75, char_box_y + 58, 68, 4, pack_color(0.25, 0.15, 0.05));
-            fill_rect(buffer, width, height, char_box_x + 75, char_box_y + 58, (68.0 * hunger_ratio) as i32, 4, pack_color(0.9, 0.55, 0.15));
-
-            let def = player.armor_defense_points();
-            if def > 0.0 {
-                let def_text = format!("ARMOR: {:.0}", def);
-                draw_text_colored_shadowed(buffer, width, height, &def_text, char_box_x + 75, char_box_y + 68, 1, 1, pack_color(0.8, 0.85, 0.95));
-            } else if player.fire_timer > 0.0 {
-                draw_text_colored_shadowed(buffer, width, height, "BURNING!", char_box_x + 75, char_box_y + 70, 1, 1, pack_color(1.0, 0.5, 0.1));
-            } else {
-                draw_text_colored_shadowed(buffer, width, height, "STATUS: OK", char_box_x + 75, char_box_y + 70, 1, 1, pack_color(0.4, 0.85, 0.4));
-            }
+            let char_box = Rect::new(start_x + 300, start_y + 30, 150, 108);
+            ui.inset_panel(char_box, pack_color(0.08, 0.08, 0.10), 0.95);
+            draw_armor_and_offhand_slots(ui.buffer, ui.width, ui.height, start_x + 300, start_y + 34, start_x + 360, start_y + 112, player, hovered_slot);
+            ui.fill_alpha(Rect::new(char_box.x + 30, char_box.y + 88, 45, 12), pack_color(0.14, 0.14, 0.18), 0.7);
+            draw_player_inventory_preview(ui.buffer, ui.width, ui.height, char_box.x + 50, char_box.y + 54, mouse_pos, &player.inventory.armor, &player.inventory.offhand);
+            draw_player_vitals_panel(&mut ui, char_box.x + 75, char_box.y, 68, player);
 
             if recipe_book_open {
-                fill_rect_alpha(buffer, width, height, char_box_x + 2, char_box_y + 2, char_box_w - 4, char_box_h - 4, pack_color(0.08, 0.08, 0.10), 0.99);
-                draw_text_colored_shadowed(buffer, width, height, "RECIPE BOOK", char_box_x + 8, char_box_y + 7, 1, 1, pack_color(1.0, 0.88, 0.25));
+                ui.fill_alpha(char_box.inset(2), pack_color(0.08, 0.08, 0.10), 0.99);
+                ui.text("RECIPE BOOK", char_box.x + 8, char_box.y + 7, 1, 1, pack_color(1.0, 0.88, 0.25));
                 let first = recipe_book_scroll.min(unlocked_recipe_indices.len());
                 for (row, &recipe_index) in unlocked_recipe_indices.iter().skip(first).take(5).enumerate() {
-                    let y = char_box_y + 21 + row as i32 * 15;
+                    let y = char_box.y + 21 + row as i32 * 15;
                     let is_hovered = hovered_slot == Some(InventorySlotTarget::RecipeEntry(recipe_index));
                     if is_hovered {
-                        fill_rect(buffer, width, height, char_box_x + 4, y, char_box_w - 8, 14, pack_color(0.26, 0.24, 0.17));
+                        ui.fill(Rect::new(char_box.x + 4, y, char_box.w - 8, 14), pack_color(0.26, 0.24, 0.17));
                     }
                     if let Some(recipe) = recipes.recipes().get(recipe_index) {
-                        draw_item_icon(buffer, width, height, recipe.result.block, char_box_x + 6, y, 13);
+                        draw_item_icon(ui.buffer, ui.width, ui.height, recipe.result.block, char_box.x + 6, y, 13);
                         let name = recipe.result.block.display_name().to_uppercase();
                         let visible_name: String = name.chars().take(13).collect();
-                        draw_text_colored_shadowed(
-                            buffer,
-                            width,
-                            height,
-                            &visible_name,
-                            char_box_x + 25,
-                            y + 4,
-                            1,
-                            1,
-                            pack_color(0.9, 0.9, 0.92),
-                        );
+                        ui.text(&visible_name, char_box.x + 25, y + 4, 1, 1, pack_color(0.9, 0.9, 0.92));
                     }
                 }
                 if unlocked_recipe_indices.is_empty() {
-                    draw_text_colored_shadowed(
-                        buffer,
-                        width,
-                        height,
-                        "Collect ingredients",
-                        char_box_x + 6,
-                        char_box_y + 33,
-                        1,
-                        1,
-                        pack_color(0.68, 0.68, 0.72),
-                    );
+                    ui.text("Collect ingredients", char_box.x + 6, char_box.y + 33, 1, 1, pack_color(0.68, 0.68, 0.72));
                 } else {
                     let status = recipe_book_status.unwrap_or("[WHEEL] SCROLL");
-                    draw_text_colored_shadowed(
-                        buffer,
-                        width,
-                        height,
-                        status,
-                        char_box_x + 6,
-                        char_box_y + 96,
-                        1,
-                        1,
-                        pack_color(0.72, 0.72, 0.76),
-                    );
+                    ui.text(status, char_box.x + 6, char_box.y + 96, 1, 1, pack_color(0.72, 0.72, 0.76));
                 }
             }
         } else {
             // Player character info area
-            let char_box_x = start_x + 14;
-            let char_box_y = start_y + 32;
-            let char_box_w = 186;
-            let char_box_h = 106;
-            fill_rect_alpha(buffer, width, height, char_box_x, char_box_y, char_box_w, char_box_h, pack_color(0.08, 0.08, 0.10), 0.95);
-            fill_rect(buffer, width, height, char_box_x, char_box_y, char_box_w, 2, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, char_box_x, char_box_y, 2, char_box_h, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, char_box_x, char_box_y + char_box_h - 2, char_box_w, 2, pack_color(0.26, 0.26, 0.30));
-            fill_rect(buffer, width, height, char_box_x + char_box_w - 2, char_box_y, 2, char_box_h, pack_color(0.26, 0.26, 0.30));
-
-            // Armor slots & Off-hand slot
-            draw_armor_and_offhand_slots(buffer, width, height, start_x + 18, start_y + 34, start_x + 78, start_y + 112, player, hovered_slot);
-
-            // Floor pedestal under player & model preview
-            fill_rect_alpha(buffer, width, height, char_box_x + 36, char_box_y + 88, 48, 12, pack_color(0.14, 0.14, 0.18), 0.7);
-            draw_player_inventory_preview(buffer, width, height, char_box_x + 56, char_box_y + 54, mouse_pos, &player.inventory.armor, &player.inventory.offhand);
-
-            draw_text_colored_shadowed(buffer, width, height, "PLAYER", char_box_x + 106, char_box_y + 10, 1, 1, pack_color(1.0, 0.88, 0.25));
-            let hp_text = format!("HP: {}/20", player.health as i32);
-            draw_text_colored_shadowed(buffer, width, height, &hp_text, char_box_x + 106, char_box_y + 24, 1, 1, pack_color(1.0, 0.35, 0.35));
-            let hp_ratio = (player.health / 20.0).clamp(0.0, 1.0);
-            fill_rect(buffer, width, height, char_box_x + 106, char_box_y + 36, 72, 4, pack_color(0.25, 0.05, 0.05));
-            fill_rect(buffer, width, height, char_box_x + 106, char_box_y + 36, (72.0 * hp_ratio) as i32, 4, pack_color(0.9, 0.2, 0.2));
-
-            let hunger_text = format!("HUNGER: {}/20", player.hunger as i32);
-            draw_text_colored_shadowed(buffer, width, height, &hunger_text, char_box_x + 106, char_box_y + 46, 1, 1, pack_color(1.0, 0.65, 0.2));
-            let hunger_ratio = (player.hunger / player.max_hunger.max(1.0)).clamp(0.0, 1.0);
-            fill_rect(buffer, width, height, char_box_x + 106, char_box_y + 58, 72, 4, pack_color(0.25, 0.15, 0.05));
-            fill_rect(buffer, width, height, char_box_x + 106, char_box_y + 58, (72.0 * hunger_ratio) as i32, 4, pack_color(0.9, 0.55, 0.15));
-
-            let def = player.armor_defense_points();
-            if def > 0.0 {
-                let def_text = format!("ARMOR: {:.0}", def);
-                draw_text_colored_shadowed(buffer, width, height, &def_text, char_box_x + 106, char_box_y + 68, 1, 1, pack_color(0.8, 0.85, 0.95));
-            } else if player.fire_timer > 0.0 {
-                draw_text_colored_shadowed(buffer, width, height, "BURNING!", char_box_x + 106, char_box_y + 70, 1, 1, pack_color(1.0, 0.5, 0.1));
-            } else {
-                draw_text_colored_shadowed(buffer, width, height, "STATUS: OK", char_box_x + 106, char_box_y + 70, 1, 1, pack_color(0.4, 0.85, 0.4));
-            }
+            let char_box = Rect::new(start_x + 14, start_y + 32, 186, 106);
+            ui.inset_panel(char_box, pack_color(0.08, 0.08, 0.10), 0.95);
+            draw_armor_and_offhand_slots(ui.buffer, ui.width, ui.height, start_x + 18, start_y + 34, start_x + 78, start_y + 112, player, hovered_slot);
+            ui.fill_alpha(Rect::new(char_box.x + 36, char_box.y + 88, 48, 12), pack_color(0.14, 0.14, 0.18), 0.7);
+            draw_player_inventory_preview(ui.buffer, ui.width, ui.height, char_box.x + 56, char_box.y + 54, mouse_pos, &player.inventory.armor, &player.inventory.offhand);
+            draw_player_vitals_panel(&mut ui, char_box.x + 106, char_box.y, 72, player);
 
             // 2x2 Crafting inset panel
-            let craft_box_x = start_x + 208;
-            let craft_box_y = start_y + 32;
-            let craft_box_w = 242;
-            let craft_box_h = 106;
-            fill_rect_alpha(buffer, width, height, craft_box_x, craft_box_y, craft_box_w, craft_box_h, pack_color(0.10, 0.10, 0.12), 0.85);
-            fill_rect(buffer, width, height, craft_box_x, craft_box_y, craft_box_w, 2, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, craft_box_x, craft_box_y, 2, craft_box_h, pack_color(0.05, 0.05, 0.06));
-            fill_rect(buffer, width, height, craft_box_x, craft_box_y + craft_box_h - 2, craft_box_w, 2, pack_color(0.26, 0.26, 0.30));
-            fill_rect(buffer, width, height, craft_box_x + craft_box_w - 2, craft_box_y, 2, craft_box_h, pack_color(0.26, 0.26, 0.30));
-
-            draw_text_colored_shadowed(buffer, width, height, "CRAFTING (2x2)", craft_box_x + 12, craft_box_y + 8, 1, 1, pack_color(0.85, 0.85, 0.85));
-            let craft_x = start_x + 220;
-            let craft_y = start_y + 48;
-            for row in 0..2 {
-                for col in 0..2 {
-                    let idx = row * 2 + col;
-                    let x = craft_x + col as i32 * 40;
-                    let y = craft_y + row as i32 * 40;
-                    let is_hovered = hovered_slot == Some(InventorySlotTarget::Crafting2x2(idx));
-                    draw_slot(buffer, width, height, x, y, 36, 36, player.inventory.crafting_2x2[idx], is_hovered);
-                }
+            let craft_box = Rect::new(start_x + 208, start_y + 32, 242, 106);
+            ui.inset_panel(craft_box, pack_color(0.10, 0.10, 0.12), 0.85);
+            ui.text("CRAFTING (2x2)", craft_box.x + 12, craft_box.y + 8, 1, 1, pack_color(0.85, 0.85, 0.85));
+            let craft_2x2 = layout.crafting_2x2_grid(48);
+            for idx in 0..4 {
+                let is_hovered = hovered_slot == Some(InventorySlotTarget::Crafting2x2(idx));
+                ui.inventory_slot(craft_2x2.slot(idx), player.inventory.crafting_2x2[idx], is_hovered, None);
             }
 
-            // Arrow
-            draw_text_colored_shadowed(buffer, width, height, "==>", start_x + 310, start_y + 78, 2, 1, pack_color(0.9, 0.85, 0.3));
-
-            // Output slot
-            let out_x = start_x + 350;
-            let out_y = start_y + 68;
+            // Arrow & Output slot
+            ui.text("==>", start_x + 310, start_y + 78, 2, 1, pack_color(0.9, 0.85, 0.3));
             let result_item = recipes.match_grid(&player.inventory.crafting_2x2, 2, 2);
-            let is_out_hovered = hovered_slot == Some(InventorySlotTarget::CraftingOutput);
-            draw_slot(buffer, width, height, out_x, out_y, 42, 42, result_item, is_out_hovered);
+            ui.inventory_slot(
+                Rect::new(start_x + 350, start_y + 68, 42, 42),
+                result_item,
+                hovered_slot == Some(InventorySlotTarget::CraftingOutput),
+                None,
+            );
         }
 
         // Main Inventory Inset Panel
-        fill_rect_alpha(buffer, width, height, start_x + 14, start_y + 144, 436, 134, pack_color(0.10, 0.10, 0.12), 0.85);
-        fill_rect(buffer, width, height, start_x + 14, start_y + 144, 436, 2, pack_color(0.05, 0.05, 0.06));
-        fill_rect(buffer, width, height, start_x + 14, start_y + 144, 2, 134, pack_color(0.05, 0.05, 0.06));
-        fill_rect(buffer, width, height, start_x + 14, start_y + 276, 436, 2, pack_color(0.26, 0.26, 0.30));
-        fill_rect(buffer, width, height, start_x + 448, start_y + 144, 2, 134, pack_color(0.26, 0.26, 0.30));
-
-        draw_text_colored_shadowed(buffer, width, height, "BACKPACK", start_x + 22, start_y + 146, 1, 1, pack_color(0.75, 0.75, 0.80));
-        let main_x = start_x + 22;
-        let main_y = start_y + 160;
-        for row in 0..3 {
-            for col in 0..9 {
-                let idx = row * 9 + col;
-                let x = main_x + col as i32 * 42;
-                let y = main_y + row as i32 * 42;
-                let is_hovered = hovered_slot == Some(InventorySlotTarget::Main(idx));
-                draw_slot(buffer, width, height, x, y, 38, 38, player.inventory.main[idx], is_hovered);
-            }
+        ui.inset_panel(Rect::new(start_x + 14, start_y + 144, 436, 134), pack_color(0.10, 0.10, 0.12), 0.85);
+        ui.text("BACKPACK", start_x + 22, start_y + 146, 1, 1, pack_color(0.75, 0.75, 0.80));
+        let main_grid = layout.main_grid(160);
+        for idx in 0..27 {
+            let is_hovered = hovered_slot == Some(InventorySlotTarget::Main(idx));
+            ui.inventory_slot(main_grid.slot(idx), player.inventory.main[idx], is_hovered, None);
         }
 
         // Hotbar Inset Panel
-        fill_rect_alpha(buffer, width, height, start_x + 10, start_y + 282, 444, 52, pack_color(0.10, 0.10, 0.12), 0.85);
-        fill_rect(buffer, width, height, start_x + 10, start_y + 282, 444, 2, pack_color(0.05, 0.05, 0.06));
-        fill_rect(buffer, width, height, start_x + 10, start_y + 282, 2, 52, pack_color(0.05, 0.05, 0.06));
-        fill_rect(buffer, width, height, start_x + 10, start_y + 332, 444, 2, pack_color(0.26, 0.26, 0.30));
-        fill_rect(buffer, width, height, start_x + 452, start_y + 282, 2, 52, pack_color(0.26, 0.26, 0.30));
-
-        draw_text_colored_shadowed(buffer, width, height, "QUICK ACCESS HOTBAR", start_x + 16, start_y + 284, 1, 1, pack_color(0.85, 0.85, 0.40));
-        let hotbar_x = start_x + 16;
-        let hotbar_y = start_y + 295;
+        ui.inset_panel(Rect::new(start_x + 10, start_y + 282, 444, 52), pack_color(0.10, 0.10, 0.12), 0.85);
+        ui.text("QUICK ACCESS HOTBAR", start_x + 16, start_y + 284, 1, 1, pack_color(0.85, 0.85, 0.40));
+        let hotbar = layout.hotbar_grid(295);
         for i in 0..10 {
-            let x = hotbar_x + i as i32 * 40;
-            let y = hotbar_y;
             let is_hovered = hovered_slot == Some(InventorySlotTarget::Hotbar(i));
             let is_selected = player.selected_hotbar_slot as usize == i;
             let border_override = if is_selected && !is_hovered {
@@ -1711,7 +1421,7 @@ pub fn draw_inventory_screen(
             } else {
                 None
             };
-            draw_slot_custom(buffer, width, height, x, y, 38, 38, player.inventory.hotbar[i], is_hovered, border_override);
+            ui.inventory_slot(hotbar.slot(i), player.inventory.hotbar[i], is_hovered, border_override);
         }
     }
 
@@ -1769,12 +1479,7 @@ pub fn draw_inventory_screen(
 
     if let Some((name, count)) = hovered_item_name {
         let text = if count > 1 { format!("{} (x{})", name.to_uppercase(), count) } else { name.to_uppercase() };
-        if let Some((mx, my)) = mouse_pos {
-            let tx = (mx as i32 + 15).min(width as i32 - (text.len() as i32 * 8 + 20));
-            let ty = (my as i32 - 20).max(10);
-            fill_rect_alpha(buffer, width, height, tx - 4, ty - 4, (text.len() * 8 + 12) as i32, 20, pack_color(0.05, 0.05, 0.08), 0.9);
-            draw_text_colored_shadowed(buffer, width, height, &text, tx, ty, 1, 1, pack_color(1.0, 0.95, 0.4));
-        }
+        ui.tooltip(&text, mouse_pos, pack_color(1.0, 0.95, 0.4));
     }
 
     // Draw Held Item on Mouse Cursor
@@ -1782,17 +1487,17 @@ pub fn draw_inventory_screen(
         if let Some((mx, my)) = mouse_pos {
             let hx = mx as i32 - 14;
             let hy = my as i32 - 14;
-            draw_item_icon(buffer, width, height, held.block, hx, hy, 28);
+            draw_item_icon(ui.buffer, ui.width, ui.height, held.block, hx, hy, 28);
             if held.count > 1 {
                 let count_str = format!("{}", held.count);
-                draw_text_colored_shadowed(buffer, width, height, &count_str, hx + 14, hy + 14, 1, 1, pack_color(1.0, 1.0, 1.0));
+                ui.text(&count_str, hx + 14, hy + 14, 1, 1, pack_color(1.0, 1.0, 1.0));
             }
         }
     }
 
     // Draw Cursor Pointer on screen
     if let Some((mx, my)) = mouse_pos {
-        crate::ui::draw::draw_cursor_pointer(buffer, width, height, mx as i32, my as i32);
+        crate::ui::draw::draw_cursor_pointer(ui.buffer, ui.width, ui.height, mx as i32, my as i32);
     }
 }
 
@@ -1801,13 +1506,9 @@ pub fn draw_trash_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, x: i32, y
     let red_body = pack_color(0.85, 0.20, 0.20);
     let red_dark = pack_color(0.50, 0.10, 0.10);
 
-    // Can lid handle
     fill_rect(buffer, buf_w, buf_h, x + 10, y + 4, 4, 2, red_hi);
-    // Can lid
     fill_rect(buffer, buf_w, buf_h, x + 6, y + 6, 12, 2, red_hi);
-    // Can body
     fill_rect(buffer, buf_w, buf_h, x + 7, y + 9, 10, 12, red_body);
-    // Vertical lines on can
     fill_rect(buffer, buf_w, buf_h, x + 9, y + 10, 1, 10, red_dark);
     fill_rect(buffer, buf_w, buf_h, x + 11, y + 10, 1, 10, red_dark);
     fill_rect(buffer, buf_w, buf_h, x + 13, y + 10, 1, 10, red_dark);
@@ -1824,9 +1525,10 @@ fn draw_slot(
     item: Option<ItemStack>,
     is_hovered: bool,
 ) {
-    draw_slot_custom(buffer, width, height, x, y, w, h, item, is_hovered, None);
+    UiCanvas::new(buffer, width, height).inventory_slot(Rect::new(x, y, w, h), item, is_hovered, None);
 }
 
+#[allow(dead_code)]
 fn draw_slot_custom(
     buffer: &mut [u32],
     width: usize,
@@ -1839,48 +1541,7 @@ fn draw_slot_custom(
     is_hovered: bool,
     border_override: Option<u32>,
 ) {
-    let border_color = if is_hovered {
-        pack_color(1.0, 0.9, 0.2)
-    } else if let Some(b) = border_override {
-        b
-    } else {
-        pack_color(0.24, 0.24, 0.28)
-    };
-
-    fill_rect(buffer, width, height, x, y, w, h, border_color);
-    fill_rect(buffer, width, height, x + 2, y + 2, w - 4, h - 4, pack_color(0.12, 0.12, 0.14));
-
-    if let Some(stack) = item {
-        let icon_size = (w - 12).max(16);
-        let ix = x + (w - icon_size) / 2;
-        let iy = y + (h - icon_size) / 2;
-        draw_item_icon(buffer, width, height, stack.block, ix, iy, icon_size);
-
-        if stack.count > 1 {
-            let count_str = format!("{}", stack.count);
-            let tx = x + w - (count_str.len() as i32 * 8) - 4;
-            let ty = y + h - 11;
-            draw_text_colored_shadowed(buffer, width, height, &count_str, tx, ty, 1, 1, pack_color(1.0, 1.0, 1.0));
-        }
-
-        if stack.block.is_damageable() && stack.durability < stack.block.max_durability() {
-            let ratio = stack.durability_ratio();
-            let bar_w = ((w - 8) as f32 * ratio).round() as i32;
-            let bar_x = x + 4;
-            let bar_y = y + h - 5;
-            let color = if ratio > 0.6 {
-                pack_color(0.2, 0.9, 0.2)
-            } else if ratio > 0.25 {
-                pack_color(0.95, 0.75, 0.1)
-            } else {
-                pack_color(0.9, 0.2, 0.2)
-            };
-            fill_rect(buffer, width, height, bar_x, bar_y, w - 8, 2, pack_color(0.0, 0.0, 0.0));
-            if bar_w > 0 {
-                fill_rect(buffer, width, height, bar_x, bar_y, bar_w, 2, color);
-            }
-        }
-    }
+    UiCanvas::new(buffer, width, height).inventory_slot(Rect::new(x, y, w, h), item, is_hovered, border_override);
 }
 
 pub fn draw_item_icon(buffer: &mut [u32], buf_w: usize, buf_h: usize, block: BlockId, x: i32, y: i32, size: i32) {

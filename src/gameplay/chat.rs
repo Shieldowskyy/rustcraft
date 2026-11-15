@@ -10,7 +10,8 @@ use crate::gameplay::mob::{MobKind, MobManager};
 use crate::gameplay::particles::ParticleSystem;
 use crate::gameplay::player::{GameMode, Player};
 use crate::graphics::camera::Camera;
-use crate::ui::draw::{draw_text_colored_shadowed, fill_rect, fill_rect_alpha, pack_color};
+use crate::ui::draw::pack_color;
+use crate::ui::widgets::{Rect, UiCanvas};
 use crate::world::block::BlockId;
 use crate::world::World;
 
@@ -747,6 +748,7 @@ impl ChatState {
         let line_height = 11i32;
         let max_visible_lines = 12;
         let input_y = height as i32 - 18;
+        let mut ui = UiCanvas::new(buffer, width, height);
 
         // 1. Draw message history (from bottom to top)
         let (rows, row_count) = self.visible_message_rows(height);
@@ -760,14 +762,8 @@ impl ChatState {
             let text_w = crate::graphics::font::measure_text(&msg.text, 1, 1);
             let bar_w = (text_w + 6).min(width as i32 - base_x * 2);
 
-            fill_rect_alpha(
-                buffer,
-                width,
-                height,
-                base_x - 3,
-                y - 2,
-                bar_w,
-                line_height,
+            ui.fill_alpha(
+                Rect::new(base_x - 3, y - 2, bar_w, line_height),
                 pack_color(0.0, 0.0, 0.0),
                 alpha,
             );
@@ -788,14 +784,8 @@ impl ChatState {
                         let selection_x =
                             base_x + crate::graphics::font::measure_text(&prefix, 1, 1);
                         let selection_w = crate::graphics::font::measure_text(&selected, 1, 1);
-                        fill_rect_alpha(
-                            buffer,
-                            width,
-                            height,
-                            selection_x,
-                            y - 1,
-                            selection_w.max(1),
-                            9,
+                        ui.fill_alpha(
+                            Rect::new(selection_x, y - 1, selection_w.max(1), 9),
                             pack_color(0.18, 0.40, 0.78),
                             0.90,
                         );
@@ -810,9 +800,7 @@ impl ChatState {
             };
 
             if text_alpha > 0.05 {
-                draw_text_colored_shadowed(
-                    buffer, width, height, &msg.text, base_x, y, 1, 1, msg.color,
-                );
+                ui.text(&msg.text, base_x, y, 1, 1, msg.color);
             }
         }
 
@@ -821,25 +809,13 @@ impl ChatState {
             let bar_w = (width as i32 - base_x * 2).max(100);
             let bar_h = 14i32;
 
-            fill_rect_alpha(
-                buffer,
-                width,
-                height,
-                base_x - 3,
-                input_y - 2,
-                bar_w + 6,
-                bar_h,
+            ui.fill_alpha(
+                Rect::new(base_x - 3, input_y - 2, bar_w + 6, bar_h),
                 pack_color(0.0, 0.0, 0.0),
                 0.80,
             );
-            fill_rect_alpha(
-                buffer,
-                width,
-                height,
-                base_x - 3,
-                input_y + bar_h - 2,
-                bar_w + 6,
-                1,
+            ui.fill_alpha(
+                Rect::new(base_x - 3, input_y + bar_h - 2, bar_w + 6, 1),
                 pack_color(0.45, 0.45, 0.45),
                 0.90,
             );
@@ -860,100 +836,36 @@ impl ChatState {
                                 1,
                             );
                         let sw = crate::graphics::font::measure_text(selected, 1, 1);
-                        fill_rect_alpha(
-                            buffer,
-                            width,
-                            height,
-                            sx,
-                            input_y,
-                            sw,
-                            9,
+                        ui.fill_alpha(
+                            Rect::new(sx, input_y, sw, 9),
                             pack_color(0.18, 0.40, 0.78),
                             0.90,
                         );
                     }
                 }
             }
-            draw_text_colored_shadowed(
-                buffer,
-                width,
-                height,
-                &display_str,
-                base_x,
-                input_y + 1,
-                1,
-                1,
-                white,
-            );
+            ui.text(&display_str, base_x, input_y + 1, 1, 1, white);
 
             // Blinking cursor
             let show_cursor = (self.cursor_blink % 0.8) < 0.4;
             if show_cursor {
                 let cursor_sub = format!("{}{}", prefix, &self.input_text[..self.cursor_pos]);
                 let cursor_x = base_x + crate::graphics::font::measure_text(&cursor_sub, 1, 1);
-                fill_rect(buffer, width, height, cursor_x, input_y + 1, 2, 7, white);
+                ui.fill(Rect::new(cursor_x, input_y + 1, 2, 7), white);
             }
         }
 
         if let Some(menu) = self.context_menu {
-            let menu_width = 116;
-            let menu_height = 57;
-            fill_rect_alpha(
-                buffer,
-                width,
-                height,
-                menu.x,
-                menu.y,
-                menu_width,
-                menu_height,
-                pack_color(0.08, 0.09, 0.12),
-                0.98,
-            );
-            fill_rect(
-                buffer,
-                width,
-                height,
-                menu.x,
-                menu.y,
-                menu_width,
+            let menu_rect = Rect::new(menu.x, menu.y, 116, 57);
+            ui.fill_alpha(menu_rect, pack_color(0.08, 0.09, 0.12), 0.98);
+            ui.bevel_border(
+                menu_rect,
                 1,
                 pack_color(0.55, 0.58, 0.64),
-            );
-            fill_rect(
-                buffer,
-                width,
-                height,
-                menu.x,
-                menu.y,
-                1,
-                menu_height,
-                pack_color(0.55, 0.58, 0.64),
-            );
-            fill_rect(
-                buffer,
-                width,
-                height,
-                menu.x + menu_width - 1,
-                menu.y,
-                1,
-                menu_height,
-                pack_color(0.22, 0.24, 0.28),
-            );
-            fill_rect(
-                buffer,
-                width,
-                height,
-                menu.x,
-                menu.y + menu_height - 1,
-                menu_width,
-                1,
                 pack_color(0.22, 0.24, 0.28),
             );
             for (index, label) in ["Copy", "Paste", "Select all"].iter().enumerate() {
-                draw_text_colored_shadowed(
-                    buffer,
-                    width,
-                    height,
+                ui.text(
                     label,
                     menu.x + 8,
                     menu.y + 5 + index as i32 * 19,

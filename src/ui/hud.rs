@@ -1,9 +1,7 @@
 use crate::gameplay::player::{GameMode, Player};
 use crate::graphics::font;
-use crate::ui::draw::{
-    draw_text_colored_shadowed, draw_text_light_colored_shadowed, draw_text_light_shadowed,
-    draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color, set_px,
-};
+use crate::ui::draw::{fill_rect, fill_rect_alpha, pack_color, set_px};
+use crate::ui::widgets::{Grid, Rect, UiCanvas, VStack};
 
 pub fn draw_crosshair(buffer: &mut [u32], width: usize, height: usize) {
     let cx = width as i32 / 2;
@@ -515,90 +513,56 @@ pub fn draw_armor_icon(buffer: &mut [u32], width: usize, height: usize, x: i32, 
 pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Player) {
     let slot_size = 28i32;
     let margin = 3i32;
-    let total_slots = 10i32;
-    let total_w = total_slots * (slot_size + margin) - margin;
+    let total_slots = 10usize;
+    let hotbar_grid = Grid::square(0, 0, total_slots, 1, slot_size, margin);
+    let total_w = hotbar_grid.total_width();
     let start_x = (width as i32 - total_w) / 2;
     let y = height as i32 - slot_size - 12;
+    let hotbar_grid = Grid::square(start_x, y, total_slots, 1, slot_size, margin);
 
-    fill_rect_alpha(buffer, width, height, start_x - 6, y - 6, total_w + 12, slot_size + 12, pack_color(0.0, 0.0, 0.0), 0.40);
+    let mut ui = UiCanvas::new(buffer, width, height);
+    ui.fill_alpha(
+        Rect::new(start_x - 6, y - 6, total_w + 12, slot_size + 12),
+        pack_color(0.0, 0.0, 0.0),
+        0.40,
+    );
 
     for i in 0..total_slots {
-        let is_selected = i == player.selected_hotbar_slot as i32;
+        let is_selected = i == player.selected_hotbar_slot as usize;
         let border_color = if is_selected {
             pack_color(1.0, 1.0, 0.2)
         } else {
             pack_color(0.20, 0.20, 0.20)
         };
-
-        let x = start_x + i * (slot_size + margin);
-        fill_rect(buffer, width, height, x - 2, y - 2, slot_size + 4, slot_size + 4, border_color);
-        fill_rect(buffer, width, height, x, y, slot_size, slot_size, pack_color(0.3, 0.3, 0.3));
-
-        if let Some(stack) = &player.inventory.hotbar[i as usize] {
-            crate::ui::draw_item_icon(buffer, width, height, stack.block, x + 3, y + 3, slot_size - 6);
-
-            if stack.count > 1 {
-                let label = format!("{}", stack.count);
-                draw_text_shadowed(buffer, width, height, &label, x + slot_size - 10, y + slot_size - 12, 1, 1);
-            }
-
-            if stack.block.is_damageable() && stack.durability < stack.block.max_durability() {
-                let ratio = stack.durability_ratio();
-                let bar_w = ((slot_size - 6) as f32 * ratio).round() as i32;
-                let color = if ratio > 0.6 {
-                    pack_color(0.2, 0.9, 0.2)
-                } else if ratio > 0.25 {
-                    pack_color(0.95, 0.75, 0.1)
-                } else {
-                    pack_color(0.9, 0.2, 0.2)
-                };
-                fill_rect(buffer, width, height, x + 3, y + slot_size - 4, slot_size - 6, 2, pack_color(0.0, 0.0, 0.0));
-                if bar_w > 0 {
-                    fill_rect(buffer, width, height, x + 3, y + slot_size - 4, bar_w, 2, color);
-                }
-            }
-        }
+        ui.hotbar_slot(
+            hotbar_grid.slot(i),
+            player.inventory.hotbar[i].as_ref(),
+            border_color,
+            pack_color(0.3, 0.3, 0.3),
+        );
     }
 
     // Off-hand slot to the left of hotbar
     let offhand_x = start_x - slot_size - 10;
-    fill_rect_alpha(buffer, width, height, offhand_x - 4, y - 4, slot_size + 8, slot_size + 8, pack_color(0.0, 0.0, 0.0), 0.35);
-    fill_rect(buffer, width, height, offhand_x - 2, y - 2, slot_size + 4, slot_size + 4, pack_color(0.25, 0.25, 0.25));
-    fill_rect(buffer, width, height, offhand_x, y, slot_size, slot_size, pack_color(0.28, 0.28, 0.28));
-
-    if let Some(stack) = &player.inventory.offhand {
-        crate::ui::draw_item_icon(buffer, width, height, stack.block, offhand_x + 3, y + 3, slot_size - 6);
-        if stack.count > 1 {
-            let label = format!("{}", stack.count);
-            draw_text_shadowed(buffer, width, height, &label, offhand_x + slot_size - 10, y + slot_size - 12, 1, 1);
-        }
-
-        if stack.block.is_damageable() && stack.durability < stack.block.max_durability() {
-            let ratio = stack.durability_ratio();
-            let bar_w = ((slot_size - 6) as f32 * ratio).round() as i32;
-            let color = if ratio > 0.6 {
-                pack_color(0.2, 0.9, 0.2)
-            } else if ratio > 0.25 {
-                pack_color(0.95, 0.75, 0.1)
-            } else {
-                pack_color(0.9, 0.2, 0.2)
-            };
-            fill_rect(buffer, width, height, offhand_x + 3, y + slot_size - 4, slot_size - 6, 2, pack_color(0.0, 0.0, 0.0));
-            if bar_w > 0 {
-                fill_rect(buffer, width, height, offhand_x + 3, y + slot_size - 4, bar_w, 2, color);
-            }
-        }
-    } else {
+    let offhand_rect = Rect::new(offhand_x, y, slot_size, slot_size);
+    ui.fill_alpha(offhand_rect.inset(-4), pack_color(0.0, 0.0, 0.0), 0.35);
+    ui.hotbar_slot(
+        offhand_rect,
+        player.inventory.offhand.as_ref(),
+        pack_color(0.25, 0.25, 0.25),
+        pack_color(0.28, 0.28, 0.28),
+    );
+    if player.inventory.offhand.is_none() {
         // Subtle shield silhouette watermark in empty offhand slot
         let sx = offhand_x + 8;
         let sy = y + 7;
         let sil = pack_color(0.38, 0.38, 0.38);
-        fill_rect(buffer, width, height, sx, sy, 12, 2, sil);
-        fill_rect(buffer, width, height, sx + 1, sy + 2, 10, 6, sil);
-        fill_rect(buffer, width, height, sx + 2, sy + 8, 8, 3, sil);
-        fill_rect(buffer, width, height, sx + 4, sy + 11, 4, 2, sil);
-        set_px(buffer, width, height, sx + 5, sy + 13, sil);
-        set_px(buffer, width, height, sx + 6, sy + 13, sil);
+        ui.fill(Rect::new(sx, sy, 12, 2), sil);
+        ui.fill(Rect::new(sx + 1, sy + 2, 10, 6), sil);
+        ui.fill(Rect::new(sx + 2, sy + 8, 8, 3), sil);
+        ui.fill(Rect::new(sx + 4, sy + 11, 4, 2), sil);
+        set_px(ui.buffer, ui.width, ui.height, sx + 5, sy + 13, sil);
+        set_px(ui.buffer, ui.width, ui.height, sx + 6, sy + 13, sil);
     }
 
     if player.gamemode == GameMode::Survival {
@@ -624,7 +588,7 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
             } else {
                 0
             };
-            draw_heart_icon(buffer, width, height, heart_x, health_y + wobble, state, is_flashing);
+            draw_heart_icon(ui.buffer, ui.width, ui.height, heart_x, health_y + wobble, state, is_flashing);
         }
 
         // Armor bar - above health hearts on left side
@@ -641,7 +605,7 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
                 } else {
                     ArmorIconState::Empty
                 };
-                draw_armor_icon(buffer, width, height, armor_x, armor_y, state);
+                draw_armor_icon(ui.buffer, ui.width, ui.height, armor_x, armor_y, state);
             }
         }
 
@@ -669,7 +633,7 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
             };
 
             let hunger_x = hunger_start_x + i as i32 * 10;
-            draw_hunger_icon(buffer, width, height, hunger_x, health_y + wobble, state);
+            draw_hunger_icon(ui.buffer, ui.width, ui.height, hunger_x, health_y + wobble, state);
         }
 
         // Air bubbles displayed above hunger meter while submerged underwater
@@ -685,7 +649,7 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
                 } else {
                     BubbleState::Empty
                 };
-                draw_bubble(buffer, width, height, bubble_x, bubble_y, state);
+                draw_bubble(ui.buffer, ui.width, ui.height, bubble_x, bubble_y, state);
             }
         }
     }
@@ -714,16 +678,19 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
             };
 
             // Subtle dark background pill with soft alpha
-            fill_rect_alpha(buffer, width, height, tx - 6, ty - 3, tw + 12, font::GLYPH_H as i32 + 6, pack_color(0.0, 0.0, 0.0), 0.60 * alpha);
+            ui.fill_alpha(
+                Rect::new(tx - 6, ty - 3, tw + 12, font::GLYPH_H as i32 + 6),
+                pack_color(0.0, 0.0, 0.0),
+                0.60 * alpha,
+            );
 
             // Item name text with shadow
-            let col = pack_color(1.0, 1.0, 1.0);
-            draw_text_colored_shadowed(buffer, width, height, item_name, tx, ty, scale, 1, col);
+            ui.text_white(item_name, tx, ty, scale, 1);
         }
     }
 }
 
-/// Draws a rasterized circular debug pie chart with colored slices.
+/// Draws a rasterized circular debug pie chart with colored slices (zero heap allocation).
 pub fn draw_pie_chart(
     buffer: &mut [u32],
     width: usize,
@@ -741,13 +708,14 @@ pub fn draw_pie_chart(
     let r_inner_sq = (radius - 1) * (radius - 1);
     let border_color = pack_color(0.9, 0.9, 0.95);
 
-    let mut angles = Vec::with_capacity(slices.len() + 1);
+    let slice_count = slices.len().min(31);
+    let mut angles = [0.0f32; 32];
     let mut current_angle = -std::f32::consts::FRAC_PI_2;
-    angles.push(current_angle);
+    angles[0] = current_angle;
 
-    for s in slices {
+    for (idx, s) in slices.iter().take(slice_count).enumerate() {
         current_angle += (s.percentage / 100.0) * std::f32::consts::TAU;
-        angles.push(current_angle);
+        angles[idx + 1] = current_angle;
     }
 
     let min_x = (cx - radius).max(0);
@@ -771,10 +739,10 @@ pub fn draw_pie_chart(
                     }
 
                     let mut color = slices[0].color;
-                    for (i, s) in slices.iter().enumerate() {
+                    for (i, s) in slices.iter().take(slice_count).enumerate() {
                         let a_start = angles[i];
                         let a_end = angles[i + 1];
-                        if angle >= a_start && (angle <= a_end || i == slices.len() - 1) {
+                        if angle >= a_start && (angle <= a_end || i == slice_count - 1) {
                             color = s.color;
                             break;
                         }
@@ -795,46 +763,11 @@ pub fn draw_advanced_debug_overlay(
     right_lines: &[String],
     profiler: &crate::core::profiler::FrameProfiler,
 ) {
-    let scale = 1;
-    let line_h = (font::GLYPH_H as i32) * scale + 3;
-    let padding = 5;
+    let mut ui = UiCanvas::new(buffer, width, height);
 
-    // 1. Left System & Coordinates Panel
-    if !left_lines.is_empty() {
-        let max_w = left_lines
-            .iter()
-            .map(|l| font::measure_text_light(l, scale, 1))
-            .max()
-            .unwrap_or(0);
-        let panel_w = max_w + padding * 2;
-        let panel_h = left_lines.len() as i32 * line_h + padding * 2 - 2;
-
-        fill_rect_alpha(buffer, width, height, 4, 4, panel_w, panel_h, pack_color(0.0, 0.0, 0.0), 0.60);
-
-        for (i, line) in left_lines.iter().enumerate() {
-            let ty = 4 + padding + i as i32 * line_h;
-            draw_text_light_shadowed(buffer, width, height, line, 4 + padding, ty, scale, 1);
-        }
-    }
-
-    // 2. Right Memory Allocation & Detailed Renderer Pipeline Panel
-    if !right_lines.is_empty() {
-        let max_w = right_lines
-            .iter()
-            .map(|l| font::measure_text_light(l, scale, 1))
-            .max()
-            .unwrap_or(0);
-        let panel_w = max_w + padding * 2;
-        let panel_h = right_lines.len() as i32 * line_h + padding * 2 - 2;
-        let rx = width as i32 - panel_w - 4;
-
-        fill_rect_alpha(buffer, width, height, rx, 4, panel_w, panel_h, pack_color(0.0, 0.0, 0.0), 0.60);
-
-        for (i, line) in right_lines.iter().enumerate() {
-            let ty = 4 + padding + i as i32 * line_h;
-            draw_text_light_shadowed(buffer, width, height, line, rx + padding, ty, scale, 1);
-        }
-    }
+    // 1. Left System & Coordinates Panel + 2. Right Memory & Renderer Pipeline Panel
+    ui.debug_text_panel(4, 4, left_lines, 5, 2, 0.60, false);
+    ui.debug_text_panel(4, 4, right_lines, 5, 2, 0.60, true);
 
     // 3. Bottom-Right Minecraft-style Debug Pie Chart & Profiler Legend
     let slices = profiler.pie_slices();
@@ -847,46 +780,41 @@ pub fn draw_advanced_debug_overlay(
     let pie_panel_x = width as i32 - pie_panel_w - 4;
     let pie_panel_y = height as i32 - pie_panel_h - 4;
 
-    fill_rect_alpha(buffer, width, height, pie_panel_x, pie_panel_y, pie_panel_w, pie_panel_h, pack_color(0.0, 0.0, 0.0), 0.70);
+    ui.fill_alpha(
+        Rect::new(pie_panel_x, pie_panel_y, pie_panel_w, pie_panel_h),
+        pack_color(0.0, 0.0, 0.0),
+        0.70,
+    );
 
     let prof_title = "DEBUG PROFILER (root.gameRenderer.level)";
-    draw_text_light_colored_shadowed(buffer, width, height, prof_title, pie_panel_x + 6, pie_panel_y + 4, 1, 1, pack_color(0.95, 0.85, 0.35));
+    ui.text_light_colored(
+        prof_title,
+        pie_panel_x + 6,
+        pie_panel_y + 4,
+        1,
+        1,
+        pack_color(0.95, 0.85, 0.35),
+    );
 
-    draw_pie_chart(buffer, width, height, pie_cx, pie_cy, pie_r, &slices);
+    draw_pie_chart(ui.buffer, ui.width, ui.height, pie_cx, pie_cy, pie_r, &slices);
 
     let mut leg_y = pie_panel_y + 18;
     for s in &slices {
-        fill_rect(buffer, width, height, pie_panel_x + 6, leg_y + 2, 6, 6, s.color);
+        ui.fill(Rect::new(pie_panel_x + 6, leg_y + 2, 6, 6), s.color);
         let leg_txt = format!("{:<11} {:>4.1}% {:>4.2}ms", s.name, s.percentage, s.time_ms);
-        draw_text_light_shadowed(buffer, width, height, &leg_txt, pie_panel_x + 16, leg_y, 1, 1);
+        ui.text_light(&leg_txt, pie_panel_x + 16, leg_y, 1, 1);
         leg_y += 12;
     }
 }
 
 pub fn draw_debug_panel(buffer: &mut [u32], width: usize, height: usize, lines: &[String]) {
-    let scale = 1;
-    let line_h = (font::GLYPH_H as i32) * scale + 3;
-    let padding = 6;
-
-    let max_w = lines
-        .iter()
-        .map(|l| font::measure_text_light(l, scale, 1))
-        .max()
-        .unwrap_or(0);
-
-    let panel_w = max_w + padding * 2;
-    let panel_h = lines.len() as i32 * line_h + padding * 2 - 4;
-
-    fill_rect_alpha(buffer, width, height, 6, 6, panel_w, panel_h, pack_color(0.0, 0.0, 0.0), 0.5);
-
-    for (i, line) in lines.iter().enumerate() {
-        let ty = 6 + padding + i as i32 * line_h;
-        draw_text_light_shadowed(buffer, width, height, line, 6 + padding, ty, scale, 1);
-    }
+    let mut ui = UiCanvas::new(buffer, width, height);
+    ui.debug_text_panel(6, 6, lines, 6, 4, 0.5, false);
 }
 
 pub fn draw_capture_prompt(buffer: &mut [u32], width: usize, height: usize, native_capture: bool) {
-    fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.0, 0.0, 0.0), 0.35);
+    let mut ui = UiCanvas::new(buffer, width, height);
+    ui.backdrop(None, pack_color(0.0, 0.0, 0.0), 0.35);
 
     let line1 = crate::core::i18n::t("capture.prompt");
     let line2 = if native_capture {
@@ -895,34 +823,15 @@ pub fn draw_capture_prompt(buffer: &mut [u32], width: usize, height: usize, nati
         crate::core::i18n::t("capture.esc_pause")
     };
 
-    let scale1 = 4;
-    let scale2 = 2;
-    let w1 = font::measure_text(line1, scale1, 2);
-    let w2 = font::measure_text(line2, scale2, 1);
+    let cx = ui.cx();
+    let cy = ui.cy();
 
-    let cx = width as i32 / 2;
-    let cy = height as i32 / 2;
-
-    draw_text_shadowed(buffer, width, height, line1, cx - w1 / 2, cy - 20, scale1, 2);
-    draw_text_shadowed(buffer, width, height, line2, cx - w2 / 2, cy + 20, scale2, 1);
+    ui.text_centered_x(line1, cx, cy - 20, 4, 2, pack_color(1.0, 1.0, 1.0));
+    ui.text_centered_x(line2, cx, cy + 20, 2, 1, pack_color(1.0, 1.0, 1.0));
 }
 
 pub fn pause_menu_button_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 7] {
-    let btn_w = 280;
-    let btn_h = 30;
-    let spacing = 6;
-    let cx = width as i32 / 2;
-    let start_y = height as i32 / 2 - 125;
-
-    [
-        (cx - btn_w / 2, start_y, btn_w, btn_h),
-        (cx - btn_w / 2, start_y + btn_h + spacing, btn_w, btn_h),
-        (cx - btn_w / 2, start_y + (btn_h + spacing) * 2, btn_w, btn_h),
-        (cx - btn_w / 2, start_y + (btn_h + spacing) * 3, btn_w, btn_h),
-        (cx - btn_w / 2, start_y + (btn_h + spacing) * 4, btn_w, btn_h),
-        (cx - btn_w / 2, start_y + (btn_h + spacing) * 5, btn_w, btn_h),
-        (cx - btn_w / 2, start_y + (btn_h + spacing) * 6, btn_w, btn_h),
-    ]
+    VStack::centered(width, height as i32 / 2 - 125, 280, 6).array(30)
 }
 
 pub fn draw_pause_menu(
@@ -936,16 +845,15 @@ pub fn draw_pause_menu(
     is_hosting: bool,
     status: Option<&str>,
 ) {
-    fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.0, 0.0, 0.0), 0.72);
+    let mut ui = UiCanvas::new(buffer, width, height);
+    ui.backdrop(None, pack_color(0.0, 0.0, 0.0), 0.72);
 
-    let cx = width as i32 / 2;
-    let cy = height as i32 / 2;
+    let cx = ui.cx();
+    let cy = ui.cy();
 
     // Title
     let title = crate::core::i18n::t("pause.title");
-    let t_scale = 3;
-    let t_w = font::measure_text(title, t_scale, 2);
-    draw_text_colored_shadowed(buffer, width, height, title, cx - t_w / 2, cy - 145, t_scale, 2, pack_color(0.95, 0.85, 0.35));
+    ui.text_centered_x(title, cx, cy - 145, 3, 2, pack_color(0.95, 0.85, 0.35));
 
     let b0 = if is_gamepad_active {
         format!("{} [START / A]", crate::core::i18n::t("pause.resume"))
@@ -990,19 +898,17 @@ pub fn draw_pause_menu(
     };
 
     let buttons = [b0, b1, b2, b3, b4, b5, b6];
-
     let rects = pause_menu_button_rects(width, height);
 
-    for (i, (label, &(bx, by, bw, bh))) in buttons.iter().zip(rects.iter()).enumerate() {
+    for (i, (label, &rect_t)) in buttons.iter().zip(rects.iter()).enumerate() {
         let is_hover = hovered_idx == Some(i);
+        let r = Rect::from(rect_t);
 
         let body_color = if is_hover {
             pack_color(0.32, 0.44, 0.68)
         } else {
             pack_color(0.20, 0.20, 0.24)
         };
-        fill_rect(buffer, width, height, bx, by, bw, bh, body_color);
-
         let top_left = if is_hover {
             pack_color(0.75, 0.85, 1.0)
         } else {
@@ -1014,22 +920,15 @@ pub fn draw_pause_menu(
             pack_color(0.10, 0.10, 0.12)
         };
 
-        fill_rect(buffer, width, height, bx, by, bw, 2, top_left);
-        fill_rect(buffer, width, height, bx, by, 2, bh, top_left);
-        fill_rect(buffer, width, height, bx, by + bh - 2, bw, 2, bottom_right);
-        fill_rect(buffer, width, height, bx + bw - 2, by, 2, bh, bottom_right);
+        ui.fill(r, body_color);
+        ui.bevel_border(r, 2, top_left, bottom_right);
 
-        let scale = 2;
-        let tw = font::measure_text(label, scale, 1);
-        let tx = bx + (bw - tw) / 2;
-        let ty = by + (bh - (font::GLYPH_H as i32 * scale)) / 2;
-
-        if is_hover {
-            draw_text_colored_shadowed(buffer, width, height, label, tx, ty, scale, 1, pack_color(1.0, 1.0, 0.3));
+        let text_col = if is_hover {
+            pack_color(1.0, 1.0, 0.3)
         } else {
-            draw_text_shadowed(buffer, width, height, label, tx, ty, scale, 1);
-        }
-
+            pack_color(1.0, 1.0, 1.0)
+        };
+        ui.text_in_rect(r, label, 2, 1, text_col);
     }
 
     // Dynamic contextual tooltip for selected pause menu button
@@ -1068,21 +967,12 @@ pub fn draw_pause_menu(
     });
 
     let tip_w = 460.min(width as i32 - 40);
-    let tip_h = 24;
-    let tip_x = cx - tip_w / 2;
-    let tip_y = cy + 122;
-
-    fill_rect_alpha(buffer, width, height, tip_x, tip_y, tip_w, tip_h, pack_color(0.08, 0.10, 0.16), 0.85);
-    fill_rect(buffer, width, height, tip_x, tip_y, tip_w, 1, pack_color(0.35, 0.45, 0.65));
-    fill_rect(buffer, width, height, tip_x, tip_y + tip_h - 1, tip_w, 1, pack_color(0.35, 0.45, 0.65));
-    fill_rect(buffer, width, height, tip_x, tip_y, 1, tip_h, pack_color(0.35, 0.45, 0.65));
-    fill_rect(buffer, width, height, tip_x + tip_w - 1, tip_y, 1, tip_h, pack_color(0.35, 0.45, 0.65));
+    let tip_rect = Rect::new(cx - tip_w / 2, cy + 122, tip_w, 24);
+    ui.fill_alpha(tip_rect, pack_color(0.08, 0.10, 0.16), 0.85);
+    ui.border(tip_rect, 1, pack_color(0.35, 0.45, 0.65));
 
     let max_tooltip_chars = (tip_w.saturating_sub(20) / 6).max(1) as usize;
     let tooltip_text: String = tooltip.chars().take(max_tooltip_chars).collect();
-    let tip_text_w = font::measure_text(&tooltip_text, 1, 1);
-    let tip_text_x = tip_x + (tip_w - tip_text_w) / 2;
-    let tip_text_y = tip_y + (tip_h - font::GLYPH_H as i32) / 2;
     let tip_color = if status.is_some() {
         pack_color(0.55, 0.9, 1.0)
     } else if hovered_idx.is_some() {
@@ -1090,7 +980,7 @@ pub fn draw_pause_menu(
     } else {
         pack_color(0.65, 0.70, 0.80)
     };
-    draw_text_colored_shadowed(buffer, width, height, &tooltip_text, tip_text_x, tip_text_y, 1, 1, tip_color);
+    ui.text_in_rect(tip_rect, &tooltip_text, 1, 1, tip_color);
 
     // Controls reference cards
     let card_w = 260;
@@ -1106,15 +996,27 @@ pub fn draw_pause_menu(
     if width >= 860 {
         // --- LEFT CARD: KEYBOARD & MOUSE ---
         let left_x = (cx - 140 - card_w - 20).max(12);
-        fill_rect_alpha(buffer, width, height, left_x, card_y, card_w, card_h, pack_color(0.08, 0.09, 0.13), 0.82);
-        fill_rect(buffer, width, height, left_x, card_y, card_w, 2, kb_border);
-        fill_rect(buffer, width, height, left_x, card_y + card_h - 2, card_w, 2, pack_color(0.20, 0.25, 0.35));
-        fill_rect(buffer, width, height, left_x, card_y, 2, card_h, kb_border);
-        fill_rect(buffer, width, height, left_x + card_w - 2, card_y, 2, card_h, pack_color(0.20, 0.25, 0.35));
+        let left_card = Rect::new(left_x, card_y, card_w, card_h);
+        ui.modal_panel(
+            left_card,
+            pack_color(0.08, 0.09, 0.13),
+            0.82,
+            kb_border,
+            pack_color(0.20, 0.25, 0.35),
+        );
 
-        let l_title = "[ KEYBOARD & MOUSE ]";
-        let l_tw = font::measure_text(l_title, 1, 1);
-        draw_text_colored_shadowed(buffer, width, height, l_title, left_x + (card_w - l_tw) / 2, card_y + 10, 1, 1, if is_gamepad_active { pack_color(0.6, 0.65, 0.7) } else { pack_color(0.95, 0.85, 0.35) });
+        ui.text_centered_x(
+            "[ KEYBOARD & MOUSE ]",
+            left_card.center_x(),
+            card_y + 10,
+            1,
+            1,
+            if is_gamepad_active {
+                pack_color(0.6, 0.65, 0.7)
+            } else {
+                pack_color(0.95, 0.85, 0.35)
+            },
+        );
 
         let kb_bindings = [
             ("W, A, S, D", "Movement"),
@@ -1134,23 +1036,34 @@ pub fn draw_pause_menu(
 
         let mut row_y = card_y + 32;
         for (key, desc) in &kb_bindings {
-            draw_text_colored_shadowed(buffer, width, height, key, left_x + 12, row_y, 1, 1, pack_color(0.45, 0.85, 1.0));
-            let dw = font::measure_text(desc, 1, 1);
-            draw_text_colored_shadowed(buffer, width, height, desc, left_x + card_w - 12 - dw, row_y, 1, 1, pack_color(0.85, 0.88, 0.92));
+            ui.text(key, left_x + 12, row_y, 1, 1, pack_color(0.45, 0.85, 1.0));
+            ui.text_right(desc, left_x + card_w - 12, row_y, 1, 1, pack_color(0.85, 0.88, 0.92));
             row_y += 21;
         }
 
         // --- RIGHT CARD: CONTROLLER / GAMEPAD ---
         let right_x = (cx + 140 + 20).min(width as i32 - card_w - 12);
-        fill_rect_alpha(buffer, width, height, right_x, card_y, card_w, card_h, pack_color(0.08, 0.09, 0.13), 0.82);
-        fill_rect(buffer, width, height, right_x, card_y, card_w, 2, gp_border);
-        fill_rect(buffer, width, height, right_x, card_y + card_h - 2, card_w, 2, pack_color(0.20, 0.25, 0.35));
-        fill_rect(buffer, width, height, right_x, card_y, 2, card_h, gp_border);
-        fill_rect(buffer, width, height, right_x + card_w - 2, card_y, 2, card_h, pack_color(0.20, 0.25, 0.35));
+        let right_card = Rect::new(right_x, card_y, card_w, card_h);
+        ui.modal_panel(
+            right_card,
+            pack_color(0.08, 0.09, 0.13),
+            0.82,
+            gp_border,
+            pack_color(0.20, 0.25, 0.35),
+        );
 
-        let r_title = "[ GAMEPAD CONTROLS ]";
-        let r_tw = font::measure_text(r_title, 1, 1);
-        draw_text_colored_shadowed(buffer, width, height, r_title, right_x + (card_w - r_tw) / 2, card_y + 10, 1, 1, if is_gamepad_active { pack_color(0.95, 0.85, 0.35) } else { pack_color(0.6, 0.65, 0.7) });
+        ui.text_centered_x(
+            "[ GAMEPAD CONTROLS ]",
+            right_card.center_x(),
+            card_y + 10,
+            1,
+            1,
+            if is_gamepad_active {
+                pack_color(0.95, 0.85, 0.35)
+            } else {
+                pack_color(0.6, 0.65, 0.7)
+            },
+        );
 
         let gp_bindings = [
             ("L-Stick", "Movement"),
@@ -1170,9 +1083,8 @@ pub fn draw_pause_menu(
 
         let mut row_y = card_y + 32;
         for (key, desc) in &gp_bindings {
-            draw_text_colored_shadowed(buffer, width, height, key, right_x + 12, row_y, 1, 1, pack_color(0.45, 0.85, 1.0));
-            let dw = font::measure_text(desc, 1, 1);
-            draw_text_colored_shadowed(buffer, width, height, desc, right_x + card_w - 12 - dw, row_y, 1, 1, pack_color(0.85, 0.88, 0.92));
+            ui.text(key, right_x + 12, row_y, 1, 1, pack_color(0.45, 0.85, 1.0));
+            ui.text_right(desc, right_x + card_w - 12, row_y, 1, 1, pack_color(0.85, 0.88, 0.92));
             row_y += 21;
         }
     } else {
@@ -1184,15 +1096,13 @@ pub fn draw_pause_menu(
         ];
         let mut fy = cy + 155;
         for &line in &footers {
-            let lw = font::measure_text(line, 1, 1);
-            draw_text_colored_shadowed(buffer, width, height, line, cx - lw / 2, fy, 1, 1, pack_color(0.75, 0.78, 0.85));
+            ui.text_centered_x(line, cx, fy, 1, 1, pack_color(0.75, 0.78, 0.85));
             fy += 15;
         }
     }
 
     let build_info = crate::core::build_info::get_build_info();
-    let bw = font::measure_text(build_info, 1, 1);
-    draw_text_colored_shadowed(buffer, width, height, build_info, (width as i32 - bw) / 2, height as i32 - 14, 1, 1, pack_color(0.50, 0.55, 0.65));
+    ui.text_centered_x(build_info, cx, height as i32 - 14, 1, 1, pack_color(0.50, 0.55, 0.65));
 }
 
 pub fn draw_multiplayer_toast(
@@ -1216,30 +1126,15 @@ pub fn draw_multiplayer_toast(
         pack_color(0.25, 0.78, 0.50)
     };
 
-    fill_rect_alpha(
-        buffer,
-        width,
-        height,
-        x,
-        y,
-        box_width,
-        box_height,
+    let mut ui = UiCanvas::new(buffer, width, height);
+    ui.fill_alpha(
+        Rect::new(x, y, box_width, box_height),
         pack_color(0.04, 0.05, 0.07),
         0.92,
     );
-    fill_rect(buffer, width, height, x, y, box_width, 2, accent);
-    fill_rect(buffer, width, height, x, y, 3, box_height, accent);
-    draw_text_colored_shadowed(
-        buffer,
-        width,
-        height,
-        &text,
-        x + 12,
-        y + 9,
-        1,
-        1,
-        pack_color(0.96, 0.98, 1.0),
-    );
+    ui.fill(Rect::new(x, y, box_width, 2), accent);
+    ui.fill(Rect::new(x, y, 3, box_height), accent);
+    ui.text(&text, x + 12, y + 9, 1, 1, pack_color(0.96, 0.98, 1.0));
 }
 
 pub fn draw_damage_flash(buffer: &mut [u32], width: usize, height: usize, intensity: f32) {
@@ -1247,7 +1142,8 @@ pub fn draw_damage_flash(buffer: &mut [u32], width: usize, height: usize, intens
         return;
     }
     let alpha = (intensity * 0.35).clamp(0.0, 0.55);
-    fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.95, 0.05, 0.05), alpha);
+    let mut ui = UiCanvas::new(buffer, width, height);
+    ui.backdrop(None, pack_color(0.95, 0.05, 0.05), alpha);
 }
 
 /// Applies an atmospheric biome color filter postprocessing pass to the screen color buffer.
@@ -1312,16 +1208,7 @@ pub fn draw_low_health_vignette(buffer: &mut [u32], width: usize, height: usize,
 }
 
 pub fn death_screen_button_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 2] {
-    let btn_w = 340;
-    let btn_h = 42;
-    let spacing = 16;
-    let cx = width as i32 / 2;
-    let start_y = height as i32 / 2 + 10;
-
-    [
-        (cx - btn_w / 2, start_y, btn_w, btn_h),
-        (cx - btn_w / 2, start_y + btn_h + spacing, btn_w, btn_h),
-    ]
+    VStack::centered(width, height as i32 / 2 + 10, 340, 16).array(42)
 }
 
 pub fn draw_death_screen(
@@ -1330,20 +1217,17 @@ pub fn draw_death_screen(
     height: usize,
     hovered_idx: Option<usize>,
 ) {
-    fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.50, 0.05, 0.05), 0.65);
+    let mut ui = UiCanvas::new(buffer, width, height);
+    ui.backdrop(None, pack_color(0.50, 0.05, 0.05), 0.65);
 
-    let cx = width as i32 / 2;
-    let cy = height as i32 / 2;
+    let cx = ui.cx();
+    let cy = ui.cy();
 
     let title = crate::core::i18n::t("death.title");
-    let t_scale = 5;
-    let tw = font::measure_text(title, t_scale, 2);
-    draw_text_colored_shadowed(buffer, width, height, title, cx - tw / 2, cy - 110, t_scale, 2, pack_color(1.0, 0.15, 0.15));
+    ui.text_centered_x(title, cx, cy - 110, 5, 2, pack_color(1.0, 0.15, 0.15));
 
     let subtitle = crate::core::i18n::t("death.subtitle");
-    let s_scale = 2;
-    let sw = font::measure_text(subtitle, s_scale, 1);
-    draw_text_colored_shadowed(buffer, width, height, subtitle, cx - sw / 2, cy - 40, s_scale, 1, pack_color(0.9, 0.85, 0.85));
+    ui.text_centered_x(subtitle, cx, cy - 40, 2, 1, pack_color(0.9, 0.85, 0.85));
 
     #[cfg(target_os = "vita")]
     let b0 = format!("{} [X]", crate::core::i18n::t("death.respawn"));
@@ -1356,37 +1240,29 @@ pub fn draw_death_screen(
     let b1 = format!("{} (ESC)", crate::core::i18n::t("death.main_menu"));
 
     let buttons = [b0, b1];
-
     let rects = death_screen_button_rects(width, height);
 
-    for (i, (label, &(bx, by, bw, bh))) in buttons.iter().zip(rects.iter()).enumerate() {
+    for (i, (label, &rect_t)) in buttons.iter().zip(rects.iter()).enumerate() {
         let is_hover = hovered_idx == Some(i);
+        let r = Rect::from(rect_t);
 
         let body_color = if is_hover {
             if i == 0 { pack_color(0.30, 0.50, 0.30) } else { pack_color(0.45, 0.28, 0.28) }
         } else {
             pack_color(0.22, 0.18, 0.18)
         };
-        fill_rect(buffer, width, height, bx, by, bw, bh, body_color);
-
         let top_left = if is_hover { pack_color(0.85, 0.95, 0.85) } else { pack_color(0.55, 0.50, 0.50) };
         let bottom_right = if is_hover { pack_color(0.20, 0.30, 0.20) } else { pack_color(0.12, 0.08, 0.08) };
 
-        fill_rect(buffer, width, height, bx, by, bw, 2, top_left);
-        fill_rect(buffer, width, height, bx, by, 2, bh, top_left);
-        fill_rect(buffer, width, height, bx, by + bh - 2, bw, 2, bottom_right);
-        fill_rect(buffer, width, height, bx + bw - 2, by, 2, bh, bottom_right);
+        ui.fill(r, body_color);
+        ui.bevel_border(r, 2, top_left, bottom_right);
 
-        let scale = 2;
-        let tw = font::measure_text(label, scale, 1);
-        let tx = bx + (bw - tw) / 2;
-        let ty = by + (bh - (font::GLYPH_H as i32 * scale)) / 2;
-
-        if is_hover {
-            draw_text_colored_shadowed(buffer, width, height, label, tx, ty, scale, 1, pack_color(1.0, 1.0, 0.3));
+        let text_col = if is_hover {
+            pack_color(1.0, 1.0, 0.3)
         } else {
-            draw_text_shadowed(buffer, width, height, label, tx, ty, scale, 1);
-        }
+            pack_color(1.0, 1.0, 1.0)
+        };
+        ui.text_in_rect(r, label, 2, 1, text_col);
     }
 }
 

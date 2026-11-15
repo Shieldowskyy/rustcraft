@@ -1,9 +1,7 @@
 use crate::gameplay::achievements::{AchievementId, AchievementProgress};
 use crate::gameplay::mob::MobKind;
-use crate::graphics::font;
-use crate::ui::draw::{
-    draw_text_colored_shadowed, draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color, set_px,
-};
+use crate::ui::draw::{pack_color, set_px};
+use crate::ui::widgets::{Grid, HStack, Rect, Toast, UiCanvas};
 use crate::world::block::{BlockId, Face};
 
 const LINKS: [(usize, usize); 10] = [
@@ -81,37 +79,19 @@ pub fn draw_achievement_tree(
     height: usize,
     progress: &AchievementProgress,
 ) {
-    fill_rect(
-        buffer,
-        width,
-        height,
-        0,
-        0,
-        width as i32,
-        height as i32,
-        pack_color(0.035, 0.045, 0.065),
-    );
+    let mut ui = UiCanvas::new(buffer, width, height);
+    ui.fill(ui.screen_rect(), pack_color(0.035, 0.045, 0.065));
+
     let heading = crate::core::i18n::t("achievement.tree_title");
-    let heading_width = font::measure_text(heading, 2, 2);
-    draw_text_colored_shadowed(
-        buffer,
-        width,
-        height,
-        heading,
-        (width as i32 - heading_width) / 2,
-        18,
-        2,
-        2,
-        pack_color(0.98, 0.82, 0.36),
-    );
+    ui.text_centered_x(heading, ui.cx(), 18, 2, 2, pack_color(0.98, 0.82, 0.36));
 
     for (from, to) in LINKS {
         let parent = node_position(from, width);
         let child = node_position(to, width);
         draw_line(
-            buffer,
-            width,
-            height,
+            ui.buffer,
+            ui.width,
+            ui.height,
             (parent.0 + parent.2 / 2, parent.1 + parent.3),
             (child.0 + child.2 / 2, child.1),
             if progress.is_unlocked(AchievementId::ALL[from]) {
@@ -124,55 +104,23 @@ pub fn draw_achievement_tree(
 
     for (index, id) in AchievementId::ALL.iter().copied().enumerate() {
         let (x, y, card_width, card_height) = node_position(index, width);
+        let card_rect = Rect::new(x, y, card_width, card_height);
         let unlocked = progress.is_unlocked(id);
         let accent = if unlocked {
             pack_color(0.92, 0.72, 0.25)
         } else {
             pack_color(0.30, 0.36, 0.46)
         };
-        fill_rect_alpha(
-            buffer,
-            width,
-            height,
-            x,
-            y,
-            card_width,
-            card_height,
-            if unlocked {
-                pack_color(0.18, 0.15, 0.08)
-            } else {
-                pack_color(0.08, 0.10, 0.14)
-            },
-            0.96,
-        );
-        fill_rect(buffer, width, height, x, y, card_width, 2, accent);
-        fill_rect(buffer, width, height, x, y, 2, card_height, accent);
-        fill_rect(
-            buffer,
-            width,
-            height,
-            x + card_width - 2,
-            y,
-            2,
-            card_height,
-            accent,
-        );
-        fill_rect(
-            buffer,
-            width,
-            height,
-            x,
-            y + card_height - 2,
-            card_width,
-            2,
-            accent,
-        );
+        let bg = if unlocked {
+            pack_color(0.18, 0.15, 0.08)
+        } else {
+            pack_color(0.08, 0.10, 0.14)
+        };
+        ui.fill_alpha(card_rect, bg, 0.96);
+        ui.border(card_rect, 2, accent);
 
         let title = crate::core::i18n::t(id.name_key());
-        draw_text_colored_shadowed(
-            buffer,
-            width,
-            height,
+        ui.text(
             title,
             x + 10,
             y + 7,
@@ -187,7 +135,8 @@ pub fn draw_achievement_tree(
         let description = crate::core::i18n::t(id.description_key());
         let max_chars = ((card_width - 20) / 6).max(1) as usize;
         let description: String = description.chars().take(max_chars).collect();
-        draw_text_shadowed(buffer, width, height, &description, x + 10, y + 21, 1, 1);
+        ui.text_white(&description, x + 10, y + 21, 1, 1);
+
         let (current, goal) = progress.counts_for(id);
         let status = if unlocked {
             crate::core::i18n::t("achievement.unlocked")
@@ -199,10 +148,7 @@ pub fn draw_achievement_tree(
             &[status, &current.min(goal).to_string(), &goal.to_string()],
         );
         let line: String = line.chars().take(max_chars).collect();
-        draw_text_colored_shadowed(
-            buffer,
-            width,
-            height,
+        ui.text(
             &line,
             x + 10,
             y + 37,
@@ -223,30 +169,9 @@ pub fn draw_achievement_tree(
             &AchievementId::ALL.len().to_string(),
         ],
     );
-    draw_text_colored_shadowed(
-        buffer,
-        width,
-        height,
-        &summary,
-        18,
-        height as i32 - 20,
-        1,
-        1,
-        pack_color(0.72, 0.78, 0.88),
-    );
+    ui.text(&summary, 18, height as i32 - 20, 1, 1, pack_color(0.72, 0.78, 0.88));
     let back = crate::core::i18n::t("achievement.back_hint");
-    let back_width = font::measure_text(back, 1, 1);
-    draw_text_colored_shadowed(
-        buffer,
-        width,
-        height,
-        back,
-        width as i32 - back_width - 18,
-        height as i32 - 20,
-        1,
-        1,
-        pack_color(0.72, 0.78, 0.88),
-    );
+    ui.text_right(back, width as i32 - 18, height as i32 - 20, 1, 1, pack_color(0.72, 0.78, 0.88));
 }
 
 pub fn draw_achievement_toast(
@@ -256,67 +181,15 @@ pub fn draw_achievement_toast(
     title: &str,
     description: &str,
 ) {
-    let box_width = (width as i32 - 32).clamp(180, 360);
-    let x = width as i32 - box_width - 16;
-    let y = 18;
-    fill_rect_alpha(
-        buffer,
-        width,
-        height,
-        x,
-        y,
-        box_width,
-        62,
-        pack_color(0.035, 0.045, 0.065),
-        0.96,
-    );
-    fill_rect(
-        buffer,
-        width,
-        height,
-        x,
-        y,
-        box_width,
-        3,
-        pack_color(0.96, 0.72, 0.22),
-    );
-    fill_rect(
-        buffer,
-        width,
-        height,
-        x,
-        y,
-        3,
-        62,
-        pack_color(0.96, 0.72, 0.22),
-    );
-    let heading = crate::core::i18n::t("achievement.toast_heading");
-    draw_text_colored_shadowed(
-        buffer,
-        width,
-        height,
-        heading,
-        x + 12,
-        y + 8,
-        1,
-        1,
-        pack_color(0.98, 0.80, 0.35),
-    );
-    let max_chars = ((box_width - 24) / 6).max(1) as usize;
-    let title: String = title.chars().take(max_chars).collect();
-    draw_text_colored_shadowed(
-        buffer,
-        width,
-        height,
-        &title,
-        x + 12,
-        y + 23,
-        1,
-        1,
-        pack_color(1.0, 1.0, 1.0),
-    );
-    let description: String = description.chars().take(max_chars).collect();
-    draw_text_shadowed(buffer, width, height, &description, x + 12, y + 40, 1, 1);
+    let mut ui = UiCanvas::new(buffer, width, height);
+    ui.toast_card(Toast {
+        heading: crate::core::i18n::t("achievement.toast_heading"),
+        title,
+        subtitle: description,
+        accent_color: pack_color(0.96, 0.72, 0.22),
+        icon: None,
+        y: 18,
+    });
 }
 
 const FIELD_GUIDE_TABS: [&str; 3] = [
@@ -328,27 +201,20 @@ const FIELD_GUIDE_TABS: [&str; 3] = [
 pub fn field_guide_tab_rects(width: usize) -> [(i32, i32, i32, i32); 3] {
     let gap = 8;
     let tab_width = ((width as i32 - 40 - gap * 2) / 3).min(210);
-    let total_width = tab_width * 3 + gap * 2;
-    let start_x = (width as i32 - total_width) / 2;
-    [
-        (start_x, 48, tab_width, 24),
-        (start_x + tab_width + gap, 48, tab_width, 24),
-        (start_x + (tab_width + gap) * 2, 48, tab_width, 24),
-    ]
+    HStack::centered_row(width, 48, tab_width, 24, 3, gap).array(tab_width)
 }
 
 pub fn field_guide_tab_at(width: usize, mouse_pos: Option<(f32, f32)>) -> Option<usize> {
-    let (mx, my) = mouse_pos?;
     field_guide_tab_rects(width)
         .iter()
-        .position(|&(x, y, w, h)| {
-            mx >= x as f32 && mx < (x + w) as f32 && my >= y as f32 && my < (y + h) as f32
-        })
+        .position(|&r| Rect::from_tuple(r).contains_mouse(mouse_pos))
 }
 
 fn draw_field_guide_tabs(buffer: &mut [u32], width: usize, tab: usize) {
     let height = height_from_buffer(buffer, width);
-    for (index, &(x, y, w, h)) in field_guide_tab_rects(width).iter().enumerate() {
+    let mut ui = UiCanvas::new(buffer, width, height);
+    for (index, &rect_t) in field_guide_tab_rects(width).iter().enumerate() {
+        let r = Rect::from(rect_t);
         let selected = index == tab;
         let background = if selected {
             pack_color(0.25, 0.30, 0.40)
@@ -360,41 +226,20 @@ fn draw_field_guide_tabs(buffer: &mut [u32], width: usize, tab: usize) {
         } else {
             pack_color(0.30, 0.36, 0.46)
         };
-        fill_rect_alpha(buffer, width, height, x, y, w, h, background, 0.98);
-        fill_rect(buffer, width, height, x, y, w, 2, accent);
+        ui.fill_alpha(r, background, 0.98);
+        ui.fill(Rect::new(r.x, r.y, r.w, 2), accent);
         let label = crate::core::i18n::t(FIELD_GUIDE_TABS[index]);
-        let max_chars = ((w - 12) / 6).max(1) as usize;
+        let max_chars = ((r.w - 12) / 6).max(1) as usize;
         let label: String = label.chars().take(max_chars).collect();
-        let text_width = font::measure_text(&label, 1, 1);
-        draw_text_colored_shadowed(
-            buffer,
-            width,
-            height,
-            &label,
-            x + (w - text_width) / 2,
-            y + 8,
-            1,
-            1,
-            if selected {
-                pack_color(1.0, 0.9, 0.56)
-            } else {
-                pack_color(0.78, 0.82, 0.9)
-            },
-        );
+        let text_col = if selected {
+            pack_color(1.0, 0.9, 0.56)
+        } else {
+            pack_color(0.78, 0.82, 0.9)
+        };
+        ui.text_in_rect(r, &label, 1, 1, text_col);
     }
     let hint = crate::core::i18n::t("achievement.tab_hint");
-    let hint_width = font::measure_text(hint, 1, 1);
-    draw_text_colored_shadowed(
-        buffer,
-        width,
-        height,
-        hint,
-        (width as i32 - hint_width) / 2,
-        76,
-        1,
-        1,
-        pack_color(0.58, 0.65, 0.76),
-    );
+    ui.text_centered_x(hint, ui.cx(), 76, 1, 1, pack_color(0.58, 0.65, 0.76));
 }
 
 fn height_from_buffer(buffer: &[u32], width: usize) -> usize {
@@ -413,57 +258,19 @@ fn draw_catalog_heading(
     total: usize,
 ) {
     let height = height_from_buffer(buffer, width);
-    fill_rect(
-        buffer,
-        width,
-        height,
-        0,
-        0,
-        width as i32,
-        height as i32,
-        pack_color(0.035, 0.045, 0.065),
-    );
+    let mut ui = UiCanvas::new(buffer, width, height);
+    ui.fill(ui.screen_rect(), pack_color(0.035, 0.045, 0.065));
+
     let title = crate::core::i18n::t(title_key);
-    let title_width = font::measure_text(title, 2, 2);
-    draw_text_colored_shadowed(
-        buffer,
-        width,
-        height,
-        title,
-        (width as i32 - title_width) / 2,
-        18,
-        2,
-        2,
-        pack_color(0.98, 0.82, 0.36),
-    );
+    ui.text_centered_x(title, ui.cx(), 18, 2, 2, pack_color(0.98, 0.82, 0.36));
+
     let summary = crate::core::i18n::t_fmt(
         "achievement.catalog_count",
         &[&count.to_string(), &total.to_string()],
     );
-    draw_text_colored_shadowed(
-        buffer,
-        width,
-        height_from_buffer(buffer, width),
-        &summary,
-        14,
-        height as i32 - 20,
-        1,
-        1,
-        pack_color(0.72, 0.78, 0.88),
-    );
+    ui.text(&summary, 14, height as i32 - 20, 1, 1, pack_color(0.72, 0.78, 0.88));
     let back = crate::core::i18n::t("achievement.back_hint");
-    let back_width = font::measure_text(back, 1, 1);
-    draw_text_colored_shadowed(
-        buffer,
-        width,
-        height,
-        back,
-        width as i32 - back_width - 14,
-        height as i32 - 20,
-        1,
-        1,
-        pack_color(0.72, 0.78, 0.88),
-    );
+    ui.text_right(back, width as i32 - 14, height as i32 - 20, 1, 1, pack_color(0.72, 0.78, 0.88));
 }
 
 fn draw_creature_catalog(
@@ -481,10 +288,12 @@ fn draw_creature_catalog(
     );
     let gap = 10;
     let card_width = (width as i32 - 36 - gap) / 2;
+    let grid = Grid::new(18, 88, 2, MobKind::ALL.len().div_ceil(2), card_width, 43, card_width + gap, 49);
+    let mut ui = UiCanvas::new(buffer, width, height);
+
     for (index, mob) in MobKind::ALL.iter().copied().enumerate() {
         let discovered = progress.has_seen_mob(mob);
-        let x = 18 + (index % 2) as i32 * (card_width + gap);
-        let y = 88 + (index / 2) as i32 * 49;
+        let r = grid.slot(index);
         let hostile = mob.is_hostile();
         let accent = if !discovered {
             pack_color(0.27, 0.31, 0.38)
@@ -495,32 +304,19 @@ fn draw_creature_catalog(
         } else {
             pack_color(0.38, 0.78, 0.48)
         };
-        fill_rect_alpha(
-            buffer,
-            width,
-            height,
-            x,
-            y,
-            card_width,
-            43,
-            pack_color(0.08, 0.10, 0.14),
-            0.96,
-        );
-        fill_rect(buffer, width, height, x, y, 3, 43, accent);
-        fill_rect(buffer, width, height, x + 10, y + 13, 14, 14, accent);
+        ui.fill_alpha(r, pack_color(0.08, 0.10, 0.14), 0.96);
+        ui.fill(Rect::new(r.x, r.y, 3, 43), accent);
+        ui.fill(Rect::new(r.x + 10, r.y + 13, 14, 14), accent);
 
         let name = if discovered {
             crate::core::i18n::t(mob.catalog_name_key())
         } else {
             crate::core::i18n::t("creature.unknown")
         };
-        draw_text_colored_shadowed(
-            buffer,
-            width,
-            height,
+        ui.text(
             name,
-            x + 33,
-            y + 8,
+            r.x + 33,
+            r.y + 8,
             1,
             1,
             if discovered {
@@ -538,7 +334,7 @@ fn draw_creature_catalog(
         } else {
             crate::core::i18n::t("creature.peaceful")
         };
-        draw_text_colored_shadowed(buffer, width, height, detail, x + 33, y + 23, 1, 1, accent);
+        ui.text(detail, r.x + 33, r.y + 23, 1, 1, accent);
     }
 }
 
@@ -587,6 +383,9 @@ fn draw_block_catalog(
     let card_gap = 6;
     let card_width =
         ((width as i32 - 32 - card_gap * (columns as i32 - 1)) / columns as i32).max(48);
+    let grid = Grid::new(16, 88, columns, page_size.div_ceil(columns), card_width, 27, card_width + card_gap, 32);
+    let mut ui = UiCanvas::new(buffer, width, height);
+
     let mut visible_index = 0usize;
     let mut total_index = 0usize;
     for raw_id in 1..=u8::MAX {
@@ -601,27 +400,16 @@ fn draw_block_catalog(
         }
 
         let discovered = progress.has_discovered_block(block);
-        let x = 16 + (visible_index % columns) as i32 * (card_width + card_gap);
-        let y = 88 + (visible_index / columns) as i32 * 32;
+        let r = grid.slot(visible_index);
         visible_index += 1;
-        fill_rect_alpha(
-            buffer,
-            width,
-            height,
-            x,
-            y,
-            card_width,
-            27,
-            pack_color(0.08, 0.10, 0.14),
-            0.96,
-        );
+        ui.fill_alpha(r, pack_color(0.08, 0.10, 0.14), 0.96);
         let color = if discovered {
-            let [r, g, b] = block.face_color(Face::Top);
-            pack_color(r, g, b)
+            let [r_c, g_c, b_c] = block.face_color(Face::Top);
+            pack_color(r_c, g_c, b_c)
         } else {
             pack_color(0.20, 0.22, 0.27)
         };
-        fill_rect(buffer, width, height, x + 6, y + 6, 14, 14, color);
+        ui.fill(Rect::new(r.x + 6, r.y + 6, 14, 14), color);
         let name = if discovered {
             block.display_name()
         } else {
@@ -629,13 +417,10 @@ fn draw_block_catalog(
         };
         let max_chars = ((card_width - 30) / 6).max(1) as usize;
         let name: String = name.chars().take(max_chars).collect();
-        draw_text_colored_shadowed(
-            buffer,
-            width,
-            height,
+        ui.text(
             &name,
-            x + 25,
-            y + 10,
+            r.x + 25,
+            r.y + 10,
             1,
             1,
             if discovered {
@@ -652,18 +437,7 @@ fn draw_block_catalog(
         "block.catalog_page",
         &[&page.to_string(), &page_count.to_string()],
     );
-    let page_width = font::measure_text(&page_text, 1, 1);
-    draw_text_colored_shadowed(
-        buffer,
-        width,
-        height,
-        &page_text,
-        (width as i32 - page_width) / 2,
-        height as i32 - 20,
-        1,
-        1,
-        pack_color(0.72, 0.78, 0.88),
-    );
+    ui.text_centered_x(&page_text, ui.cx(), height as i32 - 20, 1, 1, pack_color(0.72, 0.78, 0.88));
 }
 
 pub fn draw_field_guide(

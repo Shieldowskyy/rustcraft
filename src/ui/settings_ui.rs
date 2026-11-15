@@ -2,97 +2,49 @@
 
 use crate::core::i18n::{t, t_fmt};
 use crate::core::settings::GameSettings;
-use crate::graphics::font;
-use crate::ui::draw::{draw_text_colored_shadowed, draw_text_shadowed, fill_rect, fill_rect_alpha, pack_color};
+use crate::ui::draw::pack_color;
+use crate::ui::widgets::{Button, HStack, Rect, UiCanvas, VStack};
 
 /// Computes bounding boxes `(x, y, width, height)` for the 4 tab switch buttons (Graphics, Audio, Controls, Debug).
 pub fn settings_tab_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 4] {
-    let tab_w = 116;
-    let tab_h = 24;
-    let spacing = 6;
-    let cx = width as i32 / 2;
     let cy = height as i32 / 2;
-    let tab_y = cy - 185;
-    let start_x = cx - (tab_w * 4 + spacing * 3) / 2;
+    HStack::centered_row(width, cy - 185, 116, 24, 4, 6).array(116)
+}
 
-    [
-        (start_x, tab_y, tab_w, tab_h),
-        (start_x + tab_w + spacing, tab_y, tab_w, tab_h),
-        (start_x + (tab_w + spacing) * 2, tab_y, tab_w, tab_h),
-        (start_x + (tab_w + spacing) * 3, tab_y, tab_w, tab_h),
-    ]
+fn settings_column_rects<const N: usize>(
+    width: usize,
+    start_y: i32,
+    opt_h: i32,
+    spacing: i32,
+    last_extra_margin: i32,
+) -> [(i32, i32, i32, i32); N] {
+    let mut stack = VStack::centered(width, start_y, 480, spacing);
+    std::array::from_fn(|i| {
+        if i + 1 == N {
+            stack.skip(last_extra_margin);
+        }
+        stack.next(opt_h).to_tuple()
+    })
 }
 
 /// Computes bounding boxes `(x, y, width, height)` for the 8 options in the Audio settings tab.
 pub fn settings_audio_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 8] {
-    let opt_w = 480;
-    let opt_h = 24;
-    let spacing = 7;
-    let cx = width as i32 / 2;
-    let cy = height as i32 / 2;
-    let start_y = cy - 135;
-
-    let mut rects = [(0, 0, 0, 0); 8];
-    for i in 0..7 {
-        rects[i] = (cx - opt_w / 2, start_y + (opt_h + spacing) * i as i32, opt_w, opt_h);
-    }
-    // Save & Back button at index 7 with extra margin
-    rects[7] = (cx - opt_w / 2, start_y + (opt_h + spacing) * 7 + 6, opt_w, opt_h);
-    rects
+    settings_column_rects(width, height as i32 / 2 - 135, 24, 7, 6)
 }
 
 /// Computes bounding boxes `(x, y, width, height)` for the 14 options in the Graphics settings tab.
 pub fn settings_graphics_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 14] {
-    let opt_w = 480;
-    let opt_h = 19;
-    let spacing = 2;
-    let cx = width as i32 / 2;
-    let cy = height as i32 / 2;
-    let start_y = cy - 156;
-
-    let mut rects = [(0, 0, 0, 0); 14];
-    for i in 0..13 {
-        rects[i] = (cx - opt_w / 2, start_y + (opt_h + spacing) * i as i32, opt_w, opt_h);
-    }
-    // Save & Back button at index 13 with extra margin
-    rects[13] = (cx - opt_w / 2, start_y + (opt_h + spacing) * 13 + 5, opt_w, opt_h);
-    rects
+    settings_column_rects(width, height as i32 / 2 - 156, 19, 2, 5)
 }
 
 /// Computes bounding boxes `(x, y, width, height)` for the 11 options in the Controls settings tab.
 pub fn settings_controls_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 11] {
-    let opt_w = 480;
-    let opt_h = 20;
-    let spacing = 5;
-    let cx = width as i32 / 2;
-    let cy = height as i32 / 2;
-    let start_y = cy - 146;
-
-    let mut rects = [(0, 0, 0, 0); 11];
-    for i in 0..10 {
-        rects[i] = (cx - opt_w / 2, start_y + (opt_h + spacing) * i as i32, opt_w, opt_h);
-    }
-    // Save & Back button at index 10 with extra margin
-    rects[10] = (cx - opt_w / 2, start_y + (opt_h + spacing) * 10 + 6, opt_w, opt_h);
-    rects
+    settings_column_rects(width, height as i32 / 2 - 146, 20, 5, 6)
 }
 
 /// Computes bounding boxes `(x, y, width, height)` for the 5 options in the Debug settings tab.
 pub fn settings_debug_rects(width: usize, height: usize) -> [(i32, i32, i32, i32); 5] {
-    let opt_w = 480;
-    let opt_h = 28;
-    let spacing = 10;
-    let cx = width as i32 / 2;
-    let cy = height as i32 / 2;
-    let start_y = cy - 130;
-
-    let mut rects = [(0, 0, 0, 0); 5];
-    for i in 0..4 {
-        rects[i] = (cx - opt_w / 2, start_y + (opt_h + spacing) * i as i32, opt_w, opt_h);
-    }
-    // Save & Back button at index 4
-    rects[4] = (cx - opt_w / 2, start_y + (opt_h + spacing) * 4 + 10, opt_w, opt_h);
-    rects
+    settings_column_rects(width, height as i32 / 2 - 130, 28, 10, 10)
 }
 
 /// Backward-compatible alias for 14 options.
@@ -101,131 +53,101 @@ pub fn settings_option_rects(width: usize, height: usize) -> [(i32, i32, i32, i3
 }
 
 fn draw_option_button(
-    buffer: &mut [u32],
-    width: usize,
-    height: usize,
+    ui: &mut UiCanvas<'_>,
     label: &str,
-    bx: i32,
-    by: i32,
-    bw: i32,
-    bh: i32,
+    rect: impl Into<Rect>,
     is_hover: bool,
     is_action_btn: bool,
     mouse_pos: Option<(f32, f32)>,
 ) {
-    let body_color = if is_hover {
-        if is_action_btn { pack_color(0.25, 0.45, 0.35) } else { pack_color(0.32, 0.42, 0.60) }
-    } else {
-        if is_action_btn { pack_color(0.18, 0.30, 0.22) } else { pack_color(0.20, 0.22, 0.26) }
-    };
-
-    let top_left = if is_hover { pack_color(0.75, 0.85, 1.0) } else { pack_color(0.55, 0.55, 0.60) };
-    let bottom_right = if is_hover { pack_color(0.15, 0.20, 0.35) } else { pack_color(0.10, 0.10, 0.12) };
-
-    fill_rect(buffer, width, height, bx, by, bw, bh, body_color);
-    fill_rect(buffer, width, height, bx, by, bw, 2, top_left);
-    fill_rect(buffer, width, height, bx, by, 2, bh, top_left);
-    fill_rect(buffer, width, height, bx, by + bh - 2, bw, 2, bottom_right);
-    fill_rect(buffer, width, height, bx + bw - 2, by, 2, bh, bottom_right);
-
-    let scale = 2;
-    let ty = by + (bh - (font::GLYPH_H as i32 * scale)) / 2;
-
+    let r = rect.into();
     let has_arrows = label.contains('<') && label.contains('>');
 
-    if has_arrows {
-        let arrow_w = 28;
-        let l_bx = bx + 4;
-        let l_by = by + 2;
-        let l_bw = arrow_w;
-        let l_bh = bh - 4;
+    if !has_arrows {
+        let mut btn = Button::new(label).hovered(is_hover);
+        if is_action_btn {
+            btn = btn.primary();
+        }
+        ui.button(r, btn);
+        return;
+    }
 
-        let r_bx = bx + bw - arrow_w - 4;
-        let r_by = by + 2;
-        let r_bw = arrow_w;
-        let r_bh = bh - 4;
+    let body_color = if is_hover {
+        pack_color(0.32, 0.42, 0.60)
+    } else {
+        pack_color(0.20, 0.22, 0.26)
+    };
+    let top_left = if is_hover {
+        pack_color(0.75, 0.85, 1.0)
+    } else {
+        pack_color(0.55, 0.55, 0.60)
+    };
+    let bottom_right = if is_hover {
+        pack_color(0.15, 0.20, 0.35)
+    } else {
+        pack_color(0.10, 0.10, 0.12)
+    };
 
-        let (is_left_hover, is_right_hover) = if let Some((mx, my)) = mouse_pos {
-            let px = mx as i32;
-            let py = my as i32;
-            if py >= by && py < by + bh && px >= bx && px < bx + bw {
-                (px < bx + arrow_w + 12 || px < bx + bw / 3, px >= bx + bw - arrow_w - 12 || px >= bx + bw * 2 / 3)
-            } else {
-                (false, false)
-            }
+    ui.fill(r, body_color);
+    ui.bevel_border(r, 2, top_left, bottom_right);
+
+    let arrow_w = 28;
+    let left_arrow = Rect::new(r.x + 4, r.y + 2, arrow_w, r.h - 4);
+    let right_arrow = Rect::new(r.right() - arrow_w - 4, r.y + 2, arrow_w, r.h - 4);
+
+    let (is_left_hover, is_right_hover) = if let Some((mx, my)) = mouse_pos {
+        let px = mx as i32;
+        let py = my as i32;
+        if r.contains_point(px, py) {
+            (
+                px < r.x + arrow_w + 12 || px < r.x + r.w / 3,
+                px >= r.right() - arrow_w - 12 || px >= r.x + r.w * 2 / 3,
+            )
         } else {
             (false, false)
-        };
+        }
+    } else {
+        (false, false)
+    };
 
-        // Left Arrow Button [ < ]
-        let l_bg = if is_left_hover {
+    for (arrow_rect, arrow_hover, sym) in [
+        (left_arrow, is_left_hover, "<"),
+        (right_arrow, is_right_hover, ">"),
+    ] {
+        let a_bg = if arrow_hover {
             pack_color(0.38, 0.52, 0.78)
         } else if is_hover {
             pack_color(0.26, 0.34, 0.48)
         } else {
             pack_color(0.16, 0.18, 0.22)
         };
-        let l_border = if is_left_hover {
+        let a_border = if arrow_hover {
             pack_color(1.0, 0.95, 0.3)
         } else if is_hover {
             pack_color(0.65, 0.75, 0.92)
         } else {
             pack_color(0.32, 0.35, 0.42)
         };
-        fill_rect(buffer, width, height, l_bx, l_by, l_bw, l_bh, l_bg);
-        fill_rect(buffer, width, height, l_bx, l_by, l_bw, 1, l_border);
-        fill_rect(buffer, width, height, l_bx, l_by + l_bh - 1, l_bw, 1, l_border);
-        fill_rect(buffer, width, height, l_bx, l_by, 1, l_bh, l_border);
-        fill_rect(buffer, width, height, l_bx + l_bw - 1, l_by, 1, l_bh, l_border);
-
-        let l_col = if is_left_hover { pack_color(1.0, 1.0, 0.3) } else { pack_color(0.85, 0.90, 0.98) };
-        let l_tw = font::measure_text("<", scale, 1);
-        draw_text_colored_shadowed(buffer, width, height, "<", l_bx + (l_bw - l_tw) / 2, ty, scale, 1, l_col);
-
-        // Right Arrow Button [ > ]
-        let r_bg = if is_right_hover {
-            pack_color(0.38, 0.52, 0.78)
-        } else if is_hover {
-            pack_color(0.26, 0.34, 0.48)
-        } else {
-            pack_color(0.16, 0.18, 0.22)
-        };
-        let r_border = if is_right_hover {
-            pack_color(1.0, 0.95, 0.3)
-        } else if is_hover {
-            pack_color(0.65, 0.75, 0.92)
-        } else {
-            pack_color(0.32, 0.35, 0.42)
-        };
-        fill_rect(buffer, width, height, r_bx, r_by, r_bw, r_bh, r_bg);
-        fill_rect(buffer, width, height, r_bx, r_by, r_bw, 1, r_border);
-        fill_rect(buffer, width, height, r_bx, r_by + r_bh - 1, r_bw, 1, r_border);
-        fill_rect(buffer, width, height, r_bx, r_by, 1, r_bh, r_border);
-        fill_rect(buffer, width, height, r_bx + r_bw - 1, r_by, 1, r_bh, r_border);
-
-        let r_col = if is_right_hover { pack_color(1.0, 1.0, 0.3) } else { pack_color(0.85, 0.90, 0.98) };
-        let r_tw = font::measure_text(">", scale, 1);
-        draw_text_colored_shadowed(buffer, width, height, ">", r_bx + (r_bw - r_tw) / 2, ty, scale, 1, r_col);
-
-        // Clean label in the center
-        let display_label = label.replace("< ", "").replace(" >", "").replace('<', "").replace('>', "");
-        let tw = font::measure_text(&display_label, scale, 1);
-        let tx = bx + (bw - tw) / 2;
-        let text_color = if is_hover {
+        let a_col = if arrow_hover {
             pack_color(1.0, 1.0, 0.3)
         } else {
-            pack_color(0.90, 0.92, 0.95)
+            pack_color(0.85, 0.90, 0.98)
         };
-        draw_text_colored_shadowed(buffer, width, height, &display_label, tx, ty, scale, 1, text_color);
-    } else {
-        let tw = font::measure_text(label, scale, 1);
-        let tx = bx + (bw - tw) / 2;
-        if is_hover {
-            draw_text_colored_shadowed(buffer, width, height, label, tx, ty, scale, 1, pack_color(1.0, 1.0, 0.3));
-        } else {
-            draw_text_shadowed(buffer, width, height, label, tx, ty, scale, 1);
-        }
+        ui.bordered_box(arrow_rect, 1, a_bg, a_border);
+        ui.text_in_rect(arrow_rect, sym, 2, 1, a_col);
     }
+
+    let display_label = label
+        .replace("< ", "")
+        .replace(" >", "")
+        .replace('<', "")
+        .replace('>', "");
+    let text_color = if is_hover {
+        pack_color(1.0, 1.0, 0.3)
+    } else {
+        pack_color(0.90, 0.92, 0.95)
+    };
+    ui.text_in_rect(r, &display_label, 2, 1, text_color);
 }
 
 /// Draws the settings menu overlay with tab headers, buttons, and active options.
@@ -242,14 +164,20 @@ pub fn draw_settings_menu(
     mouse_pos: Option<(f32, f32)>,
     is_gamepad_active: bool,
 ) {
-    fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.0, 0.0, 0.0), 0.78);
+    let mut ui = UiCanvas::new(buffer, width, height);
+    ui.backdrop(None, pack_color(0.0, 0.0, 0.0), 0.78);
 
-    let cx = width as i32 / 2;
-    let cy = height as i32 / 2;
+    let cx = ui.cx();
+    let cy = ui.cy();
 
-    let title = t("settings.title");
-    let t_w = font::measure_text(title, 3, 2);
-    draw_text_colored_shadowed(buffer, width, height, title, cx - t_w / 2, cy - 220, 3, 2, pack_color(0.95, 0.85, 0.35));
+    ui.text_centered_x(
+        t("settings.title"),
+        cx,
+        cy - 220,
+        3,
+        2,
+        pack_color(0.95, 0.85, 0.35),
+    );
 
     // Render Tab Buttons (1. Graphics, 2. Audio, 3. Controls, 4. Debug)
     let tab_rects = settings_tab_rects(width, height);
@@ -260,50 +188,13 @@ pub fn draw_settings_menu(
         t("settings.tab_debug"),
     ];
 
-    for (t_idx, (&label, &(bx, by, bw, bh))) in tab_labels.iter().zip(tab_rects.iter()).enumerate() {
-        let is_active = active_tab == t_idx;
-        let is_hover = hovered_tab == Some(t_idx);
-
-        let body_color = if is_active {
-            pack_color(0.30, 0.48, 0.65)
-        } else if is_hover {
-            pack_color(0.24, 0.32, 0.45)
-        } else {
-            pack_color(0.14, 0.16, 0.20)
-        };
-
-        let top_left = if is_active {
-            pack_color(0.85, 0.92, 1.0)
-        } else if is_hover {
-            pack_color(0.60, 0.70, 0.85)
-        } else {
-            pack_color(0.35, 0.38, 0.45)
-        };
-
-        let bottom_right = if is_active {
-            pack_color(0.18, 0.25, 0.38)
-        } else {
-            pack_color(0.08, 0.09, 0.12)
-        };
-
-        fill_rect(buffer, width, height, bx, by, bw, bh, body_color);
-        fill_rect(buffer, width, height, bx, by, bw, 2, top_left);
-        fill_rect(buffer, width, height, bx, by, 2, bh, top_left);
-        fill_rect(buffer, width, height, bx, by + bh - 2, bw, 2, bottom_right);
-        fill_rect(buffer, width, height, bx + bw - 2, by, 2, bh, bottom_right);
-
-        let scale = 2;
-        let tw = font::measure_text(label, scale, 1);
-        let tx = bx + (bw - tw) / 2;
-        let ty = by + (bh - (font::GLYPH_H as i32 * scale)) / 2;
-
-        if is_active {
-            draw_text_colored_shadowed(buffer, width, height, label, tx, ty, scale, 1, pack_color(1.0, 0.95, 0.4));
-        } else if is_hover {
-            draw_text_colored_shadowed(buffer, width, height, label, tx, ty, scale, 1, pack_color(0.9, 0.9, 1.0));
-        } else {
-            draw_text_shadowed(buffer, width, height, label, tx, ty, scale, 1);
-        }
+    for (t_idx, (&label, &rect)) in tab_labels.iter().zip(tab_rects.iter()).enumerate() {
+        ui.button(
+            rect,
+            Button::new(label)
+                .tab(active_tab == t_idx)
+                .hovered(hovered_tab == Some(t_idx)),
+        );
     }
 
     let on_str = t("settings.on");
@@ -352,9 +243,8 @@ pub fn draw_settings_menu(
         ];
 
         let rects = settings_graphics_rects(width, height);
-        for (i, (label, &(bx, by, bw, bh))) in options.iter().zip(rects.iter()).enumerate() {
-            let is_hover = hovered_idx == Some(i);
-            draw_option_button(buffer, width, height, label, bx, by, bw, bh, is_hover, i == 13, mouse_pos);
+        for (i, (label, &rect)) in options.iter().zip(rects.iter()).enumerate() {
+            draw_option_button(&mut ui, label, rect, hovered_idx == Some(i), i == 13, mouse_pos);
         }
     } else if active_tab == 1 {
         // Tab 1: AUDIO
@@ -376,9 +266,8 @@ pub fn draw_settings_menu(
         ];
 
         let rects = settings_audio_rects(width, height);
-        for (i, (label, &(bx, by, bw, bh))) in options.iter().zip(rects.iter()).enumerate() {
-            let is_hover = hovered_idx == Some(i);
-            draw_option_button(buffer, width, height, label, bx, by, bw, bh, is_hover, i == 7, mouse_pos);
+        for (i, (label, &rect)) in options.iter().zip(rects.iter()).enumerate() {
+            draw_option_button(&mut ui, label, rect, hovered_idx == Some(i), i == 7, mouse_pos);
         }
     } else if active_tab == 2 {
         // Tab 2: CONTROLS
@@ -388,7 +277,12 @@ pub fn draw_settings_menu(
         let mouse_sens_pct = (settings.mouse_sensitivity * 100.0).round() as i32;
         let gp_sens_pct = (settings.gamepad_sensitivity * 100.0).round() as i32;
 
-        let is_pc = !cfg!(any(target_os = "vita", target_os = "xbox360", target_os = "xenon", target_os = "android"));
+        let is_pc = !cfg!(any(
+            target_os = "vita",
+            target_os = "xbox360",
+            target_os = "xenon",
+            target_os = "android"
+        ));
         let rebind_label = if is_pc {
             t("settings.rebind_controls").to_string()
         } else {
@@ -410,18 +304,23 @@ pub fn draw_settings_menu(
         ];
 
         let rects = settings_controls_rects(width, height);
-        for (i, (label, &(bx, by, bw, bh))) in options.iter().zip(rects.iter()).enumerate() {
-            let is_hover = hovered_idx == Some(i);
+        for (i, (label, &rect)) in options.iter().zip(rects.iter()).enumerate() {
             let is_action_btn = i == 9 || i == 10;
-            draw_option_button(buffer, width, height, label, bx, by, bw, bh, is_hover, is_action_btn, mouse_pos);
+            draw_option_button(&mut ui, label, rect, hovered_idx == Some(i), is_action_btn, mouse_pos);
         }
     } else {
         // Tab 3: DEBUG
         let status_str = if settings.profiler_server {
             if profiler_copied {
-                t_fmt("settings.profiler_server_copied", &[server_ip, &settings.profiler_server_port.to_string()])
+                t_fmt(
+                    "settings.profiler_server_copied",
+                    &[server_ip, &settings.profiler_server_port.to_string()],
+                )
             } else {
-                t_fmt("settings.profiler_server_active", &[server_ip, &settings.profiler_server_port.to_string()])
+                t_fmt(
+                    "settings.profiler_server_active",
+                    &[server_ip, &settings.profiler_server_port.to_string()],
+                )
             }
         } else {
             t("settings.profiler_server_inactive").to_string()
@@ -436,17 +335,12 @@ pub fn draw_settings_menu(
         ];
 
         let rects = settings_debug_rects(width, height);
-        for (i, (label, &(bx, by, bw, bh))) in options.iter().zip(rects.iter()).enumerate() {
-            let is_hover = hovered_idx == Some(i);
+        for (i, (label, &rect)) in options.iter().zip(rects.iter()).enumerate() {
             if i == 1 && settings.profiler_server {
-                fill_rect(buffer, width, height, bx, by, bw, bh, pack_color(0.18, 0.28, 0.20));
-                let scale = 2;
-                let tw = font::measure_text(label, scale, 1);
-                let tx = bx + (bw - tw) / 2;
-                let ty = by + (bh - (font::GLYPH_H as i32 * scale)) / 2;
-                draw_text_colored_shadowed(buffer, width, height, label, tx, ty, scale, 1, pack_color(0.4, 0.9, 0.5));
+                ui.fill(rect, pack_color(0.18, 0.28, 0.20));
+                ui.text_in_rect(rect, label, 2, 1, pack_color(0.4, 0.9, 0.5));
             } else {
-                draw_option_button(buffer, width, height, label, bx, by, bw, bh, is_hover, i == 4, mouse_pos);
+                draw_option_button(&mut ui, label, rect, hovered_idx == Some(i), i == 4, mouse_pos);
             }
         }
     }
@@ -456,10 +350,5 @@ pub fn draw_settings_menu(
     } else {
         t("settings.controls_hint")
     };
-    let hw = font::measure_text(hint, 1, 1);
-    draw_text_colored_shadowed(buffer, width, height, hint, cx - hw / 2, height as i32 - 24, 1, 1, pack_color(0.7, 0.75, 0.85));
-
-    let build_info = crate::core::build_info::get_build_info();
-    let bw = font::measure_text(build_info, 1, 1);
-    draw_text_colored_shadowed(buffer, width, height, build_info, (width as i32 - bw) / 2, height as i32 - 12, 1, 1, pack_color(0.48, 0.54, 0.65));
+    ui.footer(hint, true);
 }

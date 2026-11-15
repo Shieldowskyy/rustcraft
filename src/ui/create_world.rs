@@ -1,8 +1,8 @@
 //! Create World menu screen and interactive UI element positioning.
 
 use crate::gameplay::player::GameMode;
-use crate::graphics::font;
-use crate::ui::draw::{draw_text_colored_shadowed, fill_rect, fill_rect_alpha, pack_color};
+use crate::ui::draw::pack_color;
+use crate::ui::widgets::{Button, ButtonVariant, Rect, TextInput, UiCanvas};
 
 /// Calculates layout bounding boxes for interactive create-world form elements.
 ///
@@ -71,194 +71,132 @@ pub fn draw_create_world_menu(
     is_selected: bool,
     is_gamepad_active: bool,
 ) {
-    let cx = width as i32 / 2;
+    let mut ui = UiCanvas::new(buffer, width, height);
+    let cx = ui.cx();
     let rects = create_world_rects(width, height);
 
     // Dark backdrop overlay
-    fill_rect(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.06, 0.07, 0.09));
-    fill_rect_alpha(buffer, width, height, 0, 0, width as i32, height as i32, pack_color(0.02, 0.03, 0.05), 0.65);
+    ui.backdrop(
+        Some(pack_color(0.06, 0.07, 0.09)),
+        pack_color(0.02, 0.03, 0.05),
+        0.65,
+    );
 
     // Main modal dialogue panel
-    let panel_w = 540;
-    let panel_h = 465;
-    let panel_x = cx - panel_w / 2;
-    let panel_y = 20;
+    let panel = Rect::centered_x(width, 20, 540, 465);
+    ui.modal_panel(
+        panel,
+        pack_color(0.10, 0.12, 0.16),
+        0.90,
+        pack_color(0.35, 0.40, 0.50),
+        pack_color(0.05, 0.06, 0.08),
+    );
 
-    fill_rect_alpha(buffer, width, height, panel_x, panel_y, panel_w, panel_h, pack_color(0.10, 0.12, 0.16), 0.90);
-    fill_rect(buffer, width, height, panel_x, panel_y, panel_w, 2, pack_color(0.35, 0.40, 0.50));
-    fill_rect(buffer, width, height, panel_x, panel_y, 2, panel_h, pack_color(0.35, 0.40, 0.50));
-    fill_rect(buffer, width, height, panel_x, panel_y + panel_h - 2, panel_w, 2, pack_color(0.05, 0.06, 0.08));
-    fill_rect(buffer, width, height, panel_x + panel_w - 2, panel_y, 2, panel_h, pack_color(0.05, 0.06, 0.08));
-
-    // Header title
+    // Header title & subtitle
     let title = crate::core::i18n::t("create_world.title");
-    let title_w = font::measure_text(title, 3, 2);
-    draw_text_colored_shadowed(buffer, width, height, title, cx - title_w / 2, panel_y + 16, 3, 2, pack_color(0.95, 0.85, 0.35));
+    ui.text_centered_x(title, cx, panel.y + 16, 3, 2, pack_color(0.95, 0.85, 0.35));
 
     let subtitle = format!("Configure world parameters for slot {:02}", slot);
-    let sub_w = font::measure_text(&subtitle, 1, 1);
-    draw_text_colored_shadowed(buffer, width, height, &subtitle, cx - sub_w / 2, panel_y + 44, 1, 1, pack_color(0.7, 0.75, 0.85));
+    ui.text_centered_x(&subtitle, cx, panel.y + 44, 1, 1, pack_color(0.7, 0.75, 0.85));
 
     let cursor_visible = (blink_timer % 0.8) < 0.4;
 
     // --- 1. WORLD NAME ---
-    let (nx, ny, nw, nh) = rects[0];
-    draw_text_colored_shadowed(buffer, width, height, crate::core::i18n::t("create_world.name_label"), nx, ny - 16, 1, 1, pack_color(0.85, 0.90, 0.95));
+    let default_name = format!("New World {:02}", slot);
+    ui.text_input(
+        rects[0],
+        TextInput::new(name)
+            .placeholder(&default_name)
+            .label(crate::core::i18n::t("create_world.name_label"))
+            .focused(focused_element == 0)
+            .hovered(hovered_element == Some(0))
+            .selected(is_selected)
+            .cursor(cursor_visible)
+            .outer_frame(),
+    );
 
-    let name_is_active = focused_element == 0;
-    let name_is_hover = hovered_element == Some(0);
-    let name_border = if name_is_active {
-        pack_color(0.98, 0.85, 0.25)
-    } else if name_is_hover {
-        pack_color(0.5, 0.7, 1.0)
-    } else {
-        pack_color(0.25, 0.28, 0.35)
-    };
+    // --- 2. WORLD SEED & RANDOM BUTTON ---
+    ui.text_input(
+        rects[1],
+        TextInput::new(seed_str)
+            .placeholder("(Random seed)")
+            .label(crate::core::i18n::t("create_world.seed_label"))
+            .focused(focused_element == 1)
+            .hovered(hovered_element == Some(1))
+            .selected(is_selected)
+            .cursor(cursor_visible)
+            .outer_frame(),
+    );
 
-    fill_rect(buffer, width, height, nx - 2, ny - 2, nw + 4, nh + 4, name_border);
-    fill_rect(buffer, width, height, nx, ny, nw, nh, pack_color(0.06, 0.07, 0.09));
-
-    let display_name = if name.is_empty() && !name_is_active {
-        format!("New World {:02}", slot)
-    } else {
-        name.to_string()
-    };
-
-    let name_is_selected = name_is_active && is_selected && !name.is_empty();
-    if name_is_selected {
-        let text_w = font::measure_text(&display_name, 2, 1);
-        fill_rect(buffer, width, height, nx + 10, ny + 8, text_w + 4, 20, pack_color(0.2, 0.45, 0.85));
-    }
-
-    let name_text_color = if name.is_empty() && !name_is_active {
-        pack_color(0.5, 0.55, 0.6)
-    } else {
-        pack_color(1.0, 1.0, 1.0)
-    };
-    draw_text_colored_shadowed(buffer, width, height, &display_name, nx + 12, ny + 10, 2, 1, name_text_color);
-
-    if name_is_active && !name_is_selected && cursor_visible {
-        let text_w = font::measure_text(&display_name, 2, 1);
-        let cur_x = (nx + 12 + text_w + 2).min(nx + nw - 14);
-        draw_text_colored_shadowed(buffer, width, height, "_", cur_x, ny + 10, 2, 1, pack_color(1.0, 0.9, 0.3));
-    }
-
-    // --- 2. WORLD SEED ---
-    let (sx, sy, sw, sh) = rects[1];
-    draw_text_colored_shadowed(buffer, width, height, crate::core::i18n::t("create_world.seed_label"), sx, sy - 16, 1, 1, pack_color(0.85, 0.90, 0.95));
-
-    let seed_is_active = focused_element == 1;
-    let seed_is_hover = hovered_element == Some(1);
-    let seed_border = if seed_is_active {
-        pack_color(0.98, 0.85, 0.25)
-    } else if seed_is_hover {
-        pack_color(0.5, 0.7, 1.0)
-    } else {
-        pack_color(0.25, 0.28, 0.35)
-    };
-
-    fill_rect(buffer, width, height, sx - 2, sy - 2, sw + 4, sh + 4, seed_border);
-    fill_rect(buffer, width, height, sx, sy, sw, sh, pack_color(0.06, 0.07, 0.09));
-
-    let display_seed = if seed_str.is_empty() && !seed_is_active {
-        "(Random seed)".to_string()
-    } else {
-        seed_str.to_string()
-    };
-
-    let seed_is_selected = seed_is_active && is_selected && !seed_str.is_empty();
-    if seed_is_selected {
-        let text_w = font::measure_text(&display_seed, 2, 1);
-        fill_rect(buffer, width, height, sx + 10, sy + 8, text_w + 4, 20, pack_color(0.2, 0.45, 0.85));
-    }
-
-    let seed_text_color = if seed_str.is_empty() && !seed_is_active {
-        pack_color(0.5, 0.55, 0.6)
-    } else {
-        pack_color(1.0, 1.0, 1.0)
-    };
-    draw_text_colored_shadowed(buffer, width, height, &display_seed, sx + 12, sy + 10, 2, 1, seed_text_color);
-
-    if seed_is_active && !seed_is_selected && cursor_visible {
-        let text_w = font::measure_text(&display_seed, 2, 1);
-        let cur_x = (sx + 12 + text_w + 2).min(sx + sw - 14);
-        draw_text_colored_shadowed(buffer, width, height, "_", cur_x, sy + 10, 2, 1, pack_color(1.0, 0.9, 0.3));
-    }
-
-    // RANDOM SEED BUTTON
-    let (rx, ry, rw, rh) = rects[2];
-    let rand_is_active = focused_element == 2;
-    let rand_is_hover = hovered_element == Some(2);
-    let rand_body = if rand_is_hover || rand_is_active { pack_color(0.35, 0.45, 0.65) } else { pack_color(0.22, 0.25, 0.32) };
-    let rand_border = if rand_is_active { pack_color(0.98, 0.85, 0.25) } else { pack_color(0.5, 0.55, 0.65) };
-
-    fill_rect(buffer, width, height, rx - 2, ry - 2, rw + 4, rh + 4, rand_border);
-    fill_rect(buffer, width, height, rx, ry, rw, rh, rand_body);
-    let r_label = "RANDOM";
-    let r_tw = font::measure_text(r_label, 1, 1);
-    draw_text_colored_shadowed(buffer, width, height, r_label, rx + (rw - r_tw) / 2, ry + (rh - 5) / 2, 1, 1, pack_color(0.95, 0.95, 0.95));
+    ui.button(
+        rects[2],
+        Button::new("RANDOM")
+            .scale(1)
+            .focused(focused_element == 2)
+            .hovered(hovered_element == Some(2))
+            .text_color(pack_color(0.95, 0.95, 0.95))
+            .outer_frame(),
+    );
 
     // --- 3. DEFAULT GAME MODE ---
-    let (gx, gy, gw, gh) = rects[3];
-    draw_text_colored_shadowed(buffer, width, height, crate::core::i18n::t("create_world.gamemode_label"), gx, gy - 16, 1, 1, pack_color(0.85, 0.90, 0.95));
-
-    let mode_is_active = focused_element == 3;
-    let mode_is_hover = hovered_element == Some(3);
-    let mode_border = if mode_is_active {
-        pack_color(0.98, 0.85, 0.25)
-    } else if mode_is_hover {
-        pack_color(0.5, 0.7, 1.0)
-    } else {
-        pack_color(0.25, 0.28, 0.35)
-    };
-
-    let mode_bg = if mode_is_hover || mode_is_active {
-        pack_color(0.25, 0.32, 0.45)
-    } else {
-        pack_color(0.16, 0.19, 0.26)
-    };
-
-    fill_rect(buffer, width, height, gx - 2, gy - 2, gw + 4, gh + 4, mode_border);
-    fill_rect(buffer, width, height, gx, gy, gw, gh, mode_bg);
+    let mode_rect = Rect::from_tuple(rects[3]);
+    ui.text(
+        crate::core::i18n::t("create_world.gamemode_label"),
+        mode_rect.x,
+        mode_rect.y - 16,
+        1,
+        1,
+        pack_color(0.85, 0.90, 0.95),
+    );
 
     let (mode_btn_text, mode_text_color, mode_desc) = match gamemode {
         GameMode::Survival => (
-            format!("{}: {}", crate::core::i18n::t("create_world.gamemode_label"), crate::core::i18n::t("create_world.mode_survival")),
+            format!(
+                "{}: {}",
+                crate::core::i18n::t("create_world.gamemode_label"),
+                crate::core::i18n::t("create_world.mode_survival")
+            ),
             pack_color(0.4, 0.95, 0.45),
             "Health & hunger meters, mobs, block destruction takes time.",
         ),
         GameMode::Creative => (
-            format!("{}: {}", crate::core::i18n::t("create_world.gamemode_label"), crate::core::i18n::t("create_world.mode_creative")),
+            format!(
+                "{}: {}",
+                crate::core::i18n::t("create_world.gamemode_label"),
+                crate::core::i18n::t("create_world.mode_creative")
+            ),
             pack_color(0.4, 0.85, 1.0),
             "Flight, invulnerability, instant block breaking, full item inventory.",
         ),
     };
 
-    let m_tw = font::measure_text(&mode_btn_text, 2, 1);
-    draw_text_colored_shadowed(buffer, width, height, &mode_btn_text, gx + (gw - m_tw) / 2, gy + 12, 2, 1, mode_text_color);
+    let toggle_variant = ButtonVariant::Flat {
+        bg: pack_color(0.16, 0.19, 0.26),
+        hover_bg: pack_color(0.25, 0.32, 0.45),
+        border: pack_color(0.25, 0.28, 0.35),
+        hover_border: pack_color(0.5, 0.7, 1.0),
+    };
 
-    let desc_w = font::measure_text(mode_desc, 1, 1);
-    draw_text_colored_shadowed(buffer, width, height, mode_desc, cx - desc_w / 2, gy + gh + 6, 1, 1, pack_color(0.65, 0.72, 0.82));
+    ui.button(
+        mode_rect,
+        Button::new(&mode_btn_text)
+            .variant(toggle_variant)
+            .focused(focused_element == 3)
+            .hovered(hovered_element == Some(3))
+            .text_color(mode_text_color)
+            .outer_frame(),
+    );
+    ui.text_centered_x(
+        mode_desc,
+        cx,
+        mode_rect.bottom() + 6,
+        1,
+        1,
+        pack_color(0.65, 0.72, 0.82),
+    );
 
     // --- 4. QUESTS TOGGLE BUTTON ---
-    let (qx, qy, qw, qh) = rects[4];
-    let quests_is_active = focused_element == 4;
-    let quests_is_hover = hovered_element == Some(4);
-    let quests_border = if quests_is_active {
-        pack_color(0.98, 0.85, 0.25)
-    } else if quests_is_hover {
-        pack_color(0.5, 0.7, 1.0)
-    } else {
-        pack_color(0.25, 0.28, 0.35)
-    };
-    let quests_bg = if quests_is_hover || quests_is_active {
-        pack_color(0.25, 0.32, 0.45)
-    } else {
-        pack_color(0.16, 0.19, 0.26)
-    };
-    fill_rect(buffer, width, height, qx - 2, qy - 2, qw + 4, qh + 4, quests_border);
-    fill_rect(buffer, width, height, qx, qy, qw, qh, quests_bg);
-
+    let quests_rect = Rect::from_tuple(rects[4]);
     let (q_state_lbl, q_state_col, q_desc) = if quests_enabled {
         (
             crate::core::i18n::t("create_world.quests_enabled"),
@@ -272,44 +210,51 @@ pub fn draw_create_world_menu(
             crate::core::i18n::t("create_world.quests_disabled_desc"),
         )
     };
-    let q_btn_text = format!("{}: {}", crate::core::i18n::t("create_world.quests_label"), q_state_lbl);
-    let q_tw = font::measure_text(&q_btn_text, 2, 1);
-    draw_text_colored_shadowed(buffer, width, height, &q_btn_text, qx + (qw - q_tw) / 2, qy + 10, 2, 1, q_state_col);
+    let q_btn_text = format!(
+        "{}: {}",
+        crate::core::i18n::t("create_world.quests_label"),
+        q_state_lbl
+    );
 
-    let q_desc_w = font::measure_text(q_desc, 1, 1);
-    draw_text_colored_shadowed(buffer, width, height, q_desc, cx - q_desc_w / 2, qy + qh + 6, 1, 1, pack_color(0.65, 0.72, 0.82));
+    ui.button(
+        quests_rect,
+        Button::new(&q_btn_text)
+            .variant(toggle_variant)
+            .focused(focused_element == 4)
+            .hovered(hovered_element == Some(4))
+            .text_color(q_state_col)
+            .outer_frame(),
+    );
+    ui.text_centered_x(
+        q_desc,
+        cx,
+        quests_rect.bottom() + 6,
+        1,
+        1,
+        pack_color(0.65, 0.72, 0.82),
+    );
 
     // --- 5. CREATE WORLD BUTTON ---
-    let (bx, by, bw, bh) = rects[5];
-    let create_is_active = focused_element == 5;
-    let create_is_hover = hovered_element == Some(5);
-
-    let create_bg = if create_is_hover || create_is_active { pack_color(0.25, 0.65, 0.35) } else { pack_color(0.18, 0.45, 0.25) };
-    let create_border = if create_is_active { pack_color(1.0, 0.95, 0.3) } else if create_is_hover { pack_color(0.6, 1.0, 0.6) } else { pack_color(0.3, 0.7, 0.4) };
-
-    fill_rect(buffer, width, height, bx - 2, by - 2, bw + 4, bh + 4, create_border);
-    fill_rect(buffer, width, height, bx, by, bw, bh, create_bg);
-
-    let create_lbl = crate::core::i18n::t("create_world.create_btn");
-
-    let c_tw = font::measure_text(create_lbl, 1, 1);
-    draw_text_colored_shadowed(buffer, width, height, create_lbl, bx + (bw - c_tw) / 2, by + (bh - 5) / 2, 1, 1, pack_color(1.0, 1.0, 1.0));
+    ui.button(
+        rects[5],
+        Button::new(crate::core::i18n::t("create_world.create_btn"))
+            .primary()
+            .scale(1)
+            .focused(focused_element == 5)
+            .hovered(hovered_element == Some(5))
+            .outer_frame(),
+    );
 
     // --- 6. CANCEL BUTTON ---
-    let (ax, ay, aw, ah) = rects[6];
-    let cancel_is_active = focused_element == 6;
-    let cancel_is_hover = hovered_element == Some(6);
-
-    let cancel_bg = if cancel_is_hover || cancel_is_active { pack_color(0.45, 0.25, 0.25) } else { pack_color(0.30, 0.18, 0.18) };
-    let cancel_border = if cancel_is_active { pack_color(1.0, 0.95, 0.3) } else if cancel_is_hover { pack_color(1.0, 0.6, 0.6) } else { pack_color(0.55, 0.35, 0.35) };
-
-    fill_rect(buffer, width, height, ax - 2, ay - 2, aw + 4, ah + 4, cancel_border);
-    fill_rect(buffer, width, height, ax, ay, aw, ah, cancel_bg);
-
-    let cancel_lbl = crate::core::i18n::t("create_world.cancel_btn");
-
-    let a_tw = font::measure_text(cancel_lbl, 1, 1);
-    draw_text_colored_shadowed(buffer, width, height, cancel_lbl, ax + (aw - a_tw) / 2, ay + (ah - 5) / 2, 1, 1, pack_color(1.0, 1.0, 1.0));
+    ui.button(
+        rects[6],
+        Button::new(crate::core::i18n::t("create_world.cancel_btn"))
+            .danger()
+            .scale(1)
+            .focused(focused_element == 6)
+            .hovered(hovered_element == Some(6))
+            .outer_frame(),
+    );
 
     // Bottom help/navigation bar
     let footer = if is_gamepad_active {
@@ -317,7 +262,5 @@ pub fn draw_create_world_menu(
     } else {
         "[TAB / ARROWS] NAVIGATE | [KEYBOARD] TYPE | [ENTER] CREATE | [ESC] CANCEL"
     };
-
-    let ft_w = font::measure_text(footer, 1, 1);
-    draw_text_colored_shadowed(buffer, width, height, footer, cx - ft_w / 2, height as i32 - 18, 1, 1, pack_color(0.65, 0.72, 0.85));
+    ui.footer(footer, false);
 }

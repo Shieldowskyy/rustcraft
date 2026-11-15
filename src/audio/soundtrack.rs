@@ -12,7 +12,8 @@ use crate::audio::sound::SoundSample;
 use crate::audio::AudioEngine;
 use crate::core::i18n::t;
 use crate::engine::modding::parse_json_value_root;
-use crate::ui::draw::{draw_text_colored_shadowed, fill_rect, fill_rect_alpha, pack_color};
+use crate::ui::draw::pack_color;
+use crate::ui::widgets::{Rect, UiCanvas};
 
 /// Background loader for asynchronously decoding audio files without frame stalls.
 pub struct AsyncTrackLoader {
@@ -217,20 +218,19 @@ impl MusicToast {
             }
         }
 
-        // Dark glassmorphic background
-        let bg_color = pack_color(0.08, 0.10, 0.14);
-        fill_rect_alpha(buffer, width, height, bx, by, toast_w, toast_h, bg_color, 0.90);
-
-        // Card borders
-        let border_top = pack_color(0.30, 0.38, 0.50);
-        let border_bottom = pack_color(0.04, 0.05, 0.08);
-        fill_rect(buffer, width, height, bx, by, toast_w, 1, border_top);
-        fill_rect(buffer, width, height, bx, by, 1, toast_h, border_top);
-        fill_rect(buffer, width, height, bx, by + toast_h - 1, toast_w, 1, border_bottom);
-        fill_rect(buffer, width, height, bx + toast_w - 1, by, 1, toast_h, border_bottom);
+        // Dark glassmorphic background & 1px beveled card border
+        let mut ui = UiCanvas::new(buffer, width, height);
+        let toast_rect = Rect::new(bx, by, toast_w, toast_h);
+        ui.fill_alpha(toast_rect, pack_color(0.08, 0.10, 0.14), 0.90);
+        ui.bevel_border(
+            toast_rect,
+            1,
+            pack_color(0.30, 0.38, 0.50),
+            pack_color(0.04, 0.05, 0.08),
+        );
 
         // Accent strip on left edge
-        fill_rect(buffer, width, height, bx + 1, by + 1, 3, toast_h - 2, self.accent_color);
+        ui.fill(Rect::new(bx + 1, by + 1, 3, toast_h - 2), self.accent_color);
 
         let content_x = bx + 12;
 
@@ -242,31 +242,10 @@ impl MusicToast {
             header_str
         };
         let header_display = format!("> {}", header_text);
-        draw_text_colored_shadowed(
-            buffer,
-            width,
-            height,
-            &header_display,
-            content_x,
-            by + 4,
-            1,
-            1,
-            self.accent_color,
-        );
+        ui.text(&header_display, content_x, by + 4, 1, 1, self.accent_color);
 
         // Track title (bold white)
-        let title_color = pack_color(1.0, 1.0, 1.0);
-        draw_text_colored_shadowed(
-            buffer,
-            width,
-            height,
-            &self.title,
-            content_x,
-            by + 16,
-            1,
-            1,
-            title_color,
-        );
+        ui.text_white(&self.title, content_x, by + 16, 1, 1);
 
         // Subtext: "Artist • Category"
         let sub_color = pack_color(0.68, 0.74, 0.82);
@@ -275,17 +254,7 @@ impl MusicToast {
         } else {
             self.category_name.clone()
         };
-        draw_text_colored_shadowed(
-            buffer,
-            width,
-            height,
-            &sub_text,
-            content_x,
-            by + 27,
-            1,
-            1,
-            sub_color,
-        );
+        ui.text(&sub_text, content_x, by + 27, 1, 1, sub_color);
 
         // Duration text on right side of subtext
         if let (Some(p), Some(dur)) = (progress, duration_sec) {
@@ -293,27 +262,20 @@ impl MusicToast {
                 let cur_s = (p * dur) as u32;
                 let total_s = dur as u32;
                 let time_str = format!("{}:{:02}/{}:{:02}", cur_s / 60, cur_s % 60, total_s / 60, total_s % 60);
-                let tw = crate::graphics::font::measure_text(&time_str, 1, 1);
-                let tx = bx + toast_w - 12 - tw;
-                draw_text_colored_shadowed(buffer, width, height, &time_str, tx, by + 27, 1, 1, pack_color(0.60, 0.70, 0.82));
+                ui.text_right(&time_str, bx + toast_w - 12, by + 27, 1, 1, pack_color(0.60, 0.70, 0.82));
             }
         }
 
         // Real-time playback progress bar
-        let bar_x = content_x;
-        let bar_y = by + 41;
-        let bar_w = toast_w - 24;
-        let bar_h = 3;
-        let track_bg = pack_color(0.18, 0.22, 0.28);
-        fill_rect(buffer, width, height, bar_x, bar_y, bar_w, bar_h, track_bg);
-
+        let bar_rect = Rect::new(content_x, by + 41, toast_w - 24, 3);
         let prog_val = progress.unwrap_or(0.0).clamp(0.0, 1.0);
-        let fill_w = ((bar_w as f32) * prog_val).round() as i32;
-        if fill_w > 0 {
-            fill_rect(buffer, width, height, bar_x, bar_y, fill_w, bar_h, self.accent_color);
-            if fill_w < bar_w {
-                fill_rect(buffer, width, height, bar_x + fill_w - 1, bar_y, 2, bar_h, pack_color(1.0, 1.0, 1.0));
-            }
+        ui.progress_bar(bar_rect, prog_val, pack_color(0.18, 0.22, 0.28), self.accent_color);
+        let fill_w = ((bar_rect.w as f32) * prog_val).round() as i32;
+        if fill_w > 0 && fill_w < bar_rect.w {
+            ui.fill(
+                Rect::new(bar_rect.x + fill_w - 1, bar_rect.y, 2, bar_rect.h),
+                pack_color(1.0, 1.0, 1.0),
+            );
         }
 
         // Blend the finished card with the saved background by the fade alpha.

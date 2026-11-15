@@ -19,6 +19,7 @@ use crate::ui::draw::{
     draw_text_colored_shadowed, draw_text_light_colored_shadowed, draw_text_light_shadowed,
     fill_rect, fill_rect_alpha, pack_color, set_px,
 };
+use crate::ui::widgets::{Rect, UiCanvas};
 use crate::world::block::{BlockId, Face};
 use crate::world::{get_biome_at, World, CHUNK_SIZE_Y};
 
@@ -651,34 +652,28 @@ pub fn draw_waypoint_manager(
     player_pos: Vec3,
     scroll: usize,
 ) {
-    let card_w = 540i32;
-    let card_h = 360i32;
-    let dx = (buf_w as i32 - card_w) / 2;
-    let dy = (buf_h as i32 - card_h) / 2;
+    let card = Rect::centered_in(buf_w, buf_h, 540, 360);
+    let dx = card.x;
+    let dy = card.y;
+    let card_w = card.w;
+    let card_h = card.h;
 
-    // Dark backdrop
-    fill_rect_alpha(buffer, buf_w, buf_h, 0, 0, buf_w as i32, buf_h as i32, 0xFF000000, 0.60);
-
-    // Card background & double outline
-    fill_rect(buffer, buf_w, buf_h, dx, dy, card_w, card_h, 0xFF14141E);
-    fill_rect(buffer, buf_w, buf_h, dx - 1, dy - 1, card_w + 2, 1, 0xFF3D3D54);
-    fill_rect(buffer, buf_w, buf_h, dx - 1, dy + card_h, card_w + 2, 1, 0xFF3D3D54);
-    fill_rect(buffer, buf_w, buf_h, dx - 1, dy - 1, 1, card_h + 2, 0xFF3D3D54);
-    fill_rect(buffer, buf_w, buf_h, dx + card_w, dy - 1, 1, card_h + 2, 0xFF3D3D54);
+    let mut ui = UiCanvas::new(buffer, buf_w, buf_h);
+    ui.backdrop(None, 0xFF000000, 0.60);
+    ui.framed_box(card, 1, 0xFF3D3D54, 0xFF14141E);
 
     // Header
-    draw_text_colored_shadowed(buffer, buf_w, buf_h, "WAYPOINT MANAGER", dx + 20, dy + 14, 1, 1, 0xFFFFDD44);
+    ui.text("WAYPOINT MANAGER", dx + 20, dy + 14, 1, 1, 0xFFFFDD44);
     let count_str = format!("({} waypoints)", waypoints.len());
-    draw_text_light_colored_shadowed(buffer, buf_w, buf_h, &count_str, dx + 180, dy + 15, 1, 1, 0xFFAAAAAA);
+    draw_text_light_colored_shadowed(ui.buffer, ui.width, ui.height, &count_str, dx + 180, dy + 15, 1, 1, 0xFFAAAAAA);
 
     let (header_close, new_wp_btn, bottom_close, scroll_up, scroll_down) = waypoint_manager_buttons(dx, dy, card_w, card_h);
 
     // Close X
-    fill_rect(buffer, buf_w, buf_h, header_close.0, header_close.1, header_close.2, header_close.3, 0xFF7A2020);
-    draw_text_light_colored_shadowed(buffer, buf_w, buf_h, "X", header_close.0 + 6, header_close.1 + 4, 1, 1, 0xFFFFFFFF);
+    ui.light_button(header_close, "X", 0xFF7A2020, None, 0xFFFFFFFF);
 
     // Separator line
-    fill_rect(buffer, buf_w, buf_h, dx + 12, dy + 38, card_w - 24, 1, 0xFF2A2A3C);
+    ui.fill(Rect::new(dx + 12, dy + 38, card_w - 24, 1), 0xFF2A2A3C);
 
     let list_y = dy + 46;
     let max_rows = 6usize;
@@ -686,9 +681,9 @@ pub fn draw_waypoint_manager(
 
     if waypoints.is_empty() {
         draw_text_light_colored_shadowed(
-            buffer,
-            buf_w,
-            buf_h,
+            ui.buffer,
+            ui.width,
+            ui.height,
             "No waypoints yet. Press [B] or click [+ New Waypoint] to create one.",
             dx + 40,
             dy + 150,
@@ -705,69 +700,44 @@ pub fn draw_waypoint_manager(
             let wp = &waypoints[i];
 
             let row_bg = if wp.enabled { 0xFF1C1C29 } else { 0xFF161620 };
-            fill_rect(buffer, buf_w, buf_h, rx, ry, rw, 40, row_bg);
-            fill_rect(buffer, buf_w, buf_h, rx, ry, rw, 1, 0xFF2C2C3D);
-            fill_rect(buffer, buf_w, buf_h, rx, ry + 39, rw, 1, 0xFF2C2C3D);
-            fill_rect(buffer, buf_w, buf_h, rx, ry, 1, 40, 0xFF2C2C3D);
-            fill_rect(buffer, buf_w, buf_h, rx + rw - 1, ry, 1, 40, 0xFF2C2C3D);
+            ui.bordered_box(Rect::new(rx, ry, rw, 40), 1, row_bg, 0xFF2C2C3D);
 
             // Color diamond/swatch
-            fill_rect(buffer, buf_w, buf_h, rx + 10, ry + 12, 16, 16, wp.color);
-            fill_rect(buffer, buf_w, buf_h, rx + 9, ry + 11, 18, 1, 0xFF000000);
-            fill_rect(buffer, buf_w, buf_h, rx + 9, ry + 28, 18, 1, 0xFF000000);
-            fill_rect(buffer, buf_w, buf_h, rx + 9, ry + 11, 1, 18, 0xFF000000);
-            fill_rect(buffer, buf_w, buf_h, rx + 26, ry + 11, 1, 18, 0xFF000000);
+            ui.framed_box(Rect::new(rx + 10, ry + 12, 16, 16), 1, 0xFF000000, wp.color);
 
             // Waypoint name
             let name_color = if wp.enabled { 0xFFFFFFFF } else { 0xFF777788 };
-            draw_text_light_colored_shadowed(buffer, buf_w, buf_h, &wp.name, rx + 36, ry + 7, 1, 1, name_color);
+            draw_text_light_colored_shadowed(ui.buffer, ui.width, ui.height, &wp.name, rx + 36, ry + 7, 1, 1, name_color);
 
             // Position & distance
             let dist = ((wp.x as f32 - player_pos.x).powi(2) + (wp.y as f32 - player_pos.y).powi(2) + (wp.z as f32 - player_pos.z).powi(2)).sqrt();
             let coords_str = format!("X: {} Y: {} Z: {} | {:.0}m", wp.x, wp.y, wp.z, dist);
-            draw_text_light_colored_shadowed(buffer, buf_w, buf_h, &coords_str, rx + 36, ry + 22, 1, 1, 0xFF888899);
+            draw_text_light_colored_shadowed(ui.buffer, ui.width, ui.height, &coords_str, rx + 36, ry + 22, 1, 1, 0xFF888899);
 
             // Row buttons
             let (vis_btn, tp_btn, del_btn) = waypoint_row_buttons(dx, list_y, card_w, row_idx);
 
-            // Visibility toggle [VIS] or [HID]
             let vis_bg = if wp.enabled { 0xFF2A602A } else { 0xFF444455 };
             let vis_txt = if wp.enabled { "VIS" } else { "HID" };
-            fill_rect(buffer, buf_w, buf_h, vis_btn.0, vis_btn.1, vis_btn.2, vis_btn.3, vis_bg);
-            draw_text_light_colored_shadowed(buffer, buf_w, buf_h, vis_txt, vis_btn.0 + 8, vis_btn.1 + 5, 1, 1, 0xFFFFFFFF);
-
-            // Teleport button [TP]
-            fill_rect(buffer, buf_w, buf_h, tp_btn.0, tp_btn.1, tp_btn.2, tp_btn.3, 0xFF204875);
-            draw_text_light_colored_shadowed(buffer, buf_w, buf_h, "TP", tp_btn.0 + 11, tp_btn.1 + 5, 1, 1, 0xFFFFFFFF);
-
-            // Delete button [DEL]
-            fill_rect(buffer, buf_w, buf_h, del_btn.0, del_btn.1, del_btn.2, del_btn.3, 0xFF7A2222);
-            draw_text_light_colored_shadowed(buffer, buf_w, buf_h, "DEL", del_btn.0 + 7, del_btn.1 + 5, 1, 1, 0xFFFFFFFF);
+            ui.light_button(vis_btn, vis_txt, vis_bg, None, 0xFFFFFFFF);
+            ui.light_button(tp_btn, "TP", 0xFF204875, None, 0xFFFFFFFF);
+            ui.light_button(del_btn, "DEL", 0xFF7A2222, None, 0xFFFFFFFF);
         }
 
         // Scroll buttons if needed
         if waypoints.len() > max_rows {
-            fill_rect(buffer, buf_w, buf_h, scroll_up.0, scroll_up.1, scroll_up.2, scroll_up.3, 0xFF282838);
-            draw_text_light_colored_shadowed(buffer, buf_w, buf_h, "^", scroll_up.0 + 5, scroll_up.1 + 3, 1, 1, 0xFFFFFFFF);
-
-            fill_rect(buffer, buf_w, buf_h, scroll_down.0, scroll_down.1, scroll_down.2, scroll_down.3, 0xFF282838);
-            draw_text_light_colored_shadowed(buffer, buf_w, buf_h, "v", scroll_down.0 + 5, scroll_down.1 + 3, 1, 1, 0xFFFFFFFF);
+            ui.light_button(scroll_up, "^", 0xFF282838, None, 0xFFFFFFFF);
+            ui.light_button(scroll_down, "v", 0xFF282838, None, 0xFFFFFFFF);
         }
     }
 
     // Bottom action separator
-    fill_rect(buffer, buf_w, buf_h, dx + 12, dy + card_h - 44, card_w - 24, 1, 0xFF2A2A3C);
+    ui.fill(Rect::new(dx + 12, dy + card_h - 44, card_w - 24, 1), 0xFF2A2A3C);
 
-    // [+ New Waypoint] button
-    fill_rect(buffer, buf_w, buf_h, new_wp_btn.0, new_wp_btn.1, new_wp_btn.2, new_wp_btn.3, 0xFF2A602A);
-    draw_text_light_colored_shadowed(buffer, buf_w, buf_h, "[+] New Waypoint", new_wp_btn.0 + 10, new_wp_btn.1 + 6, 1, 1, 0xFFFFFFFF);
-
-    // Hint in bottom middle
-    draw_text_light_colored_shadowed(buffer, buf_w, buf_h, "[U/Esc] Close List", dx + 200, dy + card_h - 30, 1, 1, 0xFF888899);
-
-    // [Close / ESC] button
-    fill_rect(buffer, buf_w, buf_h, bottom_close.0, bottom_close.1, bottom_close.2, bottom_close.3, 0xFF4A4A5A);
-    draw_text_light_colored_shadowed(buffer, buf_w, buf_h, "Close", bottom_close.0 + 32, bottom_close.1 + 6, 1, 1, 0xFFFFFFFF);
+    // [+ New Waypoint] & [Close] buttons
+    ui.light_button(new_wp_btn, "[+] New Waypoint", 0xFF2A602A, None, 0xFFFFFFFF);
+    draw_text_light_colored_shadowed(ui.buffer, ui.width, ui.height, "[U/Esc] Close List", dx + 200, dy + card_h - 30, 1, 1, 0xFF888899);
+    ui.light_button(bottom_close, "Close", 0xFF4A4A5A, None, 0xFFFFFFFF);
 }
 
 /// Renders the fullscreen WorldMap viewer with controls and inspector.
@@ -944,53 +914,30 @@ pub fn draw_worldmap(
     }
 
     // Top control banner
-    fill_rect_alpha(buffer, buf_w, buf_h, 0, 0, buf_w as i32, top_bar_h, 0xFF14141E, 0.95);
-    fill_rect(buffer, buf_w, buf_h, 0, top_bar_h - 1, buf_w as i32, 1, 0xFF353545);
-    draw_text_light_colored_shadowed(buffer, buf_w, buf_h, "WORLD MAP", 12, 8, 1, 1, 0xFFFFDD44);
+    let mut ui = UiCanvas::new(buffer, buf_w, buf_h);
+    ui.fill_alpha(Rect::new(0, 0, buf_w as i32, top_bar_h), 0xFF14141E, 0.95);
+    ui.fill(Rect::new(0, top_bar_h - 1, buf_w as i32, 1), 0xFF353545);
+    draw_text_light_colored_shadowed(ui.buffer, ui.width, ui.height, "WORLD MAP", 12, 8, 1, 1, 0xFFFFDD44);
 
     let (wp_btn, new_wp_btn, clear_btn) = worldmap_top_bar_buttons();
 
-    // [U] Waypoints button
     let wp_bg = if state.showing_waypoint_manager { 0xFF35588C } else { 0xFF232333 };
-    fill_rect(buffer, buf_w, buf_h, wp_btn.0, wp_btn.1, wp_btn.2, wp_btn.3, wp_bg);
-    fill_rect(buffer, buf_w, buf_h, wp_btn.0, wp_btn.1, wp_btn.2, 1, 0xFF4A4A62);
-    fill_rect(buffer, buf_w, buf_h, wp_btn.0, wp_btn.1 + wp_btn.3 - 1, wp_btn.2, 1, 0xFF4A4A62);
-    fill_rect(buffer, buf_w, buf_h, wp_btn.0, wp_btn.1, 1, wp_btn.3, 0xFF4A4A62);
-    fill_rect(buffer, buf_w, buf_h, wp_btn.0 + wp_btn.2 - 1, wp_btn.1, 1, wp_btn.3, 0xFF4A4A62);
-    draw_text_light_colored_shadowed(buffer, buf_w, buf_h, "[U] Waypoints", wp_btn.0 + 8, wp_btn.1 + 5, 1, 1, 0xFFFFFFFF);
+    ui.light_button(wp_btn, "[U] Waypoints", wp_bg, Some(0xFF4A4A62), 0xFFFFFFFF);
+    ui.light_button(new_wp_btn, "[B] +Waypoint", 0xFF204820, Some(0xFF3D703D), 0xFFFFFFFF);
 
-    // [B] +Waypoint button
-    fill_rect(buffer, buf_w, buf_h, new_wp_btn.0, new_wp_btn.1, new_wp_btn.2, new_wp_btn.3, 0xFF204820);
-    fill_rect(buffer, buf_w, buf_h, new_wp_btn.0, new_wp_btn.1, new_wp_btn.2, 1, 0xFF3D703D);
-    fill_rect(buffer, buf_w, buf_h, new_wp_btn.0, new_wp_btn.1 + new_wp_btn.3 - 1, new_wp_btn.2, 1, 0xFF3D703D);
-    fill_rect(buffer, buf_w, buf_h, new_wp_btn.0, new_wp_btn.1, 1, new_wp_btn.3, 0xFF3D703D);
-    fill_rect(buffer, buf_w, buf_h, new_wp_btn.0 + new_wp_btn.2 - 1, new_wp_btn.1, 1, new_wp_btn.3, 0xFF3D703D);
-    draw_text_light_colored_shadowed(buffer, buf_w, buf_h, "[B] +Waypoint", new_wp_btn.0 + 10, new_wp_btn.1 + 5, 1, 1, 0xFFFFFFFF);
-
-    // [C] Clear Chunks button
     let clear_bg = if !state.selected_chunks.is_empty() { 0xFF582424 } else { 0xFF20202C };
-    fill_rect(buffer, buf_w, buf_h, clear_btn.0, clear_btn.1, clear_btn.2, clear_btn.3, clear_bg);
     let clear_txt = format!("[C] Clear ({})", state.selected_chunks.len());
-    draw_text_light_colored_shadowed(
-        buffer,
-        buf_w,
-        buf_h,
-        &clear_txt,
-        clear_btn.0 + 8,
-        clear_btn.1 + 5,
-        1,
-        1,
-        if !state.selected_chunks.is_empty() { 0xFFFFFFFF } else { 0xFF777788 },
-    );
+    let clear_col = if !state.selected_chunks.is_empty() { 0xFFFFFFFF } else { 0xFF777788 };
+    ui.light_button(clear_btn, &clear_txt, clear_bg, None, clear_col);
 
     let controls_hint = "[WASD/Drag] Pan  [Scroll] Zoom  [L-Click] Chunk  [R-Click] Menu  [Space] Center  [Esc/M] Close";
-    draw_text_light_colored_shadowed(buffer, buf_w, buf_h, controls_hint, 535, 8, 1, 1, 0xFFB0B0C0);
+    draw_text_light_colored_shadowed(ui.buffer, ui.width, ui.height, controls_hint, 535, 8, 1, 1, 0xFFB0B0C0);
     let zoom_hint = format!("Zoom: {:.1}x", zoom);
-    draw_text_light_colored_shadowed(buffer, buf_w, buf_h, &zoom_hint, buf_w as i32 - 95, 8, 1, 1, 0xFF88CCFF);
+    draw_text_light_colored_shadowed(ui.buffer, ui.width, ui.height, &zoom_hint, buf_w as i32 - 95, 8, 1, 1, 0xFF88CCFF);
 
     // Bottom inspection bar
-    fill_rect_alpha(buffer, buf_w, buf_h, 0, buf_h as i32 - bottom_bar_h, buf_w as i32, bottom_bar_h, 0xFF14141E, 0.95);
-    fill_rect(buffer, buf_w, buf_h, 0, buf_h as i32 - bottom_bar_h, buf_w as i32, 1, 0xFF353545);
+    ui.fill_alpha(Rect::new(0, buf_h as i32 - bottom_bar_h, buf_w as i32, bottom_bar_h), 0xFF14141E, 0.95);
+    ui.fill(Rect::new(0, buf_h as i32 - bottom_bar_h, buf_w as i32, 1), 0xFF353545);
 
     state.hovered_world_pos = None;
     state.hovered_chunk = None;
@@ -1016,7 +963,7 @@ pub fn draw_worldmap(
                 "Block: X: {} Y: {} Z: {} ({}) | Chunk: [{}, {}] {}| Biome: {} | Dist: {:.0}m | Selected: {} chunks",
                 h_wx, h_sy, h_wz, sblk.name(), ch_cx, ch_cz, sel_status, biome.name(), dist_to_player, state.selected_chunks.len()
             );
-            draw_text_light_colored_shadowed(buffer, buf_w, buf_h, &inspect_str, 12, buf_h as i32 - bottom_bar_h + 7, 1, 1, 0xFFFFFFFF);
+            draw_text_light_colored_shadowed(ui.buffer, ui.width, ui.height, &inspect_str, 12, buf_h as i32 - bottom_bar_h + 7, 1, 1, 0xFFFFFFFF);
         }
     }
 
@@ -1025,107 +972,92 @@ pub fn draw_worldmap(
             "Player: X: {:.1}  Y: {:.1}  Z: {:.1} | Selected Chunks: {} | Total Waypoints: {}",
             player_pos.x, player_pos.y, player_pos.z, state.selected_chunks.len(), waypoints.len()
         );
-        draw_text_light_colored_shadowed(buffer, buf_w, buf_h, &p_status, 12, buf_h as i32 - bottom_bar_h + 7, 1, 1, 0xFFAAAAAA);
+        draw_text_light_colored_shadowed(ui.buffer, ui.width, ui.height, &p_status, 12, buf_h as i32 - bottom_bar_h + 7, 1, 1, 0xFFAAAAAA);
     }
 
     // Context Menu (Right-Click)
     if let Some(ctx_menu) = &state.context_menu {
         let (card, item0, item1) = worldmap_context_menu_rects(ctx_menu.screen_pos.0, ctx_menu.screen_pos.1, buf_w, buf_h);
+        let card_r = Rect::from_tuple(card);
+        let item0_r = Rect::from_tuple(item0);
+        let item1_r = Rect::from_tuple(item1);
 
         // Shadow & Background card
-        fill_rect_alpha(buffer, buf_w, buf_h, card.0 + 3, card.1 + 3, card.2, card.3, 0xFF000000, 0.55);
-        fill_rect(buffer, buf_w, buf_h, card.0, card.1, card.2, card.3, 0xFF161822);
-        fill_rect(buffer, buf_w, buf_h, card.0, card.1, card.2, 1, 0xFF4A4E65);
-        fill_rect(buffer, buf_w, buf_h, card.0, card.1 + card.3 - 1, card.2, 1, 0xFF2A2C38);
-        fill_rect(buffer, buf_w, buf_h, card.0, card.1, 1, card.3, 0xFF4A4E65);
-        fill_rect(buffer, buf_w, buf_h, card.0 + card.2 - 1, card.1, 1, card.3, 0xFF2A2C38);
-
-        let (mouse_x, mouse_y) = mouse_pos.map(|(x, y)| (x as i32, y as i32)).unwrap_or((-1, -1));
+        ui.fill_alpha(card_r.offset(3, 3), 0xFF000000, 0.55);
+        ui.fill(card_r, 0xFF161822);
+        ui.bevel_border(card_r, 1, 0xFF4A4E65, 0xFF2A2C38);
 
         // Option 0: Create waypoint here
-        let hover0 = mouse_x >= item0.0 && mouse_x < item0.0 + item0.2 && mouse_y >= item0.1 && mouse_y < item0.1 + item0.3;
-        let bg0 = if hover0 { 0xFF2B4D78 } else { 0xFF1F2332 };
-        fill_rect(buffer, buf_w, buf_h, item0.0, item0.1, item0.2, item0.3, bg0);
+        let hover0 = item0_r.contains_mouse(mouse_pos);
+        ui.fill(item0_r, if hover0 { 0xFF2B4D78 } else { 0xFF1F2332 });
         let txt0 = match lang {
             crate::core::Language::Polish => "Zrób tutaj waypointa",
             crate::core::Language::English => "Create waypoint here",
         };
-        draw_text_light_colored_shadowed(buffer, buf_w, buf_h, txt0, item0.0 + 8, item0.1 + 6, 1, 1, if hover0 { 0xFFFFFF55 } else { 0xFFE0E0EE });
+        draw_text_light_colored_shadowed(ui.buffer, ui.width, ui.height, txt0, item0_r.x + 8, item0_r.y + 6, 1, 1, if hover0 { 0xFFFFFF55 } else { 0xFFE0E0EE });
 
         // Option 1: Share coordinates in chat
-        let hover1 = mouse_x >= item1.0 && mouse_x < item1.0 + item1.2 && mouse_y >= item1.1 && mouse_y < item1.1 + item1.3;
-        let bg1 = if hover1 { 0xFF2B4D78 } else { 0xFF1F2332 };
-        fill_rect(buffer, buf_w, buf_h, item1.0, item1.1, item1.2, item1.3, bg1);
+        let hover1 = item1_r.contains_mouse(mouse_pos);
+        ui.fill(item1_r, if hover1 { 0xFF2B4D78 } else { 0xFF1F2332 });
         let txt1 = match lang {
             crate::core::Language::Polish => "Udostępnij koordynaty na czacie",
             crate::core::Language::English => "Share coordinates in chat",
         };
-        draw_text_light_colored_shadowed(buffer, buf_w, buf_h, txt1, item1.0 + 8, item1.1 + 6, 1, 1, if hover1 { 0xFF55FFFF } else { 0xFFE0E0EE });
+        draw_text_light_colored_shadowed(ui.buffer, ui.width, ui.height, txt1, item1_r.x + 8, item1_r.y + 6, 1, 1, if hover1 { 0xFF55FFFF } else { 0xFFE0E0EE });
     }
 
     // Modal Waypoint Manager Dialog
     if state.showing_waypoint_manager {
-        draw_waypoint_manager(buffer, buf_w, buf_h, waypoints, player_pos, state.waypoint_manager_scroll);
+        draw_waypoint_manager(ui.buffer, ui.width, ui.height, waypoints, player_pos, state.waypoint_manager_scroll);
     }
 
     // Modal Waypoint Creation Dialog
     if state.creating_waypoint {
-        draw_waypoint_dialog(buffer, buf_w, buf_h, state);
+        draw_waypoint_dialog(ui.buffer, ui.width, ui.height, state);
     }
 }
 
 fn draw_waypoint_dialog(buffer: &mut [u32], buf_w: usize, buf_h: usize, state: &WorldMapState) {
-    let dia_w = 320i32;
-    let dia_h = 180i32;
-    let dx = (buf_w as i32 - dia_w) / 2;
-    let dy = (buf_h as i32 - dia_h) / 2;
+    let dialog = Rect::centered_in(buf_w, buf_h, 320, 180);
+    let dx = dialog.x;
+    let dy = dialog.y;
+    let dia_w = dialog.w;
+    let dia_h = dialog.h;
 
-    // Dark backdrop
-    fill_rect_alpha(buffer, buf_w, buf_h, 0, 0, buf_w as i32, buf_h as i32, 0xFF000000, 0.55);
-
-    // Dialog card
-    fill_rect(buffer, buf_w, buf_h, dx, dy, dia_w, dia_h, 0xFF1C1C26);
-    fill_rect(buffer, buf_w, buf_h, dx - 1, dy - 1, dia_w + 2, 1, 0xFF4A4A62);
-    fill_rect(buffer, buf_w, buf_h, dx - 1, dy + dia_h, dia_w + 2, 1, 0xFF4A4A62);
-    fill_rect(buffer, buf_w, buf_h, dx - 1, dy - 1, 1, dia_h + 2, 0xFF4A4A62);
-    fill_rect(buffer, buf_w, buf_h, dx + dia_w, dy - 1, 1, dia_h + 2, 0xFF4A4A62);
+    let mut ui = UiCanvas::new(buffer, buf_w, buf_h);
+    ui.backdrop(None, 0xFF000000, 0.55);
+    ui.framed_box(dialog, 1, 0xFF4A4A62, 0xFF1C1C26);
 
     // Title
-    draw_text_colored_shadowed(buffer, buf_w, buf_h, "NEW WAYPOINT", dx + 20, dy + 16, 1, 1, 0xFFFFDD44);
+    ui.text("NEW WAYPOINT", dx + 20, dy + 16, 1, 1, 0xFFFFDD44);
 
     // Name prompt
     let name_str = format!("Name: {}_", state.waypoint_name_input);
-    fill_rect(buffer, buf_w, buf_h, dx + 20, dy + 40, dia_w - 40, 24, 0xFF101018);
-    draw_text_light_colored_shadowed(buffer, buf_w, buf_h, &name_str, dx + 26, dy + 46, 1, 1, 0xFFFFFFFF);
+    ui.fill(Rect::new(dx + 20, dy + 40, dia_w - 40, 24), 0xFF101018);
+    draw_text_light_colored_shadowed(ui.buffer, ui.width, ui.height, &name_str, dx + 26, dy + 46, 1, 1, 0xFFFFFFFF);
 
     // Coords
     let coords_str = format!(
         "Coords: X: {}, Y: {}, Z: {}",
         state.waypoint_coords_input.0, state.waypoint_coords_input.1, state.waypoint_coords_input.2
     );
-    draw_text_light_colored_shadowed(buffer, buf_w, buf_h, &coords_str, dx + 20, dy + 76, 1, 1, 0xFFCCCCCC);
+    draw_text_light_colored_shadowed(ui.buffer, ui.width, ui.height, &coords_str, dx + 20, dy + 76, 1, 1, 0xFFCCCCCC);
 
     // Color Swatches
-    draw_text_light_shadowed(buffer, buf_w, buf_h, "Color:", dx + 20, dy + 98, 1, 1);
+    draw_text_light_shadowed(ui.buffer, ui.width, ui.height, "Color:", dx + 20, dy + 98, 1, 1);
     for (i, &(c, _)) in WAYPOINT_COLORS.iter().enumerate() {
-        let sw_x = dx + 70 + (i as i32) * 28;
-        let sw_y = dy + 95;
-        fill_rect(buffer, buf_w, buf_h, sw_x, sw_y, 20, 18, c);
+        let swatch = Rect::new(dx + 70 + (i as i32) * 28, dy + 95, 20, 18);
         if i == state.waypoint_color_idx {
-            fill_rect(buffer, buf_w, buf_h, sw_x - 1, sw_y - 1, 22, 1, 0xFFFFFFFF);
-            fill_rect(buffer, buf_w, buf_h, sw_x - 1, sw_y + 18, 22, 1, 0xFFFFFFFF);
-            fill_rect(buffer, buf_w, buf_h, sw_x - 1, sw_y - 1, 1, 20, 0xFFFFFFFF);
-            fill_rect(buffer, buf_w, buf_h, sw_x + 20, sw_y - 1, 1, 20, 0xFFFFFFFF);
+            ui.framed_box(swatch, 1, 0xFFFFFFFF, c);
+        } else {
+            ui.fill(swatch, c);
         }
     }
 
     // Action buttons
     let (save_btn, cancel_btn) = waypoint_dialog_buttons(dx, dy, dia_w, dia_h);
-    fill_rect(buffer, buf_w, buf_h, save_btn.0, save_btn.1, save_btn.2, save_btn.3, 0xFF2D6A2D);
-    draw_text_light_colored_shadowed(buffer, buf_w, buf_h, "[ENTER] Save", save_btn.0 + 12, save_btn.1 + 6, 1, 1, 0xFFFFFFFF);
-
-    fill_rect(buffer, buf_w, buf_h, cancel_btn.0, cancel_btn.1, cancel_btn.2, cancel_btn.3, 0xFF6A2D2D);
-    draw_text_light_colored_shadowed(buffer, buf_w, buf_h, "[ESC] Cancel", cancel_btn.0 + 10, cancel_btn.1 + 6, 1, 1, 0xFFFFFFFF);
+    ui.light_button(save_btn, "[ENTER] Save", 0xFF2D6A2D, None, 0xFFFFFFFF);
+    ui.light_button(cancel_btn, "[ESC] Cancel", 0xFF6A2D2D, None, 0xFFFFFFFF);
 }
 
 pub fn worldmap_context_menu_rects(

@@ -16,6 +16,9 @@ pub mod splashes;
 pub mod dev_logo;
 pub mod achievements;
 pub mod quests;
+pub mod widgets;
+
+pub use widgets::{Button, ButtonVariant, Grid, HStack, Rect, TextInput, Toast, UiCanvas, VStack};
 
 pub use clipboard::{get_clipboard, set_clipboard};
 pub use multiplayer_menu::{draw_multiplayer_menu, multiplayer_menu_rects, MAX_LAN_SERVERS_DISPLAY, MULTIPLAYER_RECT_COUNT};
