@@ -52,6 +52,11 @@
   "create_world.gamemode_label": "GAME MODE:",
   "create_world.mode_survival": "SURVIVAL",
   "create_world.mode_creative": "CREATIVE",
+  "create_world.generator_label": "WORLD TYPE:",
+  "create_world.generator_default": "DEFAULT",
+  "create_world.generator_superflat": "SUPERFLAT",
+  "create_world.generator_default_desc": "Standard terrain with hills, biomes, caves, and structures.",
+  "create_world.generator_superflat_desc": "Completely flat world consisting of bedrock, dirt, and grass.",
   "create_world.create_btn": "CREATE WORLD",
   "create_world.cancel_btn": "CANCEL",
 

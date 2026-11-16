@@ -21,7 +21,7 @@ use crate::ui::draw::{
 };
 use crate::ui::widgets::{Rect, UiCanvas};
 use crate::world::block::{BlockId, Face};
-use crate::world::{get_biome_at, World, CHUNK_SIZE_Y};
+use crate::world::{World, CHUNK_SIZE_Y};
 
 pub const WAYPOINT_COLORS: [(u32, &'static str); 8] = [
     (0xFFFF3333, "Red"),
@@ -515,7 +515,7 @@ pub fn draw_minimap(
     let py_i = player_pos.y.floor() as i32;
     let pz_i = player_pos.z.floor() as i32;
     let coord_str = format!("X:{} Y:{} Z:{}", px_i, py_i, pz_i);
-    let (biome, _) = get_biome_at(px_i, pz_i, world.seed);
+    let biome = world.get_biome_at(px_i, pz_i);
     let biome_str = biome.name();
 
     let bg_w = 120i32;
@@ -949,11 +949,10 @@ pub fn draw_worldmap(
             let (h_sy, sblk) = sample_surface(world, h_wx, h_wz);
             state.hovered_world_pos = Some((h_wx, h_sy, h_wz));
 
-            let ch_cx = h_wx.div_euclid(16);
-            let ch_cz = h_wz.div_euclid(16);
+            let (ch_cx, ch_cz) = (h_wx.div_euclid(16), h_wz.div_euclid(16));
             state.hovered_chunk = Some((ch_cx, ch_cz));
 
-            let (biome, _) = get_biome_at(h_wx, h_wz, world.seed);
+            let biome = world.get_biome_at(h_wx, h_wz);
             let dist_to_player = ((h_wx as f32 - player_pos.x).powi(2) + (h_wz as f32 - player_pos.z).powi(2)).sqrt();
 
             let is_sel = state.selected_chunks.contains(&(ch_cx, ch_cz));

@@ -30,7 +30,7 @@ use crate::graphics::software::Renderer;
 use crate::ui::VISIBLE_SAVE_ROWS;
 use crate::world::block::BlockId;
 use crate::world::storage::{get_save_metadata, SaveMetadata};
-use crate::world::World;
+use crate::world::{World, WorldGeneratorType};
 
 pub struct RustCraftApp {
     pub width: usize,
@@ -133,7 +133,8 @@ pub struct RustCraftApp {
     pub relay_host: Option<crate::net::ReverseTunnelHost>,
     pub save_card_rects: [(i32, i32, i32, i32); VISIBLE_SAVE_ROWS],
     pub save_btn_rects: [(i32, i32, i32, i32); 4],
-    pub create_world_rects: [(i32, i32, i32, i32); 7],
+    pub create_world_rects: [(i32, i32, i32, i32); 8],
+    pub create_world_generator_type: WorldGeneratorType,
     pub create_world_quests_enabled: bool,
     pub settings_tab: usize,
     pub settings_tab_rects: [(i32, i32, i32, i32); 4],
@@ -441,6 +442,7 @@ impl RustCraftApp {
             save_card_rects,
             save_btn_rects,
             create_world_rects,
+            create_world_generator_type: WorldGeneratorType::Default,
             create_world_quests_enabled: true,
             settings_tab_rects,
             settings_rects,

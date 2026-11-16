@@ -167,8 +167,13 @@ pub fn draw_save_select_menu(
                     pack_color(0.35, 0.85, 1.0),
                 ),
             };
+            let badge_text = if meta.generator_type == crate::world::WorldGeneratorType::Superflat {
+                format!("[ {} | FLAT ]", mode_text)
+            } else {
+                format!("[ {} ]", mode_text)
+            };
             ui.text(
-                &format!("[ {} ]", mode_text),
+                &badge_text,
                 badge_x,
                 card.y + 10,
                 1,

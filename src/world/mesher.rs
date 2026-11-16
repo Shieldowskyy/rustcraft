@@ -7,7 +7,7 @@
 use crate::core::math::{IVec3, Vec3};
 use crate::graphics::atlas::TextureId;
 use crate::world::block::{BlockId, Face};
-use crate::world::{get_biome_at, Biome, Chunk, World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
+use crate::world::{get_biome_at, Biome, Chunk, World, WorldGeneratorType, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
 
 #[derive(Copy, Clone)]
 pub struct Vertex {
@@ -70,6 +70,7 @@ pub struct ChunkMeshJob {
     pub ne_blocks: Option<Vec<u8>>,
     pub nw_blocks: Option<Vec<u8>>,
     pub seed: u32,
+    pub generator_type: WorldGeneratorType,
     pub lights: Vec<LightSource>,
     pub fluid_map: std::collections::HashMap<IVec3, u8>,
 }
@@ -185,6 +186,7 @@ pub struct ChunkNeighborCache<'a> {
     pub base_x: i32,
     pub base_z: i32,
     pub seed: u32,
+    pub generator_type: WorldGeneratorType,
     pub heightmap: [u8; 18 * 18],
     pub leaf_heightmap: [u8; 18 * 18],
     pub lights: Vec<LightSource>,
@@ -245,6 +247,7 @@ impl<'a> ChunkNeighborCache<'a> {
             base_x,
             base_z,
             seed: world.seed,
+            generator_type: world.generator_type,
             heightmap: [0u8; 18 * 18],
             leaf_heightmap: [0u8; 18 * 18],
             lights,
@@ -273,6 +276,7 @@ impl<'a> ChunkNeighborCache<'a> {
             base_x,
             base_z,
             seed: job.seed,
+            generator_type: job.generator_type,
             heightmap: [0u8; 18 * 18],
             leaf_heightmap: [0u8; 18 * 18],
             lights: job.lights.clone(),
@@ -1233,7 +1237,11 @@ fn emit_face(
             TextureId::Door
         }
     } else if block == BlockId::Grass {
-        let (biome, _) = get_biome_at(wx, wz, cache.seed);
+        let biome = if cache.generator_type == WorldGeneratorType::Superflat {
+            Biome::Plains
+        } else {
+            get_biome_at(wx, wz, cache.seed).0
+        };
         match face {
             Face::Top => match biome {
                 Biome::Swamp | Biome::DarkForest => TextureId::GrassTopSwamp,
@@ -1254,7 +1262,11 @@ fn emit_face(
             },
         }
     } else if block == BlockId::Leaves {
-        let (biome, _) = get_biome_at(wx, wz, cache.seed);
+        let biome = if cache.generator_type == WorldGeneratorType::Superflat {
+            Biome::Plains
+        } else {
+            get_biome_at(wx, wz, cache.seed).0
+        };
         match biome {
             Biome::Swamp | Biome::DarkForest => TextureId::LeavesSwamp,
             Biome::Savanna | Biome::Desert | Biome::Badlands => TextureId::LeavesSavanna,

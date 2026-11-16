@@ -71,6 +71,24 @@ impl Chunk {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
+pub enum WorldGeneratorType {
+    #[default]
+    Default,
+    Superflat,
+}
+
+pub type WorldType = WorldGeneratorType;
+
+impl WorldGeneratorType {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Default => "DEFAULT",
+            Self::Superflat => "SUPERFLAT",
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum VillageComponent {
     CenterWell,
@@ -592,6 +610,31 @@ impl Chunk {
 
         Chunk { cx, cz, blocks, dirty: true }
     }
+
+    pub fn generate_superflat(cx: i32, cz: i32) -> Chunk {
+        let mut blocks = vec![0u8; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize];
+        for lx in 0..CHUNK_SIZE_X {
+            for lz in 0..CHUNK_SIZE_Z {
+                blocks[Chunk::index(lx, 0, lz)] = BlockId::Bedrock.to_u8();
+                blocks[Chunk::index(lx, 1, lz)] = BlockId::Dirt.to_u8();
+                blocks[Chunk::index(lx, 2, lz)] = BlockId::Dirt.to_u8();
+                blocks[Chunk::index(lx, 3, lz)] = BlockId::Grass.to_u8();
+            }
+        }
+        Chunk {
+            cx,
+            cz,
+            blocks,
+            dirty: true,
+        }
+    }
+
+    pub fn generate_with_type(cx: i32, cz: i32, seed: u32, generator_type: WorldGeneratorType) -> Chunk {
+        match generator_type {
+            WorldGeneratorType::Default => Self::generate(cx, cz, seed),
+            WorldGeneratorType::Superflat => Self::generate_superflat(cx, cz),
+        }
+    }
 }
 
 fn hash_coords(x: i32, z: i32, seed: u32) -> u32 {
@@ -1094,6 +1137,7 @@ pub struct PrimedTnt {
 pub struct World {
     pub name: String,
     pub gamemode: GameMode,
+    pub generator_type: WorldGeneratorType,
     pub chunks: HashMap<(i32, i32), Chunk>,
     block_overrides: HashMap<(i32, i32), HashMap<IVec3, u8>>,
     pending_network_changes: HashMap<IVec3, u8>,
@@ -1116,7 +1160,7 @@ pub struct World {
     pub weather: WeatherState,
     #[cfg(not(target_arch = "wasm32"))]
     #[allow(dead_code)]
-    chunk_req_tx: Option<std::sync::mpsc::Sender<(i32, i32, u32)>>,
+    chunk_req_tx: Option<std::sync::mpsc::Sender<(i32, i32, u32, WorldGeneratorType)>>,
     #[cfg(not(target_arch = "wasm32"))]
     chunk_res_rx: Option<std::sync::Mutex<std::sync::mpsc::Receiver<Chunk>>>,
     pending_chunks: HashSet<(i32, i32)>,
@@ -1181,6 +1225,13 @@ impl World {
     }
 
     pub fn find_spawn_position(seed: u32) -> Vec3 {
+        Self::find_spawn_position_for_type(seed, WorldGeneratorType::Default)
+    }
+
+    pub fn find_spawn_position_for_type(seed: u32, generator_type: WorldGeneratorType) -> Vec3 {
+        if generator_type == WorldGeneratorType::Superflat {
+            return Vec3::new(8.5, 4.0 + STANDING_EYE_OFFSET + 0.1, 8.5);
+        }
         let (mut x, mut z, mut dx, mut dz) = (0i32, 0i32, 0i32, -1i32);
         for _ in 0..1500 {
             let (wx, wz) = (x + 8, z + 8);
@@ -1254,10 +1305,14 @@ impl World {
     }
 
     pub fn new_with_seed(seed: u32) -> Self {
-        crate::log_info!("WORLD", "Initializing world with seed {}", seed);
+        Self::new_with_generator(seed, WorldGeneratorType::Default)
+    }
+
+    pub fn new_with_generator(seed: u32, generator_type: WorldGeneratorType) -> Self {
+        crate::log_info!("WORLD", "Initializing world with seed {} (type: {:?})", seed, generator_type);
         #[cfg(all(not(target_arch = "wasm32"), not(feature = "xbox360")))]
         let (chunk_req_tx, chunk_res_rx) = {
-            let (req_tx, req_rx) = std::sync::mpsc::channel::<(i32, i32, u32)>();
+            let (req_tx, req_rx) = std::sync::mpsc::channel::<(i32, i32, u32, WorldGeneratorType)>();
             let (res_tx, res_rx) = std::sync::mpsc::channel::<Chunk>();
             let req_rx = std::sync::Arc::new(std::sync::Mutex::new(req_rx));
             let num_threads = {
@@ -1282,9 +1337,9 @@ impl World {
                             let mask = if i % 2 == 0 { 0x00020000 } else { 0x00040000 };
                             sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), mask);
                         }
-                        while let Some((cx, cz, chunk_seed)) = req_rx_clone.lock().ok().and_then(|rx| rx.recv().ok()) {
-                            crate::log_debug!("CHUNK", "Worker generating chunk ({}, {}) [seed={}]", cx, cz, chunk_seed);
-                            if res_tx_clone.send(Chunk::generate(cx, cz, chunk_seed)).is_err() {
+                        while let Some((cx, cz, chunk_seed, gen_type)) = req_rx_clone.lock().ok().and_then(|rx| rx.recv().ok()) {
+                            crate::log_debug!("CHUNK", "Worker generating chunk ({}, {}) [seed={}, type={:?}]", cx, cz, chunk_seed, gen_type);
+                            if res_tx_clone.send(Chunk::generate_with_type(cx, cz, chunk_seed, gen_type)).is_err() {
                                 break;
                             }
                         }
@@ -1295,11 +1350,11 @@ impl World {
 
         #[cfg(any(target_arch = "wasm32", feature = "xbox360"))]
         let (chunk_req_tx, chunk_res_rx): (
-            Option<std::sync::mpsc::Sender<(i32, i32, u32)>>,
+            Option<std::sync::mpsc::Sender<(i32, i32, u32, WorldGeneratorType)>>,
             Option<std::sync::Mutex<std::sync::mpsc::Receiver<Chunk>>>,
         ) = (None, None);
 
-        let spawn_pos = Self::find_spawn_position(seed);
+        let spawn_pos = Self::find_spawn_position_for_type(seed, generator_type);
         let (spawn_cx, spawn_cz) = ((spawn_pos.x.floor() as i32) >> 4, (spawn_pos.z.floor() as i32) >> 4);
         crate::log_info!("WORLD", "Spawn point found at ({:.1}, {:.1}, {:.1}) [chunk ({}, {})]", spawn_pos.x, spawn_pos.y, spawn_pos.z, spawn_cx, spawn_cz);
 
@@ -1310,6 +1365,7 @@ impl World {
         let mut world = World {
             name: "New World".to_string(),
             gamemode: GameMode::Survival,
+            generator_type,
             chunks: HashMap::new(),
             block_overrides: HashMap::new(),
             pending_network_changes: HashMap::new(),
@@ -1341,7 +1397,7 @@ impl World {
         for dz in -radius..=radius {
             for dx in -radius..=radius {
                 let (cx, cz) = (spawn_cx + dx, spawn_cz + dz);
-                let chunk = Chunk::generate(cx, cz, seed);
+                let chunk = Chunk::generate_with_type(cx, cz, seed, generator_type);
                 world.index_chunk_lights(&chunk);
                 world.chunks.insert((cx, cz), chunk);
                 crate::log_info!("WORLD", "Spawn chunk ({}, {}) ready [{}/{}]", cx, cz, world.chunks.len(), total_chunks);
@@ -1453,7 +1509,11 @@ impl World {
 
     #[inline]
     pub fn get_biome_at(&self, wx: i32, wz: i32) -> Biome {
-        get_biome_at(wx, wz, self.seed).0
+        if self.generator_type == WorldGeneratorType::Superflat {
+            Biome::Plains
+        } else {
+            get_biome_at(wx, wz, self.seed).0
+        }
     }
 
     pub fn update_weather(&mut self, dt: f32, player_pos: Vec3) -> Option<LightningStrike> {
@@ -1473,11 +1533,12 @@ impl World {
     }
 
     pub fn save(&self, path: &str) -> Result<(), String> {
-        crate::log_info!("SAVE", "Serializing world '{}' (seed: {}, mode: {:?}, chunks: {}, chests: {}, furnaces: {}) to '{}'", self.name, self.seed, self.gamemode, self.chunks.len(), self.chests.len(), self.furnaces.len(), path);
+        crate::log_info!("SAVE", "Serializing world '{}' (seed: {}, mode: {:?}, type: {:?}, chunks: {}, chests: {}, furnaces: {}) to '{}'", self.name, self.seed, self.gamemode, self.generator_type, self.chunks.len(), self.chests.len(), self.furnaces.len(), path);
         let mut bytes = Vec::with_capacity(32 + self.chunks.len() * 4);
-        bytes.extend_from_slice(b"RUSTCRAFT7");
+        bytes.extend_from_slice(b"RUSTCRAFT8");
         bytes.extend_from_slice(&self.seed.to_le_bytes());
         bytes.push(match self.gamemode { GameMode::Survival => 0, GameMode::Creative => 1 });
+        bytes.push(match self.generator_type { WorldGeneratorType::Default => 0, WorldGeneratorType::Superflat => 1 });
 
         let name_bytes = self.name.as_bytes();
         let name_len = name_bytes.len().min(255) as u8;
@@ -1562,7 +1623,7 @@ impl World {
         let version = match format {
             b"RUSTCRAFT1" => 1, b"RUSTCRAFT2" => 2, b"RUSTCRAFT3" => 3,
             b"RUSTCRAFT4" => 4, b"RUSTCRAFT5" => 5, b"RUSTCRAFT6" => 6,
-            b"RUSTCRAFT7" => 7,
+            b"RUSTCRAFT7" => 7, b"RUSTCRAFT8" => 8,
             _ => return Err("unknown world file format".to_owned()),
         };
 
@@ -1574,26 +1635,33 @@ impl World {
         };
 
         let seed = read_u32(&mut cursor)?;
-        let (gamemode, name) = if version >= 4 {
+        let (gamemode, generator_type, name) = if version >= 8 {
+            let gm = if read_bytes(&bytes, &mut cursor, 1)?[0] == 1 { GameMode::Creative } else { GameMode::Survival };
+            let gen = if read_bytes(&bytes, &mut cursor, 1)?[0] == 1 { WorldGeneratorType::Superflat } else { WorldGeneratorType::Default };
+            let name_len = read_bytes(&bytes, &mut cursor, 1)?[0] as usize;
+            let name_str = if name_len > 0 { String::from_utf8_lossy(read_bytes(&bytes, &mut cursor, name_len)?).to_string() } else { format!("World {}", seed) };
+            (gm, gen, name_str)
+        } else if version >= 4 {
             let gm = if read_bytes(&bytes, &mut cursor, 1)?[0] == 1 { GameMode::Creative } else { GameMode::Survival };
             let name_len = read_bytes(&bytes, &mut cursor, 1)?[0] as usize;
             let name_str = if name_len > 0 { String::from_utf8_lossy(read_bytes(&bytes, &mut cursor, name_len)?).to_string() } else { format!("World {}", seed) };
-            (gm, name_str)
+            (gm, WorldGeneratorType::Default, name_str)
         } else {
-            (GameMode::Survival, format!("World {}", seed))
+            (GameMode::Survival, WorldGeneratorType::Default, format!("World {}", seed))
         };
 
         let player_position = if version >= 2 {
             Vec3::new(read_f32(&mut cursor)?, read_f32(&mut cursor)?, read_f32(&mut cursor)?)
         } else {
-            Self::find_spawn_position(seed)
+            Self::find_spawn_position_for_type(seed, generator_type)
         };
 
         let chunk_count = read_u32(&mut cursor)? as usize;
         let expected_len = (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize;
-        let mut world = Self::new_with_seed(seed);
+        let mut world = Self::new_with_generator(seed, generator_type);
         world.name = name;
         world.gamemode = gamemode;
+        world.generator_type = generator_type;
         world.player_position = player_position;
 
         for _ in 0..chunk_count {
@@ -2192,6 +2260,7 @@ impl World {
             ne_blocks: get_nb(1, -1),
             nw_blocks: get_nb(-1, -1),
             seed: self.seed,
+            generator_type: self.generator_type,
             lights,
             fluid_map: self.fluid_levels.clone(),
         })
@@ -2334,13 +2403,13 @@ impl World {
             if let Some(tx) = &self.chunk_req_tx {
                 for (cx, cz) in missing_chunks {
                     self.pending_chunks.insert((cx, cz));
-                    let _ = tx.send((cx, cz, self.seed));
+                    let _ = tx.send((cx, cz, self.seed, self.generator_type));
                 }
             }
 
             #[cfg(any(target_arch = "wasm32", feature = "xbox360"))]
             for (cx, cz) in missing_chunks.into_iter().take(1) {
-                let mut chunk = Chunk::generate(cx, cz, self.seed);
+                let mut chunk = Chunk::generate_with_type(cx, cz, self.seed, self.generator_type);
                 self.apply_block_overrides(&mut chunk);
                 self.index_chunk_lights(&chunk);
                 self.chunks.insert((cx, cz), chunk);
@@ -3208,5 +3277,84 @@ mod tests {
             world.chunks.get(&(1, 1)).unwrap().dirty,
             "indexing a streamed torch should rebuild diagonal chunks in its light radius"
         );
+    }
+
+    #[test]
+    fn test_superflat_chunk_layering() {
+        let chunk = Chunk::generate_superflat(2, -4);
+        assert_eq!(chunk.cx, 2);
+        assert_eq!(chunk.cz, -4);
+
+        for lx in 0..CHUNK_SIZE_X {
+            for lz in 0..CHUNK_SIZE_Z {
+                assert_eq!(chunk.get_local(lx, 0, lz), BlockId::Bedrock);
+                assert_eq!(chunk.get_local(lx, 1, lz), BlockId::Dirt);
+                assert_eq!(chunk.get_local(lx, 2, lz), BlockId::Dirt);
+                assert_eq!(chunk.get_local(lx, 3, lz), BlockId::Grass);
+                for y in 4..CHUNK_SIZE_Y {
+                    assert_eq!(chunk.get_local(lx, y, lz), BlockId::Air);
+                }
+            }
+        }
+
+        let via_type = Chunk::generate_with_type(0, 0, 9999, WorldGeneratorType::Superflat);
+        assert_eq!(via_type.get_local(7, 3, 7), BlockId::Grass);
+        assert_eq!(via_type.get_local(7, 4, 7), BlockId::Air);
+    }
+
+    #[test]
+    fn test_superflat_world_creation_and_spawn() {
+        let world = World::new_with_generator(42, WorldGeneratorType::Superflat);
+        assert_eq!(world.generator_type, WorldGeneratorType::Superflat);
+        assert_eq!(world.get_biome_at(0, 0), Biome::Plains);
+        assert_eq!(world.get_biome_at(1234, -5678), Biome::Plains);
+        assert_eq!(world.biome_name_at(10, 10), "PLAINS");
+
+        // Spawn position should be safely standing on top of the grass layer (y=3 block, surface=4)
+        assert!(world.player_position.y >= 5.6, "player spawn eye position must be above grass");
+
+        // Center chunks must be superflat
+        assert_eq!(world.get_block(IVec3::new(8, 0, 8)), BlockId::Bedrock);
+        assert_eq!(world.get_block(IVec3::new(8, 1, 8)), BlockId::Dirt);
+        assert_eq!(world.get_block(IVec3::new(8, 2, 8)), BlockId::Dirt);
+        assert_eq!(world.get_block(IVec3::new(8, 3, 8)), BlockId::Grass);
+        assert_eq!(world.get_block(IVec3::new(8, 4, 8)), BlockId::Air);
+    }
+
+    #[test]
+    fn test_superflat_save_and_load_roundtrip() {
+        let temp_dir = std::env::temp_dir();
+        let save_file = temp_dir.join("rustcraft_test_superflat_save.bin");
+        let path_str = save_file.to_str().unwrap();
+
+        let mut world = World::new_with_generator(777, WorldGeneratorType::Superflat);
+        world.name = "Flatland Test".to_string();
+        world.save(path_str).expect("saving superflat world failed");
+
+        let loaded = World::load(path_str).expect("loading superflat world failed");
+        assert_eq!(loaded.name, "Flatland Test");
+        assert_eq!(loaded.generator_type, WorldGeneratorType::Superflat);
+        assert_eq!(loaded.seed, 777);
+        assert_eq!(loaded.get_biome_at(0, 0), Biome::Plains);
+        assert_eq!(loaded.get_block(IVec3::new(8, 0, 8)), BlockId::Bedrock);
+        assert_eq!(loaded.get_block(IVec3::new(8, 3, 8)), BlockId::Grass);
+        assert_eq!(loaded.get_block(IVec3::new(8, 4, 8)), BlockId::Air);
+
+        let _ = std::fs::remove_file(save_file);
+    }
+
+    #[test]
+    fn test_world_generator_type_and_ui_rects() {
+        assert_eq!(WorldGeneratorType::Default.name(), "DEFAULT");
+        assert_eq!(WorldGeneratorType::Superflat.name(), "SUPERFLAT");
+
+        let rects = crate::ui::create_world_rects(960, 540);
+        assert_eq!(rects.len(), 8);
+        for &(x, y, w, h) in &rects {
+            assert!(w > 0);
+            assert!(h > 0);
+            assert!(x >= 0);
+            assert!(y >= 0);
+        }
     }
 }
