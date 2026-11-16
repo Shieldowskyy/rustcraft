@@ -141,7 +141,8 @@ fn find_or_install_psp2cgc(vitasdk: &str) -> Option<String> {
     ];
 
     for path in &candidates {
-        if std::path::Path::new(path).exists() {
+        let p = std::path::Path::new(path);
+        if p.exists() && is_valid_executable(p) {
             return Some(path.clone());
         }
     }
@@ -158,6 +159,32 @@ fn find_or_install_psp2cgc(vitasdk: &str) -> Option<String> {
     }
 
     None
+}
+
+
+/// Checks that the file is a working executable by trying to run it with `--version` or `-version`.
+fn is_valid_executable(path: &std::path::Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else { return false };
+    if meta.len() < 10 {
+        return false;
+    }
+    // Verify it actually executes and returns a success status with version output
+    if let Ok(output) = Command::new(path).arg("-version").output() {
+        if output.status.success() || !output.stdout.is_empty() || !output.stderr.is_empty() {
+            let combined = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+            if combined.contains("psp2cgc") || combined.contains("SDK") {
+                return true;
+            }
+        }
+    }
+    // Also try --version or -h
+    if let Ok(output) = Command::new(path).arg("-h").output() {
+        let combined = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        if combined.contains("psp2cgc") || combined.contains("profile") {
+            return true;
+        }
+    }
+    false
 }
 
 fn try_download_psp2cgc(install_dir: &str, install_path: &str) -> bool {

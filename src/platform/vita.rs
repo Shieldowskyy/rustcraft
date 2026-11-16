@@ -306,6 +306,8 @@ impl VitaImeManager {
 macro_rules! vita_log {
     ($($arg:tt)*) => {{
         let msg = format!($($arg)*);
+        // SAFETY: sceClibPrintf is the Vita kernel's printf; CString guarantees NUL termination.
+        #[allow(unused_unsafe)]
         unsafe {
             extern "C" { fn sceClibPrintf(fmt: *const core::ffi::c_char, ...); }
             if let Ok(c_msg) = std::ffi::CString::new(msg) {

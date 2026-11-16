@@ -1830,7 +1830,7 @@ impl World {
     }
 
     pub fn biome_name_at(&self, wx: i32, wz: i32) -> &'static str {
-        get_biome_at(wx, wz, self.seed).0.name()
+        self.get_biome_at(wx, wz).name()
     }
 
     #[inline]

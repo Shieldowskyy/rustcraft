@@ -194,7 +194,6 @@ impl RustCraftApp {
                             self.mob_manager = MobManager::new();
                             self.reset_achievements_for_slot(self.save_slot);
             self.reset_quests_for_slot(self.save_slot, self.create_world_quests_enabled);
-                            self.reset_quests_for_slot(self.save_slot);
                             self.minimap.waypoints = crate::ui::minimap::load_waypoints(self.save_slot, self.world.seed);
                             self.state = GameState::Playing;
                         }
