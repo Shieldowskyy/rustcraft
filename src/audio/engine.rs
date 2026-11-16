@@ -225,8 +225,15 @@ impl AudioEngine {
         let music_playing = Arc::new(AtomicBool::new(false));
         let music_progress = Arc::new(AtomicU32::new(0));
 
-        // Attempt to launch dedicated high-priority audio mixing thread
-        #[cfg(not(target_arch = "wasm32"))]
+        // Attempt to launch dedicated high-priority audio mixing thread.
+        //
+        // PS Vita: sceAudioOutOutput() is a *blocking* call — it stalls until the
+        // hardware DMA consumes the buffer.  Spawning a Rust thread that calls it in a
+        // tight loop is the correct Vita audio pattern and works fine, BUT the scratch
+        // buffer passed to write_samples() must match VITA_FRAMES_PER_BUFFER exactly
+        // (2 048 f32 samples = 1 024 stereo frames).  The constant below must stay in
+        // sync with crate::audio::backend::vita::VITA_FRAMES_PER_BUFFER.
+        #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
         let (queue, worker_handle, sync_mixer, sync_backend) = {
             let running = Arc::clone(&worker_running);
             let music_playing_worker = Arc::clone(&music_playing);
@@ -369,7 +376,21 @@ impl AudioEngine {
             }
         };
 
+        // WASM: AudioWorklet runs on a separate thread managed by the browser; we use a
+        // synchronous mixer that is ticked from the main game loop instead.
         #[cfg(target_arch = "wasm32")]
+        let (queue, worker_handle, sync_mixer, sync_backend) = {
+            let sm = AudioMixer::new(sample_rate);
+            let mut sb = create_default_backend();
+            let _ = sb.init(sample_rate, 2);
+            (None, None, Some(sm), Some(sb))
+        };
+
+        // PS Vita: sceAudioOutOutput() already blocks internally until the hardware DMA
+        // is ready, so we drive it from the main game-loop tick (sync mode) rather than
+        // a background thread.  This avoids spawning a Rust thread whose sleep/yield
+        // behaviour on Vita can interact badly with SceAudioOut port scheduling.
+        #[cfg(target_os = "vita")]
         let (queue, worker_handle, sync_mixer, sync_backend) = {
             let sm = AudioMixer::new(sample_rate);
             let mut sb = create_default_backend();
@@ -727,6 +748,35 @@ impl AudioEngine {
             }
         } else {
             self.ambient_rain_timer = 0.5;
+        }
+
+        // On synchronous-mode platforms (Vita, WASM) mix and push audio now,
+        // so the hardware buffer is fed every game-loop tick.
+        self.tick_sync_audio();
+    }
+
+    /// Mixes and outputs one hardware buffer worth of audio on platforms that use the
+    /// synchronous (non-threaded) backend path (PS Vita, WASM).
+    ///
+    /// On threaded platforms this is a no-op — the background worker thread handles it.
+    ///
+    /// The scratch buffer is sized to match `VITA_FRAMES_PER_BUFFER` (1 024 stereo frames
+    /// = 2 048 f32 samples).  The Vita backend's `write_samples` guard will silently
+    /// discard mismatched lengths, so this size must stay in sync with the constant in
+    /// `crate::audio::backend::vita`.
+    fn tick_sync_audio(&mut self) {
+        // Only active when both sync_mixer and sync_backend are present (non-threaded path).
+        if self.sync_mixer.is_none() || self.sync_backend.is_none() {
+            return;
+        }
+
+        // 2 048 f32 = 1 024 stereo frames — matches VITA_FRAMES_PER_BUFFER * 2.
+        let mut scratch = [0.0f32; 2048];
+
+        let mixer = self.sync_mixer.as_mut().unwrap();
+        if mixer.has_pending_audio() {
+            mixer.mix_interleaved_stereo(&mut scratch);
+            self.sync_backend.as_mut().unwrap().write_samples(&scratch);
         }
     }
 
