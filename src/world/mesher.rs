@@ -1,8 +1,10 @@
 // Converts a chunk's voxel grid into a list of world-space, textured
 // triangles. Uses simple face-culling (skip faces touching a solid, opaque
 // neighbor) rather than full greedy meshing, to keep the code easy to
-// follow. Still efficient enough for modest view distances at
-// software-render scale.
+// follow. Vita builds use worker-thread meshing and memoized AO light samples.
+
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 use crate::core::math::{IVec3, Vec3};
 use crate::graphics::atlas::TextureId;
@@ -75,12 +77,59 @@ pub struct ChunkMeshJob {
     pub fluid_map: std::collections::HashMap<IVec3, u8>,
 }
 
+impl ChunkMeshJob {
+    /// Creates an owned, thread-safe snapshot of the chunk and its 8 neighbors.
+    /// The worker never borrows `World`, so meshing cannot stall or race the game thread.
+    pub fn from_world(chunk: &Chunk, world: &World) -> Self {
+        let (cx, cz) = (chunk.cx, chunk.cz);
+        let copy_blocks = |x: i32, z: i32| {
+            world.chunks.get(&(x, z)).map(|neighbor| neighbor.blocks.clone())
+        };
+        let base_x = cx * CHUNK_SIZE_X;
+        let base_z = cz * CHUNK_SIZE_Z;
+
+        let mut lights = Vec::new();
+        for &pos in &world.torches {
+            let dx = (pos.x - (base_x + 8)).abs();
+            let dz = (pos.z - (base_z + 8)).abs();
+            if dx <= 24 && dz <= 24 {
+                lights.push(LightSource { pos, radius: 14.0, intensity: 1.0 });
+            }
+        }
+        for (&pos, &(radius, intensity)) in &world.ruststone_lights {
+            let dx = (pos.x - (base_x + 8)).abs();
+            let dz = (pos.z - (base_z + 8)).abs();
+            if dx <= 24 && dz <= 24 {
+                lights.push(LightSource { pos, radius, intensity });
+            }
+        }
+
+        Self {
+            key: (cx, cz),
+            center_blocks: chunk.blocks.clone(),
+            east_blocks: copy_blocks(cx + 1, cz),
+            west_blocks: copy_blocks(cx - 1, cz),
+            south_blocks: copy_blocks(cx, cz + 1),
+            north_blocks: copy_blocks(cx, cz - 1),
+            se_blocks: copy_blocks(cx + 1, cz + 1),
+            sw_blocks: copy_blocks(cx - 1, cz + 1),
+            ne_blocks: copy_blocks(cx + 1, cz - 1),
+            nw_blocks: copy_blocks(cx - 1, cz - 1),
+            seed: world.seed,
+            generator_type: world.generator_type,
+            lights,
+            fluid_map: HashMap::new(),
+        }
+    }
+}
+
 pub struct AsyncMesher {
     #[allow(dead_code)]
     req_tx: std::sync::mpsc::Sender<ChunkMeshJob>,
     res_rx: std::sync::mpsc::Receiver<((i32, i32), Vec<Triangle>)>,
     #[allow(dead_code)]
     res_tx: std::sync::mpsc::Sender<((i32, i32), Vec<Triangle>)>,
+    worker_count: usize,
 }
 
 impl Default for AsyncMesher {
@@ -109,10 +158,11 @@ impl AsyncMesher {
             }
         };
 
+        let mut worker_count = 0usize;
         for i in 0..num_threads {
             let req_rx_clone = std::sync::Arc::clone(&req_rx);
             let res_tx_clone = res_tx.clone();
-            let _ = std::thread::Builder::new()
+            let spawn_result = std::thread::Builder::new()
                 .name(format!("chunk_mesh_{}", i))
                 .spawn(move || {
                     #[cfg(target_os = "vita")]
@@ -123,7 +173,7 @@ impl AsyncMesher {
                         }
                         let thid = sceKernelGetThreadId();
                         let mask = if i % 2 == 0 { 0x00020000 } else { 0x00040000 };
-                        sceKernelChangeThreadCpuAffinityMask(thid, mask);
+                        let _ = sceKernelChangeThreadCpuAffinityMask(thid, mask);
                     }
 
                     loop {
@@ -137,7 +187,7 @@ impl AsyncMesher {
                         match job {
                             Some(job) => {
                                 let key = job.key;
-                                let mesh = build_chunk_mesh_from_job(&job);
+                                let mesh = build_chunk_mesh_from_job_limited(&job, 4096);
                                 if res_tx_clone.send((key, mesh)).is_err() {
                                     break;
                                 }
@@ -146,21 +196,30 @@ impl AsyncMesher {
                         }
                     }
                 });
+            if spawn_result.is_ok() {
+                worker_count += 1;
+            }
         }
 
-        Self { req_tx, res_rx, res_tx }
+        Self { req_tx, res_rx, res_tx, worker_count }
     }
 
-    pub fn submit_job(&self, job: ChunkMeshJob) {
+    pub fn submit_job(&self, job: ChunkMeshJob) -> bool {
         #[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
         {
             let key = job.key;
-            let mesh = build_chunk_mesh_from_job(&job);
-            let _ = self.res_tx.send((key, mesh));
+            let mesh = build_chunk_mesh_from_job_limited(&job, 4096);
+            self.res_tx.send((key, mesh)).is_ok()
         }
         #[cfg(not(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
         {
-            let _ = self.req_tx.send(job);
+            if self.worker_count == 0 {
+                let key = job.key;
+                let mesh = build_chunk_mesh_from_job_limited(&job, 4096);
+                self.res_tx.send((key, mesh)).is_ok()
+            } else {
+                self.req_tx.send(job).is_ok()
+            }
         }
     }
 
@@ -191,6 +250,8 @@ pub struct ChunkNeighborCache<'a> {
     pub leaf_heightmap: [u8; 18 * 18],
     pub lights: Vec<LightSource>,
     pub fluid_map: Option<&'a std::collections::HashMap<IVec3, u8>>,
+    block_light_cache: RefCell<Vec<f32>>,
+    biome_cache: RefCell<HashMap<(i32, i32), Biome>>,
 }
 
 impl<'a> ChunkNeighborCache<'a> {
@@ -252,6 +313,13 @@ impl<'a> ChunkNeighborCache<'a> {
             leaf_heightmap: [0u8; 18 * 18],
             lights,
             fluid_map: None,
+            block_light_cache: RefCell::new(vec![
+                -1.0;
+                (CHUNK_SIZE_X as usize + 2)
+                    * (CHUNK_SIZE_Y as usize + 2)
+                    * (CHUNK_SIZE_Z as usize + 2)
+            ]),
+            biome_cache: RefCell::new(HashMap::with_capacity(256)),
         };
 
         cache.populate_heightmaps();
@@ -281,6 +349,13 @@ impl<'a> ChunkNeighborCache<'a> {
             leaf_heightmap: [0u8; 18 * 18],
             lights: job.lights.clone(),
             fluid_map: Some(&job.fluid_map),
+            block_light_cache: RefCell::new(vec![
+                -1.0;
+                (CHUNK_SIZE_X as usize + 2)
+                    * (CHUNK_SIZE_Y as usize + 2)
+                    * (CHUNK_SIZE_Z as usize + 2)
+            ]),
+            biome_cache: RefCell::new(HashMap::with_capacity(256)),
         };
 
         cache.populate_heightmaps();
@@ -381,14 +456,14 @@ impl<'a> ChunkNeighborCache<'a> {
         let (opaque_h, leaf_h) = self.get_heights(lx, lz);
         if ly >= opaque_h {
             if leaf_h > 0 && ly < leaf_h {
-                0.85 // Soft natural shadow under tree canopy
+                0.85
             } else {
-                1.0  // Full direct sunlight
+                1.0
             }
         } else {
             let depth = (opaque_h - ly).max(1);
             if depth >= 8 {
-                0.0 // Pitch black in deep caves without torches
+                0.0
             } else {
                 let factor = 1.0 - (depth as f32 / 8.0);
                 0.35 * factor * factor
@@ -431,10 +506,40 @@ impl<'a> ChunkNeighborCache<'a> {
     }
 
     #[inline(always)]
-    pub fn sample_block_light(&self, wx: f32, wy: f32, wz: f32) -> f32 {
+    fn block_light_cache_index(&self, wx: f32, wy: f32, wz: f32) -> Option<usize> {
+        let fx = wx.floor();
+        let fy = wy.floor();
+        let fz = wz.floor();
+        if (wx - fx - 0.5).abs() > 0.0001
+            || (wy - fy - 0.5).abs() > 0.0001
+            || (wz - fz - 0.5).abs() > 0.0001
+        {
+            return None;
+        }
+
+        let lx = fx as i32 - self.base_x;
+        let ly = fy as i32;
+        let lz = fz as i32 - self.base_z;
+        if lx < -1 || lx > CHUNK_SIZE_X || ly < -1 || ly > CHUNK_SIZE_Y
+            || lz < -1 || lz > CHUNK_SIZE_Z
+        {
+            return None;
+        }
+
+        let sx = CHUNK_SIZE_X as usize + 2;
+        let sy = CHUNK_SIZE_Y as usize + 2;
+        let sz = CHUNK_SIZE_Z as usize + 2;
+        Some((((lx + 1) as usize) * sy + (ly + 1) as usize) * sz + (lz + 1) as usize)
+    }
+
+    #[inline(always)]
+    fn sample_block_light_uncached(&self, wx: f32, wy: f32, wz: f32) -> f32 {
         if self.lights.is_empty() {
             return 0.0;
         }
+        let to_x = wx.floor() as i32;
+        let to_y = wy.floor() as i32;
+        let to_z = wz.floor() as i32;
         let mut max_l = 0.0f32;
         for light in &self.lights {
             let dx = wx - (light.pos.x as f32 + 0.5);
@@ -445,38 +550,90 @@ impl<'a> ChunkNeighborCache<'a> {
             if d_sq < r * r {
                 let dist = d_sq.sqrt();
                 let t = (1.0 - dist / r).max(0.0);
-                // Cubic Hermite smoothstep curve for natural soft falloff
                 let falloff = t * t * (3.0 - 2.0 * t);
                 let l = falloff * light.intensity;
-                if l > max_l {
-                    // Check if light is occluded by solid obstacle
-                    if !self.is_light_occluded(light.pos, wx.floor() as i32, wy.floor() as i32, wz.floor() as i32) {
-                        max_l = l;
+                if l > max_l
+                    && !self.is_light_occluded(light.pos, to_x, to_y, to_z)
+                {
+                    max_l = l;
+                    if max_l >= 1.0 {
+                        return max_l;
                     }
                 }
             }
         }
         max_l
     }
+
+    #[inline(always)]
+    pub fn sample_block_light(&self, wx: f32, wy: f32, wz: f32) -> f32 {
+        if let Some(index) = self.block_light_cache_index(wx, wy, wz) {
+            let cached = self.block_light_cache.borrow()[index];
+            if cached >= 0.0 {
+                return cached;
+            }
+            let value = self.sample_block_light_uncached(wx, wy, wz);
+            self.block_light_cache.borrow_mut()[index] = value;
+            value
+        } else {
+            self.sample_block_light_uncached(wx, wy, wz)
+        }
+    }
+
+    #[inline]
+    fn biome_at_cached(&self, wx: i32, wz: i32) -> Biome {
+        if self.generator_type == WorldGeneratorType::Superflat {
+            return Biome::Plains;
+        }
+        if let Some(biome) = self.biome_cache.borrow().get(&(wx, wz)).cloned() {
+            return biome;
+        }
+        let biome = get_biome_at(wx, wz, self.seed).0;
+        self.biome_cache.borrow_mut().insert((wx, wz), biome.clone());
+        biome
+    }
 }
 
 pub const SUBCHUNK_SIZE: i32 = 16;
 pub const NUM_SUBCHUNKS: usize = (CHUNK_SIZE_Y / SUBCHUNK_SIZE) as usize; // 4
 
-
 pub fn build_subchunk_mesh_from_cache(
     sub_y: usize,
     cache: &ChunkNeighborCache,
 ) -> (Vec<Triangle>, Vec<Triangle>) {
-    let mut solid_tris = Vec::with_capacity(768);
-    let mut trans_tris = Vec::with_capacity(128);
+    let y_start = (sub_y as i32) * SUBCHUNK_SIZE;
+    let y_end = y_start + SUBCHUNK_SIZE;
+
+    // --- OPTYMALIZACJA: Fast-path dla pustych subchunków ---
+    // Sprawdzamy, czy maksymalna wysokość terenu w tym subchunku jest niższa niż y_start.
+    // Jeśli tak, to w tym przedziale Y nie ma żadnych pełnych bloków ziemi/kamienia.
+    let mut max_h_in_subchunk = 0u8;
+    for lx in 0..16 {
+        for lz in 0..16 {
+            let idx = ((lx + 1) * 18 + (lz + 1)) as usize;
+            let h = cache.heightmap[idx];
+            if h > max_h_in_subchunk {
+                max_h_in_subchunk = h;
+            }
+        }
+    }
+    // Jeśli cały teren jest poniżej tego subchunka oraz brak świateł/płynów mogących generować geometrię,
+    // możemy pominąć całą iterację po blokach (zabezpieczenie: dla sub_y > 0 sprawdzamy czy y_start >= max_h_in_subchunk).
+    if (y_start as u8) >= max_h_in_subchunk && cache.lights.is_empty() {
+        // Dodatkowo upewniamy się, że nie ma tam płynów (np. oceanu powyżej dna)
+        // Jeśli fluid_map jest pusta, możemy bezpiecznie zwrócić puste wektory.
+        if cache.fluid_map.map_or(true, |fm| fm.is_empty()) {
+            return (Vec::new(), Vec::new());
+        }
+    }
+    // ------------------------------------------------------
+
+    let mut solid_tris = Vec::with_capacity(384);
+    let mut trans_tris = Vec::with_capacity(64);
 
     let base_x = cache.base_x;
     let base_z = cache.base_z;
     let blocks = cache.center_blocks;
-
-    let y_start = (sub_y as i32) * SUBCHUNK_SIZE;
-    let y_end = y_start + SUBCHUNK_SIZE;
 
     for lx in 0..CHUNK_SIZE_X {
         for ly in y_start..y_end {
@@ -656,6 +813,34 @@ pub fn build_chunk_mesh_from_job(job: &ChunkMeshJob) -> Vec<Triangle> {
     build_chunk_mesh_from_cache(&cache)
 }
 
+pub fn build_chunk_mesh_from_job_limited(job: &ChunkMeshJob, max_triangles: usize) -> Vec<Triangle> {
+    if max_triangles == 0 {
+        return Vec::new();
+    }
+    let cache = ChunkNeighborCache::from_job(job);
+    let mut solid_tris = Vec::with_capacity(3072.min(max_triangles));
+    let mut trans_tris = Vec::with_capacity(512.min(max_triangles));
+
+    for sub_y in 0..NUM_SUBCHUNKS {
+        let (sub_solid, sub_trans) = build_subchunk_mesh_from_cache(sub_y, &cache);
+        if solid_tris.len() < max_triangles {
+            let remaining = max_triangles - solid_tris.len();
+            solid_tris.extend(sub_solid.into_iter().take(remaining));
+        }
+        if solid_tris.len() >= max_triangles {
+            return solid_tris;
+        }
+        if trans_tris.len() < max_triangles {
+            let remaining = max_triangles - trans_tris.len();
+            trans_tris.extend(sub_trans.into_iter().take(remaining));
+        }
+    }
+
+    trans_tris.truncate(max_triangles.saturating_sub(solid_tris.len()));
+    solid_tris.extend(trans_tris);
+    solid_tris
+}
+
 #[inline(always)]
 fn push_quad_uv(
     tris: &mut Vec<Triangle>,
@@ -716,7 +901,6 @@ fn emit_torch(
         push_quad_uv(tris, a, b, c, d, TextureId::Torch, shade, light, light);
     };
 
-    // 1. Central wooden torch stick (2x2 texels thick, 10 texels tall: y: 0.0 .. 0.625)
     let x0 = wx as f32 + 0.4375;
     let x1 = wx as f32 + 0.5625;
     let y0 = wy as f32;
@@ -733,32 +917,25 @@ fn emit_torch(
     let c011 = Vec3::new(x0, y1, z1);
     let c111 = Vec3::new(x1, y1, z1);
 
-    // UV bounds for wooden stick (texels x: 6..10, y: 6..16)
-    let su0 = 0.4375f32; // 7/16
-    let su1 = 0.5625f32; // 9/16
-    let sv0 = 0.3750f32; // 6/16 (top of stick where coal wick meets wood)
-    let sv1 = 1.0000f32; // 16/16 (bottom of stick)
+    let su0 = 0.4375f32;
+    let su1 = 0.5625f32;
+    let sv0 = 0.3750f32;
+    let sv1 = 1.0000f32;
 
-    // Stick North (-Z)
     quad_uv(tris, (c100, (su0, sv1)), (c000, (su1, sv1)), (c010, (su1, sv0)), (c110, (su0, sv0)), 0.95, 1.0);
-    // Stick South (+Z)
     quad_uv(tris, (c001, (su0, sv1)), (c101, (su1, sv1)), (c111, (su1, sv0)), (c011, (su0, sv0)), 0.95, 1.0);
-    // Stick East (+X)
     quad_uv(tris, (c101, (su0, sv1)), (c100, (su1, sv1)), (c110, (su1, sv0)), (c111, (su0, sv0)), 0.90, 1.0);
-    // Stick West (-X)
     quad_uv(tris, (c000, (su0, sv1)), (c001, (su1, sv1)), (c011, (su1, sv0)), (c010, (su0, sv0)), 0.90, 1.0);
-    // Stick Bottom
     if wy > 0 {
         quad_uv(tris, (c001, (su0, 0.875)), (c000, (su0, 1.0)), (c100, (su1, 1.0)), (c101, (su1, 0.875)), 0.70, 1.0);
     }
 
-    // 2. Torch Flame Head: slightly wider glowing ember & flame at the top (y: 0.50 .. 0.72)
-    let fx0 = wx as f32 + 0.40625; // 6.5/16
-    let fx1 = wx as f32 + 0.59375; // 9.5/16
-    let fy0 = wy as f32 + 0.50000; // 8/16
-    let fy1 = wy as f32 + 0.71875; // 11.5/16
-    let fz0 = wz as f32 + 0.40625; // 6.5/16
-    let fz1 = wz as f32 + 0.59375; // 9.5/16
+    let fx0 = wx as f32 + 0.40625;
+    let fx1 = wx as f32 + 0.59375;
+    let fy0 = wy as f32 + 0.50000;
+    let fy1 = wy as f32 + 0.71875;
+    let fz0 = wz as f32 + 0.40625;
+    let fz1 = wz as f32 + 0.59375;
 
     let fc000 = Vec3::new(fx0, fy0, fz0);
     let fc100 = Vec3::new(fx1, fy0, fz0);
@@ -769,18 +946,16 @@ fn emit_torch(
     let fc011 = Vec3::new(fx0, fy1, fz1);
     let fc111 = Vec3::new(fx1, fy1, fz1);
 
-    // Flame UV bounds (texels x: 6..10, y: 0..5)
-    let fu0 = 0.3750f32; // 6/16
-    let fu1 = 0.6250f32; // 10/16
-    let fv0 = 0.0000f32; // 0/16 (fire tip)
-    let fv1 = 0.3125f32; // 5/16 (fire base/coal)
+    let fu0 = 0.3750f32;
+    let fu1 = 0.6250f32;
+    let fv0 = 0.0000f32;
+    let fv1 = 0.3125f32;
 
-    // Full self-illumination (shade 1.0, light 1.0) for bright warm glow
-    quad_uv(tris, (fc010, (fu0, 0.06)), (fc011, (fu0, 0.25)), (fc111, (fu1, 0.25)), (fc110, (fu1, 0.06)), 1.0, 1.0); // Top
-    quad_uv(tris, (fc100, (fu0, fv1)), (fc000, (fu1, fv1)), (fc010, (fu1, fv0)), (fc110, (fu0, fv0)), 1.0, 1.0); // North
-    quad_uv(tris, (fc001, (fu0, fv1)), (fc101, (fu1, fv1)), (fc111, (fu1, fv0)), (fc011, (fu0, fv0)), 1.0, 1.0); // South
-    quad_uv(tris, (fc101, (fu0, fv1)), (fc100, (fu1, fv1)), (fc110, (fu1, fv0)), (fc111, (fu0, fv0)), 1.0, 1.0); // East
-    quad_uv(tris, (fc000, (fu0, fv1)), (fc001, (fu1, fv1)), (fc011, (fu1, fv0)), (fc010, (fu0, fv0)), 1.0, 1.0); // West
+    quad_uv(tris, (fc010, (fu0, 0.06)), (fc011, (fu0, 0.25)), (fc111, (fu1, 0.25)), (fc110, (fu1, 0.06)), 1.0, 1.0);
+    quad_uv(tris, (fc100, (fu0, fv1)), (fc000, (fu1, fv1)), (fc010, (fu1, fv0)), (fc110, (fu0, fv0)), 1.0, 1.0);
+    quad_uv(tris, (fc001, (fu0, fv1)), (fc101, (fu1, fv1)), (fc111, (fu1, fv0)), (fc011, (fu0, fv0)), 1.0, 1.0);
+    quad_uv(tris, (fc101, (fu0, fv1)), (fc100, (fu1, fv1)), (fc110, (fu1, fv0)), (fc111, (fu0, fv0)), 1.0, 1.0);
+    quad_uv(tris, (fc000, (fu0, fv1)), (fc001, (fu1, fv1)), (fc011, (fu1, fv0)), (fc010, (fu0, fv0)), 1.0, 1.0);
 }
 
 fn emit_door(
@@ -800,16 +975,11 @@ fn emit_door(
     let y = wy as f32;
     let z = wz as f32;
 
-    // Door thickness: 3/16 = 0.1875
     let thick = 0.1875f32;
 
     let (x0, x1, z0, z1) = if !is_open {
-        // Closed door: positioned along front edge (Z in [0, thick], X in [0, 1])
-        // Hinge is at x0 (x=0), handle is at x1 (x=1)
         (x, x + 1.0, z, z + thick)
     } else {
-        // Open door: swung 90 degrees against the wall (X in [0, thick], Z in [0, 1])
-        // Hinge is at z0 (z=0), handle is at z1 (z=1)
         (x, x + thick, z, z + 1.0)
     };
     let y0 = y;
@@ -837,27 +1007,16 @@ fn emit_door(
     };
 
     if !is_open {
-        // Closed door: Hinge is at x0 (U=0), Handle is at x1 (U=1)
-        // North (Front, facing -Z)
         quad_uv(tris, (c100, (1.0, 1.0)), (c000, (0.0, 1.0)), (c010, (0.0, 0.0)), (c110, (1.0, 0.0)), tex, 0.85);
-        // South (Back, facing +Z)
         quad_uv(tris, (c001, (0.0, 1.0)), (c101, (1.0, 1.0)), (c111, (1.0, 0.0)), (c011, (0.0, 0.0)), tex, 0.85);
-        // East (Outer side edge at x1)
         quad_uv(tris, (c101, (0.0, 1.0)), (c100, (1.0, 1.0)), (c110, (1.0, 0.0)), (c111, (0.0, 0.0)), side_tex, 0.70);
-        // West (Hinge side edge at x0)
         quad_uv(tris, (c000, (0.0, 1.0)), (c001, (1.0, 1.0)), (c011, (1.0, 0.0)), (c010, (0.0, 0.0)), side_tex, 0.70);
     } else {
-        // Open door: Hinge is at z0 (U=0), Handle is at z1 (U=1)
-        // East (facing +X)
         quad_uv(tris, (c101, (1.0, 1.0)), (c100, (0.0, 1.0)), (c110, (0.0, 0.0)), (c111, (1.0, 0.0)), tex, 0.85);
-        // West (facing -X)
         quad_uv(tris, (c000, (0.0, 1.0)), (c001, (1.0, 1.0)), (c011, (1.0, 0.0)), (c010, (0.0, 0.0)), tex, 0.85);
-        // North (Hinge side edge at z0)
         quad_uv(tris, (c100, (0.0, 1.0)), (c000, (1.0, 1.0)), (c010, (1.0, 0.0)), (c110, (0.0, 0.0)), side_tex, 0.70);
-        // South (Outer side edge at z1)
         quad_uv(tris, (c001, (0.0, 1.0)), (c101, (1.0, 1.0)), (c111, (1.0, 0.0)), (c011, (0.0, 0.0)), side_tex, 0.70);
     }
-    // Top & Bottom
     quad_uv(tris, (c010, (0.0, 1.0)), (c011, (1.0, 1.0)), (c111, (1.0, 0.0)), (c110, (0.0, 0.0)), side_tex, 1.0);
     if wy > 0 {
         quad_uv(tris, (c001, (0.0, 1.0)), (c000, (1.0, 1.0)), (c100, (1.0, 0.0)), (c101, (0.0, 0.0)), side_tex, 0.5);
@@ -883,17 +1042,11 @@ fn emit_box(
     let c011 = Vec3::new(x0, y1, z1);
     let c111 = Vec3::new(x1, y1, z1);
 
-    // Top
     push_quad(tris, c010, c011, c111, c110, top_tex, 1.0, sky, block_l);
-    // North (-Z)
     push_quad(tris, c100, c000, c010, c110, side_tex, 0.85, sky, block_l);
-    // South (+Z)
     push_quad(tris, c001, c101, c111, c011, side_tex, 0.85, sky, block_l);
-    // East (+X)
     push_quad(tris, c101, c100, c110, c111, side_tex, 0.70, sky, block_l);
-    // West (-X)
     push_quad(tris, c000, c001, c011, c010, side_tex, 0.70, sky, block_l);
-    // Bottom
     push_quad(tris, c001, c000, c100, c101, bottom_tex, 0.50, sky, block_l);
 }
 
@@ -935,14 +1088,12 @@ fn emit_stairs(
 ) {
     let (sky, block_l) = cache.sample_voxel_lights(wx, wy, wz, 0.5);
     let tex = if block == BlockId::StoneStairs { TextureId::Stone } else { TextureId::Planks };
-    // Lower full base step (0.0 .. 0.5)
     emit_box(
         tris,
         wx as f32, wy as f32, wz as f32,
         wx as f32 + 1.0, wy as f32 + 0.5, wz as f32 + 1.0,
         tex, tex, tex, sky, block_l,
     );
-    // Upper back step (0.5 .. 1.0, z in 0.0 .. 0.5)
     emit_box(
         tris,
         wx as f32, wy as f32 + 0.5, wz as f32,
@@ -1043,11 +1194,8 @@ fn emit_cross(
     let q2 = Vec3::new(x, y + 1.0, z + 1.0);
     let q3 = Vec3::new(x + 1.0, y + 1.0, z);
 
-    // Diagonal 1 front and back
     push_quad(tris, p0, p1, p2, p3, texture, ao, sky, block_l);
     push_quad(tris, p1, p0, p3, p2, texture, ao, sky, block_l);
-
-    // Diagonal 2 front and back
     push_quad(tris, q0, q1, q2, q3, texture, ao, sky, block_l);
     push_quad(tris, q1, q0, q3, q2, texture, ao, sky, block_l);
 }
@@ -1237,11 +1385,7 @@ fn emit_face(
             TextureId::Door
         }
     } else if block == BlockId::Grass {
-        let biome = if cache.generator_type == WorldGeneratorType::Superflat {
-            Biome::Plains
-        } else {
-            get_biome_at(wx, wz, cache.seed).0
-        };
+        let biome = cache.biome_at_cached(wx, wz);
         match face {
             Face::Top => match biome {
                 Biome::Swamp | Biome::DarkForest => TextureId::GrassTopSwamp,
@@ -1262,11 +1406,7 @@ fn emit_face(
             },
         }
     } else if block == BlockId::Leaves {
-        let biome = if cache.generator_type == WorldGeneratorType::Superflat {
-            Biome::Plains
-        } else {
-            get_biome_at(wx, wz, cache.seed).0
-        };
+        let biome = cache.biome_at_cached(wx, wz);
         match biome {
             Biome::Swamp | Biome::DarkForest => TextureId::LeavesSwamp,
             Biome::Savanna | Biome::Desert | Biome::Badlands => TextureId::LeavesSavanna,
@@ -1392,290 +1532,5 @@ fn emit_face(
     } else {
         tris.push(Triangle { v0: va, v1: vb, v2: vc, texture });
         tris.push(Triangle { v0: va, v1: vc, v2: vd, texture });
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::world::{Chunk, World};
-
-    #[test]
-    fn ladder_mesh_is_double_sided_and_faces_away_from_east_support() {
-        let mut world = World::new();
-        let mut chunk = Chunk {
-            cx: 0,
-            cz: 0,
-            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
-            dirty: false,
-        };
-        chunk.set_local(2, 5, 2, BlockId::Ladder);
-        chunk.set_local(3, 5, 2, BlockId::Stone);
-        world.chunks.insert((0, 0), chunk);
-
-        let cache = ChunkNeighborCache::new(world.chunks.get(&(0, 0)).unwrap(), &world);
-        let mut tris = Vec::new();
-        emit_ladder(&mut tris, 2, 5, 2, &cache);
-
-        assert_eq!(tris.len(), 4);
-        assert!(tris.iter().all(|tri| (tri.v0.pos.x - 2.95).abs() < 1e-4));
-
-        let first = &tris[0];
-        let ab = Vec3::new(
-            first.v1.pos.x - first.v0.pos.x,
-            first.v1.pos.y - first.v0.pos.y,
-            first.v1.pos.z - first.v0.pos.z,
-        );
-        let ac = Vec3::new(
-            first.v2.pos.x - first.v0.pos.x,
-            first.v2.pos.y - first.v0.pos.y,
-            first.v2.pos.z - first.v0.pos.z,
-        );
-        let normal_x = ab.y * ac.z - ab.z * ac.y;
-        assert!(
-            normal_x < 0.0,
-            "ladder front should face away from east support"
-        );
-    }
-
-    #[test]
-    fn test_chunk_bottom_face_culling_at_y0() {
-        let mut world = World::new();
-        let mut chunk = Chunk {
-            cx: 0,
-            cz: 0,
-            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
-            dirty: false,
-        };
-        // Place stone at y = 0
-        chunk.set_local(0, 0, 0, BlockId::Stone);
-        // Place stone at y = 10 (floating with air below it)
-        chunk.set_local(5, 10, 5, BlockId::Stone);
-
-        world.chunks.insert((0, 0), chunk);
-        let mesh = build_chunk_mesh(world.chunks.get(&(0, 0)).unwrap(), &world);
-
-        // Verify that NO triangles have all vertex y coordinates equal to 0.0 with bottom face orientation
-        let has_y0_bottom_face = mesh.iter().any(|tri| {
-            tri.v0.pos.y == 0.0 && tri.v1.pos.y == 0.0 && tri.v2.pos.y == 0.0
-                && tri.v0.pos.x <= 1.0 && tri.v0.pos.z <= 1.0
-        });
-        assert!(!has_y0_bottom_face, "Bottom face at y=0 should be culled");
-
-        // Verify that floating stone at y=10 DOES have a bottom face at y=10.0
-        let has_y10_bottom_face = mesh.iter().any(|tri| {
-            tri.v0.pos.y == 10.0 && tri.v1.pos.y == 10.0 && tri.v2.pos.y == 10.0
-        });
-        assert!(has_y10_bottom_face, "Bottom face at y=10 with air below should be generated");
-    }
-
-    #[test]
-    fn test_subchunk_mesh_building() {
-        let mut world = World::new();
-        let mut chunk = Chunk {
-            cx: 0,
-            cz: 0,
-            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
-            dirty: false,
-        };
-
-        // Create a stone at y=5 (subchunk 0) and at y=20 (subchunk 1)
-        chunk.set_local(2, 5, 2, BlockId::Stone);
-        chunk.set_local(2, 20, 2, BlockId::Stone);
-
-        world.chunks.insert((0, 0), chunk);
-        let c = world.chunks.get(&(0, 0)).unwrap();
-
-        let sub0 = build_subchunk_mesh(c, &world, 0);
-        let sub1 = build_subchunk_mesh(c, &world, 1);
-        let sub2 = build_subchunk_mesh(c, &world, 2);
-
-        assert!(!sub0.is_empty(), "Subchunk 0 (y 0..16) should contain faces for block at y=5");
-        assert!(!sub1.is_empty(), "Subchunk 1 (y 16..32) should contain faces for block at y=20");
-        assert!(sub2.is_empty(), "Subchunk 2 (y 32..48) should be empty");
-
-        // Verify that all triangles have standard 1:1 UVs within [0.0, 1.0] to prevent texture stretching
-        for tri in sub0.iter().chain(sub1.iter()) {
-            for v in [&tri.v0, &tri.v1, &tri.v2] {
-                assert!(v.uv.0 >= 0.0 && v.uv.0 <= 1.0, "UV X coordinate out of 1:1 range: {}", v.uv.0);
-                assert!(v.uv.1 >= 0.0 && v.uv.1 <= 1.0, "UV Y coordinate out of 1:1 range: {}", v.uv.1);
-            }
-        }
-    }
-
-    #[test]
-    fn test_light_occlusion_and_smooth_lighting() {
-        let mut world = World::new();
-        let mut chunk = Chunk {
-            cx: 0,
-            cz: 0,
-            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
-            dirty: false,
-        };
-        // Floor at y=0
-        for x in 0..16 {
-            for z in 0..16 {
-                chunk.set_local(x, 0, z, BlockId::Stone);
-            }
-        }
-        // Wall at x=5 from y=1..5
-        for y in 1..=4 {
-            for z in 0..16 {
-                chunk.set_local(5, y, z, BlockId::Stone);
-            }
-        }
-        world.chunks.insert((0, 0), chunk);
-
-        // Torch at (3, 2, 8) - west side of the wall
-        world.torches.insert(IVec3::new(3, 2, 8));
-
-        let cache = ChunkNeighborCache::new(world.chunks.get(&(0, 0)).unwrap(), &world);
-
-        // Light in front of torch (4, 2, 8) should be lit (> 0.5)
-        let light_near = cache.sample_block_light(4.5, 2.5, 8.5);
-        assert!(light_near > 0.5, "Light near torch should be bright, got {}", light_near);
-
-        // Light on the other side of the wall (6, 2, 8) must be occluded (0.0)
-        let light_behind_wall = cache.sample_block_light(6.5, 2.5, 8.5);
-        assert_eq!(light_behind_wall, 0.0, "Light behind stone wall should be 0.0 (occluded), got {}", light_behind_wall);
-    }
-
-    #[test]
-    fn test_chunk_boundary_sky_light() {
-        let mut world = World::new();
-        let mut chunk_west = Chunk {
-            cx: -1,
-            cz: 0,
-            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
-            dirty: false,
-        };
-        // In west chunk, column at lx=15 (adjacent to center chunk lx=0) has terrain up to y=20
-        for y in 0..=20 {
-            chunk_west.set_local(15, y, 5, BlockId::Stone);
-        }
-        world.chunks.insert((-1, 0), chunk_west);
-
-        let chunk_center = Chunk {
-            cx: 0,
-            cz: 0,
-            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
-            dirty: false,
-        };
-        world.chunks.insert((0, 0), chunk_center);
-
-        let cache = ChunkNeighborCache::new(world.chunks.get(&(0, 0)).unwrap(), &world);
-
-        // At lx = -1, lz = 5, ly = 5 (deep below y=20 terrain), sky light should be dark (0.0), NOT 1.0
-        let sky = cache.sample_sky_light(-1, 5, 5);
-        assert_eq!(sky, 0.0, "Deep underground at chunk boundary should be 0.0 sky light, got {}", sky);
-
-        // At lx = -1, lz = 5, ly = 25 (above y=20 terrain), sky light should be full (1.0)
-        let sky_above = cache.sample_sky_light(-1, 25, 5);
-        assert_eq!(sky_above, 1.0, "Above terrain at chunk boundary should be 1.0 sky light, got {}", sky_above);
-    }
-
-    #[test]
-    fn test_kelp_and_seagrass_cross_mesh() {
-        let mut world = World::new();
-        let mut chunk = Chunk {
-            cx: 0,
-            cz: 0,
-            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
-            dirty: false,
-        };
-
-        // Surround position (5, 10, 5) with water and sand floor
-        chunk.set_local(5, 9, 5, BlockId::Sand);
-        chunk.set_local(5, 10, 5, BlockId::Kelp);
-        chunk.set_local(5, 11, 5, BlockId::Water);
-        chunk.set_local(4, 10, 5, BlockId::Water);
-        chunk.set_local(6, 10, 5, BlockId::Water);
-        chunk.set_local(5, 10, 4, BlockId::Water);
-        chunk.set_local(5, 10, 6, BlockId::Water);
-
-        // Place seagrass at (10, 10, 10)
-        chunk.set_local(10, 9, 10, BlockId::Sand);
-        chunk.set_local(10, 10, 10, BlockId::Seagrass);
-        chunk.set_local(10, 11, 10, BlockId::Water);
-
-        world.chunks.insert((0, 0), chunk);
-        let c = world.chunks.get(&(0, 0)).unwrap();
-        let mesh = build_chunk_mesh(c, &world);
-
-        // 1. Verify Kelp generated exactly 8 cross-quad triangles (2 double-sided crossed planes)
-        let kelp_tris: Vec<_> = mesh.iter().filter(|t| t.texture == TextureId::Kelp).collect();
-        assert_eq!(kelp_tris.len(), 8, "Kelp should generate 8 triangles (cross mesh)");
-
-        // 2. Verify Seagrass generated exactly 8 cross-quad triangles
-        let seagrass_tris: Vec<_> = mesh.iter().filter(|t| t.texture == TextureId::Seagrass).collect();
-        assert_eq!(seagrass_tris.len(), 8, "Seagrass should generate 8 triangles (cross mesh)");
-
-        // 3. Verify no water triangles separate water from submerged kelp at (5, 10, 5)
-        // Check vertical face between west water (4, 10, 5) and kelp (5, 10, 5): x=5.0, y in [10..11], z in (5..6)
-        let face_west_of_kelp = mesh.iter().filter(|t| {
-            t.texture == TextureId::Water
-                && (t.v0.pos.x - 5.0).abs() < 1e-4
-                && (t.v1.pos.x - 5.0).abs() < 1e-4
-                && (t.v2.pos.x - 5.0).abs() < 1e-4
-                && (t.v0.pos.y + t.v1.pos.y + t.v2.pos.y) / 3.0 < 11.0
-                && (t.v0.pos.z + t.v1.pos.z + t.v2.pos.z) / 3.0 > 5.0
-                && (t.v0.pos.z + t.v1.pos.z + t.v2.pos.z) / 3.0 < 6.0
-        }).count();
-        assert_eq!(face_west_of_kelp, 0, "No water face between west water and kelp");
-
-        // Check vertical face between east water (6, 10, 5) and kelp (5, 10, 5): x=6.0, y in [10..11], z in (5..6)
-        let face_east_of_kelp = mesh.iter().filter(|t| {
-            t.texture == TextureId::Water
-                && (t.v0.pos.x - 6.0).abs() < 1e-4
-                && (t.v1.pos.x - 6.0).abs() < 1e-4
-                && (t.v2.pos.x - 6.0).abs() < 1e-4
-                && (t.v0.pos.y + t.v1.pos.y + t.v2.pos.y) / 3.0 < 11.0
-                && (t.v0.pos.z + t.v1.pos.z + t.v2.pos.z) / 3.0 > 5.0
-                && (t.v0.pos.z + t.v1.pos.z + t.v2.pos.z) / 3.0 < 6.0
-        }).count();
-        assert_eq!(face_east_of_kelp, 0, "No water face between east water and kelp");
-
-        // Check horizontal face between top water (5, 11, 5) and kelp (5, 10, 5): y=11.0, x in (5..6), z in (5..6)
-        let face_above_kelp = mesh.iter().filter(|t| {
-            t.texture == TextureId::Water
-                && (t.v0.pos.y - 11.0).abs() < 1e-4
-                && (t.v1.pos.y - 11.0).abs() < 1e-4
-                && (t.v2.pos.y - 11.0).abs() < 1e-4
-                && (t.v0.pos.x + t.v1.pos.x + t.v2.pos.x) / 3.0 > 5.0
-                && (t.v0.pos.x + t.v1.pos.x + t.v2.pos.x) / 3.0 < 6.0
-                && (t.v0.pos.z + t.v1.pos.z + t.v2.pos.z) / 3.0 > 5.0
-                && (t.v0.pos.z + t.v1.pos.z + t.v2.pos.z) / 3.0 < 6.0
-        }).count();
-        assert_eq!(face_above_kelp, 0, "No bottom water face between top water and kelp");
-    }
-
-    #[test]
-    fn test_water_surface_is_emitted_at_block_top() {
-        let mut world = World::new();
-        let mut chunk = Chunk {
-            cx: 0,
-            cz: 0,
-            blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
-            dirty: false,
-        };
-        chunk.set_local(5, 10, 5, BlockId::Water);
-        world.chunks.insert((0, 0), chunk);
-
-        let mesh = build_chunk_mesh(world.chunks.get(&(0, 0)).unwrap(), &world);
-        let surface_triangles: Vec<_> = mesh
-            .iter()
-            .filter(|triangle| {
-                triangle.texture == TextureId::Water
-                    && (triangle.v0.pos.y - 11.0).abs() < 1e-4
-                    && (triangle.v1.pos.y - 11.0).abs() < 1e-4
-                    && (triangle.v2.pos.y - 11.0).abs() < 1e-4
-            })
-            .collect();
-
-        assert_eq!(
-            surface_triangles.len(),
-            2,
-            "An exposed water block should emit its top surface"
-        );
     }
 }

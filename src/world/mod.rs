@@ -332,7 +332,7 @@ impl Chunk {
         let v_height = get_height_at(v_cx * CHUNK_SIZE_X + 8, v_cz * CHUNK_SIZE_Z + 8, seed, v_biome, v_cont);
 
         let village_comp = if matches!(v_biome, Biome::Plains | Biome::SunflowerPlains | Biome::Meadow | Biome::Savanna | Biome::SavannaPlateau | Biome::Desert | Biome::Taiga)
-            && v_height > 22 && v_height < CHUNK_SIZE_Y - 14
+        && v_height > 22 && v_height < CHUNK_SIZE_Y - 14
         {
             match (cx - v_cx, cz - v_cz) {
                 (0, 0) => Some(VillageComponent::CenterWell),
@@ -1200,8 +1200,8 @@ impl World {
     pub fn get_or_create_chest(&mut self, pos: IVec3) -> &mut ChestData {
         let seed = self.seed;
         let is_blacksmith = self.get_block(pos + IVec3::new(-1, 0, 0)) == BlockId::StoneSlab
-            || self.get_block(pos + IVec3::new(-2, 0, 0)) == BlockId::Furnace
-            || self.get_block(pos + IVec3::new(1, 0, 0)) == BlockId::Furnace;
+        || self.get_block(pos + IVec3::new(-2, 0, 0)) == BlockId::Furnace
+        || self.get_block(pos + IVec3::new(1, 0, 0)) == BlockId::Furnace;
         self.chests.entry(pos).or_insert_with(|| {
             if is_blacksmith { ChestData::generate_blacksmith_loot(seed, pos) }
             else { ChestData::generate_house_loot(seed, pos) }
@@ -1271,9 +1271,9 @@ impl World {
                             STANDING_EYE_OFFSET,
                             STANDING_HEIGHT,
                         )
-                    {
-                        return false;
-                    }
+                        {
+                            return false;
+                        }
                 }
             }
         }
@@ -1293,7 +1293,7 @@ impl World {
                         continue;
                     }
                     let candidate =
-                        Vec3::new(position.x + dx as f32, position.y, position.z + dz as f32);
+                    Vec3::new(position.x + dx as f32, position.y, position.z + dz as f32);
                     if self.player_position_is_clear(candidate) {
                         return Some(candidate);
                     }
@@ -1326,24 +1326,26 @@ impl World {
                 let req_rx_clone = std::sync::Arc::clone(&req_rx);
                 let res_tx_clone = res_tx.clone();
                 let _ = std::thread::Builder::new()
-                    .name(format!("chunk_gen_{}", i))
-                    .spawn(move || {
-                        #[cfg(target_os = "vita")]
-                        unsafe {
-                            extern "C" {
-                                fn sceKernelGetThreadId() -> i32;
-                                fn sceKernelChangeThreadCpuAffinityMask(thid: i32, bitmask: i32) -> i32;
-                            }
-                            let mask = if i % 2 == 0 { 0x00020000 } else { 0x00040000 };
-                            sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), mask);
+                .name(format!("chunk_gen_{}", i))
+                .spawn(move || {
+                    #[cfg(target_os = "vita")]
+                    unsafe {
+                        extern "C" {
+                            fn sceKernelGetThreadId() -> i32;
+                            fn sceKernelChangeThreadCpuAffinityMask(thid: i32, bitmask: i32) -> i32;
                         }
-                        while let Some((cx, cz, chunk_seed, gen_type)) = req_rx_clone.lock().ok().and_then(|rx| rx.recv().ok()) {
-                            crate::log_debug!("CHUNK", "Worker generating chunk ({}, {}) [seed={}, type={:?}]", cx, cz, chunk_seed, gen_type);
-                            if res_tx_clone.send(Chunk::generate_with_type(cx, cz, chunk_seed, gen_type)).is_err() {
-                                break;
-                            }
+                        // POPRAWKA SONY/OPTYMALIZACJA: Przypisujemy wątkom generującym chunki w tle
+                        // rdzenie 1 oraz 2 (maski 0x2 i 0x4), unikając konfliktu z wątkiem głównym na rdzeniu 0.
+                        let mask = if i % 2 == 0 { 0x2 } else { 0x4 };
+                        sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), mask);
+                    }
+                    while let Some((cx, cz, chunk_seed, gen_type)) = req_rx_clone.lock().ok().and_then(|rx| rx.recv().ok()) {
+                        crate::log_debug!("CHUNK", "Worker generating chunk ({}, {}) [seed={}, type={:?}]", cx, cz, chunk_seed, gen_type);
+                        if res_tx_clone.send(Chunk::generate_with_type(cx, cz, chunk_seed, gen_type)).is_err() {
+                            break;
                         }
-                    });
+                    }
+                });
             }
             (Some(req_tx), Some(std::sync::Mutex::new(res_rx)))
         };
@@ -1351,7 +1353,7 @@ impl World {
         #[cfg(any(target_arch = "wasm32", feature = "xbox360"))]
         let (chunk_req_tx, chunk_res_rx): (
             Option<std::sync::mpsc::Sender<(i32, i32, u32, WorldGeneratorType)>>,
-            Option<std::sync::Mutex<std::sync::mpsc::Receiver<Chunk>>>,
+                                           Option<std::sync::Mutex<std::sync::mpsc::Receiver<Chunk>>>,
         ) = (None, None);
 
         let spawn_pos = Self::find_spawn_position_for_type(seed, generator_type);
@@ -1409,9 +1411,9 @@ impl World {
                 crate::log_warn!(
                     "WORLD",
                     "Spawn position was obstructed; moved player to ({:.1}, {:.1}, {:.1})",
-                    safe_spawn.x,
-                    safe_spawn.y,
-                    safe_spawn.z
+                                 safe_spawn.x,
+                                 safe_spawn.y,
+                                 safe_spawn.z
                 );
                 world.player_position = safe_spawn;
             }
@@ -1419,9 +1421,9 @@ impl World {
             crate::log_warn!(
                 "WORLD",
                 "Could not find a clear spawn position near ({:.1}, {:.1}, {:.1})",
-                world.player_position.x,
-                world.player_position.y,
-                world.player_position.z
+                             world.player_position.x,
+                             world.player_position.y,
+                             world.player_position.z
             );
         }
         world
@@ -1713,7 +1715,7 @@ impl World {
                 if has_p[0] == 1 {
                     if let (Ok(health), Ok(max_health), Ok(hunger), Ok(max_hunger), Ok(saturation), Ok(exhaustion), Ok(air), Ok(slot)) = (
                         read_f32(&mut cursor), read_f32(&mut cursor), read_f32(&mut cursor), read_f32(&mut cursor),
-                        read_f32(&mut cursor), read_f32(&mut cursor), read_f32(&mut cursor), read_bytes(&bytes, &mut cursor, 1)
+                                                                                                                                          read_f32(&mut cursor), read_f32(&mut cursor), read_f32(&mut cursor), read_bytes(&bytes, &mut cursor, 1)
                     ) {
                         let mut hotbar = [None; 10];
                         for s in &mut hotbar { *s = read_item(&mut cursor); }
@@ -1741,16 +1743,16 @@ impl World {
             for _ in 0..override_count {
                 let pos = IVec3::new(
                     read_i32(&mut cursor)?,
-                    read_i32(&mut cursor)?,
-                    read_i32(&mut cursor)?,
+                                     read_i32(&mut cursor)?,
+                                     read_i32(&mut cursor)?,
                 );
                 let block = read_bytes(&bytes, &mut cursor, 1)?[0];
                 let (cx, cz, _, _) = Self::world_to_chunk(pos.x, pos.z);
                 world
-                    .block_overrides
-                    .entry((cx, cz))
-                    .or_default()
-                    .insert(pos, block);
+                .block_overrides
+                .entry((cx, cz))
+                .or_default()
+                .insert(pos, block);
             }
         } else {
             for (&(cx, cz), chunk) in &world.chunks {
@@ -1761,13 +1763,13 @@ impl World {
                             let index = Chunk::index(x, y, z);
                             if chunk.blocks[index] != generated.blocks[index] {
                                 world
-                                    .block_overrides
-                                    .entry((cx, cz))
-                                    .or_default()
-                                    .insert(
-                                        IVec3::new(cx * CHUNK_SIZE_X + x, y, cz * CHUNK_SIZE_Z + z),
+                                .block_overrides
+                                .entry((cx, cz))
+                                .or_default()
+                                .insert(
+                                    IVec3::new(cx * CHUNK_SIZE_X + x, y, cz * CHUNK_SIZE_Z + z),
                                         chunk.blocks[index],
-                                    );
+                                );
                             }
                         }
                     }
@@ -1846,8 +1848,8 @@ impl World {
         let c = camera_pos + forward * 0.38;
 
         [c, c - right + up, c + right + up, c - right - up, c + right - up]
-            .into_iter()
-            .all(|p| self.get_block(p.floor_to_ivec()).is_opaque())
+        .into_iter()
+        .all(|p| self.get_block(p.floor_to_ivec()).is_opaque())
     }
 
     #[inline(always)]
@@ -1874,9 +1876,9 @@ impl World {
             let changed = previous_block != block;
             chunk.set_local(lx, pos.y, lz, block);
             self.block_overrides
-                .entry((cx, cz))
-                .or_default()
-                .insert(pos, block.to_u8());
+            .entry((cx, cz))
+            .or_default()
+            .insert(pos, block.to_u8());
             if changed && track_network_change {
                 self.pending_network_changes.insert(pos, block.to_u8());
             }
@@ -1902,16 +1904,16 @@ impl World {
             if lz == CHUNK_SIZE_Z - 1 { self.mark_dirty(cx, cz + 1); }
 
             let light_source_changed = previous_block == BlockId::Torch
-                || block == BlockId::Torch
-                || ruststone_light_params(previous_block).is_some()
-                || ruststone_light_params(block).is_some();
+            || block == BlockId::Torch
+            || ruststone_light_params(previous_block).is_some()
+            || ruststone_light_params(block).is_some();
             let light_occlusion_changed = previous_block.is_opaque() != block.is_opaque();
             if changed
                 && (light_source_changed
-                    || (light_occlusion_changed && self.has_nearby_light_source(pos)))
-            {
-                self.mark_light_affected_chunks_dirty(pos);
-            }
+                || (light_occlusion_changed && self.has_nearby_light_source(pos)))
+                {
+                    self.mark_light_affected_chunks_dirty(pos);
+                }
         }
     }
 
@@ -1938,8 +1940,8 @@ impl World {
 
     pub fn block_overrides(&self) -> impl Iterator<Item = (IVec3, u8)> + '_ {
         self.block_overrides
-            .values()
-            .flat_map(|overrides| overrides.iter().map(|(&pos, &block)| (pos, block)))
+        .values()
+        .flat_map(|overrides| overrides.iter().map(|(&pos, &block)| (pos, block)))
     }
 
     fn apply_block_overrides(&self, chunk: &mut Chunk) {
@@ -1958,8 +1960,8 @@ impl World {
             self.set_block(pos, BlockId::Air);
             self.primed_tnts.push(PrimedTnt {
                 pos: Vec3::new(pos.x as f32 + 0.5, pos.y as f32, pos.z as f32 + 0.5),
-                velocity: Vec3::new(0.0, 2.0, 0.0),
-                fuse: 3.5,
+                                  velocity: Vec3::new(0.0, 2.0, 0.0),
+                                  fuse: 3.5,
             });
         }
     }
@@ -2089,7 +2091,7 @@ impl World {
         let (px, py, pz) = (player_pos.x.floor() as i32, player_pos.y.floor() as i32, player_pos.z.floor() as i32);
         let is_entity_on_plate = |pos: IVec3, ent: Vec3| -> bool {
             ent.x.floor() as i32 == pos.x && ent.z.floor() as i32 == pos.z
-                && (ent.y.floor() as i32 == pos.y || (ent.y - 0.2).floor() as i32 == pos.y)
+            && (ent.y.floor() as i32 == pos.y || (ent.y - 0.2).floor() as i32 == pos.y)
         };
         let any_on = |pos: IVec3| is_entity_on_plate(pos, player_pos) || mob_positions.iter().any(|&m| is_entity_on_plate(pos, m));
 
@@ -2251,18 +2253,18 @@ impl World {
         Some(ChunkMeshJob {
             key,
             center_blocks: chunk.blocks.clone(),
-            east_blocks: get_nb(1, 0),
-            west_blocks: get_nb(-1, 0),
-            south_blocks: get_nb(0, 1),
-            north_blocks: get_nb(0, -1),
-            se_blocks: get_nb(1, 1),
-            sw_blocks: get_nb(-1, 1),
-            ne_blocks: get_nb(1, -1),
-            nw_blocks: get_nb(-1, -1),
-            seed: self.seed,
-            generator_type: self.generator_type,
-            lights,
-            fluid_map: self.fluid_levels.clone(),
+             east_blocks: get_nb(1, 0),
+             west_blocks: get_nb(-1, 0),
+             south_blocks: get_nb(0, 1),
+             north_blocks: get_nb(0, -1),
+             se_blocks: get_nb(1, 1),
+             sw_blocks: get_nb(-1, 1),
+             ne_blocks: get_nb(1, -1),
+             nw_blocks: get_nb(-1, -1),
+             seed: self.seed,
+             generator_type: self.generator_type,
+             lights,
+             fluid_map: self.fluid_levels.clone(),
         })
     }
 
@@ -2292,12 +2294,12 @@ impl World {
         };
 
         self.torches
-            .iter()
-            .any(|&source| is_within_radius(source, MAX_BLOCK_LIGHT_RADIUS as f32))
-            || self
-                .ruststone_lights
-                .iter()
-                .any(|(&source, &(radius, _))| is_within_radius(source, radius))
+        .iter()
+        .any(|&source| is_within_radius(source, MAX_BLOCK_LIGHT_RADIUS as f32))
+        || self
+        .ruststone_lights
+        .iter()
+        .any(|(&source, &(radius, _))| is_within_radius(source, radius))
     }
 
     fn mark_neighbors_dirty(&mut self, cx: i32, cz: i32) {
@@ -2321,9 +2323,9 @@ impl World {
         let mut add_region = |pos: Vec3, load_radius: i32, retain_radius: i32| {
             regions.push((
                 (pos.x.floor() as i32) >> 4,
-                (pos.z.floor() as i32) >> 4,
-                load_radius,
-                retain_radius,
+                          (pos.z.floor() as i32) >> 4,
+                          load_radius,
+                          retain_radius,
             ));
         };
         add_region(player_pos, view_distance, view_distance + 3);
@@ -2391,12 +2393,12 @@ impl World {
             crate::log_debug!("CHUNK", "Requesting generation for {} missing chunks across {} player regions", missing_chunks.len(), regions.len());
             missing_chunks.sort_unstable_by_key(|&(cx, cz)| {
                 regions
-                    .iter()
-                    .map(|&(center_x, center_z, _, _)| {
-                        (cx - center_x) * (cx - center_x) + (cz - center_z) * (cz - center_z)
-                    })
-                    .min()
-                    .unwrap_or(i32::MAX)
+                .iter()
+                .map(|&(center_x, center_z, _, _)| {
+                    (cx - center_x) * (cx - center_x) + (cz - center_z) * (cz - center_z)
+                })
+                .min()
+                .unwrap_or(i32::MAX)
             });
 
             #[cfg(all(not(target_arch = "wasm32"), not(feature = "xbox360")))]
@@ -2425,9 +2427,9 @@ impl World {
 
         let count_before = self.chunks.len();
         self.chunks
-            .retain(|&(cx, cz), _| is_within_region(cx, cz, true));
+        .retain(|&(cx, cz), _| is_within_region(cx, cz, true));
         self.pending_chunks
-            .retain(|&(cx, cz)| is_within_region(cx, cz, true));
+        .retain(|&(cx, cz)| is_within_region(cx, cz, true));
         if self.chunks.len() < count_before {
             crate::log_debug!("CHUNK", "Unloaded {} distant chunks (remaining active: {})", count_before - self.chunks.len(), self.chunks.len());
         }
@@ -2614,8 +2616,8 @@ impl World {
         if dir.length_sq() < 1e-8 { return None; }
         Self::traverse_voxels(origin, dir, max_dist, |pos, normal, distance| {
             self.get_block(pos)
-                .is_targetable()
-                .then_some(RaycastHit { block_pos: pos, normal, distance })
+            .is_targetable()
+            .then_some(RaycastHit { block_pos: pos, normal, distance })
         })
     }
 
@@ -2702,8 +2704,8 @@ impl World {
             for distance in 1..=MAX_DISTANCE {
                 let pos = IVec3::new(
                     (listener.x + dx * distance as f32).floor() as i32,
-                    (listener.y + dy * distance as f32).floor() as i32,
-                    (listener.z + dz * distance as f32).floor() as i32,
+                                     (listener.y + dy * distance as f32).floor() as i32,
+                                     (listener.z + dz * distance as f32).floor() as i32,
                 );
                 let block = self.get_block(pos);
                 if !block.is_solid() {
@@ -2716,23 +2718,23 @@ impl World {
                     || matches!(
                         block,
                         BlockId::Planks
-                            | BlockId::CraftingTable
-                            | BlockId::Chest
-                            | BlockId::Door
-                            | BlockId::WoodenSlab
-                            | BlockId::WoodenStairs
+                        | BlockId::CraftingTable
+                        | BlockId::Chest
+                        | BlockId::Door
+                        | BlockId::WoodenSlab
+                        | BlockId::WoodenStairs
                     )
-                {
-                    0.68
-                } else if block == BlockId::Glass {
-                    0.9
-                } else {
-                    0.88
-                };
-                wall_count += 1;
-                distance_sum += distance as f32;
-                reflection_sum += reflection;
-                break;
+                    {
+                        0.68
+                    } else if block == BlockId::Glass {
+                        0.9
+                    } else {
+                        0.88
+                    };
+                    wall_count += 1;
+                    distance_sum += distance as f32;
+                    reflection_sum += reflection;
+                    break;
             }
         }
 
@@ -2813,8 +2815,8 @@ mod tests {
         let remote_chunk = (20, -12);
         assert!(
             world.chunks.contains_key(&remote_chunk)
-                || world.pending_chunks.contains(&remote_chunk),
-            "chunk around remote player should be generated or queued for mob simulation"
+            || world.pending_chunks.contains(&remote_chunk),
+                "chunk around remote player should be generated or queued for mob simulation"
         );
     }
 
@@ -2824,15 +2826,15 @@ mod tests {
         world.chunks.clear();
         world.chunks.insert(
             (0, 0),
-            Chunk {
-                cx: 0,
-                cz: 0,
-                blocks: vec![
-                    BlockId::Air.to_u8();
-                    (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize
-                ],
-                dirty: false,
-            },
+                            Chunk {
+                                cx: 0,
+                                cz: 0,
+                                blocks: vec![
+                                    BlockId::Air.to_u8();
+                                    (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize
+                                ],
+                                dirty: false,
+                            },
         );
         let foot = IVec3::new(4, 20, 4);
         let head = IVec3::new(4, 20, 5);
@@ -2854,15 +2856,15 @@ mod tests {
             world.chunks.clear();
             world.chunks.insert(
                 (0, 0),
-                Chunk {
-                    cx: 0,
-                    cz: 0,
-                    blocks: vec![
-                        BlockId::Air.to_u8();
-                        (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize
-                    ],
-                    dirty: false,
-                },
+                                Chunk {
+                                    cx: 0,
+                                    cz: 0,
+                                    blocks: vec![
+                                        BlockId::Air.to_u8();
+                                        (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize
+                                    ],
+                                    dirty: false,
+                                },
             );
             let source = IVec3::new(8, 48, 8);
             world.set_block(source, fluid);
@@ -2884,15 +2886,15 @@ mod tests {
         world.chunks.clear();
         world.chunks.insert(
             (0, 0),
-            Chunk {
-                cx: 0,
-                cz: 0,
-                blocks: vec![
-                    BlockId::Air.to_u8();
-                    (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize
-                ],
-                dirty: false,
-            },
+                            Chunk {
+                                cx: 0,
+                                cz: 0,
+                                blocks: vec![
+                                    BlockId::Air.to_u8();
+                                    (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize
+                                ],
+                                dirty: false,
+                            },
         );
         let listener = Vec3::new(8.5, 32.5, 8.5);
         let open_air = world.calculate_acoustic_reverb(listener);
@@ -2939,14 +2941,14 @@ mod tests {
         let spawn = world.player_position;
         let obstruction = IVec3::new(
             spawn.x.floor() as i32,
-            (spawn.y - STANDING_EYE_OFFSET).floor() as i32,
-            spawn.z.floor() as i32,
+                                     (spawn.y - STANDING_EYE_OFFSET).floor() as i32,
+                                     spawn.z.floor() as i32,
         );
         world.set_block(obstruction, BlockId::Stone);
 
         let safe_spawn = world
-            .find_clear_spawn_position(spawn)
-            .expect("a nearby spawn position should be clear");
+        .find_clear_spawn_position(spawn)
+        .expect("a nearby spawn position should be clear");
 
         assert_ne!((safe_spawn.x, safe_spawn.z), (spawn.x, spawn.z));
         assert!(world.player_position_is_clear(safe_spawn));
@@ -3036,7 +3038,7 @@ mod tests {
         world.set_block(pos, BlockId::Stone);
         assert_eq!(
             world.take_network_changes().collect::<Vec<_>>(),
-            vec![(pos, BlockId::Stone.to_u8())]
+                   vec![(pos, BlockId::Stone.to_u8())]
         );
 
         world.set_block(pos, BlockId::Stone);
@@ -3048,7 +3050,7 @@ mod tests {
         world.set_block(pos, BlockId::Air);
         assert_eq!(
             world.take_network_changes().collect::<Vec<_>>(),
-            vec![(pos, BlockId::Air.to_u8())]
+                   vec![(pos, BlockId::Air.to_u8())]
         );
     }
 
@@ -3233,12 +3235,12 @@ mod tests {
             for cz in 0..=1 {
                 world.chunks.insert(
                     (cx, cz),
-                    Chunk {
-                        cx,
-                        cz,
-                        blocks: vec![0; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
-                        dirty: false,
-                    },
+                                    Chunk {
+                                        cx,
+                                        cz,
+                                        blocks: vec![0; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
+                                    dirty: false,
+                                    },
                 );
             }
         }
@@ -3247,21 +3249,21 @@ mod tests {
         world.set_block(torch_pos, BlockId::Torch);
         assert!(
             world.chunks.get(&(1, 0)).unwrap().dirty,
-            "placing a torch near the border should rebuild the lit neighbor chunk"
+                "placing a torch near the border should rebuild the lit neighbor chunk"
         );
         let target_job = world.create_mesh_job((1, 0)).unwrap();
         assert!(target_job.lights.iter().any(|light| light.pos == torch_pos));
         let target_cache = mesher::ChunkNeighborCache::from_job(&target_job);
         assert!(
             target_cache.sample_block_light(16.5, 32.5, 8.5) > 0.0,
-            "the neighboring chunk should receive light from the torch"
+                "the neighboring chunk should receive light from the torch"
         );
 
         world.chunks.get_mut(&(1, 0)).unwrap().dirty = false;
         world.set_block(torch_pos, BlockId::Air);
         assert!(
             world.chunks.get(&(1, 0)).unwrap().dirty,
-            "removing a torch should rebuild the neighbor chunk to remove stale light"
+                "removing a torch should rebuild the neighbor chunk to remove stale light"
         );
 
         world.chunks.get_mut(&(1, 1)).unwrap().dirty = false;
@@ -3275,7 +3277,7 @@ mod tests {
         world.index_chunk_lights(&streamed_chunk);
         assert!(
             world.chunks.get(&(1, 1)).unwrap().dirty,
-            "indexing a streamed torch should rebuild diagonal chunks in its light radius"
+                "indexing a streamed torch should rebuild diagonal chunks in its light radius"
         );
     }
 

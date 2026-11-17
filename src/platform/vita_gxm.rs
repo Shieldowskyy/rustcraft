@@ -1,4 +1,4 @@
-// =============================================================================
+// =============================================================
 // RustCraft – PS Vita GXM Hardware Renderer
 // src/platform/vita_gxm.rs
 //
@@ -8,19 +8,20 @@
 //   2. Allocate GPU ring buffers (VDM, Vertex, Fragment, Fragment USSE)
 //   3. sceGxmCreateContext with hostMem (malloc)
 //   4. Allocate triple display buffers in CDRAM + Color/Depth Surfaces + RenderTarget
-//   5. ShaderPatcher + register compiled GXP shaders (voxel & clear)
+//   5. ShaderPatcher + register compiled GXP shaders (voxel opaque/trans & clear)
 //   6. Generate GPU texture atlas in linear ABGR8888 format
-//   7. Per-frame rendering: BeginScene -> Hardware Clear -> Draw Chunks -> EndScene -> Display Queue
-// =============================================================================
+//   7. Per-frame rendering: BeginScene -> Hardware Clear -> Opaque Pass -> Cutout Pass
+//      -> Transparent Pass -> Dynamic Entities & Celestial Bodies -> EndScene -> Display Queue
+// =============================================================
 
 #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, dead_code)]
 
 use crate::core::math::Vec3;
-use crate::graphics::atlas::{TextureAtlas, TEX_SIZE, TextureId};
+use crate::graphics::atlas::{TextureAtlas, TextureId, TEX_SIZE};
 use crate::graphics::camera::Camera;
-use crate::world::mesher::{build_chunk_mesh, Vertex};
+use crate::world::mesher::{AsyncMesher, ChunkMeshJob, Triangle, Vertex};
 use crate::world::{BlockId, World, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // ============================================================
 // 1. FFI TYPES AND CONSTANTS FOR VITA GXM
@@ -51,16 +52,16 @@ pub struct SceGxmProgramParameter(u8);
 pub type SceGxmShaderPatcherId = *mut core::ffi::c_void;
 pub type SceGxmDisplayQueueCallback = unsafe extern "C" fn(callbackData: *const core::ffi::c_void);
 
-// GXM ring buffer size constants
+// GXM ring buffer size constants (tuned for PS Vita 256MB RAM / 112MB CDRAM limits)
 const SCE_GXM_MINIMUM_CONTEXT_HOST_MEM_SIZE: usize = 2 * 1024;
-const SCE_GXM_DEFAULT_PARAMETER_BUFFER_SIZE: usize = 32 * 1024 * 1024;
-const SCE_GXM_DEFAULT_VDM_RING_BUFFER_SIZE: usize = 512 * 1024;
-const SCE_GXM_DEFAULT_VERTEX_RING_BUFFER_SIZE: usize = 8 * 1024 * 1024;
-const SCE_GXM_DEFAULT_FRAGMENT_RING_BUFFER_SIZE: usize = 2 * 1024 * 1024;
-const SCE_GXM_DEFAULT_FRAGMENT_USSE_RING_BUFFER_SIZE: usize = 64 * 1024;
-const SCE_GXM_DEFAULT_PATCHER_BUFFER_SIZE: usize = 256 * 1024;
-const SCE_GXM_DEFAULT_PATCHER_VERTEX_USSE_SIZE: usize = 256 * 1024;
-const SCE_GXM_DEFAULT_PATCHER_FRAGMENT_USSE_SIZE: usize = 256 * 1024;
+const SCE_GXM_DEFAULT_PARAMETER_BUFFER_SIZE: usize = 16 * 1024 * 1024; // 16 MB standard VitaSDK parameter buffer
+const SCE_GXM_DEFAULT_VDM_RING_BUFFER_SIZE: usize = 128 * 1024;
+const SCE_GXM_DEFAULT_VERTEX_RING_BUFFER_SIZE: usize = 2 * 1024 * 1024;
+const SCE_GXM_DEFAULT_FRAGMENT_RING_BUFFER_SIZE: usize = 512 * 1024;
+const SCE_GXM_DEFAULT_FRAGMENT_USSE_RING_BUFFER_SIZE: usize = 16 * 1024;
+const SCE_GXM_DEFAULT_PATCHER_BUFFER_SIZE: usize = 64 * 1024;
+const SCE_GXM_DEFAULT_PATCHER_VERTEX_USSE_SIZE: usize = 64 * 1024;
+const SCE_GXM_DEFAULT_PATCHER_FRAGMENT_USSE_SIZE: usize = 64 * 1024;
 
 // Formaty i flagi
 const SCE_GXM_COLOR_FORMAT_A8B8G8R8: u32 = 0x00000000;
@@ -70,6 +71,7 @@ const SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT: u32 = 0x00000000;
 const SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4: u32 = 1;
 const SCE_GXM_DEPTH_STENCIL_FORMAT_DF32: u32 = 0x00044000;
 const SCE_GXM_DEPTH_STENCIL_SURFACE_LINEAR: u32 = 0x00000000;
+const SCE_GXM_DEPTH_STENCIL_SURFACE_TILED: u32 = 0x00011000; // VitaSDK enum value
 const SCE_GXM_MULTISAMPLE_NONE: u32 = 0;
 const SCE_GXM_COLOR_SURFACE_DITHER_ENABLED: u32 = 0x00000008;
 const SCE_GXM_PRIMITIVE_TRIANGLES: u32 = 0x00000000;
@@ -82,12 +84,14 @@ const SCE_GXM_MEMORY_ATTRIB_RW: u32 = 3;
 
 const SCE_GXM_CULL_NONE: u32 = 0;
 const SCE_GXM_CULL_CW: u32 = 1;
+const SCE_GXM_CULL_CCW: u32 = 2;
 const SCE_GXM_ATTRIBUTE_FORMAT_F32: u32 = 9;
 
 const SCE_GXM_DEPTH_FUNC_LESS_EQUAL: u32 = 0x00C00000;
 const SCE_GXM_DEPTH_FUNC_ALWAYS_PASS: u32 = 0x01C00000;
 
 const SCE_GXM_DEPTH_WRITE_ENABLED: u32 = 0x00000000;
+const SCE_GXM_DEPTH_WRITE_DISABLED: u32 = 0x00100000;
 const SCE_GXM_TWO_SIDED_DISABLED: u32 = 0x00000000;
 const SCE_GXM_TWO_SIDED_ENABLED: u32 = 0x00000800;
 const SCE_GXM_POLYGON_MODE_TRIANGLE_FILL: u32 = 0x00000000;
@@ -327,6 +331,15 @@ extern "C" {
     fn sceGxmSetTwoSidedEnable(context: *mut SceGxmContext, enable: u32);
     fn sceGxmSetDefaultRegionClipAndViewport(context: *mut SceGxmContext, xMax: u32, yMax: u32);
     fn sceGxmSetViewportEnable(context: *mut SceGxmContext, enable: u32);
+    fn sceGxmSetViewport(
+        context: *mut SceGxmContext,
+        xOffset: f32,
+        xScale: f32,
+        yOffset: f32,
+        yScale: f32,
+        zOffset: f32,
+        zScale: f32,
+    );
     fn sceGxmSetCullMode(context: *mut SceGxmContext, mode: u32);
     fn sceGxmFinish(context: *mut SceGxmContext);
 
@@ -352,6 +365,10 @@ extern "C" {
         patcher: *mut SceGxmShaderPatcher,
         programHeader: *const SceGxmProgram,
         programId: *mut SceGxmShaderPatcherId,
+    ) -> i32;
+    fn sceGxmShaderPatcherUnregisterProgram(
+        patcher: *mut SceGxmShaderPatcher,
+        programId: SceGxmShaderPatcherId,
     ) -> i32;
     fn sceGxmShaderPatcherReleaseVertexProgram(
         patcher: *mut SceGxmShaderPatcher,
@@ -451,6 +468,12 @@ impl GpuMem {
             };
         }
         if uid < 0 {
+            crate::vita_log!(
+                "GpuMem::alloc_mapped failed for {:?} (size: {} bytes, uid: 0x{:08X})",
+                core::str::from_utf8(name).unwrap_or("?"),
+                aligned,
+                uid
+            );
             return None;
         }
 
@@ -526,79 +549,98 @@ unsafe extern "C" fn display_callback(data: *const core::ffi::c_void) {
 }
 
 // ============================================================
-// 4. SHADERY GXP BYTECODE
+// 4. SHADERY GXP BYTECODE (16-BYTE ALIGNED FOR ARMV7 / GXM)
 // ============================================================
+// CRITICAL: ARMv7 and sceGxmProgramCheck require SceGxmProgram headers to be
+// at least 4-byte/16-byte aligned in memory. Raw `include_bytes!` or `&[u8]`
+// only has 1-byte alignment and causes a Data Abort crash on PS Vita!
 
-static VOXEL_VERT_GXP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/voxel.vert.gxp"));
-static VOXEL_FRAG_GXP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/voxel.frag.gxp"));
+#[repr(C, align(16))]
+struct AlignedGxp<const N: usize>(pub [u8; N]);
+
+/// Copies any slice of GXP bytecode into a heap-allocated, 16-byte aligned buffer
+/// that remains valid for the lifetime of the shader patcher.
+fn alloc_aligned_gxp(bytes: &[u8]) -> Vec<u64> {
+    let u64_len = (bytes.len() + 7) / 8;
+    let mut aligned = vec![0u64; u64_len];
+    unsafe {
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), aligned.as_mut_ptr() as *mut u8, bytes.len());
+    }
+    aligned
+}
+
+static OUT_VOXEL_VERT_GXP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/voxel.vert.gxp"));
+static OUT_VOXEL_FRAG_GXP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/voxel.frag.gxp"));
+static PREBUILT_VOXEL_VERT_GXP: &[u8] = include_bytes!("../../vita/shaders/prebuilt/voxel.vert.gxp");
+static PREBUILT_VOXEL_FRAG_GXP: &[u8] = include_bytes!("../../vita/shaders/prebuilt/voxel.frag.gxp");
 
 // Precompiled hardware clear shaders (standard SDL2 GXM clear pipeline)
-static CLEAR_VERT_GXP: &[u8] = &[
-    0x47, 0x58, 0x50, 0x00, 0x01, 0x05, 0x50, 0x03, 
-    0xfa, 0x00, 0x00, 0x00, 0xdc, 0x25, 0x34, 0x74, 
-    0x53, 0x4a, 0x7a, 0x5b, 0x04, 0x00, 0x19, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
-    0xb8, 0x00, 0x00, 0x00, 0x70, 0x00, 0x00, 0x00, 
-    0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x01, 0x00, 0x04, 0x00, 0x00, 0x00, 
-    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x74, 0x00, 0x00, 0x00, 0x70, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x78, 0x00, 0x00, 0x00, 0xc0, 0x3d, 0x03, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x6c, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x5c, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x54, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x4c, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x04, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x44, 0xfa, 
-    0x01, 0x00, 0x04, 0x90, 0x85, 0x11, 0xa5, 0x08, 
-    0x01, 0x80, 0x56, 0x90, 0x81, 0x11, 0x83, 0x08, 
-    0x00, 0x00, 0x20, 0xa0, 0x00, 0x50, 0x27, 0xfb, 
-    0x10, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x61, 0x50, 0x6f, 0x73, 0x69, 0x74, 0x69, 0x6f, 
-    0x6e, 0x00, 0x00, 0x00, 
-];
+static CLEAR_VERT_GXP: AlignedGxp<252> = AlignedGxp([
+    0x47, 0x58, 0x50, 0x00, 0x01, 0x05, 0x50, 0x03,
+    0xfa, 0x00, 0x00, 0x00, 0xdc, 0x25, 0x34, 0x74,
+    0x53, 0x4a, 0x7a, 0x5b, 0x04, 0x00, 0x19, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+    0xb8, 0x00, 0x00, 0x00, 0x70, 0x00, 0x00, 0x00,
+    0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x01, 0x00, 0x04, 0x00, 0x00, 0x00,
+    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x74, 0x00, 0x00, 0x00, 0x70, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x78, 0x00, 0x00, 0x00, 0xc0, 0x3d, 0x03, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x6c, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x5c, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x54, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x4c, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x04,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x44, 0xfa,
+    0x01, 0x00, 0x04, 0x90, 0x85, 0x11, 0xa5, 0x08,
+    0x01, 0x80, 0x56, 0x90, 0x81, 0x11, 0x83, 0x08,
+    0x00, 0x00, 0x20, 0xa0, 0x00, 0x50, 0x27, 0xfb,
+    0x10, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x61, 0x50, 0x6f, 0x73, 0x69, 0x74, 0x69, 0x6f,
+    0x6e, 0x00, 0x00, 0x00,
+]);
 
-static CLEAR_FRAG_GXP: &[u8] = &[
-    0x47, 0x58, 0x50, 0x00, 0x01, 0x05, 0x50, 0x03, 
-    0xe8, 0x00, 0x00, 0x00, 0xa2, 0x55, 0x22, 0x3e, 
-    0xc6, 0x7e, 0x77, 0xf1, 0x01, 0x00, 0x18, 0x00, 
-    0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
-    0xa4, 0x00, 0x00, 0x00, 0x70, 0x00, 0x00, 0x00, 
-    0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 
-    0x74, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x68, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 
-    0x5c, 0x00, 0x00, 0x00, 0xc0, 0x3d, 0x03, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 
-    0x01, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x04, 
-    0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x07, 0x44, 0xfa, 0x02, 0x80, 0x19, 0xf0, 
-    0x7e, 0x0d, 0x80, 0x40, 0x0e, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x04, 0x00, 0x10, 0x00, 0x00, 0x00, 
-    0x01, 0xe4, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x75, 0x43, 0x6c, 0x65, 
-    0x61, 0x72, 0x43, 0x6f, 0x6c, 0x6f, 0x72, 0x00, 
-];
+static CLEAR_FRAG_GXP: AlignedGxp<232> = AlignedGxp([
+    0x47, 0x58, 0x50, 0x00, 0x01, 0x05, 0x50, 0x03,
+    0xe8, 0x00, 0x00, 0x00, 0xa2, 0x55, 0x22, 0x3e,
+    0xc6, 0x7e, 0x77, 0xf1, 0x01, 0x00, 0x18, 0x00,
+    0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+    0xa4, 0x00, 0x00, 0x00, 0x70, 0x00, 0x00, 0x00,
+    0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00,
+    0x74, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x68, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00,
+    0x5c, 0x00, 0x00, 0x00, 0xc0, 0x3d, 0x03, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x38, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x04,
+    0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x07, 0x44, 0xfa, 0x02, 0x80, 0x19, 0xf0,
+    0x7e, 0x0d, 0x80, 0x40, 0x0e, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x04, 0x00, 0x10, 0x00, 0x00, 0x00,
+    0x01, 0xe4, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x75, 0x43, 0x6c, 0x65,
+    0x61, 0x72, 0x43, 0x6f, 0x6c, 0x6f, 0x72, 0x00,
+]);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -613,17 +655,21 @@ pub struct GxmVertex {
 
 impl GxmVertex {
     #[inline(always)]
-    pub fn from_vertex(v: &Vertex, u0: f32, v0: f32, u1: f32, v1: f32) -> Self {
+    pub fn from_vertex(v: &Vertex, u0: f32, v0: f32, u1: f32, v1: f32, daylight: f32) -> Self {
         let u = u0 + (u1 - u0) * v.uv.0;
         let vv = v0 + (v1 - v0) * v.uv.1;
-        let light = (v.sky_light + v.block_light * 1.35).clamp(0.08, 1.0) * v.ao;
+        // Feature parity with desktop WGSL lighting curve:
+        // sky_factor = sky_light^1.25 * daylight, block_factor = block_light^1.15 * 1.30, cave ambient = 0.045
+        let sky_factor = v.sky_light.max(0.0).powf(1.25) * daylight.clamp(0.05, 1.0);
+        let block_factor = v.block_light.max(0.0).powf(1.15) * 1.30;
+        let light = (sky_factor + block_factor + 0.045).clamp(0.04, 1.35) * v.ao;
         Self {
             x: v.pos.x,
             y: v.pos.y,
             z: v.pos.z,
             u,
             v: vv,
-            ao: light.clamp(0.10, 1.0),
+            ao: light.clamp(0.05, 1.25),
         }
     }
 }
@@ -655,6 +701,47 @@ impl GxmPackedVertex {
             v,
             lighting_ao,
         }
+    }
+}
+
+/// Render pass index ranges within a single GPU chunk slot (Opaque -> Cutout -> Transparent)
+#[derive(Clone, Copy, Default)]
+struct ChunkSlotRanges {
+    opaque_start: u32,
+    opaque_count: u32,
+    cutout_start: u32,
+    cutout_count: u32,
+    trans_start: u32,
+    trans_count: u32,
+}
+
+#[inline(always)]
+fn classify_texture_pass(tex: TextureId) -> u8 {
+    match tex {
+        TextureId::Water | TextureId::Glass => 2, // Transparent pass (alpha blend, depth write off)
+        TextureId::Leaves
+        | TextureId::SnowLeaves
+        | TextureId::CherryLeaves
+        | TextureId::AutumnLeaves
+        | TextureId::LeavesSwamp
+        | TextureId::LeavesSavanna
+        | TextureId::Door
+        | TextureId::DoorTop
+        | TextureId::Torch
+        | TextureId::Ladder
+        | TextureId::RustStoneWire
+        | TextureId::RustStoneWireLit
+        | TextureId::Lever
+        | TextureId::Button
+        | TextureId::PressurePlate
+        | TextureId::WheatCrop
+        | TextureId::CarrotCrop
+        | TextureId::PotatoCrop
+        | TextureId::Sapling
+        | TextureId::Kelp
+        | TextureId::Seagrass
+        | TextureId::DriedKelp => 1, // Cutout pass
+        _ => 0, // Opaque pass (Early-Z / HSR active)
     }
 }
 
@@ -713,8 +800,10 @@ define_vita_atlas_tiles! {
     (150, PufferfishSkin), (151, TropicalFishSkin), (152, Emerald), (153, EmeraldOre), (154, EmeraldBlock),
     (155, VillagerSpawnEgg), (156, VillagerSkin), (157, VillagerFace), (158, VillagerRobe), (159, VillagerArms),
     (160, VillagerRobeLibrarian), (161, VillagerRobeBlacksmith), (162, VillagerRobeCleric), (163, VillagerRobeButcher),
+    (164, RustStoneWire), (165, RustStoneWireLit), (166, Lever), (167, Button),
+    (168, PressurePlate), (169, WheatCrop), (170, CarrotCrop), (171, PotatoCrop),
+    (172, Sapling),
 }
-
 
 unsafe fn populate_atlas(pixels: *mut u32, atlas: &TextureAtlas) {
     for (tile_idx, &tex_id) in ALL_TEXTURES.iter().enumerate() {
@@ -740,9 +829,9 @@ unsafe fn populate_atlas(pixels: *mut u32, atlas: &TextureAtlas) {
                 } else if is_shadow {
                     130u32 // Semi-transparent black entity shadow (~51% opacity)
                 } else if is_water {
-                    130u32 // Semi-transparent water (~51% opacity)
+                    122u32 // Semi-transparent water (~48% opacity, matching WGSL 0.48)
                 } else if is_glass {
-                    120u32 // Semi-transparent glass (~47% opacity)
+                    122u32 // Semi-transparent glass (~48% opacity, matching WGSL 0.48)
                 } else if is_damage {
                     85u32  // Semi-transparent damage flash (~33% opacity)
                 } else if is_underwater {
@@ -774,7 +863,6 @@ fn build_gpu_texture(atlas: &TextureAtlas) -> (GpuMem, SceGxmTexture) {
         SCE_GXM_MEMORY_ATTRIB_READ,
     ).expect("Failed to allocate atlas texture in CDRAM");
 
-    
     let pixels = mem.ptr as *mut u32;
 
     unsafe {
@@ -853,10 +941,19 @@ pub struct GxmRenderer {
     _patcher_vert_usse: GpuMem,
     _patcher_frag_usse: GpuMem,
 
+    _aligned_voxel_vert_gxp: Vec<u64>,
+    _aligned_voxel_frag_gxp: Vec<u64>,
+    vert_prog_id: SceGxmShaderPatcherId,
+    frag_prog_id: SceGxmShaderPatcherId,
+    clear_vert_id: SceGxmShaderPatcherId,
+    clear_frag_id: SceGxmShaderPatcherId,
+
     vert_prog: *mut SceGxmVertexProgram,
-    frag_prog: *mut SceGxmFragmentProgram,
+    frag_prog_opaque: *mut SceGxmFragmentProgram,
+    frag_prog_trans: *mut SceGxmFragmentProgram,
     param_mvp: *const SceGxmProgramParameter,
     param_fog: *const SceGxmProgramParameter,
+    param_fog_color: *const SceGxmProgramParameter,
 
     clear_vert_prog: *mut SceGxmVertexProgram,
     clear_frag_prog: *mut SceGxmFragmentProgram,
@@ -870,6 +967,18 @@ pub struct GxmRenderer {
     vb_mem: GpuMem,
     ib_mem: GpuMem,
 
+    // Cached CPU staging buffers for burst-copying meshes into uncached GPU memory
+    scratch_vb: Vec<GxmVertex>,
+    scratch_opaque_ib: Vec<u16>,
+    scratch_cutout_ib: Vec<u16>,
+    scratch_trans_ib: Vec<u16>,
+
+    // Chunk geometry is built on worker threads; the render thread only uploads
+    // at most one completed mesh per frame and never runs the mesher itself.
+    mesh_worker: AsyncMesher,
+    pending_meshes: HashSet<(i32, i32)>,
+    completed_meshes: Vec<((i32, i32), Vec<Triangle>)>,
+
     crack_vb_mem: GpuMem,
     crack_ib_mem: GpuMem,
 
@@ -879,7 +988,10 @@ pub struct GxmRenderer {
     chunk_slots: HashMap<(i32, i32), usize>,
     pub chunk_spawn_times: HashMap<(i32, i32), f32>,
     free_slots: Vec<usize>,
-    slot_index_counts: [u32; GxmRenderer::MAX_CHUNK_SLOTS],
+    slot_ranges: [ChunkSlotRanges; GxmRenderer::MAX_CHUNK_SLOTS],
+    freed_slots_scratch: Vec<usize>,
+    chunk_coords_scratch: Vec<(i32, i32)>,
+    last_daylight_bucket: i32,
 
     pub last_draw_calls: u32,
     pub last_triangles_rendered: u32,
@@ -892,18 +1004,30 @@ unsafe impl Send for GxmRenderer {}
 unsafe impl Sync for GxmRenderer {}
 
 impl GxmRenderer {
-    pub const MAX_CHUNK_SLOTS: usize = 144;
-    pub const MAX_VERTS_PER_SLOT: usize = 24576;
-    pub const MAX_INDICES_PER_SLOT: usize = 36864;
+    // Tuned chunk pool sizes to fit alongside the 180 MB Newlib heap inside PS Vita's 256MB RAM
+    // (~18 MB VB + ~2.25 MB IB in uncached kernel memory).
+    pub const MAX_CHUNK_SLOTS: usize = 64;
+    pub const MAX_VERTS_PER_SLOT: usize = 18432;
+    pub const MAX_INDICES_PER_SLOT: usize = 27648;
 
-    pub const MAX_ENTITY_VERTS: usize = 16384;
-    pub const MAX_ENTITY_INDICES: usize = 24576;
+    pub const MAX_ENTITY_VERTS: usize = 8192;
+    pub const MAX_ENTITY_INDICES: usize = 12288;
 
     const VB_SIZE: usize = Self::MAX_CHUNK_SLOTS * Self::MAX_VERTS_PER_SLOT * core::mem::size_of::<GxmVertex>();
     const IB_SIZE: usize = Self::MAX_CHUNK_SLOTS * Self::MAX_INDICES_PER_SLOT * core::mem::size_of::<u16>();
 
     pub fn new(atlas: &TextureAtlas) -> Self {
         unsafe { Self::init_unsafe(atlas) }
+    }
+
+    #[inline(always)]
+    pub fn backend_name(&self) -> &'static str {
+        "libgxm"
+    }
+
+    #[inline(always)]
+    pub fn gpu_info(&self) -> (&'static str, &'static str, &'static str) {
+        ("PowerVR SGX543MP4+", "SCE libgxm", "PS Vita Hardware")
     }
 
     unsafe fn init_unsafe(atlas: &TextureAtlas) -> Self {
@@ -1029,24 +1153,25 @@ impl GxmRenderer {
             display_sync[i] = sync;
         }
 
-        // --- 6. Depth Buffer ---
+        // --- 6. Depth Buffer (Tiled for PowerVR SGX543MP4 TBDR bandwidth efficiency) ---
         let depth_size = (VITA_WIDTH * VITA_HEIGHT * 4) as usize;
         let depth_mem = GpuMem::alloc_gpu(
             b"RC_GXM_Depth\0",
             depth_size,
-            SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE,
+            SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
             SCE_GXM_MEMORY_ATTRIB_RW,
         ).unwrap();
 
         let mut depth_surface = SceGxmDepthStencilSurface { _private: [0u32; 5] };
-        sceGxmDepthStencilSurfaceInit(
+        let depth_init_rc = sceGxmDepthStencilSurfaceInit(
             &mut depth_surface,
             SCE_GXM_DEPTH_STENCIL_FORMAT_DF32,
-            SCE_GXM_DEPTH_STENCIL_SURFACE_LINEAR,
+            SCE_GXM_DEPTH_STENCIL_SURFACE_TILED,
             VITA_WIDTH,
             depth_mem.ptr,
             core::ptr::null_mut(),
         );
+        assert_eq!(depth_init_rc, SCE_OK, "sceGxmDepthStencilSurfaceInit failed: 0x{:08X}", depth_init_rc);
 
         // --- 7. Shader Patcher ---
         let patcher_buf_mem = GpuMem::alloc_gpu(
@@ -1094,9 +1219,14 @@ impl GxmRenderer {
         let rc = sceGxmShaderPatcherCreate(&patcher_params, &mut patcher);
         assert_eq!(rc, SCE_OK, "sceGxmShaderPatcherCreate failed: 0x{:08X}", rc);
 
-        // --- 8. Register and Link GXP Shaders ---
-        let vert_gxp = VOXEL_VERT_GXP.as_ptr() as *const SceGxmProgram;
-        let frag_gxp = VOXEL_FRAG_GXP.as_ptr() as *const SceGxmProgram;
+        // --- 8. Register and Link GXP Shaders (Using 8-byte aligned buffers!) ---
+        let vert_bytes = if OUT_VOXEL_VERT_GXP.len() > 64 { OUT_VOXEL_VERT_GXP } else { PREBUILT_VOXEL_VERT_GXP };
+        let aligned_voxel_vert_gxp = alloc_aligned_gxp(vert_bytes);
+        let frag_bytes = if OUT_VOXEL_FRAG_GXP.len() > 64 { OUT_VOXEL_FRAG_GXP } else { PREBUILT_VOXEL_FRAG_GXP };
+        let aligned_voxel_frag_gxp = alloc_aligned_gxp(frag_bytes);
+
+        let vert_gxp = aligned_voxel_vert_gxp.as_ptr() as *const SceGxmProgram;
+        let frag_gxp = aligned_voxel_frag_gxp.as_ptr() as *const SceGxmProgram;
 
         let chk_v = sceGxmProgramCheck(vert_gxp);
         assert_eq!(chk_v, SCE_OK, "sceGxmProgramCheck(vert) failed: 0x{:08X}", chk_v);
@@ -1157,8 +1287,22 @@ impl GxmRenderer {
         );
         assert_eq!(rc, SCE_OK, "sceGxmShaderPatcherCreateVertexProgram failed: 0x{:08X}", rc);
 
+        // Opaque / Cutout fragment program (no blending -> enables PowerVR SGX543 HSR / Early-Z)
+        let mut frag_prog_opaque: *mut SceGxmFragmentProgram = core::ptr::null_mut();
+        let rc = sceGxmShaderPatcherCreateFragmentProgram(
+            patcher,
+            frag_prog_id,
+            SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4,
+            SCE_GXM_MULTISAMPLE_NONE,
+            core::ptr::null(),
+            vert_gxp,
+            &mut frag_prog_opaque,
+        );
+        assert_eq!(rc, SCE_OK, "sceGxmShaderPatcherCreateFragmentProgram(opaque) failed: 0x{:08X}", rc);
+
+        // Transparent fragment program (alpha blending for water, glass, entities & overlays)
         let blend_info = SceGxmBlendInfo::alpha_blend();
-        let mut frag_prog: *mut SceGxmFragmentProgram = core::ptr::null_mut();
+        let mut frag_prog_trans: *mut SceGxmFragmentProgram = core::ptr::null_mut();
         let rc = sceGxmShaderPatcherCreateFragmentProgram(
             patcher,
             frag_prog_id,
@@ -1166,16 +1310,17 @@ impl GxmRenderer {
             SCE_GXM_MULTISAMPLE_NONE,
             &blend_info as *const _ as *const core::ffi::c_void,
             vert_gxp,
-            &mut frag_prog,
+            &mut frag_prog_trans,
         );
-        assert_eq!(rc, SCE_OK, "sceGxmShaderPatcherCreateFragmentProgram failed: 0x{:08X}", rc);
+        assert_eq!(rc, SCE_OK, "sceGxmShaderPatcherCreateFragmentProgram(trans) failed: 0x{:08X}", rc);
 
         let param_mvp = sceGxmProgramFindParameterByName(vert_gxp, b"uViewProj\0".as_ptr());
         let param_fog = sceGxmProgramFindParameterByName(vert_gxp, b"uCameraPosAndFog\0".as_ptr());
+        let param_fog_color = sceGxmProgramFindParameterByName(frag_gxp, b"uFogColor\0".as_ptr());
 
-        // --- 8b. Register and Link Hardware Clear Shaders ---
-        let clear_vert_gxp = CLEAR_VERT_GXP.as_ptr() as *const SceGxmProgram;
-        let clear_frag_gxp = CLEAR_FRAG_GXP.as_ptr() as *const SceGxmProgram;
+        // --- 8b. Register and Link Hardware Clear Shaders (16-byte aligned static) ---
+        let clear_vert_gxp = CLEAR_VERT_GXP.0.as_ptr() as *const SceGxmProgram;
+        let clear_frag_gxp = CLEAR_FRAG_GXP.0.as_ptr() as *const SceGxmProgram;
 
         let mut clear_vert_id: SceGxmShaderPatcherId = core::ptr::null_mut();
         let mut clear_frag_id: SceGxmShaderPatcherId = core::ptr::null_mut();
@@ -1331,10 +1476,18 @@ impl GxmRenderer {
             _patcher_buf_mem: patcher_buf_mem,
             _patcher_vert_usse: patcher_vert_usse,
             _patcher_frag_usse: patcher_frag_usse,
+            _aligned_voxel_vert_gxp: aligned_voxel_vert_gxp,
+            _aligned_voxel_frag_gxp: aligned_voxel_frag_gxp,
+            vert_prog_id,
+            frag_prog_id,
+            clear_vert_id,
+            clear_frag_id,
             vert_prog,
-            frag_prog,
+            frag_prog_opaque,
+            frag_prog_trans,
             param_mvp,
             param_fog,
+            param_fog_color,
             clear_vert_prog,
             clear_frag_prog,
             param_clear_color,
@@ -1344,6 +1497,13 @@ impl GxmRenderer {
             atlas_tex,
             vb_mem,
             ib_mem,
+            scratch_vb: Vec::with_capacity(Self::MAX_VERTS_PER_SLOT),
+            scratch_opaque_ib: Vec::with_capacity(Self::MAX_INDICES_PER_SLOT),
+            scratch_cutout_ib: Vec::with_capacity(Self::MAX_INDICES_PER_SLOT / 4),
+            scratch_trans_ib: Vec::with_capacity(Self::MAX_INDICES_PER_SLOT / 4),
+            mesh_worker: AsyncMesher::new(),
+            pending_meshes: HashSet::with_capacity(8),
+            completed_meshes: Vec::with_capacity(8),
             crack_vb_mem,
             crack_ib_mem,
             entity_vb_mem,
@@ -1351,7 +1511,10 @@ impl GxmRenderer {
             chunk_slots: HashMap::new(),
             chunk_spawn_times: HashMap::new(),
             free_slots,
-            slot_index_counts: [0; Self::MAX_CHUNK_SLOTS],
+            slot_ranges: [ChunkSlotRanges::default(); Self::MAX_CHUNK_SLOTS],
+            freed_slots_scratch: Vec::with_capacity(Self::MAX_CHUNK_SLOTS),
+            chunk_coords_scratch: Vec::with_capacity(121),
+            last_daylight_bucket: 20,
             last_draw_calls: 0,
             last_triangles_rendered: 0,
             last_triangles_culled: 0,
@@ -1400,6 +1563,21 @@ impl GxmRenderer {
         let buf_idx = self.back_buf;
         let color_buf_ptr = self.display_bufs[buf_idx].ptr as *mut u32;
 
+        let (sky_top, _sky_bottom, fog_col) = world.sky_colors();
+        let daylight = world.sunlight_factor().clamp(0.05, 1.0);
+        let sun_dir = world.sun_direction();
+
+        // Periodically refresh baked vertex daylight when sun elevation changes noticeably
+        let daylight_bucket = (daylight * 20.0).round() as i32;
+        if (daylight_bucket - self.last_daylight_bucket).abs() >= 2 {
+            self.last_daylight_bucket = daylight_bucket;
+            for (&key, _) in &self.chunk_slots {
+                if let Some(chunk) = world.chunks.get_mut(&key) {
+                    chunk.dirty = true;
+                }
+            }
+        }
+
         unsafe {
             sceGxmBeginScene(
                 self.context,
@@ -1415,6 +1593,8 @@ impl GxmRenderer {
             // Fullscreen viewport and edge clipping (960x544)
             sceGxmSetDefaultRegionClipAndViewport(self.context, VITA_WIDTH - 1, VITA_HEIGHT - 1);
             sceGxmSetViewportEnable(self.context, SCE_GXM_VIEWPORT_ENABLED);
+            // Force clear triangle (z_ndc = 0.0) to write Z = 1.0 (far plane) into the depth buffer
+            sceGxmSetViewport(self.context, 480.0, 480.0, 272.0, -272.0, 1.0, 0.0);
             sceGxmSetTwoSidedEnable(self.context, SCE_GXM_TWO_SIDED_ENABLED);
             sceGxmSetCullMode(self.context, SCE_GXM_CULL_NONE);
 
@@ -1432,13 +1612,12 @@ impl GxmRenderer {
             let mut clear_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
             sceGxmReserveFragmentDefaultUniformBuffer(self.context, &mut clear_uniform_buf);
             if !self.param_clear_color.is_null() && !clear_uniform_buf.is_null() {
-                let (sky_top, _sky_bottom, _fog_col) = world.sky_colors();
                 let sky_rgba: [f32; 4] = [sky_top[0], sky_top[1], sky_top[2], 1.0f32];
                 sceGxmSetUniformDataF(clear_uniform_buf, self.param_clear_color, 0, 4, sky_rgba.as_ptr());
             }
 
             sceGxmSetVertexStream(self.context, 0, self.clear_vb_mem.ptr);
-            sceGxmDraw(
+            let clear_draw_rc = sceGxmDraw(
                 self.context,
                 SCE_GXM_PRIMITIVE_TRIANGLES,
                 SCE_GXM_INDEX_FORMAT_U16,
@@ -1446,16 +1625,17 @@ impl GxmRenderer {
                 3,
             );
 
-            // 2. Render 3D terrain around player with hardware Backface Culling enabled
-            sceGxmSetTwoSidedEnable(self.context, SCE_GXM_TWO_SIDED_DISABLED);
-            sceGxmSetCullMode(self.context, SCE_GXM_CULL_CW);
+            // 2. Render 3D terrain around player (Depth range [0.0, 1.0])
+            sceGxmSetViewport(self.context, 480.0, 480.0, 272.0, -272.0, 0.0, 1.0);
+            sceGxmSetTwoSidedEnable(self.context, SCE_GXM_TWO_SIDED_ENABLED);
+            sceGxmSetCullMode(self.context, SCE_GXM_CULL_NONE);
             sceGxmSetFrontDepthFunc(self.context, SCE_GXM_DEPTH_FUNC_LESS_EQUAL);
             sceGxmSetBackDepthFunc(self.context, SCE_GXM_DEPTH_FUNC_LESS_EQUAL);
             sceGxmSetFrontDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
             sceGxmSetBackDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
 
             sceGxmSetVertexProgram(self.context, self.vert_prog);
-            sceGxmSetFragmentProgram(self.context, self.frag_prog);
+            sceGxmSetFragmentProgram(self.context, self.frag_prog_opaque);
 
             let aspect = VITA_WIDTH as f32 / VITA_HEIGHT as f32;
             let proj = Self::gxm_perspective_matrix(camera.fov_y, aspect, 0.05, 400.0);
@@ -1485,6 +1665,15 @@ impl GxmRenderer {
                 );
             }
 
+            if !self.param_fog_color.is_null() {
+                let mut frag_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
+                sceGxmReserveFragmentDefaultUniformBuffer(self.context, &mut frag_uniform_buf);
+                if !frag_uniform_buf.is_null() {
+                    let fog_rgba: [f32; 4] = [fog_col[0], fog_col[1], fog_col[2], if fog_enabled { 1.0 } else { 0.0 }];
+                    sceGxmSetUniformDataF(frag_uniform_buf, self.param_fog_color, 0, 4, fog_rgba.as_ptr());
+                }
+            }
+
             sceGxmSetFragmentTexture(self.context, 0, &self.atlas_tex);
 
             let vb_base = self.vb_mem.as_mut_ptr::<GxmVertex>();
@@ -1495,201 +1684,292 @@ impl GxmRenderer {
             let render_dist = render_distance.clamp(2, 5);
 
             // 1. Remove chunk slots that are outside the render distance
-            let max_dist = render_dist + 2;
-            let mut freed = Vec::new();
+            let max_dist = render_dist + 1;
+            self.freed_slots_scratch.clear();
+            let freed_ref = &mut self.freed_slots_scratch;
             self.chunk_slots.retain(|&(cx, cz), &mut slot_idx| {
                 let dx = cx - cam_chunk_x;
                 let dz = cz - cam_chunk_z;
-                if dx.abs() > max_dist || dz.abs() > max_dist {
-                    freed.push(slot_idx);
+                let chunk_unloaded = !world.chunks.contains_key(&(cx, cz));
+                if dx.abs() > max_dist || dz.abs() > max_dist || chunk_unloaded {
+                    freed_ref.push(slot_idx);
                     false
                 } else {
                     true
                 }
             });
-            self.free_slots.extend(freed);
+            self.free_slots.extend(self.freed_slots_scratch.iter().copied());
             self.chunk_spawn_times.retain(|k, _| self.chunk_slots.contains_key(k));
 
-            // 2. Render GPU chunks with mesh upload rate limit per frame (eliminates micro-stutter)
             let mut tri_count: u32 = 0;
             let mut tri_culled: u32 = 0;
-            let mut draw_calls: u32 = 1; // 1 for clear triangle
+            let mut draw_calls: u32 = 0;
+            if clear_draw_rc == SCE_OK {
+                draw_calls += 1;
+            } else {
+                crate::vita_log!("sceGxmDraw(clear) failed: 0x{:08X}", clear_draw_rc);
+            }
             let mut subchunks_rendered: u32 = 0;
             let mut subchunks_culled: u32 = 0;
-            let mut uploads_this_frame = 0;
-            const MAX_UPLOADS_PER_FRAME: usize = 2;
-            let mut last_had_offset = false;
 
-            // 2. Sort chunks from nearest to farthest (Front-to-Back)
-            // Allows hardware HSR / Early Depth Rejection on SGX543 to discard occluded fragments
-            let mut chunk_coords = Vec::with_capacity(((render_dist * 2 + 1) * (render_dist * 2 + 1)) as usize);
+            // Process nearer chunks first. The order is shared by mesh requests,
+            // uploads and draw calls so the most useful terrain is prioritized.
+            self.chunk_coords_scratch.clear();
             for dz in -render_dist..=render_dist {
                 for dx in -render_dist..=render_dist {
-                    chunk_coords.push((dx, dz));
+                    self.chunk_coords_scratch.push((dx, dz));
                 }
             }
-            chunk_coords.sort_unstable_by_key(|&(dx, dz)| dx * dx + dz * dz);
-
+            self.chunk_coords_scratch.sort_unstable_by_key(|&(dx, dz)| (dx * dx + dz * dz, dx, dz));
             let is_occluded = world.is_view_fully_occluded(camera.position, camera.yaw, camera.pitch);
 
-            for (dx, dz) in chunk_coords {
-                let cx = cam_chunk_x + dx;
-                let cz = cam_chunk_z + dz;
-                let key = (cx, cz);
+            // Drain worker results without waiting.
+            self.completed_meshes.extend(self.mesh_worker.drain_completed());
 
-                // If player is directly facing a solid wall (100% occlusion), render only the local chunk
-                if is_occluded && (dx != 0 || dz != 0) {
-                    subchunks_culled += 4;
-                    continue;
-                }
+            // Process at most one completed mesh per frame. Prefer chunks nearest to the player.
+            self.completed_meshes.sort_unstable_by_key(|((mx, mz), _)| {
+                let dx = *mx - cam_chunk_x;
+                let dz = *mz - cam_chunk_z;
+                (dx * dx + dz * dz, *mx, *mz)
+            });
+            if !self.completed_meshes.is_empty() {
+                let (mesh_key, mesh_tris) = self.completed_meshes.remove(0);
+                self.pending_meshes.remove(&mesh_key);
+                let (mcx, mcz) = mesh_key;
+                let mdx = mcx - cam_chunk_x;
+                let mdz = mcz - cam_chunk_z;
+                let in_range = mdx.abs() <= max_dist && mdz.abs() <= max_dist;
+                let still_exists = world.chunks.contains_key(&mesh_key);
+                let still_visible = Self::is_chunk_in_frustum(mcx, mcz, &mvp);
+                let changed_during_build = world.chunks.get(&mesh_key).map(|c| c.dirty).unwrap_or(false);
 
-                    let slot_idx = if let Some(&s) = self.chunk_slots.get(&key) {
-                        let is_dirty = world.chunks.get(&key).map(|c| c.dirty).unwrap_or(false);
-                        if is_dirty && uploads_this_frame < MAX_UPLOADS_PER_FRAME {
-                            if let Some(chunk) = world.chunks.get(&key) {
-                                let idx_cnt = Self::upload_chunk(chunk, world, vb_base, ib_base, s);
-                                self.slot_index_counts[s] = idx_cnt;
-                                uploads_this_frame += 1;
-                            }
-                            if let Some(chunk) = world.chunks.get_mut(&key) {
-                                chunk.dirty = false;
-                            }
-                        }
-                        Some(s)
-                    } else if world.chunks.contains_key(&key) {
-                        if uploads_this_frame < MAX_UPLOADS_PER_FRAME {
-                            if let Some(s) = self.free_slots.pop() {
-                                if let Some(chunk) = world.chunks.get(&key) {
-                                    let idx_cnt = Self::upload_chunk(chunk, world, vb_base, ib_base, s);
-                                    self.slot_index_counts[s] = idx_cnt;
-                                    uploads_this_frame += 1;
+                if in_range && still_exists && still_visible && !changed_during_build {
+                    let existing_slot = self.chunk_slots.get(&mesh_key).copied();
+                    let target_slot = if let Some(slot) = existing_slot {
+                        Some(slot)
+                    } else if let Some(slot) = self.free_slots.pop() {
+                        Some(slot)
+                    } else {
+                        let current_dist_sq = mdx * mdx + mdz * mdz;
+
+                        // First reclaim a slot from a chunk that is no longer in the current view.
+                        let offscreen = self.chunk_slots.iter()
+                            .filter_map(|(&(scx, scz), &slot)| {
+                                if !Self::is_chunk_in_frustum(scx, scz, &mvp) {
+                                    let sdx = scx - cam_chunk_x;
+                                    let sdz = scz - cam_chunk_z;
+                                    Some(((scx, scz), slot, sdx * sdx + sdz * sdz))
+                                } else {
+                                    None
                                 }
-                                if let Some(chunk) = world.chunks.get_mut(&key) {
-                                    chunk.dirty = false;
+                            })
+                            .max_by_key(|&(_, _, distance)| distance);
+
+                        if let Some((old_key, old_slot, _)) = offscreen {
+                            self.chunk_slots.remove(&old_key);
+                            self.chunk_spawn_times.remove(&old_key);
+                            Some(old_slot)
+                        } else {
+                            let farthest = self.chunk_slots.iter()
+                                .map(|(&(scx, scz), &slot)| {
+                                    let sdx = scx - cam_chunk_x;
+                                    let sdz = scz - cam_chunk_z;
+                                    ((scx, scz), slot, sdx * sdx + sdz * sdz)
+                                })
+                                .max_by_key(|&(_, _, distance)| distance);
+                            if let Some((old_key, old_slot, old_dist_sq)) = farthest {
+                                let replace_farthest = old_dist_sq > current_dist_sq
+                                    || (old_dist_sq == current_dist_sq && old_key > mesh_key);
+                                if replace_farthest {
+                                    self.chunk_slots.remove(&old_key);
+                                    self.chunk_spawn_times.remove(&old_key);
+                                    Some(old_slot)
+                                } else {
+                                    None
                                 }
-                                self.chunk_slots.insert(key, s);
-                                self.chunk_spawn_times.insert(key, total_time);
-                                Some(s)
                             } else {
                                 None
                             }
-                        } else {
-                            None
                         }
-                    } else {
-                        None
                     };
 
-                    if let Some(s) = slot_idx {
-                        let idx_count = self.slot_index_counts[s];
-                        if idx_count > 0 {
-                            if Self::is_chunk_in_frustum(cx, cz, &mvp) {
-                                let spawn_time = self.chunk_spawn_times.get(&key).copied().unwrap_or(0.0);
-                                let elapsed = total_time - spawn_time;
-                                let y_offset = if chunk_anim && elapsed >= 0.0 && elapsed < 0.35 {
-                                    let t = (elapsed / 0.35).clamp(0.0, 1.0);
-                                    let ease = 1.0 - (1.0 - t).powi(3);
-                                    (1.0 - ease) * -14.0
-                                } else {
-                                    0.0
-                                };
+                    if let Some(slot) = target_slot {
+                        let ranges = Self::upload_mesh(
+                            &mesh_tris,
+                            vb_base,
+                            ib_base,
+                            slot,
+                            daylight,
+                            &mut self.scratch_vb,
+                            &mut self.scratch_opaque_ib,
+                            &mut self.scratch_cutout_ib,
+                            &mut self.scratch_trans_ib,
+                        );
+                        self.slot_ranges[slot] = ranges;
+                        self.chunk_slots.insert(mesh_key, slot);
+                        if existing_slot.is_none() {
+                            self.chunk_spawn_times.insert(mesh_key, total_time);
+                        }
+                    } else {
+                        self.pending_meshes.insert(mesh_key);
+                        self.completed_meshes.push((mesh_key, mesh_tris));
+                    }
+                }
+            }
 
-                                if y_offset != 0.0 {
-                                    let chunk_mvp = mvp.mul(&crate::core::math::Mat4::translation(0.0, y_offset, 0.0));
-                                    let mut chunk_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
-                                    sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut chunk_uniform_buf);
-                                    if !self.param_mvp.is_null() && !chunk_uniform_buf.is_null() {
-                                        sceGxmSetUniformDataF(
-                                            chunk_uniform_buf,
-                                            self.param_mvp,
-                                            0,
-                                            16,
-                                            chunk_mvp.m.as_ptr(),
-                                        );
-                                    }
-                                    if !self.param_fog.is_null() && !chunk_uniform_buf.is_null() {
-                                        let max_fog = if fog_enabled { (render_distance as f32 * 16.0).max(32.0) } else { -1.0 };
-                                        let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
-                                        sceGxmSetUniformDataF(
-                                            chunk_uniform_buf,
-                                            self.param_fog,
-                                            0,
-                                            4,
-                                            fog_data.as_ptr(),
-                                        );
-                                    }
-                                    last_had_offset = true;
-                                } else if last_had_offset {
-                                    let mut chunk_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
-                                    sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut chunk_uniform_buf);
-                                    if !self.param_mvp.is_null() && !chunk_uniform_buf.is_null() {
-                                        sceGxmSetUniformDataF(
-                                            chunk_uniform_buf,
-                                            self.param_mvp,
-                                            0,
-                                            16,
-                                            mvp.m.as_ptr(),
-                                        );
-                                    }
-                                    if !self.param_fog.is_null() && !chunk_uniform_buf.is_null() {
-                                        let max_fog = if fog_enabled { (render_distance as f32 * 16.0).max(32.0) } else { -1.0 };
-                                        let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
-                                        sceGxmSetUniformDataF(
-                                            chunk_uniform_buf,
-                                            self.param_fog,
-                                            0,
-                                            4,
-                                            fog_data.as_ptr(),
-                                        );
-                                    }
-                                    last_had_offset = false;
-                                }
-
-                                let chunk_vb = vb_base.add(s * Self::MAX_VERTS_PER_SLOT);
-                                let chunk_ib = ib_base.add(s * Self::MAX_INDICES_PER_SLOT);
-                                sceGxmSetVertexStream(self.context, 0, chunk_vb as *const core::ffi::c_void);
-                                sceGxmDraw(
-                                    self.context,
-                                    SCE_GXM_PRIMITIVE_TRIANGLES,
-                                    SCE_GXM_INDEX_FORMAT_U16,
-                                    chunk_ib as *const core::ffi::c_void,
-                                    idx_count,
-                                );
-                                tri_count += idx_count / 3;
-                                draw_calls += 1;
-                                subchunks_rendered += 4;
-                            } else {
-                                subchunks_culled += 4;
-                                tri_culled += idx_count / 3;
+            // Submit at most one new job per frame and keep the in-flight queue bounded.
+            const MAX_PENDING_MESHES: usize = 4;
+            if self.pending_meshes.len() < MAX_PENDING_MESHES {
+                for &(dx, dz) in &self.chunk_coords_scratch {
+                    if is_occluded && (dx != 0 || dz != 0) {
+                        continue;
+                    }
+                    let key = (cam_chunk_x + dx, cam_chunk_z + dz);
+                    if self.pending_meshes.contains(&key) {
+                        continue;
+                    }
+                    if !Self::is_chunk_in_frustum(key.0, key.1, &mvp) {
+                        continue;
+                    }
+                    let needs_mesh = !self.chunk_slots.contains_key(&key)
+                        || world.chunks.get(&key).map(|chunk| chunk.dirty).unwrap_or(false);
+                    if !needs_mesh {
+                        continue;
+                    }
+                    if let Some(chunk) = world.chunks.get(&key) {
+                        let job = ChunkMeshJob::from_world(chunk, world);
+                        if self.mesh_worker.submit_job(job) {
+                            self.pending_meshes.insert(key);
+                            if let Some(chunk) = world.chunks.get_mut(&key) {
+                                chunk.dirty = false;
                             }
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // 3-pass chunk rendering matching desktop VulkanContext:
+            // Pass 0: Opaque (Front-to-Back, Early-Z/HSR active)
+            // Pass 1: Cutout (Front-to-Back, leaves/doors/torches/crops)
+            // Pass 2: Transparent (Back-to-Front, Alpha Blending, DepthWrite OFF)
+            let chunk_count = self.chunk_coords_scratch.len();
+            for pass_kind in 0..3u8 {
+                if pass_kind == 2 {
+                    sceGxmSetFragmentProgram(self.context, self.frag_prog_trans);
+                    sceGxmSetFrontDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_DISABLED);
+                    sceGxmSetBackDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_DISABLED);
+                } else if pass_kind == 0 {
+                    sceGxmSetFragmentProgram(self.context, self.frag_prog_opaque);
+                    sceGxmSetFrontDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
+                    sceGxmSetBackDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
+                }
+
+                let mut last_had_offset = false;
+                for idx in 0..chunk_count {
+                    let (dx, dz) = if pass_kind == 2 {
+                        self.chunk_coords_scratch[chunk_count - 1 - idx]
+                    } else {
+                        self.chunk_coords_scratch[idx]
+                    };
+
+                    let cx = cam_chunk_x + dx;
+                    let cz = cam_chunk_z + dz;
+                    let key = (cx, cz);
+                    if is_occluded && (dx != 0 || dz != 0) {
+                        if pass_kind == 0 {
+                            subchunks_culled += 4;
+                        }
+                        continue;
+                    }
+
+                    if let Some(&slot) = self.chunk_slots.get(&key) {
+                        let ranges = self.slot_ranges[slot];
+                        let (start_idx, index_count) = match pass_kind {
+                            0 => (ranges.opaque_start, ranges.opaque_count),
+                            1 => (ranges.cutout_start, ranges.cutout_count),
+                            _ => (ranges.trans_start, ranges.trans_count),
+                        };
+                        if index_count == 0 {
+                            continue;
+                        }
+                        if !Self::is_chunk_in_frustum(cx, cz, &mvp) {
+                            if pass_kind == 0 {
+                                subchunks_culled += 4;
+                            }
+                            tri_culled += index_count / 3;
+                            continue;
+                        }
+
+                        let spawn_time = self.chunk_spawn_times.get(&key).copied().unwrap_or(0.0);
+                        let elapsed = total_time - spawn_time;
+                        let y_offset = if chunk_anim && elapsed >= 0.0 && elapsed < 0.35 {
+                            let t = (elapsed / 0.35).clamp(0.0, 1.0);
+                            let ease = 1.0 - (1.0 - t).powi(3);
+                            (1.0 - ease) * -14.0
+                        } else {
+                            0.0
+                        };
+
+                        if y_offset != 0.0 || last_had_offset {
+                            let target_mvp = if y_offset != 0.0 {
+                                mvp.mul(&crate::core::math::Mat4::translation(0.0, y_offset, 0.0))
+                            } else {
+                                mvp
+                            };
+                            let mut chunk_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
+                            sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut chunk_uniform_buf);
+                            if !self.param_mvp.is_null() && !chunk_uniform_buf.is_null() {
+                                sceGxmSetUniformDataF(chunk_uniform_buf, self.param_mvp, 0, 16, target_mvp.m.as_ptr());
+                            }
+                            if !self.param_fog.is_null() && !chunk_uniform_buf.is_null() {
+                                let max_fog = if fog_enabled { (render_distance as f32 * 16.0).max(32.0) } else { -1.0 };
+                                let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
+                                sceGxmSetUniformDataF(chunk_uniform_buf, self.param_fog, 0, 4, fog_data.as_ptr());
+                            }
+                            last_had_offset = y_offset != 0.0;
+                        }
+
+                        let chunk_vb = vb_base.add(slot * Self::MAX_VERTS_PER_SLOT);
+                        let chunk_ib = ib_base.add(slot * Self::MAX_INDICES_PER_SLOT + start_idx as usize);
+                        sceGxmSetVertexStream(self.context, 0, chunk_vb as *const core::ffi::c_void);
+                        let draw_rc = sceGxmDraw(
+                            self.context,
+                            SCE_GXM_PRIMITIVE_TRIANGLES,
+                            SCE_GXM_INDEX_FORMAT_U16,
+                            chunk_ib as *const core::ffi::c_void,
+                            index_count,
+                        );
+                        if draw_rc == SCE_OK {
+                            tri_count += index_count / 3;
+                            draw_calls += 1;
+                            if pass_kind == 0 {
+                                subchunks_rendered += 4;
+                            }
+                        } else {
+                            crate::vita_log!("sceGxmDraw(chunk {}, {}, pass {}) failed: 0x{:08X}", cx, cz, pass_kind, draw_rc);
                         }
                     }
                 }
 
-            if last_had_offset {
-                let mut chunk_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
-                sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut chunk_uniform_buf);
-                if !self.param_mvp.is_null() && !chunk_uniform_buf.is_null() {
-                    sceGxmSetUniformDataF(
-                        chunk_uniform_buf,
-                        self.param_mvp,
-                        0,
-                        16,
-                        mvp.m.as_ptr(),
-                    );
-                }
-                if !self.param_fog.is_null() && !chunk_uniform_buf.is_null() {
-                    let max_fog = if fog_enabled { (render_distance as f32 * 16.0).max(32.0) } else { -1.0 };
-                    let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
-                    sceGxmSetUniformDataF(
-                        chunk_uniform_buf,
-                        self.param_fog,
-                        0,
-                        4,
-                        fog_data.as_ptr(),
-                    );
+                if last_had_offset {
+                    let mut chunk_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
+                    sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut chunk_uniform_buf);
+                    if !self.param_mvp.is_null() && !chunk_uniform_buf.is_null() {
+                        sceGxmSetUniformDataF(chunk_uniform_buf, self.param_mvp, 0, 16, mvp.m.as_ptr());
+                    }
+                    if !self.param_fog.is_null() && !chunk_uniform_buf.is_null() {
+                        let max_fog = if fog_enabled { (render_distance as f32 * 16.0).max(32.0) } else { -1.0 };
+                        let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
+                        sceGxmSetUniformDataF(chunk_uniform_buf, self.param_fog, 0, 4, fog_data.as_ptr());
+                    }
                 }
             }
+
+            // Restore depth write and alpha-blended fragment program for cracks, entities & overlays
+            sceGxmSetFragmentProgram(self.context, self.frag_prog_trans);
+            sceGxmSetFrontDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
+            sceGxmSetBackDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
 
             // 2b. Draw block destruction cracks animation (3D block break cracks)
             if let Some(target) = break_target {
@@ -1731,19 +2011,23 @@ impl GxmRenderer {
                     }
 
                     sceGxmSetVertexStream(self.context, 0, self.crack_vb_mem.ptr);
-                    sceGxmDraw(
+                    let crack_draw_rc = sceGxmDraw(
                         self.context,
                         SCE_GXM_PRIMITIVE_TRIANGLES,
                         SCE_GXM_INDEX_FORMAT_U16,
                         self.crack_ib_mem.ptr,
                         36,
                     );
-                    draw_calls += 1;
-                    tri_count += 12;
+                    if crack_draw_rc == SCE_OK {
+                        draw_calls += 1;
+                        tri_count += 12;
+                    } else {
+                        crate::vita_log!("sceGxmDraw(cracks) failed: 0x{:08X}", crack_draw_rc);
+                    }
                 }
             }
 
-            // 2c. Draw dynamic objects (dropped items, mobs, TNT, 3D hand, full-screen overlays) - disable culling for two-sided models
+            // 2c. Draw dynamic objects (celestial bodies, clouds, particles, dropped items, mobs, TNT, 3D hand, full-screen overlays)
             sceGxmSetTwoSidedEnable(self.context, SCE_GXM_TWO_SIDED_ENABLED);
             sceGxmSetCullMode(self.context, SCE_GXM_CULL_NONE);
 
@@ -1754,10 +2038,24 @@ impl GxmRenderer {
             let max_ent_verts = Self::MAX_ENTITY_VERTS;
             let max_ent_idx = Self::MAX_ENTITY_INDICES;
 
+            if !is_occluded {
+                append_celestial_bodies(
+                    camera.position,
+                    sun_dir,
+                    ent_vb,
+                    ent_ib,
+                    &mut ent_v_count,
+                    &mut ent_i_count,
+                    max_ent_verts,
+                    max_ent_idx,
+                );
+            }
+
             if clouds_enabled && !is_occluded {
                 append_clouds(
                     camera.position,
                     total_time,
+                    daylight,
                     ent_vb,
                     ent_ib,
                     &mut ent_v_count,
@@ -1861,15 +2159,19 @@ impl GxmRenderer {
 
             if ent_i_count > 0 {
                 sceGxmSetVertexStream(self.context, 0, self.entity_vb_mem.ptr);
-                sceGxmDraw(
+                let entity_draw_rc = sceGxmDraw(
                     self.context,
                     SCE_GXM_PRIMITIVE_TRIANGLES,
                     SCE_GXM_INDEX_FORMAT_U16,
                     self.entity_ib_mem.ptr,
                     ent_i_count as u32,
                 );
-                tri_count += ent_i_count as u32 / 3;
-                draw_calls += 1;
+                if entity_draw_rc == SCE_OK {
+                    tri_count += ent_i_count as u32 / 3;
+                    draw_calls += 1;
+                } else {
+                    crate::vita_log!("sceGxmDraw(entities) failed: 0x{:08X}", entity_draw_rc);
+                }
             }
 
             self.last_draw_calls = draw_calls;
@@ -1970,9 +2272,45 @@ fn append_quad(
     *i_count += 6;
 }
 
+fn append_celestial_bodies(
+    camera_pos: Vec3,
+    sun_dir: Vec3,
+    vb: *mut GxmVertex,
+    ib: *mut u16,
+    v_count: &mut usize,
+    i_count: &mut usize,
+    max_verts: usize,
+    max_idx: usize,
+) {
+    let dist = 180.0f32;
+    let bodies = [
+        (sun_dir.normalized(), 16.0f32, TextureId::GoldBlock),
+        ((-sun_dir).normalized(), 12.0f32, TextureId::IronBlock),
+    ];
+
+    for (dir, half_size, tex) in bodies {
+        let up_ref = if dir.y.abs() > 0.99 {
+            Vec3::new(1.0, 0.0, 0.0)
+        } else {
+            Vec3::new(0.0, 1.0, 0.0)
+        };
+        let right = dir.cross(up_ref).normalized();
+        let up = right.cross(dir).normalized();
+        let center = camera_pos + dir * dist;
+
+        let p0 = center - right * half_size - up * half_size;
+        let p1 = center + right * half_size - up * half_size;
+        let p2 = center + right * half_size + up * half_size;
+        let p3 = center - right * half_size + up * half_size;
+
+        append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p0, p1, p2, p3, tex, 1.0);
+    }
+}
+
 fn append_clouds(
     player_pos: Vec3,
     time: f32,
+    daylight: f32,
     vb: *mut GxmVertex,
     ib: *mut u16,
     v_count: &mut usize,
@@ -1986,11 +2324,12 @@ fn append_clouds(
         return;
     }
 
+    let light_scale = daylight.clamp(0.15, 1.0);
     let (cx, cz) = cloud_origin_cell(player_pos, time);
     for dz in -5..=5 {
         for dx in -5..=5 {
             emit_cloud_faces(cx + dx, cz + dz, player_pos, time, |p0, p1, p2, p3, shade| {
-                append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p0, p1, p2, p3, TextureId::Snow, shade);
+                append_quad(vb, ib, v_count, i_count, max_verts, max_idx, p0, p1, p2, p3, TextureId::Snow, shade * light_scale);
             });
         }
     }
@@ -2559,43 +2898,80 @@ fn append_hand_3d(
 }
 
 impl GxmRenderer {
-    unsafe fn upload_chunk(
-        chunk: &crate::world::Chunk,
-        world: &crate::world::World,
+    unsafe fn upload_mesh(
+        tris: &[Triangle],
         vb_base: *mut GxmVertex,
         ib_base: *mut u16,
         slot_idx: usize,
-    ) -> u32 {
-        let tris = build_chunk_mesh(chunk, world);
+        daylight: f32,
+        scratch_vb: &mut Vec<GxmVertex>,
+        scratch_opaque_ib: &mut Vec<u16>,
+        scratch_cutout_ib: &mut Vec<u16>,
+        scratch_trans_ib: &mut Vec<u16>,
+    ) -> ChunkSlotRanges {
         let max_verts = Self::MAX_VERTS_PER_SLOT;
         let max_idx = Self::MAX_INDICES_PER_SLOT;
+        scratch_vb.clear();
+        scratch_opaque_ib.clear();
+        scratch_cutout_ib.clear();
+        scratch_trans_ib.clear();
 
-        let slot_vb = vb_base.add(slot_idx * Self::MAX_VERTS_PER_SLOT);
-        let slot_ib = ib_base.add(slot_idx * Self::MAX_INDICES_PER_SLOT);
-
-        let mut v_count = 0usize;
-        let mut i_count = 0usize;
-
-        for tri in &tris {
-            if v_count + 3 > max_verts || i_count + 3 > max_idx {
+        for tri in tris {
+            let total_idx = scratch_opaque_ib.len() + scratch_cutout_ib.len() + scratch_trans_ib.len();
+            if scratch_vb.len() + 3 > max_verts || total_idx + 3 > max_idx {
                 break;
             }
             let (u0, v0, u1, v1) = atlas_uv(tri.texture);
-            let base = v_count as u16;
+            let base = scratch_vb.len() as u16;
+            scratch_vb.push(GxmVertex::from_vertex(&tri.v0, u0, v0, u1, v1, daylight));
+            scratch_vb.push(GxmVertex::from_vertex(&tri.v1, u0, v0, u1, v1, daylight));
+            scratch_vb.push(GxmVertex::from_vertex(&tri.v2, u0, v0, u1, v1, daylight));
 
-            *slot_vb.add(v_count) = GxmVertex::from_vertex(&tri.v0, u0, v0, u1, v1);
-            *slot_vb.add(v_count + 1) = GxmVertex::from_vertex(&tri.v1, u0, v0, u1, v1);
-            *slot_vb.add(v_count + 2) = GxmVertex::from_vertex(&tri.v2, u0, v0, u1, v1);
-
-            *slot_ib.add(i_count) = base;
-            *slot_ib.add(i_count + 1) = base + 1;
-            *slot_ib.add(i_count + 2) = base + 2;
-
-            v_count += 3;
-            i_count += 3;
+            let target_ib = match classify_texture_pass(tri.texture) {
+                2 => &mut *scratch_trans_ib,
+                1 => &mut *scratch_cutout_ib,
+                _ => &mut *scratch_opaque_ib,
+            };
+            target_ib.push(base);
+            target_ib.push(base + 1);
+            target_ib.push(base + 2);
         }
 
-        i_count as u32
+        let slot_vb = vb_base.add(slot_idx * Self::MAX_VERTS_PER_SLOT);
+        let slot_ib = ib_base.add(slot_idx * Self::MAX_INDICES_PER_SLOT);
+        if !scratch_vb.is_empty() {
+            core::ptr::copy_nonoverlapping(scratch_vb.as_ptr(), slot_vb, scratch_vb.len());
+        }
+
+        let mut offset = 0usize;
+        let opaque_start = offset as u32;
+        let opaque_count = scratch_opaque_ib.len() as u32;
+        if !scratch_opaque_ib.is_empty() {
+            core::ptr::copy_nonoverlapping(scratch_opaque_ib.as_ptr(), slot_ib.add(offset), scratch_opaque_ib.len());
+            offset += scratch_opaque_ib.len();
+        }
+
+        let cutout_start = offset as u32;
+        let cutout_count = scratch_cutout_ib.len() as u32;
+        if !scratch_cutout_ib.is_empty() {
+            core::ptr::copy_nonoverlapping(scratch_cutout_ib.as_ptr(), slot_ib.add(offset), scratch_cutout_ib.len());
+            offset += scratch_cutout_ib.len();
+        }
+
+        let trans_start = offset as u32;
+        let trans_count = scratch_trans_ib.len() as u32;
+        if !scratch_trans_ib.is_empty() {
+            core::ptr::copy_nonoverlapping(scratch_trans_ib.as_ptr(), slot_ib.add(offset), scratch_trans_ib.len());
+        }
+
+        ChunkSlotRanges {
+            opaque_start,
+            opaque_count,
+            cutout_start,
+            cutout_count,
+            trans_start,
+            trans_count,
+        }
     }
 
     /// Presents a 2D pixel buffer to the display (e.g., Main Menu, Pause, Inventory, Settings).
@@ -2645,7 +3021,8 @@ impl GxmRenderer {
         }
     }
 
-    /// Blits 2D HUD pixels onto the rendered 3D scene (optimized write without reading VRAM).
+    /// Blits 2D HUD pixels onto the rendered 3D scene using strictly 32-bit aligned reads/writes.
+    /// Avoids 64-bit `read_unaligned` (`LDRD`/`VLDR`) which causes ARMv7 Alignment Faults on PS Vita.
     fn blit_hud_overlay(dst_buf: *mut u32, src_pixels: &[u32]) {
         let game_width = 960usize;
         let game_height = 540usize.min(src_pixels.len() / game_width);
@@ -2659,24 +3036,30 @@ impl GxmRenderer {
                 let dst_ptr = dst_buf.add(dst_row);
 
                 let mut x = 0;
-                while x + 4 <= game_width {
-                    let quad = (src_ptr.add(x) as *const [u64; 2]).read_unaligned();
-                    if quad[0] == 0 && quad[1] == 0 {
-                        x += 4;
+                while x + 8 <= game_width {
+                    let p0 = *src_ptr.add(x);
+                    let p1 = *src_ptr.add(x + 1);
+                    let p2 = *src_ptr.add(x + 2);
+                    let p3 = *src_ptr.add(x + 3);
+                    let p4 = *src_ptr.add(x + 4);
+                    let p5 = *src_ptr.add(x + 5);
+                    let p6 = *src_ptr.add(x + 6);
+                    let p7 = *src_ptr.add(x + 7);
+                    if (p0 | p1 | p2 | p3 | p4 | p5 | p6 | p7) == 0 {
+                        x += 8;
                         continue;
                     }
-                    for i in 0..4 {
-                        let px = x + i;
-                        let pixel = *src_ptr.add(px);
+                    let oct = [p0, p1, p2, p3, p4, p5, p6, p7];
+                    for (i, &pixel) in oct.iter().enumerate() {
                         let a = (pixel >> 24) & 0xFF;
                         if a > 128 {
                             let r = (pixel >> 16) & 0xFF;
                             let g = (pixel >> 8) & 0xFF;
                             let b = pixel & 0xFF;
-                            *dst_ptr.add(px) = (0xFF << 24) | (b << 16) | (g << 8) | r;
+                            *dst_ptr.add(x + i) = (0xFF << 24) | (b << 16) | (g << 8) | r;
                         }
                     }
-                    x += 4;
+                    x += 8;
                 }
                 while x < game_width {
                     let pixel = *src_ptr.add(x);
@@ -2812,8 +3195,13 @@ impl GxmRenderer {
     pub fn clear_mesh_cache(&mut self) {
         self.chunk_slots.clear();
         self.free_slots = (0..Self::MAX_CHUNK_SLOTS).rev().collect();
-        self.slot_index_counts = [0; Self::MAX_CHUNK_SLOTS];
+        self.slot_ranges = [ChunkSlotRanges::default(); Self::MAX_CHUNK_SLOTS];
         self.chunk_spawn_times.clear();
+    }
+
+    /// Alias matching desktop `VulkanContext::clear_chunk_buffers`.
+    pub fn clear_chunk_buffers(&mut self) {
+        self.clear_mesh_cache();
     }
 
     /// Returns GPU memory and performance statistics: `(used_chunk_slots, max_chunk_slots, cdram_bytes, ram_bytes)`.
@@ -2843,14 +3231,29 @@ impl Drop for GxmRenderer {
             if !self.vert_prog.is_null() && !self.patcher.is_null() {
                 let _ = sceGxmShaderPatcherReleaseVertexProgram(self.patcher, self.vert_prog);
             }
-            if !self.frag_prog.is_null() && !self.patcher.is_null() {
-                let _ = sceGxmShaderPatcherReleaseFragmentProgram(self.patcher, self.frag_prog);
+            if !self.frag_prog_opaque.is_null() && !self.patcher.is_null() {
+                let _ = sceGxmShaderPatcherReleaseFragmentProgram(self.patcher, self.frag_prog_opaque);
+            }
+            if !self.frag_prog_trans.is_null() && !self.patcher.is_null() {
+                let _ = sceGxmShaderPatcherReleaseFragmentProgram(self.patcher, self.frag_prog_trans);
             }
             if !self.clear_vert_prog.is_null() && !self.patcher.is_null() {
                 let _ = sceGxmShaderPatcherReleaseVertexProgram(self.patcher, self.clear_vert_prog);
             }
             if !self.clear_frag_prog.is_null() && !self.patcher.is_null() {
                 let _ = sceGxmShaderPatcherReleaseFragmentProgram(self.patcher, self.clear_frag_prog);
+            }
+            if !self.vert_prog_id.is_null() && !self.patcher.is_null() {
+                let _ = sceGxmShaderPatcherUnregisterProgram(self.patcher, self.vert_prog_id);
+            }
+            if !self.frag_prog_id.is_null() && !self.patcher.is_null() {
+                let _ = sceGxmShaderPatcherUnregisterProgram(self.patcher, self.frag_prog_id);
+            }
+            if !self.clear_vert_id.is_null() && !self.patcher.is_null() {
+                let _ = sceGxmShaderPatcherUnregisterProgram(self.patcher, self.clear_vert_id);
+            }
+            if !self.clear_frag_id.is_null() && !self.patcher.is_null() {
+                let _ = sceGxmShaderPatcherUnregisterProgram(self.patcher, self.clear_frag_id);
             }
             for sync in self.display_sync {
                 if !sync.is_null() {

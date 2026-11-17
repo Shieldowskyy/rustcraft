@@ -904,14 +904,17 @@ fn mud() -> Texture {
 }
 
 pub const BUILTIN_TEXTURE_COUNT: usize = 222;
-pub const CUSTOM_TEXTURE_LAYERS: u32 = 64;
+/// Must satisfy: BUILTIN_TEXTURE_COUNT + CUSTOM_TEXTURE_LAYERS <= 256
+/// (wgpu minimum guaranteed max_texture_array_layers on all Vulkan adapters).
+/// 222 + 34 = 256 exactly.
+pub const CUSTOM_TEXTURE_LAYERS: u32 = 34;
 
 macro_rules! define_builtin_textures {
     (|$fancy:ident| $(($layer:literal, $variant:ident, $gen:expr)),* $(,)?) => {
         #[derive(Copy, Clone, Debug, PartialEq, Eq)]
         pub enum TextureId {
             $($variant,)*
-            /// Custom modded texture (index 0..=63)
+            /// Custom modded texture (index 0..=33)
             Custom(u8),
         }
 

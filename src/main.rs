@@ -17,6 +17,9 @@ use rustcraft::platform::mouse_capture::{self, MouseCapture};
 
 #[cfg(target_os = "vita")]
 fn main() {
+    // Zainstaluj panic hook jako pierwszą instrukcję procesu, zanim wywołamy jakąkolwiek logikę
+    rustcraft::platform::vita::install_vita_panic_hook();
+    rustcraft::vita_log!("Entered main() on PS Vita, launching run_vita_app()...");
     rustcraft::platform::vita::run_vita_app();
 }
 

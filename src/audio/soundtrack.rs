@@ -1,9 +1,10 @@
 //! Cross-platform soundtrack management, manifest configuration, and now-playing toasts.
 //!
-//! Provides categorized soundtrack playback (.ogg Vorbis support on all platforms),
+//! Provides categorized soundtrack playback (.ogg Vorbis / .opus / .wav support on all platforms),
 //! configurable delay intervals, context-aware category filtering (creative, survival,
 //! menu, uncategorized), and real-time toast notifications in the bottom-right corner.
 
+use std::borrow::Cow;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -88,26 +89,28 @@ impl SoundtrackTrack {
     /// Determines whether this track is eligible to play under the given game context.
     pub fn matches_category(&self, current: SoundtrackCategory) -> bool {
         self.categories.contains(&current)
-            || self.categories.contains(&SoundtrackCategory::Uncategorized)
+        || self.categories.contains(&SoundtrackCategory::Uncategorized)
     }
 
-    /// Loads and decodes the audio file (.ogg Vorbis or .wav) into memory.
+    /// Loads and decodes the audio file (.ogg Vorbis, .opus, or .wav) into memory.
     pub fn load_sample(&mut self) -> Result<Arc<SoundSample>, String> {
         if let Some(s) = &self.sample {
             return Ok(Arc::clone(s));
         }
 
-        let bytes = if self.file_path.exists() {
-            fs::read(&self.file_path)
-                .map_err(|e| format!("Could not read audio file '{}': {}", self.file_path.display(), e))?
+        let bytes: Cow<'static, [u8]> = if self.file_path.exists() {
+            let data = fs::read(&self.file_path)
+            .map_err(|e| format!("Could not read audio file '{}': {}", self.file_path.display(), e))?;
+            Cow::Owned(data)
         } else {
-            self.embedded_data
-                .ok_or_else(|| format!("Could not read audio file '{}': file not found", self.file_path.display()))?
-                .to_vec()
+            let embedded = self
+            .embedded_data
+            .ok_or_else(|| format!("Could not read audio file '{}': file not found", self.file_path.display()))?;
+            Cow::Borrowed(embedded)
         };
 
         let sample = SoundSample::from_file_bytes(&bytes)
-            .map_err(|e| format!("Failed to decode audio file '{}': {}", self.file_path.display(), e))?;
+        .map_err(|e| format!("Failed to decode audio file '{}': {}", self.file_path.display(), e))?;
 
         let arc_sample = Arc::new(sample);
         self.sample = Some(Arc::clone(&arc_sample));
@@ -169,8 +172,8 @@ impl MusicToast {
         width: usize,
         height: usize,
         force_show: bool,
-        progress: Option<f32>,
-        duration_sec: Option<f32>,
+            progress: Option<f32>,
+            duration_sec: Option<f32>,
     ) {
         if (!force_show && (!self.visible || self.timer <= 0.0)) || width < 300 || height < 100 {
             return;
@@ -226,7 +229,7 @@ impl MusicToast {
             toast_rect,
             1,
             pack_color(0.30, 0.38, 0.50),
-            pack_color(0.04, 0.05, 0.08),
+                        pack_color(0.04, 0.05, 0.08),
         );
 
         // Accent strip on left edge
@@ -274,7 +277,7 @@ impl MusicToast {
         if fill_w > 0 && fill_w < bar_rect.w {
             ui.fill(
                 Rect::new(bar_rect.x + fill_w - 1, bar_rect.y, 2, bar_rect.h),
-                pack_color(1.0, 1.0, 1.0),
+                    pack_color(1.0, 1.0, 1.0),
             );
         }
 
@@ -358,12 +361,12 @@ impl SoundtrackManager {
             }
         }
         let initial_seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| {
-                let nanos = d.as_nanos();
-                ((nanos ^ (nanos >> 32)) as u32) ^ 0x517CC1B7
-            })
-            .unwrap_or(0x517CC1B7);
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| {
+            let nanos = d.as_nanos();
+            ((nanos ^ (nanos >> 32)) as u32) ^ 0x517CC1B7
+        })
+        .unwrap_or(0x517CC1B7);
         let rng_seed = if initial_seed == 0 { 0x517CC1B7 } else { initial_seed };
 
         let mut manager = Self {
@@ -461,15 +464,30 @@ impl SoundtrackManager {
             }
         }
 
-        // Auto-discover any .ogg or .wav tracks on disk not explicitly listed in manifest
+        // Auto-discover any .ogg, .opus, or .wav tracks on disk not explicitly listed in manifest
         self.scan_directory(&self.base_dir.clone());
+        #[cfg(target_os = "vita")]
+        {
+            // Also scan bundled read-only app0:soundtracks if user placed custom tracks in ux0:
+            let app0_dir = PathBuf::from("app0:soundtracks");
+            if app0_dir != self.base_dir && app0_dir.exists() {
+                self.scan_directory(&app0_dir);
+            }
+        }
         self.scan_embedded_soundtracks();
+
+        #[cfg(target_os = "vita")]
+        crate::vita_log!(
+            "[SOUNDTRACK] Registered {} tracks (base_dir: '{}')",
+                         self.tracks.len(),
+                         self.base_dir.display()
+        );
 
         crate::log_info!(
             "SOUNDTRACK",
             "Soundtrack system initialized: {} registered tracks from '{}'",
             self.tracks.len(),
-            self.base_dir.display()
+                         self.base_dir.display()
         );
     }
 
@@ -505,29 +523,29 @@ impl SoundtrackManager {
                     };
                     let file_path = self.base_dir.join(file_str);
                     let id = t_obj
-                        .get("id")
-                        .and_then(|i| i.as_str())
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| {
-                            file_path
-                                .file_stem()
-                                .and_then(|s| s.to_str())
-                                .unwrap_or("track")
-                                .to_string()
-                        });
+                    .get("id")
+                    .and_then(|i| i.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| {
+                        file_path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("track")
+                        .to_string()
+                    });
 
                     let title = t_obj
-                        .get("name")
-                        .or_else(|| t_obj.get("title"))
-                        .and_then(|n| n.as_str())
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| Self::prettify_title(&id));
+                    .get("name")
+                    .or_else(|| t_obj.get("title"))
+                    .and_then(|n| n.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| Self::prettify_title(&id));
 
                     let artist = t_obj
-                        .get("artist")
-                        .and_then(|a| a.as_str())
-                        .unwrap_or("RustCraft")
-                        .to_string();
+                    .get("artist")
+                    .and_then(|a| a.as_str())
+                    .unwrap_or("RustCraft")
+                    .to_string();
 
                     let mut categories = Vec::new();
                     if let Some(cats) = t_obj.get("categories").and_then(|c| c.as_array()) {
@@ -570,10 +588,10 @@ impl SoundtrackManager {
                 self.scan_directory(&path);
             } else if path.is_file() {
                 let ext = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("")
-                    .to_ascii_lowercase();
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
 
                 if ext == "ogg" || ext == "opus" || ext == "wav" {
                     // Check if already registered by manifest
@@ -582,15 +600,15 @@ impl SoundtrackManager {
                     }
 
                     let file_stem = path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("track");
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("track");
 
                     let parent_name = path
-                        .parent()
-                        .and_then(|p| p.file_name())
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("");
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
 
                     let cat = match parent_name.to_ascii_lowercase().as_str() {
                         "creative" => SoundtrackCategory::Creative,
@@ -601,12 +619,12 @@ impl SoundtrackManager {
 
                     self.tracks.push(SoundtrackTrack {
                         id: file_stem.to_string(),
-                        title: Self::prettify_title(file_stem),
-                        artist: "RustCraft".to_string(),
-                        file_path: path,
-                        categories: vec![cat],
-                        sample: None,
-                        embedded_data: None,
+                                     title: Self::prettify_title(file_stem),
+                                     artist: "RustCraft".to_string(),
+                                     file_path: path,
+                                     categories: vec![cat],
+                                     sample: None,
+                                     embedded_data: None,
                     });
                 }
             }
@@ -636,12 +654,12 @@ impl SoundtrackManager {
 
             self.tracks.push(SoundtrackTrack {
                 id: file_stem.to_string(),
-                title: Self::prettify_title(file_stem),
-                artist: "RustCraft".to_string(),
-                file_path: path,
-                categories: vec![category],
-                sample: None,
-                embedded_data: Some(data),
+                             title: Self::prettify_title(file_stem),
+                             artist: "RustCraft".to_string(),
+                             file_path: path,
+                             categories: vec![category],
+                             sample: None,
+                             embedded_data: Some(data),
             });
         }
     }
@@ -690,6 +708,8 @@ impl SoundtrackManager {
                     }
                 }
                 Ok(Err(err)) => {
+                    #[cfg(target_os = "vita")]
+                    crate::vita_log!("[SOUNDTRACK] Async decode error: {}", err);
                     crate::log_warn!("SOUNDTRACK", "Async track decode error: {}", err);
                     self.loading_track = None;
                     self.delay_timer = 2.0; // Retry after short pause
@@ -699,6 +719,8 @@ impl SoundtrackManager {
                     return;
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    #[cfg(target_os = "vita")]
+                    crate::vita_log!("[SOUNDTRACK] Async loader thread crashed/disconnected (likely OOM or stack overflow)");
                     self.loading_track = None;
                 }
             }
@@ -784,22 +806,22 @@ impl SoundtrackManager {
 
     fn choose_next_index(&mut self, context: SoundtrackCategory) -> Option<usize> {
         let mut eligible_indices: Vec<usize> = self
-            .tracks
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| (t.file_path.exists() || t.sample.is_some() || t.embedded_data.is_some()) && t.matches_category(context))
-            .map(|(i, _)| i)
-            .collect();
+        .tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| (t.file_path.exists() || t.sample.is_some() || t.embedded_data.is_some()) && t.matches_category(context))
+        .map(|(i, _)| i)
+        .collect();
 
         // Fallback for tests or synthetic tracks where file_path may not exist on disk
         if eligible_indices.is_empty() {
             eligible_indices = self
-                .tracks
-                .iter()
-                .enumerate()
-                .filter(|(_, t)| t.matches_category(context))
-                .map(|(i, _)| i)
-                .collect();
+            .tracks
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.matches_category(context))
+            .map(|(i, _)| i)
+            .collect();
         }
 
         if eligible_indices.is_empty() {
@@ -808,17 +830,17 @@ impl SoundtrackManager {
 
         // Identify uncategorized tracks in the eligible pool
         let uncategorized_indices: Vec<usize> = eligible_indices
-            .iter()
-            .copied()
-            .filter(|&idx| {
-                if let Some(t) = self.tracks.get(idx) {
-                    t.categories.contains(&SoundtrackCategory::Uncategorized)
-                        || t.file_path.to_string_lossy().to_ascii_lowercase().contains("uncategorized")
-                } else {
-                    false
-                }
-            })
-            .collect();
+        .iter()
+        .copied()
+        .filter(|&idx| {
+            if let Some(t) = self.tracks.get(idx) {
+                t.categories.contains(&SoundtrackCategory::Uncategorized)
+                || t.file_path.to_string_lossy().to_ascii_lowercase().contains("uncategorized")
+            } else {
+                false
+            }
+        })
+        .collect();
 
         let chosen_idx = if !uncategorized_indices.is_empty() {
             // Keep queue clean of any indices no longer eligible
@@ -839,10 +861,10 @@ impl SoundtrackManager {
             eligible_indices[0]
         } else {
             let filtered: Vec<usize> = eligible_indices
-                .iter()
-                .copied()
-                .filter(|&i| Some(i) != self.last_played_idx)
-                .collect();
+            .iter()
+            .copied()
+            .filter(|&i| Some(i) != self.last_played_idx)
+            .collect();
             let pool = if filtered.is_empty() { &eligible_indices } else { &filtered };
             let rand_val = self.rand_f32(0.0, pool.len() as f32);
             let idx = (rand_val as usize).min(pool.len() - 1);
@@ -875,12 +897,24 @@ impl SoundtrackManager {
         let (tx, rx) = std::sync::mpsc::channel();
         let track = self.tracks[idx].clone();
         let _ = std::thread::Builder::new()
-            .name("soundtrack-async-loader".to_string())
-            .spawn(move || {
-                let mut track = track;
-                let res = track.load_sample();
-                let _ = tx.send(res);
-            });
+        .name("soundtrack-async-loader".to_string())
+        // PS Vita defaults new threads to a tiny 64 KB stack, which overflows inside Opus/Vorbis decoders
+        .stack_size(1024 * 1024)
+        .spawn(move || {
+            #[cfg(target_os = "vita")]
+            unsafe {
+                // Main game loop is pinned to CPU Core 0 (0x00010000).
+                // Move background audio decoder to idle CPU Cores 1 & 2 (0x00060000) so it doesn't starve!
+                extern "C" {
+                    fn sceKernelChangeThreadCpuAffinityMask(thid: i32, mask: i32) -> i32;
+                }
+                let _ = sceKernelChangeThreadCpuAffinityMask(0, 0x00060000);
+            }
+
+            let mut track = track;
+            let res = track.load_sample();
+            let _ = tx.send(res);
+        });
 
         self.loading_track = Some(AsyncTrackLoader {
             track_idx: idx,
@@ -892,10 +926,10 @@ impl SoundtrackManager {
         let title = self.tracks[idx].title.clone();
         let artist = self.tracks[idx].artist.clone();
         let primary_cat = self.tracks[idx]
-            .categories
-            .first()
-            .copied()
-            .unwrap_or(SoundtrackCategory::Uncategorized);
+        .categories
+        .first()
+        .copied()
+        .unwrap_or(SoundtrackCategory::Uncategorized);
 
         self.current_track_idx = Some(idx);
         self.last_played_idx = Some(idx);
@@ -903,6 +937,13 @@ impl SoundtrackManager {
 
         audio.play_music(sample, 1.0, false);
         self.toast.show(&title, &artist, primary_cat);
+
+        #[cfg(target_os = "vita")]
+        crate::vita_log!(
+            "[SOUNDTRACK] Playing '{}' ({:.1}s)",
+                         title,
+                         self.current_duration_sec
+        );
 
         crate::log_info!(
             "SOUNDTRACK",
@@ -939,11 +980,11 @@ impl SoundtrackManager {
         if is_paused && music_active {
             // Pause menu: always display toast of current soundtrack with progress bar
             let track_info = self.current_track_idx
-                .and_then(|i| self.tracks.get(i))
-                .map(|track| {
-                    let cat = track.categories.first().copied().unwrap_or(SoundtrackCategory::Uncategorized);
-                    (track.title.clone(), track.artist.clone(), cat)
-                });
+            .and_then(|i| self.tracks.get(i))
+            .map(|track| {
+                let cat = track.categories.first().copied().unwrap_or(SoundtrackCategory::Uncategorized);
+                (track.title.clone(), track.artist.clone(), cat)
+            });
 
             if let Some((title, artist, cat)) = track_info {
                 self.toast.title = title;
@@ -1012,19 +1053,19 @@ mod tests {
     fn test_embedded_soundtracks_load_without_filesystem_assets() {
         assert!(!crate::embedded_assets::SOUNDTRACKS.is_empty());
         let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
         let temp_dir = std::env::temp_dir().join(format!(
             "rustcraft-embedded-soundtracks-{}-{unique}",
             std::process::id()
         ));
         let mut manager = SoundtrackManager::new(&temp_dir);
         let embedded_track = manager
-            .tracks
-            .iter_mut()
-            .find(|track| track.embedded_data.is_some())
-            .expect("embedded track should be registered");
+        .tracks
+        .iter_mut()
+        .find(|track| track.embedded_data.is_some())
+        .expect("embedded track should be registered");
 
         let sample = embedded_track.load_sample().expect("embedded audio should decode");
         assert!(!sample.data.is_empty());
@@ -1036,9 +1077,9 @@ mod tests {
     #[test]
     fn test_embedded_soundtrack_preloads_for_startup_menu() {
         let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
         let temp_dir = std::env::temp_dir().join(format!(
             "rustcraft-embedded-intro-{}-{unique}",
             std::process::id()
@@ -1133,12 +1174,12 @@ mod tests {
         let mut mgr = SoundtrackManager::new("soundtracks");
         // Filter uncategorized tracks
         let uncategorized_indices: Vec<usize> = mgr
-            .tracks
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| t.categories.contains(&SoundtrackCategory::Uncategorized))
-            .map(|(i, _)| i)
-            .collect();
+        .tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| t.categories.contains(&SoundtrackCategory::Uncategorized))
+        .map(|(i, _)| i)
+        .collect();
 
         assert!(uncategorized_indices.len() >= 3, "Expected at least 3 uncategorized tracks");
 

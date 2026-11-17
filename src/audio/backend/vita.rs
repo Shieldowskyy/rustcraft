@@ -1,31 +1,45 @@
 //! PlayStation Vita (PS Vita) native audio backend via VitaSDK SceAudioOut.
 //! Target: `armv7-sony-vita-newlibeabihf`
 //!
-//! # PS Vita SceAudioOut constraints (vitasdk docs):
-//!   - `sceAudioOutOpenPort` `len` MUST be a multiple of 64 (SCE_AUDIO_MIN_LEN).
-//!   - Maximum `len` is 65 472 frames (SCE_AUDIO_MAX_LEN).
-//!   - `sceAudioOutOutput` is *blocking* — it blocks until the hardware consumes the
-//!     previous buffer, so it must receive exactly `len` stereo frames (i.e. `len * 2`
-//!     i16 values) every call.  Sending a different count corrupts the stream or panics.
-//!   - The hardware only accepts 48 000 Hz; other rates cause sceAudioOut to reject the
-//!     port or produce garbage output.
+//! The game/mixer thread only converts and queues PCM. A dedicated output
+//! thread owns the blocking `sceAudioOutOutput()` calls so the mixer/render
+//! thread is not stalled by the hardware audio port.
 
 use super::AudioBackend;
+use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::sync::Mutex;
+use std::thread::JoinHandle;
 
-/// Number of stereo frames per hardware buffer.
-///
-/// Must be a multiple of 64 and must equal **exactly** the `scratch_buffer` frame
-/// count used by the audio-engine worker thread.  The engine uses a fixed 2 048-sample
-/// interleaved stereo buffer ⇒ 1 024 stereo frames.  1 024 / 64 = 16 ✓.
-const VITA_FRAMES_PER_BUFFER: i32 = 1024;
+/// SceAudioOut expects a frame count divisible by 64.
+/// 1024 stereo frames = 2048 interleaved i16 samples = about 21.3 ms
+/// at 48 kHz (or the selected source rate).
+const VITA_FRAMES_PER_BUFFER: usize = 1024;
+const VITA_SAMPLES_PER_BUFFER: usize = VITA_FRAMES_PER_BUFFER * 2;
+/// A small pool smooths short scheduling delays without adding a large
+/// amount of input latency. Buffers are recycled; the steady-state path
+/// does not allocate.
+const VITA_BUFFER_POOL_SIZE: usize = 8;
+
+type PcmBuffer = Box<[i16; VITA_SAMPLES_PER_BUFFER]>;
 
 pub struct VitaAudioBackend {
-    #[allow(dead_code)] // read inside #[cfg(target_os = "vita")] blocks only
     port: i32,
     active: bool,
-    /// Pre-allocated i16 scratch — sized for exactly VITA_FRAMES_PER_BUFFER stereo frames.
-    /// Allocated once in `init` to avoid per-frame heap churn on Vita's slow allocator.
-    pcm_scratch: Vec<i16>,
+    input_channels: usize,
+
+    /// A partial input frame is retained across calls (e.g. if a producer
+    /// splits a stereo frame between two writes).
+    partial_input_frame: Vec<f32>,
+
+    /// Buffer currently being filled by write_samples().
+    current_buffer: Option<PcmBuffer>,
+    frames_in_current_buffer: usize,
+
+    /// Producer receives recycled buffers here and sends completed buffers
+    /// to the dedicated SceAudioOut thread.
+    free_buffers_rx: Option<Mutex<Receiver<PcmBuffer>>>,
+    output_tx: Option<SyncSender<PcmBuffer>>,
+    output_thread: Option<JoinHandle<()>>,
 }
 
 impl VitaAudioBackend {
@@ -33,8 +47,81 @@ impl VitaAudioBackend {
         Self {
             port: -1,
             active: false,
-            // Zero-capacity — real allocation happens in init() so the size is known.
-            pcm_scratch: Vec::new(),
+            input_channels: 2,
+            partial_input_frame: Vec::with_capacity(2),
+            current_buffer: None,
+            frames_in_current_buffer: 0,
+            free_buffers_rx: None,
+            output_tx: None,
+            output_thread: None,
+        }
+    }
+
+    #[inline]
+    fn to_i16(sample: f32) -> i16 {
+        let finite = if sample.is_finite() { sample } else { 0.0 };
+        (finite.clamp(-1.0, 1.0) * 32_767.0) as i16
+    }
+
+    /// Adds one stereo frame to the persistent staging buffer. When it fills,
+    /// ownership is transferred to the output thread and a recycled buffer is
+    /// acquired for the next frame.
+    #[inline]
+    fn push_stereo_frame(&mut self, left: f32, right: f32) {
+        if !self.active {
+            return;
+        }
+
+        if self.current_buffer.is_none() {
+            let next = self
+                .free_buffers_rx
+                .as_ref()
+                .and_then(|rx| rx.lock().ok())
+                .and_then(|rx| rx.recv().ok());
+            match next {
+                Some(buffer) => self.current_buffer = Some(buffer),
+                None => {
+                    self.active = false;
+                    crate::vita_log!("[AUDIO] PCM buffer pool disconnected; audio output stopped");
+                    return;
+                }
+            }
+        }
+
+        let frame = self.frames_in_current_buffer;
+        if let Some(buffer) = self.current_buffer.as_mut() {
+            let sample_index = frame * 2;
+            buffer[sample_index] = Self::to_i16(left);
+            buffer[sample_index + 1] = Self::to_i16(right);
+        } else {
+            return;
+        }
+
+        self.frames_in_current_buffer += 1;
+        if self.frames_in_current_buffer == VITA_FRAMES_PER_BUFFER {
+            let completed = match self.current_buffer.take() {
+                Some(buffer) => buffer,
+                None => {
+                    self.frames_in_current_buffer = 0;
+                    return;
+                }
+            };
+            self.frames_in_current_buffer = 0;
+
+            match self.output_tx.as_ref() {
+                Some(tx) => {
+                    // Bounded back-pressure: never silently throw away a full
+                    // audio buffer. This normally returns immediately because
+                    // the output thread continuously recycles the pool.
+                    if tx.send(completed).is_err() {
+                        self.active = false;
+                        crate::vita_log!("[AUDIO] SceAudioOut worker disconnected");
+                    }
+                }
+                None => {
+                    self.active = false;
+                }
+            }
         }
     }
 }
@@ -46,75 +133,187 @@ impl Default for VitaAudioBackend {
 }
 
 impl AudioBackend for VitaAudioBackend {
-    fn init(&mut self, _sample_rate: u32, _channels: u16) -> Result<(), String> {
-        // Pre-allocate the i16 scratch buffer once so write_samples() never allocates.
-        // VITA_FRAMES_PER_BUFFER stereo frames × 2 channels = total i16 samples needed.
-        let scratch_capacity = (VITA_FRAMES_PER_BUFFER as usize) * 2;
-        self.pcm_scratch = vec![0i16; scratch_capacity];
+    fn init(&mut self, sample_rate: u32, channels: u16) -> Result<(), String> {
+        if self.active || self.output_thread.is_some() {
+            return Err("Vita audio backend is already initialized".to_string());
+        }
+
+        // SceAudioOut supports these rates. Use the engine's rate rather than
+        // forcing 48 kHz and accidentally changing playback speed/pitch.
+        let supported_rate = matches!(
+            sample_rate,
+            8_000 | 11_025 | 12_000 | 16_000 | 22_050 | 24_000 | 32_000 | 44_100 | 44_184 | 48_000
+        );
+        if !supported_rate {
+            return Err(format!(
+                "Unsupported Vita audio sample rate: {sample_rate} Hz"
+            ));
+        }
+
+        if channels != 1 && channels != 2 {
+            return Err(format!(
+                "Vita audio backend supports mono or stereo input, got {channels} channels"
+            ));
+        }
+
+        self.input_channels = channels as usize;
+        self.partial_input_frame.clear();
 
         #[cfg(target_os = "vita")]
         {
-            // SCE_AUDIO_OUT_PORT_TYPE_MAIN = 0
-            // len must be a multiple of 64 — VITA_FRAMES_PER_BUFFER = 1024 ✓
-            // freq must be 48 000 Hz (hardware-native rate on Vita)
-            // SCE_AUDIO_OUT_MODE_STEREO = 0
+            // VitaSDK enum values: MONO = 0, STEREO = 1.
+            // The backend always emits interleaved stereo PCM, duplicating
+            // mono input to L/R when necessary.
+            const SCE_AUDIO_OUT_PORT_TYPE_MAIN: i32 = 0;
+            const SCE_AUDIO_OUT_MODE_STEREO: i32 = 1;
+            const SCE_AUDIO_VOLUME_FLAG_LR: i32 = 3;
+
             let port = unsafe {
-                sceAudioOutOpenPort(0, VITA_FRAMES_PER_BUFFER, 48_000, 0)
+                sceAudioOutOpenPort(
+                    SCE_AUDIO_OUT_PORT_TYPE_MAIN,
+                    VITA_FRAMES_PER_BUFFER as i32,
+                    sample_rate as i32,
+                    SCE_AUDIO_OUT_MODE_STEREO,
+                )
             };
-            if port >= 0 {
-                self.port = port;
-                // SCE_AUDIO_VOLUME_0DB = 0x8000  (full volume, left & right)
-                // flag = 3 means set both L and R channels
-                let vols = [0x8000i32, 0x8000i32];
-                unsafe { sceAudioOutSetVolume(port, 3, vols.as_ptr()) };
-                self.active = true;
-                Ok(())
-            } else {
-                Err(format!(
-                    "sceAudioOutOpenPort(len={VITA_FRAMES_PER_BUFFER}, freq=48000) \
-                     failed with error code {port:#010x}"
-                ))
+
+            if port < 0 {
+                let err = format!(
+                    "sceAudioOutOpenPort(len={}, freq={}, stereo) failed: {:#010x}",
+                    VITA_FRAMES_PER_BUFFER,
+                    sample_rate,
+                    port as u32
+                );
+                crate::vita_log!("[AUDIO] {}", err);
+                return Err(err);
             }
+
+            let volumes = [0x8000i32, 0x8000i32];
+            let volume_result = unsafe {
+                sceAudioOutSetVolume(port, SCE_AUDIO_VOLUME_FLAG_LR, volumes.as_ptr())
+            };
+            if volume_result < 0 {
+                unsafe { sceAudioOutReleasePort(port); }
+                let err = format!(
+                    "sceAudioOutSetVolume failed: {:#010x}",
+                    volume_result as u32
+                );
+                crate::vita_log!("[AUDIO] {}", err);
+                return Err(err);
+            }
+
+            let (output_tx, output_rx) =
+                mpsc::sync_channel::<PcmBuffer>(VITA_BUFFER_POOL_SIZE);
+            let (free_tx, free_rx) =
+                mpsc::sync_channel::<PcmBuffer>(VITA_BUFFER_POOL_SIZE);
+
+            for _ in 0..VITA_BUFFER_POOL_SIZE {
+                if free_tx.send(Box::new([0i16; VITA_SAMPLES_PER_BUFFER])).is_err() {
+                    unsafe { sceAudioOutReleasePort(port); }
+                    return Err("Failed to initialize Vita PCM buffer pool".to_string());
+                }
+            }
+
+            let output_thread = std::thread::Builder::new()
+                .name("vita_audio_out".to_string())
+                .spawn(move || {
+                    let mut consecutive_errors = 0u32;
+
+                    // This is the only thread that calls the blocking audio API.
+                    while let Ok(buffer) = output_rx.recv() {
+                        let result = unsafe {
+                            sceAudioOutOutput(port, buffer.as_ptr() as *const std::ffi::c_void)
+                        };
+
+                        if result < 0 {
+                            consecutive_errors = consecutive_errors.saturating_add(1);
+                            if consecutive_errors == 1 || consecutive_errors % 128 == 0 {
+                                crate::vita_log!(
+                                    "[AUDIO] sceAudioOutOutput error {:#010x} (count={})",
+                                    result as u32,
+                                    consecutive_errors
+                                );
+                            }
+                        } else {
+                            consecutive_errors = 0;
+                        }
+
+                        // Recycle the same allocation. If the backend is being
+                        // dropped, the receiver is gone and the worker exits.
+                        if free_tx.send(buffer).is_err() {
+                            break;
+                        }
+                    }
+
+                    unsafe { sceAudioOutReleasePort(port); }
+                    crate::vita_log!("[AUDIO] SceAudioOut worker stopped");
+                });
+
+            let output_thread = match output_thread {
+                Ok(thread) => thread,
+                Err(error) => {
+                    unsafe { sceAudioOutReleasePort(port); }
+                    return Err(format!("Failed to spawn Vita audio output thread: {error}"));
+                }
+            };
+
+            self.port = port;
+            self.free_buffers_rx = Some(Mutex::new(free_rx));
+            self.output_tx = Some(output_tx);
+            self.output_thread = Some(output_thread);
+            self.active = true;
+
+            crate::vita_log!(
+                "[AUDIO] SceAudioOut initialized (port={}, len={} frames, freq={}, stereo, queued worker)",
+                port,
+                VITA_FRAMES_PER_BUFFER,
+                sample_rate
+            );
+            Ok(())
         }
 
         #[cfg(not(target_os = "vita"))]
         {
+            // Keep host builds usable; this backend intentionally produces no
+            // hardware audio outside the Vita target.
             self.active = true;
             Ok(())
         }
     }
 
-    /// Converts `samples` (interleaved stereo f32) to i16 PCM and feeds the Vita hardware.
-    ///
-    /// `samples.len()` must equal `VITA_FRAMES_PER_BUFFER * 2` (= 2 048).
-    /// The engine worker always passes exactly that many samples; any other length is
-    /// silently skipped to prevent passing a mismatched buffer to `sceAudioOutOutput`.
+    /// Accepts arbitrary slice lengths. Incomplete input frames are carried to
+    /// the next call, and complete stereo frames are accumulated until a full
+    /// SceAudioOut packet is ready. No samples are discarded just because a
+    /// write is shorter or longer than the hardware packet size.
     fn write_samples(&mut self, samples: &[f32]) {
-        if !self.active {
+        if !self.active || samples.is_empty() {
             return;
-        }
-
-        let expected = (VITA_FRAMES_PER_BUFFER as usize) * 2;
-
-        // Guard: sceAudioOutOutput is a blocking call that expects EXACTLY `len` stereo
-        // frames.  Sending the wrong amount crashes or corrupts the audio DMA engine.
-        if samples.len() != expected {
-            return;
-        }
-
-        // Convert f32 [-1.0, 1.0] → i16 in-place using the pre-allocated scratch.
-        // No allocation happens here.
-        for (dst, &src) in self.pcm_scratch.iter_mut().zip(samples.iter()) {
-            *dst = (src * 32_767.0).clamp(-32_768.0, 32_767.0) as i16;
         }
 
         #[cfg(target_os = "vita")]
-        if self.port >= 0 {
-            // sceAudioOutOutput blocks until the hardware DMA consumes the previous
-            // buffer, then copies the new one.  This is the correct Vita audio pattern.
-            unsafe {
-                sceAudioOutOutput(self.port, self.pcm_scratch.as_ptr() as *const _);
+        {
+            let channels = self.input_channels;
+            for &sample in samples {
+                self.partial_input_frame.push(sample);
+                if self.partial_input_frame.len() == channels {
+                    let left = self.partial_input_frame[0];
+                    let right = if channels == 1 {
+                        left
+                    } else {
+                        self.partial_input_frame[1]
+                    };
+                    self.partial_input_frame.clear();
+                    self.push_stereo_frame(left, right);
+                    if !self.active {
+                        break;
+                    }
+                }
             }
+        }
+
+        #[cfg(not(target_os = "vita"))]
+        {
+            let _ = samples;
         }
     }
 
@@ -129,14 +328,21 @@ impl AudioBackend for VitaAudioBackend {
 
 impl Drop for VitaAudioBackend {
     fn drop(&mut self) {
-        #[cfg(target_os = "vita")]
-        if self.port >= 0 {
-            unsafe {
-                sceAudioOutReleasePort(self.port);
-            }
-            self.port = -1;
-            self.active = false;
+        self.active = false;
+
+        // Closing the producer disconnects output_rx. The worker drains any
+        // already queued packets, then releases the port and exits. Join before
+        // dropping free_buffers_rx so the worker can recycle its last packet.
+        self.output_tx.take();
+        self.current_buffer.take();
+        self.frames_in_current_buffer = 0;
+
+        if let Some(worker) = self.output_thread.take() {
+            let _ = worker.join();
         }
+
+        self.free_buffers_rx.take();
+        self.port = -1;
     }
 }
 

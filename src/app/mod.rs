@@ -228,10 +228,10 @@ pub struct RustCraftApp {
     pub menu_fade_timer: f32,
 }
 
-
-
 impl RustCraftApp {
     pub fn new(width: usize, height: usize, renderer_choice: &str, seed: u32) -> Self {
+        #[cfg(target_os = "vita")]
+        crate::vita_log!("[App::new 1/6] Loading settings, mods and language...");
         crate::log_info!("APP", "[Step 1/5] Loading game configuration, mods and language...");
         let mut settings = GameSettings::load();
         settings.apply_ram_limit();
@@ -240,6 +240,8 @@ impl RustCraftApp {
         let mut recipe_book = RecipeBook::new();
         crate::engine::modding::ModManager::load_mods(&mut recipe_book);
 
+        #[cfg(target_os = "vita")]
+        crate::vita_log!("[App::new 2/6] Initializing software/2D renderer ({}x{})...", width, height);
         crate::log_info!("APP", "[Step 2/5] Initializing renderer ({})...", renderer_choice);
         let mut renderer = match renderer_choice {
             #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
@@ -260,12 +262,16 @@ impl RustCraftApp {
             renderer.update_textures(false);
         }
 
+        #[cfg(target_os = "vita")]
+        crate::vita_log!("[App::new 3/6] Initializing World::new_with_seed({})...", seed);
         crate::log_info!("APP", "[Step 3/5] Initializing world instance (seed: {})...", seed);
         let world = World::new_with_seed(seed);
         let start_player_pos = world.player_position;
         let (initial_biome, _) = crate::world::get_biome_at(start_player_pos.x.floor() as i32, start_player_pos.z.floor() as i32, world.seed);
         let initial_biome_tint = initial_biome.color_filter();
 
+        #[cfg(target_os = "vita")]
+        crate::vita_log!("[App::new 4/6] Initializing camera, player & UI layout...");
         crate::log_info!("APP", "[Step 4/5] Initializing camera, player & UI layout...");
         let camera = Camera::new(start_player_pos);
 
@@ -314,6 +320,8 @@ impl RustCraftApp {
             (GameState::MainMenu, None)
         };
 
+        #[cfg(target_os = "vita")]
+        crate::vita_log!("[App::new 5/6] Initializing AudioEngine...");
         let mut audio = crate::audio::AudioEngine::new();
         audio.set_master_volume(settings.master_volume);
         audio.set_sfx_volume(settings.sfx_volume);
@@ -324,8 +332,13 @@ impl RustCraftApp {
             audio.toggle_mute();
         }
 
+        #[cfg(target_os = "vita")]
+        crate::vita_log!("[App::new 6/6] Initializing SoundtrackManager...");
         let mut soundtrack = crate::audio::take_preloaded_manager().unwrap_or_else(|| {
+            #[allow(unused_mut)]
             let mut m = crate::audio::SoundtrackManager::new(crate::world::storage::soundtracks_dir());
+            // On PS Vita, skip synchronous full-track PCM decode during startup to conserve contiguous Newlib heap
+            #[cfg(not(target_os = "vita"))]
             m.preload_intro(crate::audio::SoundtrackCategory::Menu);
             m
         });
@@ -528,10 +541,11 @@ impl RustCraftApp {
             dev_logo_timer: 0.0,
             menu_fade_timer: 0.0,
         };
+        #[cfg(target_os = "vita")]
+        crate::vita_log!("[App::new DONE] RustCraftApp constructed successfully.");
         crate::log_info!("INIT", "RustCraftApp initialized ({}x{}, renderer: {}, seed: {})", width, height, renderer_choice, seed);
         app
     }
-
 
     pub fn pixel_buffer(&self) -> &[u32] {
         self.renderer.pixel_buffer()
@@ -903,8 +917,6 @@ impl RustCraftApp {
         out
     }
 
-
-
     pub fn resize(&mut self, width: usize, height: usize) {
         if width == 0 || height == 0 || (self.width == width && self.height == height) {
             return;
@@ -933,8 +945,6 @@ impl RustCraftApp {
         self.proj_matrix = self.camera.projection_matrix(aspect);
     }
 }
-
-
 
 impl RustCraftApp {
     pub(crate) fn process_achievement_unlocks(&mut self, unlocked: Vec<AchievementId>) {

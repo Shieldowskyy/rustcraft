@@ -170,10 +170,10 @@ impl DevLogo {
     }
 
     /// Draws the logo centered on a black screen, scaled to fit while preserving aspect ratio
-    /// (works for both square and rectangular images).
+    /// using fixed-point 16.16 UV stepping and integer SWAR alpha scaling (zero per-pixel float/div).
     pub fn draw(&self, buffer: &mut [u32], buf_w: usize, buf_h: usize, fade: f32) {
-        buffer.iter_mut().for_each(|p| *p = 0);
-        if self.width == 0 || self.height == 0 || buf_w == 0 || buf_h == 0 {
+        buffer.fill(0);
+        if self.width == 0 || self.height == 0 || buf_w == 0 || buf_h == 0 || fade <= 0.002 {
             return;
         }
         let max_w = buf_w as f32 * 0.6;
@@ -184,26 +184,40 @@ impl DevLogo {
         let x0 = (buf_w.saturating_sub(dw)) / 2;
         let y0 = (buf_h.saturating_sub(dh)) / 2;
 
-        for dy in 0..dh {
-            let sy = (dy * self.height / dh).min(self.height - 1);
-            let row = (y0 + dy) * buf_w;
-            if y0 + dy >= buf_h {
-                break;
-            }
-            for dx in 0..dw {
-                if x0 + dx >= buf_w {
-                    break;
-                }
-                let sx = (dx * self.width / dw).min(self.width - 1);
-                let px = self.pixels[sy * self.width + sx];
-                let a = ((px >> 24) & 0xFF) as f32 / 255.0 * fade;
-                if a <= 0.0 {
+        let draw_w = dw.min(buf_w.saturating_sub(x0));
+        let draw_h = dh.min(buf_h.saturating_sub(y0));
+        let max_sx = self.width - 1;
+        let max_sy = self.height - 1;
+
+        // 16.16 fixed-point texture coordinate increments (eliminates per-pixel integer division)
+        let step_x = ((self.width as u64) << 16) / (dw as u64);
+        let step_y = ((self.height as u64) << 16) / (dh as u64);
+        let fade_fixed = (fade.clamp(0.0, 1.0) * 257.0) as u32;
+
+        let mut sy_fp: u64 = 0;
+        for dy in 0..draw_h {
+            let sy = ((sy_fp >> 16) as usize).min(max_sy);
+            sy_fp += step_y;
+
+            let src_row = sy * self.width;
+            let dst_row = (y0 + dy) * buf_w + x0;
+            let dst_slice = &mut buffer[dst_row..dst_row + draw_w];
+
+            let mut sx_fp: u64 = 0;
+            for dst_px in dst_slice.iter_mut() {
+                let sx = ((sx_fp >> 16) as usize).min(max_sx);
+                sx_fp += step_x;
+
+                let px = self.pixels[src_row + sx];
+                let src_a = px >> 24;
+                if src_a == 0 {
                     continue;
                 }
-                let r = (((px >> 16) & 0xFF) as f32 * a) as u32;
-                let g = (((px >> 8) & 0xFF) as f32 * a) as u32;
-                let b = ((px & 0xFF) as f32 * a) as u32;
-                buffer[row + x0 + dx] = (r << 16) | (g << 8) | b;
+                // Combined 0..=256 alpha factor
+                let alpha = (src_a * fade_fixed) >> 8;
+                let rb = (((px & 0x00FF00FF) * alpha) >> 8) & 0x00FF00FF;
+                let g = (((px & 0x0000FF00) * alpha) >> 8) & 0x0000FF00;
+                *dst_px = rb | g;
             }
         }
     }

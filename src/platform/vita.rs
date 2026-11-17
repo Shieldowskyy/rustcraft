@@ -9,6 +9,35 @@
 use crate::app::{InputState, RustCraftApp};
 
 // ============================================================================
+// 0. PS Vita Thread Stack & Heap Configuration (Prevents Stack/Heap OOM Crash)
+// ============================================================================
+// Default PS Vita main thread stack is tiny (~256 KB) and default libc heap
+// is ~32 MB. Without increasing these symbols, allocating RustCraftApp or
+// voxel chunks causes an immediate C2-12828-1 crash at startup.
+
+#[no_mangle]
+pub static sceUserMainThreadName: [u8; 10] = *b"RustCraft\0";
+
+#[no_mangle]
+pub static sceUserMainThreadPriority: i32 = 0x10000100;
+
+/// POPRAWKA SONY/OPTYMALIZACJA: Maska `0x7` pozwala wątkowi głównemu działać na wszystkich
+/// dostępnych rdzeniach użytkownika (0, 1 i 2), co unika konfliktów z wątkami meszera w tle.
+#[no_mangle]
+pub static sceUserMainThreadCpuAffinityMask: i32 = 0x7;
+
+/// 4 MB stack size for the main thread
+#[no_mangle]
+pub static sceUserMainThreadStackSize: u32 = 4 * 1024 * 1024;
+
+/// 180 MB Newlib heap size for Rust `std::alloc` on `armv7-sony-vita-newlibeabihf`.
+/// CRITICAL: VitaSDK's Newlib allocator reads `_newlib_heap_size_user` at startup.
+/// Without this symbol, Newlib defaults to a small heap and panics with:
+/// `memory allocation of 125829120 bytes failed` inside `RustCraftApp::new`.
+#[no_mangle]
+pub static _newlib_heap_size_user: u32 = 180 * 1024 * 1024;
+
+// ============================================================================
 // 1. VitaSDK Low-Level FFI Definitions (Zero external dependency requirement)
 // ============================================================================
 
@@ -16,6 +45,20 @@ pub type SceUID = i32;
 pub type SceSize = u32;
 
 pub const SCE_OK: i32 = 0;
+
+// File I/O (low-level SceIofilemgr for crash-safe logging without heap allocations)
+pub const SCE_O_WRONLY: i32 = 0x0002;
+pub const SCE_O_CREAT: i32 = 0x0200;
+pub const SCE_O_TRUNC: i32 = 0x0400;
+pub const SCE_O_APPEND: i32 = 0x0100;
+
+#[link(name = "SceIofilemgr_stub")]
+extern "C" {
+    pub fn sceIoOpen(file: *const u8, flags: i32, mode: i32) -> SceUID;
+    pub fn sceIoWrite(fd: SceUID, data: *const core::ffi::c_void, size: SceSize) -> i32;
+    pub fn sceIoClose(fd: SceUID) -> i32;
+    pub fn sceIoSync(device: *const u8, flag: u32) -> i32;
+}
 
 // Power & Clocks
 #[link(name = "ScePower_stub")]
@@ -44,6 +87,7 @@ pub const SCE_CTRL_CIRCLE: u32 = 0x00002000;
 pub const SCE_CTRL_CROSS: u32 = 0x00004000;
 pub const SCE_CTRL_SQUARE: u32 = 0x00008000;
 
+/// Exact 32-byte layout matching `SceCtrlData` from `psp2/ctrl.h`.
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct SceCtrlData {
@@ -59,8 +103,7 @@ pub struct SceCtrlData {
     pub left: u8,
     pub lt: u8,
     pub rt: u8,
-    pub ppad: [u8; 4],
-    pub reserved: [u8; 4],
+    pub reserved: [u8; 10],
 }
 
 #[link(name = "SceCtrl_stub")]
@@ -73,8 +116,10 @@ extern "C" {
 // Touch
 pub const SCE_TOUCH_PORT_FRONT: i32 = 0;
 pub const SCE_TOUCH_PORT_BACK: i32 = 1;
+pub const SCE_TOUCH_MAX_REPORT: usize = 64;
 
-#[repr(C)]
+/// Packed 16-byte touch report matching `SceTouchReport` from `psp2/touch.h`.
+#[repr(C, packed)]
 #[derive(Copy, Clone, Default)]
 pub struct SceTouchReport {
     pub id: u8,
@@ -85,12 +130,27 @@ pub struct SceTouchReport {
     pub info: u16,
 }
 
+/// Exact `SceTouchData` layout from `psp2/touch.h`.
+/// CRITICAL: `report` MUST have 64 elements (`SCE_TOUCH_MAX_REPORT`).
+/// Using 8 elements caused `sceTouchPeek` to overwrite ~896 bytes of the stack!
 #[repr(C)]
+#[derive(Copy, Clone)]
 pub struct SceTouchData {
     pub time_stamp: u64,
     pub status: u32,
     pub report_num: u32,
-    pub report: [SceTouchReport; 8],
+    pub report: [SceTouchReport; SCE_TOUCH_MAX_REPORT],
+}
+
+impl Default for SceTouchData {
+    fn default() -> Self {
+        Self {
+            time_stamp: 0,
+            status: 0,
+            report_num: 0,
+            report: [SceTouchReport::default(); SCE_TOUCH_MAX_REPORT],
+        }
+    }
 }
 
 #[link(name = "SceTouch_stub")]
@@ -275,19 +335,34 @@ impl VitaImeManager {
         }
     }
 
+    /// Updates the IME dialog state.
+    /// NOTE: Passing `NULL` to `sceCommonDialogUpdate` crashes `SceCommonDialog` on PS Vita!
+    /// If you have a valid `SceCommonDialogUpdateParam` pointer from `GxmRenderer`, pass it via `update_with_param`.
     pub fn update(&mut self) -> Option<Option<String>> {
+        self.update_with_param(core::ptr::null())
+    }
+
+    pub fn update_with_param(&mut self, update_param: *const core::ffi::c_void) -> Option<Option<String>> {
         if !self.is_active {
             return None;
         }
 
         unsafe {
-            sceCommonDialogUpdate(core::ptr::null());
+            // Guard against NULL pointer crash in SceCommonDialogUpdate
+            if !update_param.is_null() {
+                sceCommonDialogUpdate(update_param);
+            }
+
             let status = sceImeDialogGetStatus();
             if status == SCE_COMMON_DIALOG_STATUS_FINISHED {
                 let mut result: SceImeDialogResult = core::mem::zeroed();
                 sceImeDialogGetResult(&mut result);
                 let text_opt = if result.button == SCE_IME_DIALOG_BUTTON_ENTER {
-                    let len = self.buffer_utf16.iter().position(|&c| c == 0).unwrap_or(self.buffer_utf16.len());
+                    let len = self
+                        .buffer_utf16
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(self.buffer_utf16.len());
                     String::from_utf16(&self.buffer_utf16[..len]).ok()
                 } else {
                     None
@@ -295,6 +370,10 @@ impl VitaImeManager {
                 sceImeDialogTerm();
                 self.is_active = false;
                 Some(text_opt)
+            } else if status < 0 || status == SCE_COMMON_DIALOG_STATUS_NONE {
+                // Dialog failed or closed unexpectedly
+                self.is_active = false;
+                Some(None)
             } else {
                 None
             }
@@ -302,16 +381,144 @@ impl VitaImeManager {
     }
 }
 
+// ============================================================================
+// 1c. Crash-Safe Logging & Panic Hook (No Heap Allocations on Panic)
+// ============================================================================
+
+/// Writes raw bytes directly to a PS Vita file descriptor using `SceIofilemgr`.
+/// Safe to call inside a panic handler (even during Out-Of-Memory conditions).
+pub fn write_crash_bytes(path: &[u8], data: &[u8], append: bool) {
+    let flags = if append {
+        SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND
+    } else {
+        SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC
+    };
+    unsafe {
+        let fd = sceIoOpen(path.as_ptr(), flags, 0o777);
+        if fd >= 0 {
+            sceIoWrite(fd, data.as_ptr() as *const core::ffi::c_void, data.len() as u32);
+            sceIoClose(fd);
+        }
+    }
+}
+
+/// Flushes `ux0:` filesystem buffers to disk (called during fatal panics).
+pub fn sync_crash_log() {
+    unsafe {
+        sceIoSync(b"ux0:\0".as_ptr(), 0);
+    }
+}
+
+/// Installs a global Rust panic hook that records the panic location, payload,
+/// thread name, and backtrace to both `sceClibPrintf` and `ux0:data/rustcraft_panic.log`.
+pub fn install_vita_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        use core::fmt::Write;
+
+        // Fixed 4 KB stack buffer so logging works even if the heap is exhausted
+        struct StackBuf {
+            buf: [u8; 4096],
+            pos: usize,
+        }
+
+        impl core::fmt::Write for StackBuf {
+            fn write_str(&mut self, s: &str) -> core::fmt::Result {
+                let bytes = s.as_bytes();
+                let rem = self.buf.len().saturating_sub(self.pos + 1); // reserve 1 byte for NUL
+                let to_copy = bytes.len().min(rem);
+                self.buf[self.pos..self.pos + to_copy].copy_from_slice(&bytes[..to_copy]);
+                self.pos += to_copy;
+                Ok(())
+            }
+        }
+
+        let mut out = StackBuf {
+            buf: [0u8; 4096],
+            pos: 0,
+        };
+
+        let _ = writeln!(out, "\n========================================");
+        let _ = writeln!(out, "       RUSTCRAFT PS VITA PANIC!         ");
+        let _ = writeln!(out, "========================================");
+
+        if let Some(name) = std::thread::current().name() {
+            let _ = writeln!(out, "Thread:   {}", name);
+        }
+
+        if let Some(loc) = info.location() {
+            let _ = writeln!(out, "Location: {}:{}:{}", loc.file(), loc.line(), loc.column());
+        } else {
+            let _ = writeln!(out, "Location: <unknown>");
+        }
+
+        let payload_str = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            *s
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.as_str()
+        } else {
+            "<non-string panic payload>"
+        };
+        let _ = writeln!(out, "Message:  {}", payload_str);
+
+        let bt = std::backtrace::Backtrace::force_capture();
+        let _ = writeln!(out, "\nBacktrace:\n{}", bt);
+        let _ = writeln!(out, "========================================");
+
+        let len = out.pos.min(out.buf.len() - 1);
+        out.buf[len] = 0;
+
+        // 1. Output to Vita debug console (Vita3K / PrincessLog)
+        unsafe {
+            extern "C" {
+                fn sceClibPrintf(fmt: *const core::ffi::c_char, ...);
+            }
+            sceClibPrintf(
+                b"%s\n\0".as_ptr() as *const core::ffi::c_char,
+                out.buf.as_ptr() as *const core::ffi::c_char,
+            );
+        }
+
+        // 2. Persist panic report to ux0:data/rustcraft_panic.log
+        write_crash_bytes(b"ux0:data/rustcraft_panic.log\0", &out.buf[..len], false);
+
+        // 3. Also append a marker to boot log so timeline is clear
+        write_crash_bytes(
+            b"ux0:data/rustcraft_boot.log\0",
+            b"\n[FATAL] Rust panic occurred! See ux0:data/rustcraft_panic.log\n",
+            true,
+        );
+
+        sync_crash_log();
+
+        // Give the Vita storage controller 500ms to flush the file before process termination
+        unsafe {
+            sceKernelDelayThread(500_000);
+        }
+    }));
+}
+
 #[macro_export]
 macro_rules! vita_log {
     ($($arg:tt)*) => {{
-        let msg = format!($($arg)*);
+        let mut msg = format!($($arg)*);
+        msg.push('\n');
+
+        // In debug builds, mirror every boot/runtime log line to ux0:data/rustcraft_boot.log
+        #[cfg(debug_assertions)]
+        {
+            $crate::platform::vita::write_crash_bytes(
+                b"ux0:data/rustcraft_boot.log\0",
+                msg.as_bytes(),
+                true,
+            );
+        }
+
         // SAFETY: sceClibPrintf is the Vita kernel's printf; CString guarantees NUL termination.
         #[allow(unused_unsafe)]
         unsafe {
             extern "C" { fn sceClibPrintf(fmt: *const core::ffi::c_char, ...); }
             if let Ok(c_msg) = std::ffi::CString::new(msg) {
-                sceClibPrintf(b"%s\n\0".as_ptr() as *const core::ffi::c_char, c_msg.as_ptr());
+                sceClibPrintf(b"%s\0".as_ptr() as *const core::ffi::c_char, c_msg.as_ptr());
             }
         }
     }};
@@ -334,15 +541,29 @@ impl VitaDisplay {
         let mut framebuffers = [core::ptr::null_mut(); 2];
 
         for i in 0..2 {
-            let name = if i == 0 { b"RustCraft_FB0\0".as_ptr() } else { b"RustCraft_FB1\0".as_ptr() };
+            let name = if i == 0 {
+                b"RustCraft_FB0\0".as_ptr()
+            } else {
+                b"RustCraft_FB1\0".as_ptr()
+            };
             // Try allocating in CDRAM first (fastest video memory on PS Vita)
             let mut uid = unsafe {
-                sceKernelAllocMemBlock(name, SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, fb_size as u32, core::ptr::null())
+                sceKernelAllocMemBlock(
+                    name,
+                    SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW,
+                    fb_size as u32,
+                    core::ptr::null(),
+                )
             };
             // Fallback to standard user RAM if CDRAM is unavailable
             if uid < 0 {
                 uid = unsafe {
-                    sceKernelAllocMemBlock(name, SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, fb_size as u32, core::ptr::null())
+                    sceKernelAllocMemBlock(
+                        name,
+                        SCE_KERNEL_MEMBLOCK_TYPE_USER_RW,
+                        fb_size as u32,
+                        core::ptr::null(),
+                    )
                 };
             }
             if uid < 0 {
@@ -356,7 +577,11 @@ impl VitaDisplay {
                     return Err("Failed to query base pointer for framebuffer memory block");
                 }
                 // Zero out framebuffer memory
-                core::ptr::write_bytes(base as *mut u8, 0, (VITA_SCREEN_STRIDE * VITA_SCREEN_HEIGHT * 4) as usize);
+                core::ptr::write_bytes(
+                    base as *mut u8,
+                    0,
+                    (VITA_SCREEN_STRIDE * VITA_SCREEN_HEIGHT * 4) as usize,
+                );
             }
 
             memblock_uid[i] = uid;
@@ -427,7 +652,9 @@ impl Drop for VitaDisplay {
     fn drop(&mut self) {
         for uid in self.memblock_uid {
             if uid > 0 {
-                unsafe { sceKernelFreeMemBlock(uid); }
+                unsafe {
+                    sceKernelFreeMemBlock(uid);
+                }
             }
         }
     }
@@ -440,6 +667,7 @@ impl Drop for VitaDisplay {
 pub struct VitaInputTracker {
     prev_buttons: u32,
     prev_touch_count: u32,
+    touch_buf: Box<SceTouchData>,
     pub cursor_x: f32,
     pub cursor_y: f32,
     pub cursor_active: bool,
@@ -455,6 +683,7 @@ impl VitaInputTracker {
         Self {
             prev_buttons: 0,
             prev_touch_count: 0,
+            touch_buf: Box::new(SceTouchData::default()),
             cursor_x: 480.0,
             cursor_y: 272.0,
             cursor_active: false,
@@ -502,24 +731,27 @@ impl VitaInputTracker {
         let dpad_right = buttons & SCE_CTRL_RIGHT != 0;
         let dpad_any_just = just_pressed(SCE_CTRL_UP | SCE_CTRL_DOWN | SCE_CTRL_LEFT | SCE_CTRL_RIGHT);
 
-        // Poll front capacitive touchscreen
-        let mut touch = SceTouchData {
-            time_stamp: 0,
-            status: 0,
-            report_num: 0,
-            report: [SceTouchReport::default(); 8],
+        // Poll front capacitive touchscreen using heap-allocated buffer of full 64 reports
+        self.touch_buf.report_num = 0;
+        let touch_res = unsafe {
+            sceTouchPeek(SCE_TOUCH_PORT_FRONT, &mut *self.touch_buf, 1)
         };
-        unsafe {
-            sceTouchPeek(SCE_TOUCH_PORT_FRONT, &mut touch, 1);
-        }
 
-        let touch_active = touch.report_num > 0;
-        let touch_just_pressed = touch.report_num > 0 && self.prev_touch_count == 0;
+        let report_num = if touch_res >= 0 {
+            self.touch_buf.report_num
+        } else {
+            0
+        };
+
+        let touch_active = report_num > 0;
+        let touch_just_pressed = report_num > 0 && self.prev_touch_count == 0;
 
         if touch_active {
-            // Direct touch snaps virtual cursor directly to finger position
-            let tx = (touch.report[0].x as f32 / 1919.0) * 960.0;
-            let ty = (touch.report[0].y as f32 / 1087.0) * 544.0;
+            // Read packed coordinates safely without unaligned reference UB
+            let raw_x = self.touch_buf.report[0].x;
+            let raw_y = self.touch_buf.report[0].y;
+            let tx = (raw_x as f32 / 1919.0) * 960.0;
+            let ty = (raw_y as f32 / 1087.0) * 544.0;
             self.cursor_x = tx.clamp(5.0, 955.0);
             self.cursor_y = ty.clamp(5.0, 539.0);
             self.cursor_active = true;
@@ -563,7 +795,7 @@ impl VitaInputTracker {
         let scroll_delta = 0.0;
 
         self.prev_buttons = buttons;
-        self.prev_touch_count = touch.report_num;
+        self.prev_touch_count = report_num;
 
         InputState {
             mouse_dx,
@@ -679,12 +911,21 @@ fn load_module(path: &[u8]) {
 
 /// Main application entry point for PlayStation Vita – launches GXM hardware renderer.
 pub fn run_vita_app() {
+    // 0. Install panic hook immediately at startup before any allocations or PRX calls
+    install_vita_panic_hook();
+
+    #[cfg(debug_assertions)]
+    write_crash_bytes(
+        b"ux0:data/rustcraft_boot.log\0",
+        b"=== RustCraft PS Vita Debug Boot Log ===\n",
+        false,
+    );
+
     // 1. Load required Vita system modules
-    //    GXM requires libSceGxm; libc.suprx is required for malloc/free in shader patcher.
+    //    NOTE: Do NOT load `libc.suprx` on `armv7-sony-vita-newlibeabihf` because Newlib
+    //    already provides `malloc`/`free` statically and `libc.suprx` wastes RAM on a second heap.
     load_module(b"vs0:sys/external/libSceGxm.suprx\0");
     load_module(b"vs0:sys/external/libSceIme.suprx\0");
-    load_module(b"app0:sce_module/libc.suprx\0");
-    load_module(b"app0:sce_module/libfios2.suprx\0");
 
     crate::vita_log!("Modules loaded. Setting clock frequencies...");
 
@@ -697,11 +938,13 @@ pub fn run_vita_app() {
         scePowerSetGpuXbarClockFrequency(166);
     }
 
-    crate::vita_log!("Initializing RustCraftApp...");
+    crate::vita_log!("Initializing RustCraftApp on heap...");
 
-    // 3. Initialize game engine (logic + voxel world)
+    // 3. Initialize game engine (boxed on heap to prevent stack frame overflow).
+    //    CRITICAL: Use `"gxm"` (not `"software"`) so `app.update_and_render` skips
+    //    CPU 3D software rasterization and only draws the 2D HUD/UI overlay!
     let seed = unsafe { sceKernelGetProcessTimeWide() } as u32;
-    let mut app = RustCraftApp::new(960, 544, "software", seed);
+    let mut app = Box::new(RustCraftApp::new(960, 544, "gxm", seed));
     #[cfg(feature = "profiler")]
     {
         app.profiler_enabled = true;
@@ -712,7 +955,7 @@ pub fn run_vita_app() {
 
     // 4. Initialize GXM Hardware Renderer
     //    Allocates CDRAM triple-buffering, ShaderPatcher, GPU texture atlas, render targets.
-    let mut gxm = crate::platform::vita_gxm::GxmRenderer::new(&app.renderer.textures);
+    let mut gxm = Box::new(crate::platform::vita_gxm::GxmRenderer::new(&app.renderer.textures));
 
     crate::vita_log!("Initializing controller...");
 
@@ -720,6 +963,8 @@ pub fn run_vita_app() {
     let mut input_tracker = VitaInputTracker::new();
     let mut ime_mgr = VitaImeManager::new();
     let mut last_time = unsafe { sceKernelGetProcessTimeWide() };
+
+    crate::vita_log!("Entering main game loop...");
 
     // Main game loop
     loop {
@@ -745,7 +990,7 @@ pub fn run_vita_app() {
         let is_captured = matches!(app.state, crate::app::GameState::Playing);
         let input = input_tracker.poll(is_captured, dt);
 
-        // Update game logic (physics, camera, world streaming, AI, UI)
+        // Update game logic (physics, camera, world streaming, AI, 2D UI)
         let output = app.update_and_render(dt, &input);
 
         if output.quit_requested {
@@ -761,14 +1006,23 @@ pub fn run_vita_app() {
         }
 
         if matches!(app.state, crate::app::GameState::Playing) {
-            let hand_block: Option<u8> = app.player.inventory.hotbar[app.player.selected_hotbar_slot as usize]
+            let hand_block: Option<u8> = app.player.inventory.hotbar
+                [app.player.selected_hotbar_slot as usize]
                 .map(|s| s.block.to_u8());
             let hand_speed = (app.horiz_velocity.length() + app.fly_velocity.length()).max(0.0);
 
             let block_at_camera = app.world.get_block(app.camera.position.floor_to_ivec());
-            let is_underwater = app.settings.underwater_fx && matches!(block_at_camera, crate::world::block::BlockId::Water | crate::world::block::BlockId::Kelp | crate::world::block::BlockId::Seagrass);
+            let is_underwater = app.settings.underwater_fx
+                && matches!(
+                    block_at_camera,
+                    crate::world::block::BlockId::Water
+                        | crate::world::block::BlockId::Kelp
+                        | crate::world::block::BlockId::Seagrass
+                );
             let is_in_lava = block_at_camera == crate::world::block::BlockId::Lava;
-            let low_health = app.player.gamemode == crate::gameplay::player::GameMode::Survival && app.player.health <= 2.0 && app.player.health > 0.0;
+            let low_health = app.player.gamemode == crate::gameplay::player::GameMode::Survival
+                && app.player.health <= 2.0
+                && app.player.health > 0.0;
 
             let tri_count = gxm.render_frame(
                 &app.camera,
@@ -787,8 +1041,16 @@ pub fn run_vita_app() {
                 app.settings.clouds,
                 app.settings.chunk_anim,
                 app.total_time,
-                if app.settings.particles { &app.particles.particles } else { &[] },
-                if app.settings.damage_tilt { app.damage_tilt_timer } else { 0.0 },
+                if app.settings.particles {
+                    &app.particles.particles
+                } else {
+                    &[]
+                },
+                if app.settings.damage_tilt {
+                    app.damage_tilt_timer
+                } else {
+                    0.0
+                },
                 is_underwater,
                 is_in_lava,
                 low_health,
@@ -799,7 +1061,8 @@ pub fn run_vita_app() {
             app.cdram_mb = cdram as f32 / (1024.0 * 1024.0);
             app.ram_mb = ram as f32 / (1024.0 * 1024.0);
 
-            let (draw_calls, tris_rendered, tris_culled, subchunks_rendered, subchunks_culled) = gxm.last_render_telemetry();
+            let (draw_calls, tris_rendered, tris_culled, subchunks_rendered, subchunks_culled) =
+                gxm.last_render_telemetry();
             app.renderer.last_draw_calls = draw_calls;
             app.renderer.last_triangles_rendered = tris_rendered;
             app.renderer.last_triangles_culled = tris_culled;

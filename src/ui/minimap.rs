@@ -8,6 +8,7 @@
 //! - Waypoints with customizable colors, in-world indicators, distance clamping, and disk persistence.
 //! - Fullscreen interactive WorldMap with panning, zooming, coordinate inspection, biome sampling, and waypoint creation.
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 #[cfg(all(not(target_arch = "wasm32"), not(target_os = "vita"), not(target_arch = "powerpc"), not(feature = "xbox360")))]
 use rayon::prelude::*;
@@ -61,10 +62,31 @@ impl MinimapMode {
     }
 }
 
+#[derive(Default)]
+struct MinimapTerrainCache {
+    pixels: Vec<u32>,
+    center_block: (i32, i32),
+    center_world_pos: (f32, f32),
+    zoom_bits: u32,
+    mode: Option<MinimapMode>,
+    frames_since_refresh: u32,
+    last_player_pos: Option<(f32, f32)>,
+    stationary_frames: u32,
+}
+
+// The Vita should not rebuild the full terrain raster while the player moves.
+#[cfg(target_os = "vita")]
+const MINIMAP_IDLE_FRAMES: u32 = 12;
+#[cfg(target_os = "vita")]
+const MINIMAP_PERIODIC_REFRESH_FRAMES: u32 = 180;
+#[cfg(not(target_os = "vita"))]
+const MINIMAP_PERIODIC_REFRESH_FRAMES: u32 = 32;
+
 pub struct MinimapState {
     pub mode: MinimapMode,
     pub zoom: f32, // Blocks per radar pixel (1.0 = standard)
     pub waypoints: Vec<Waypoint>,
+    terrain_cache: RefCell<MinimapTerrainCache>,
 }
 
 impl MinimapState {
@@ -73,7 +95,13 @@ impl MinimapState {
             mode: MinimapMode::Circle,
             zoom: 1.0,
             waypoints: load_waypoints(slot, seed),
+            terrain_cache: RefCell::new(MinimapTerrainCache::default()),
         }
+    }
+
+    #[inline]
+    pub fn invalidate_cache(&self) {
+        self.terrain_cache.borrow_mut().mode = None;
     }
 }
 
@@ -338,34 +366,6 @@ pub fn draw_clipped_rect_outline(
     }
 }
 
-/// Hillshading and water tinting based on surface height and neighbor heights.
-#[inline(always)]
-fn calculate_map_color(world: &World, wx: i32, wz: i32, y: i32, blk: BlockId) -> u32 {
-    if blk == BlockId::Air {
-        return pack_color(0.08, 0.08, 0.12);
-    }
-
-    let (y_north, _) = sample_surface(world, wx, wz - 1);
-    let diff = (y - y_north).clamp(-4, 4);
-    let shade = (1.0 + diff as f32 * 0.10).clamp(0.45, 1.45);
-
-    if blk == BlockId::Water {
-        // Depth-based ocean blue
-        let depth = ((40 - y).max(1) as f32 * 0.04).clamp(0.0, 0.45);
-        let r = (0.10 - depth * 0.15).max(0.02) * shade;
-        let g = (0.35 - depth * 0.25).max(0.08) * shade;
-        let b = (0.75 - depth * 0.20).max(0.20) * shade;
-        pack_color(r, g, b)
-    } else {
-        let base = blk.face_color(Face::Top);
-        pack_color(
-            (base[0] * shade).clamp(0.0, 1.0),
-            (base[1] * shade).clamp(0.0, 1.0),
-            (base[2] * shade).clamp(0.0, 1.0),
-        )
-    }
-}
-
 /// Renders Minimap in the upper-right corner.
 pub fn draw_minimap(
     buffer: &mut [u32],
@@ -382,6 +382,7 @@ pub fn draw_minimap(
     }
 
     let radius = 54i32;
+    let diameter = (radius * 2 + 1) as usize;
     let cx = buf_w as i32 - 72;
     let cy = 72i32;
 
@@ -390,14 +391,133 @@ pub fn draw_minimap(
     let inner_rad_sq = (radius - 2) * (radius - 2);
     let shadow_rad_sq = (radius + 2) * (radius + 2);
 
-    // Terrain rasterization
-    for dy in -radius..=radius {
+    let px_block = player_pos.x.floor() as i32;
+    let pz_block = player_pos.z.floor() as i32;
+    let zoom_bits = state.zoom.to_bits();
+
+    // Track actual movement (including sub-block movement). While moving, keep the
+    // cached terrain and scroll it under the player marker. Rebuild only after the
+    // player has stood still for 12 frames, or after a large displacement/teleport.
+    let mut cache = state.terrain_cache.borrow_mut();
+    let moved_this_frame = cache.last_player_pos.map_or(false, |(last_x, last_z)| {
+        let dx = player_pos.x - last_x;
+        let dz = player_pos.z - last_z;
+        dx * dx + dz * dz > 0.0004
+    });
+    if moved_this_frame {
+        cache.stationary_frames = 0;
+    } else {
+        cache.stationary_frames = cache.stationary_frames.saturating_add(1);
+    }
+    cache.last_player_pos = Some((player_pos.x, player_pos.z));
+
+    let cache_shape_valid = cache.pixels.len() == diameter * diameter;
+    let settings_changed = cache.mode != Some(state.mode)
+        || cache.zoom_bits != zoom_bits
+        || !cache_shape_valid;
+    let zoom_for_offset = state.zoom.abs().max(0.001);
+    let offset_x = ((player_pos.x - cache.center_world_pos.0) / zoom_for_offset).round() as i32;
+    let offset_z = ((player_pos.z - cache.center_world_pos.1) / zoom_for_offset).round() as i32;
+    let has_moved_from_cached_center =
+        (player_pos.x - cache.center_world_pos.0).abs() > 0.0001
+        || (player_pos.z - cache.center_world_pos.1).abs() > 0.0001;
+
+    #[cfg(target_os = "vita")]
+    let movement_refresh_due = has_moved_from_cached_center
+        && (cache.stationary_frames >= MINIMAP_IDLE_FRAMES
+            // Keep the radar useful after a teleport or a long uninterrupted run.
+            || offset_x.abs() >= radius - 8
+            || offset_z.abs() >= radius - 8);
+    #[cfg(not(target_os = "vita"))]
+    let movement_refresh_due = cache.center_block != (px_block, pz_block);
+
+    #[cfg(target_os = "vita")]
+    let periodic_refresh_due = cache.frames_since_refresh >= MINIMAP_PERIODIC_REFRESH_FRAMES
+        && cache.stationary_frames >= MINIMAP_IDLE_FRAMES;
+    #[cfg(not(target_os = "vita"))]
+    let periodic_refresh_due = cache.frames_since_refresh >= MINIMAP_PERIODIC_REFRESH_FRAMES;
+
+    let needs_rebuild = settings_changed || movement_refresh_due || periodic_refresh_due;
+    if needs_rebuild {
+        cache.pixels.resize(diameter * diameter, 0);
+        cache.center_block = (px_block, pz_block);
+        cache.center_world_pos = (player_pos.x, player_pos.z);
+        cache.zoom_bits = zoom_bits;
+        cache.mode = Some(state.mode);
+        cache.frames_since_refresh = 0;
+
+        // Pre-seed north neighbor heights for the topmost radar row (dy = -radius - 1)
+        let mut prev_row_y = [0i32; 112];
+        let mut last_cx = i32::MIN;
+        let mut last_cz = i32::MIN;
+        let mut cached_chunk: Option<&crate::world::Chunk> = None;
+
+        let wz_top_north = (player_pos.z + (-radius - 1) as f32 * state.zoom).floor() as i32;
+        let cz_top_north = wz_top_north >> 4;
+        let lz_top_north = wz_top_north.rem_euclid(16);
+        for (col_i, dx) in (-radius..=radius).enumerate() {
+            let wx = (player_pos.x + dx as f32 * state.zoom).floor() as i32;
+            let c_x = wx >> 4;
+            if c_x != last_cx || cz_top_north != last_cz {
+                cached_chunk = world.chunks.get(&(c_x, cz_top_north));
+                last_cx = c_x;
+                last_cz = cz_top_north;
+            }
+            prev_row_y[col_i] = if let Some(ch) = cached_chunk {
+                sample_chunk_column_y(ch, wx.rem_euclid(16), lz_top_north)
+            } else {
+                0
+            };
+        }
+
+        for (row_i, dy) in (-radius..=radius).enumerate() {
+            let wz = (player_pos.z + dy as f32 * state.zoom).floor() as i32;
+            let c_z = wz >> 4;
+            let lz = wz.rem_euclid(16);
+            let row_offset = row_i * diameter;
+
+            for (col_i, dx) in (-radius..=radius).enumerate() {
+                let dist_sq = dx * dx + dy * dy;
+                if is_circle && dist_sq > inner_rad_sq {
+                    continue;
+                }
+
+                let wx = (player_pos.x + dx as f32 * state.zoom).floor() as i32;
+                let c_x = wx >> 4;
+                if c_x != last_cx || c_z != last_cz {
+                    cached_chunk = world.chunks.get(&(c_x, c_z));
+                    last_cx = c_x;
+                    last_cz = c_z;
+                }
+
+                let (sy, sblk) = if let Some(ch) = cached_chunk {
+                    sample_chunk_column(ch, wx.rem_euclid(16), lz)
+                } else {
+                    (0, BlockId::Air)
+                };
+
+                let y_north = prev_row_y[col_i];
+                prev_row_y[col_i] = sy;
+                cache.pixels[row_offset + col_i] = fast_calculate_map_color(sy, sblk, y_north);
+            }
+        }
+    } else {
+        cache.frames_since_refresh = cache.frames_since_refresh.saturating_add(1);
+    }
+
+    // Shift the cached terrain by the player's movement. Newly exposed pixels
+    // use the void color until the next stationary refresh fills the full map.
+    let cache_offset_x = ((player_pos.x - cache.center_world_pos.0) / zoom_for_offset).round() as i32;
+    let cache_offset_z = ((player_pos.z - cache.center_world_pos.1) / zoom_for_offset).round() as i32;
+
+    for (row_i, dy) in (-radius..=radius).enumerate() {
         let py = cy + dy;
         if py < 0 || py >= buf_h as i32 {
             continue;
         }
+        let cache_y = row_i as i32 + cache_offset_z;
 
-        for dx in -radius..=radius {
+        for (col_i, dx) in (-radius..=radius).enumerate() {
             let px = cx + dx;
             if px < 0 || px >= buf_w as i32 {
                 continue;
@@ -413,7 +533,6 @@ pub fn draw_minimap(
             // Border & bezel
             if is_circle {
                 if dist_sq > rad_sq {
-                    // Soft drop shadow
                     let cur = buffer[idx];
                     let r = (((cur >> 16) & 0xFF) * 140) >> 8;
                     let g = (((cur >> 8) & 0xFF) * 140) >> 8;
@@ -421,7 +540,6 @@ pub fn draw_minimap(
                     buffer[idx] = (0xFF << 24) | (r << 16) | (g << 8) | b;
                     continue;
                 } else if dist_sq >= inner_rad_sq {
-                    // Glass border ring
                     buffer[idx] = 0xFF2A2A38;
                     continue;
                 }
@@ -434,14 +552,17 @@ pub fn draw_minimap(
                 }
             }
 
-            // World sample
-            let wx = (player_pos.x + dx as f32 * state.zoom).floor() as i32;
-            let wz = (player_pos.z + dy as f32 * state.zoom).floor() as i32;
-            let (sy, sblk) = sample_surface(world, wx, wz);
-            let color = calculate_map_color(world, wx, wz, sy, sblk);
-            buffer[idx] = color;
+            let cache_x = col_i as i32 + cache_offset_x;
+            if cache_x >= 0 && cache_x < diameter as i32
+                && cache_y >= 0 && cache_y < diameter as i32
+            {
+                buffer[idx] = cache.pixels[cache_y as usize * diameter + cache_x as usize];
+            } else {
+                buffer[idx] = pack_color(0.08, 0.08, 0.12);
+            }
         }
     }
+    drop(cache);
 
     // Cardinal directions along the perimeter (North at top)
     let n_y = cy - radius + 6;

@@ -690,7 +690,7 @@ pub fn draw_hotbar(buffer: &mut [u32], width: usize, height: usize, player: &Pla
     }
 }
 
-/// Draws a rasterized circular debug pie chart with colored slices (zero heap allocation).
+/// Draws a rasterized circular debug pie chart with colored slices (zero heap allocation, no per-pixel atan2).
 pub fn draw_pie_chart(
     buffer: &mut [u32],
     width: usize,
@@ -709,13 +709,12 @@ pub fn draw_pie_chart(
     let border_color = pack_color(0.9, 0.9, 0.95);
 
     let slice_count = slices.len().min(31);
-    let mut angles = [0.0f32; 32];
+    let mut rays = [(0.0f32, -1.0f32); 32];
     let mut current_angle = -std::f32::consts::FRAC_PI_2;
-    angles[0] = current_angle;
 
     for (idx, s) in slices.iter().take(slice_count).enumerate() {
         current_angle += (s.percentage / 100.0) * std::f32::consts::TAU;
-        angles[idx + 1] = current_angle;
+        rays[idx + 1] = (current_angle.cos(), current_angle.sin());
     }
 
     let min_x = (cx - radius).max(0);
@@ -733,17 +732,20 @@ pub fn draw_pie_chart(
                 if dist_sq >= r_inner_sq {
                     set_px(buffer, width, height, x, y, border_color);
                 } else {
-                    let mut angle = dy.atan2(dx);
-                    if angle < -std::f32::consts::FRAC_PI_2 {
-                        angle += std::f32::consts::TAU;
-                    }
-
-                    let mut color = slices[0].color;
-                    for (i, s) in slices.iter().take(slice_count).enumerate() {
-                        let a_start = angles[i];
-                        let a_end = angles[i + 1];
-                        if angle >= a_start && (angle <= a_end || i == slice_count - 1) {
-                            color = s.color;
+                    // Fast quadrant-aware ray test without per-pixel atan2()
+                    let p_half = dx < 0.0;
+                    let mut color = slices[slice_count - 1].color;
+                    for i in 0..slice_count {
+                        let (rx, ry) = rays[i + 1];
+                        let r_half = rx < 0.0 || (rx == 0.0 && ry > 0.0);
+                        let before_end = if p_half != r_half {
+                            !p_half
+                        } else {
+                            // Cross product (rx, ry) x (dx, dy) <= 0 means angle(dx, dy) <= angle(rx, ry)
+                            rx * dy - ry * dx <= 0.0
+                        };
+                        if before_end {
+                            color = slices[i].color;
                             break;
                         }
                     }
@@ -1176,6 +1178,10 @@ pub fn apply_biome_color_filter(buffer: &mut [u32], tint: [f32; 3]) {
     {
         for pixel in buffer.iter_mut() {
             let p = *pixel;
+            // Skip transparent HUD pixels (saves ~510k pixel operations per frame in GXM mode)
+            if (p >> 24) == 0 {
+                continue;
+            }
             let r = (((p >> 16) & 0xFF) * mr >> 8).min(255);
             let g = (((p >> 8) & 0xFF) * mg >> 8).min(255);
             let b = ((p & 0xFF) * mb >> 8).min(255);
