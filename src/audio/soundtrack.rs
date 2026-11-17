@@ -899,7 +899,7 @@ impl SoundtrackManager {
         let _ = std::thread::Builder::new()
         .name("soundtrack-async-loader".to_string())
         // PS Vita defaults new threads to a tiny 64 KB stack, which overflows inside Opus/Vorbis decoders
-        .stack_size(1024 * 1024)
+        .stack_size(512 * 1024)
         .spawn(move || {
             #[cfg(target_os = "vita")]
             unsafe {
