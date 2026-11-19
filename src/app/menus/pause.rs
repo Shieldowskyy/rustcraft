@@ -280,11 +280,13 @@ impl RustCraftApp {
             self.multiplayer_status.as_deref(),
         );
 
-        if let Some(ref server) = self.profiler_server {
-            let mut cur_profiler = FrameProfiler::default();
-            cur_profiler.fps = (1.0 / dt.max(0.001)).round() as u32;
-            let snap = self.build_profiler_snapshot(&cur_profiler);
-            server.update_snapshot(snap);
+        if !crate::platform::capabilities().uses_hardware_gxm {
+            if let Some(ref server) = self.profiler_server {
+                let mut cur_profiler = FrameProfiler::default();
+                cur_profiler.fps = (1.0 / dt.max(0.001)).round() as u32;
+                let snap = self.build_profiler_snapshot(&cur_profiler);
+                server.update_snapshot(snap);
+            }
         }
     }
 }

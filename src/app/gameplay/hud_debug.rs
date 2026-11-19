@@ -107,11 +107,25 @@ impl RustCraftApp {
         }
 
         if collect_profiling {
-            self.finalize_frame_profiler(dt, frame_start_time, cur_profiler);
+            self.fps_display = (1.0 / dt.max(0.001)).round() as u32;
         }
 
-        if self.settings.debug_overlay {
-            self.update_and_draw_debug_overlay(dt, is_crouching, is_sprinting);
+        if caps.uses_hardware_gxm {
+            let dbg_start = collect_profiling.then(std::time::Instant::now);
+            if self.settings.debug_overlay {
+                self.update_and_draw_debug_overlay(dt, is_crouching, is_sprinting);
+            }
+            if let Some(d_start) = dbg_start {
+                cur_profiler.render_ui_ms += d_start.elapsed().as_secs_f32() * 1000.0;
+            }
+            self.pending_gxm_profiler = collect_profiling.then_some(cur_profiler);
+        } else {
+            if collect_profiling {
+                self.finalize_frame_profiler(dt, frame_start_time, cur_profiler);
+            }
+            if self.settings.debug_overlay {
+                self.update_and_draw_debug_overlay(dt, is_crouching, is_sprinting);
+            }
         }
 
         if !input.is_mouse_captured && !self.chat.is_open {
@@ -137,71 +151,11 @@ impl RustCraftApp {
         frame_start_time: Option<std::time::Instant>,
         mut cur_profiler: FrameProfiler,
     ) {
-        let caps = capabilities();
         if let Some(f_start) = frame_start_time {
             cur_profiler.total_frame_ms = f_start.elapsed().as_secs_f32() * 1000.0;
         }
         cur_profiler.fps = (1.0 / dt.max(0.001)).round() as u32;
-
-        let (draw_calls, tris_rendered, tris_culled, subchunks_rendered, subchunks_culled) =
-            self.renderer.last_render_telemetry();
-        let raster_threads = crate::platform::threading::raster_thread_count();
-
-        let (renderer_name, gpu_device, driver_info) = self.renderer.renderer_info();
-        cur_profiler.render_stats = crate::core::profiler::RenderStats {
-            pipeline_name: self.renderer.backend_name(),
-            renderer_name,
-            gpu_device,
-            driver_info,
-            draw_calls,
-            subchunks_rendered,
-            subchunks_culled_frustum: subchunks_culled,
-            subchunks_culled_occlusion: 0,
-            subchunks_empty_skipped: 0,
-            triangles_rendered: tris_rendered,
-            triangles_culled: tris_culled,
-            raster_threads,
-        };
-
-        let chunk_count = self.world.chunks.len();
-        let chunk_voxels_bytes = chunk_count * caps.chunk_voxel_ram_bytes;
-        let mesh_cache_bytes = if caps.is_vita {
-            self.chunk_slots_info.0 * 64 * 1024
-        } else {
-            self.renderer.mesh_cache_triangles_count()
-                * std::mem::size_of::<crate::world::Triangle>()
-        };
-
-        let textures_and_fonts_bytes = 256 * 256 * 4 + 256 * 1024;
-        let framebuffers_bytes = (self.width * self.height * 4) * 2;
-        let entities_bytes = self.mob_manager.mobs.len() * 256
-            + self.items.len() * 128
-            + self.particles.particles.len() * 64;
-        let ui_and_misc_bytes = 256 * 1024;
-        let total_ram_bytes = chunk_voxels_bytes
-            + mesh_cache_bytes
-            + textures_and_fonts_bytes
-            + framebuffers_bytes
-            + entities_bytes
-            + ui_and_misc_bytes;
-
-        let cdram_bytes = if caps.is_vita {
-            (self.cdram_mb * 1024.0 * 1024.0) as usize
-        } else {
-            0
-        };
-
-        cur_profiler.memory = MemoryBreakdown {
-            total_ram_bytes,
-            chunk_voxels_bytes,
-            mesh_cache_bytes,
-            textures_and_fonts_bytes,
-            framebuffers_bytes,
-            entities_bytes,
-            ui_and_misc_bytes,
-            cdram_bytes,
-        };
-
+        self.populate_render_and_memory_stats(&mut cur_profiler);
         self.profiler.smooth_update(&cur_profiler, 0.15);
 
         if let Some(ref server) = self.profiler_server {

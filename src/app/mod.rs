@@ -226,4 +226,5 @@ pub struct RustCraftApp {
     pub dev_logo: Option<DevLogo>,
     pub dev_logo_timer: f32,
     pub menu_fade_timer: f32,
+    pub(crate) pending_gxm_profiler: Option<FrameProfiler>,
 }

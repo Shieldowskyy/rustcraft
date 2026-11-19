@@ -276,8 +276,8 @@ impl RustCraftApp {
             }
         );
 
-        self.handle_profiler_screenshot();
         self.render_post_frame_overlays(dt);
+        self.handle_profiler_screenshot();
 
         out.is_playing = matches!(self.state, GameState::Playing) && !self.chat.is_open;
         out.rumble_request = self.pending_rumble.take();
@@ -385,7 +385,7 @@ impl RustCraftApp {
             width: self.width,
             height: self.height,
             timestamp_ms: now_ms,
-            fps: self.fps_display,
+            fps: self.profiler.fps.max(self.fps_display),
             player_pos: [
                 self.camera.position.x,
                 self.camera.position.y,

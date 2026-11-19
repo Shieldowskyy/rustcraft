@@ -17,7 +17,6 @@ impl RustCraftApp {
         cur_profiler: &mut FrameProfiler,
         out: &mut AppOutput,
     ) -> f32 {
-        let tick_start_time = collect_profiling.then(std::time::Instant::now);
         let world_time_start = collect_profiling.then(std::time::Instant::now);
         self.world.advance_time(dt);
         let world_update_start = collect_profiling.then(std::time::Instant::now);
@@ -179,17 +178,19 @@ impl RustCraftApp {
         if let Some(i_start) = items_start {
             cur_profiler.tick_entities_ms = i_start.elapsed().as_secs_f32() * 1000.0;
         }
-        if let Some(t_start) = tick_start_time {
-            cur_profiler.tick_ms =
-                t_start.elapsed().saturating_sub(world_io_dur).as_secs_f32() * 1000.0;
+        if collect_profiling {
             cur_profiler.world_io_ms = world_io_dur.as_secs_f32() * 1000.0;
-            cur_profiler.world_mesh_ms = cur_profiler.world_io_ms * 0.72;
-            cur_profiler.world_gen_ms = cur_profiler.world_io_ms * 0.28;
-            cur_profiler.tick_physics_ms = (cur_profiler.tick_ms
-                - cur_profiler.tick_mobs_ms
-                - cur_profiler.tick_entities_ms
-                - cur_profiler.tick_world_ms)
-                .max(0.0);
+            if crate::platform::capabilities().uses_hardware_gxm {
+                cur_profiler.world_gen_ms = cur_profiler.world_io_ms;
+                cur_profiler.world_mesh_ms = 0.0;
+            } else {
+                cur_profiler.world_mesh_ms = cur_profiler.world_io_ms * 0.72;
+                cur_profiler.world_gen_ms = cur_profiler.world_io_ms * 0.28;
+            }
+            cur_profiler.tick_ms = cur_profiler.tick_physics_ms
+                + cur_profiler.tick_world_ms
+                + cur_profiler.tick_mobs_ms
+                + cur_profiler.tick_entities_ms;
         }
 
         hand_speed

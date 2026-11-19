@@ -41,11 +41,21 @@ impl RustCraftApp {
         input: &InputState,
         out: &mut AppOutput,
     ) {
+        self.profiler_frame_count = self.profiler_frame_count.wrapping_add(1);
+        let sample_interval = capabilities().profiler_sample_interval.max(1) as u64;
+        let should_sample_detail = self.profiler_frame_count % sample_interval == 0;
+        let collect_profiling =
+            ((self.profiler_enabled && self.settings.debug_overlay) || self.profiler_server.is_some())
+                && should_sample_detail;
+        let frame_start_time = collect_profiling.then(std::time::Instant::now);
+        let mut cur_profiler = FrameProfiler::default();
+
         self.chat.update(dt);
         self.sync_playing_network(dt, out);
         self.log_playing_telemetry(dt);
         self.handle_chat_and_shortcuts(input, out);
 
+        let phys_start = collect_profiling.then(std::time::Instant::now);
         let (wish_dir, is_crouching, is_sprinting) = self.update_camera_and_stance(dt, input, out);
         self.update_player_locomotion(dt, input, wish_dir, is_crouching, is_sprinting, out);
         self.update_post_movement_bounds_and_hotbar(dt, input);
@@ -58,15 +68,9 @@ impl RustCraftApp {
         self.handle_mining_and_combat(dt, input);
         self.handle_creative_pick_block(input);
         self.handle_right_click_interactions(dt, is_crouching, selected_block_id, out);
-
-        self.profiler_frame_count = self.profiler_frame_count.wrapping_add(1);
-        let sample_interval = capabilities().profiler_sample_interval.max(1) as u64;
-        let should_sample_detail = self.profiler_frame_count % sample_interval == 0;
-        let collect_profiling =
-            ((self.profiler_enabled && self.settings.debug_overlay) || self.profiler_server.is_some())
-                && should_sample_detail;
-        let frame_start_time = collect_profiling.then(std::time::Instant::now);
-        let mut cur_profiler = FrameProfiler::default();
+        if let Some(p_start) = phys_start {
+            cur_profiler.tick_physics_ms = p_start.elapsed().as_secs_f32() * 1000.0;
+        }
 
         let hand_speed = self.tick_world_and_entities(dt, collect_profiling, &mut cur_profiler, out);
         let effective_camera = self.render_playing_scene(collect_profiling, &mut cur_profiler);

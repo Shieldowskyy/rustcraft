@@ -243,7 +243,7 @@ impl RustCraftApp {
             gpu_triangles: 0,
             cdram_mb: 0.0,
             ram_mb: 0.0,
-            chunk_slots_info: (0, 144),
+            chunk_slots_info: (0, 96),
             last_fov,
             last_aspect: aspect,
             proj_matrix,
@@ -369,6 +369,7 @@ impl RustCraftApp {
             dev_logo,
             dev_logo_timer: 0.0,
             menu_fade_timer: 0.0,
+            pending_gxm_profiler: None,
         };
         vita_debug_log("[App::new DONE] RustCraftApp constructed successfully.");
         crate::log_info!(
