@@ -1,0 +1,14 @@
+/**
+ * RustCraft – Fullscreen Post-FX & HUD Vertex Shader (Cg / psp2cgc)
+ * Compilation: psp2cgc -profile sce_vp_psp2 postfx.vert.cg -o postfx.vert.gxp
+ */
+void main(
+    float2  aPosition : POSITION,
+
+    float4  out oPosition : POSITION,
+    float2  out oUV       : TEXCOORD0
+)
+{
+    oPosition = float4(aPosition.x, aPosition.y, 0.0f, 1.0f);
+    oUV       = float2(aPosition.x * 0.5f + 0.5f, 0.5f - aPosition.y * 0.5f);
+}

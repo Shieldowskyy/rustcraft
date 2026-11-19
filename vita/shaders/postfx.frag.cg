@@ -1,0 +1,82 @@
+/**
+ * RustCraft – Screen Post-FX Fragment Shader (Cg / psp2cgc, premultiplied alpha)
+ * Compilation: psp2cgc -profile sce_fp_psp2 postfx.frag.cg -o postfx.frag.gxp
+ */
+float4 blend_over(float4 dst_pm, float3 src_rgb, float src_a)
+{
+    return float4(
+        src_rgb * src_a + dst_pm.rgb * (1.0f - src_a),
+        src_a + dst_pm.a * (1.0f - src_a)
+    );
+}
+
+float4 main(
+    float2 oUV : TEXCOORD0,
+
+    uniform float4 uParams0, // (underwater, lava, burning_fire, time)
+    uniform float4 uParams1  // (damage_alpha, low_hp_active, width, height)
+) : COLOR
+{
+    float px = floor(oUV.x * uParams1.z);
+    float py = floor(oUV.y * uParams1.w);
+    float time = uParams0.w;
+    float4 pm = float4(0.0f, 0.0f, 0.0f, 0.0f);
+
+    if (uParams0.y > 0.5f) {
+        pm = blend_over(pm, float3(0.92f, 0.28f, 0.02f), 0.85f);
+        float wave = trunc(sin(time * 2.5f) * 4.0f);
+        if (py >= 10.0f + wave) {
+            float fy = py - floor(py / 17.0f) * 17.0f;
+            if (fy < 2.0f) {
+                pm = blend_over(pm, float3(1.0f, 0.55f, 0.05f), 0.18f);
+            }
+        }
+    } else {
+        if (uParams0.x > 0.5f) {
+            pm = blend_over(pm, float3(0.04f, 0.28f, 0.48f), 0.34f);
+            float wave = trunc(sin(time * 1.8f) * 3.0f);
+            if (py >= 18.0f + wave) {
+                float fy = py - floor(py / 31.0f) * 31.0f;
+                if (fy < 1.0f) {
+                    pm = blend_over(pm, float3(0.25f, 0.65f, 0.80f), 0.08f);
+                }
+            }
+        }
+        if (uParams0.z > 0.5f) {
+            float fx = px * 0.12f;
+            float wave = (sin(fx + time * 14.0f) * 0.5f + cos(fx * 0.5f - time * 9.0f) * 0.5f) * 18.0f;
+            float base_y = uParams1.w - 68.0f;
+            float flame_top = clamp(base_y + 16.0f - trunc(wave), 0.0f, uParams1.w);
+            if (py >= flame_top) {
+                float total_h = max(uParams1.w - flame_top, 1.0f);
+                float prog = (py - flame_top) / total_h;
+                if (prog < 0.30f) {
+                    pm = blend_over(pm, float3(1.0f, 0.90f, 0.20f), 0.50f);
+                } else if (prog < 0.65f) {
+                    pm = blend_over(pm, float3(0.98f, 0.48f, 0.08f), 0.60f);
+                } else {
+                    pm = blend_over(pm, float3(0.85f, 0.15f, 0.02f), 0.68f);
+                }
+            }
+        }
+    }
+
+    if (uParams1.x > 0.001f) {
+        pm = blend_over(pm, float3(0.95f, 0.05f, 0.05f), uParams1.x);
+    }
+
+    if (uParams1.y > 0.5f) {
+        float dist_x = min(px, (uParams1.z - 1.0f) - px);
+        float dist_y = min(py, (uParams1.w - 1.0f) - py);
+        float layer = min(dist_x, dist_y);
+        if (layer < 55.0f && layer >= 0.0f) {
+            float pulse = sin(time * 6.5f) * 0.5f + 0.5f;
+            float base_alpha = 0.22f + 0.32f * pulse;
+            float t = 1.0f - (layer / 55.0f);
+            float alpha = base_alpha * t * t * 0.75f;
+            pm = blend_over(pm, float3(0.85f, 0.02f, 0.02f), alpha);
+        }
+    }
+
+    return pm;
+}

@@ -1,0 +1,57 @@
+/**
+ * RustCraft – Procedural Sky Fragment Shader (Cg / psp2cgc, 1:1 parity with WGSL sky_fragment)
+ * Compilation: psp2cgc -profile sce_fp_psp2 sky.frag.cg -o sky.frag.gxp
+ */
+float4 main(
+    float2 oNdc : TEXCOORD0,
+
+    uniform float4x4 uInvViewProj,
+    uniform float4   uCameraPosAndDaylight,
+    uniform float4   uSkyTop,
+    uniform float4   uSkyBot,
+    uniform float4   uSunDir,
+    uniform float4   uMoonDir
+) : COLOR
+{
+    float4 world_h = mul(float4(oNdc.x, oNdc.y, 1.0f, 1.0f), uInvViewProj);
+    float3 world_pos = world_h.xyz / world_h.w;
+    float3 ray_dir = normalize(world_pos - uCameraPosAndDaylight.xyz);
+
+    float t = saturate(ray_dir.y * 0.8f + 0.2f);
+    float3 col = lerp(uSkyBot.rgb, uSkyTop.rgb, t);
+
+    float3 sun_dir = normalize(uSunDir.xyz);
+    float sun_dot = dot(ray_dir, sun_dir);
+    if (sun_dot > 0.993f) {
+        float sun_disc = smoothstep(0.993f, 0.997f, sun_dot);
+        col = lerp(col, float3(1.0f, 0.98f, 0.75f), sun_disc);
+    }
+    if (sun_dot > 0.85f) {
+        float sun_glow = pow(sun_dot, 32.0f) * 0.45f;
+        col += float3(1.0f, 0.65f, 0.25f) * sun_glow;
+    }
+
+    float3 moon_dir = normalize(uMoonDir.xyz);
+    float moon_dot = dot(ray_dir, moon_dir);
+    if (moon_dot > 0.995f) {
+        float moon_disc = smoothstep(0.995f, 0.998f, moon_dot);
+        col = lerp(col, float3(0.92f, 0.95f, 1.0f), moon_disc);
+    }
+    if (moon_dot > 0.90f) {
+        float moon_glow = pow(moon_dot, 40.0f) * 0.25f;
+        col += float3(0.5f, 0.65f, 0.95f) * moon_glow;
+    }
+
+    float daylight = uCameraPosAndDaylight.w;
+    if (daylight < 0.65f && ray_dir.y > 0.02f) {
+        float star_alpha = saturate((0.65f - daylight) / 0.50f);
+        float3 star_grid = floor(ray_dir * 160.0f);
+        float star_rand = frac(sin(dot(star_grid, float3(12.9898f, 78.233f, 45.164f))) * 43758.5453f);
+        if (star_rand > 0.988f) {
+            float star_bright = (star_rand - 0.988f) / 0.012f * star_alpha;
+            col += float3(star_bright * 0.9f, star_bright * 0.95f, star_bright);
+        }
+    }
+
+    return float4(col, 1.0f);
+}

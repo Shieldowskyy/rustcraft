@@ -1,0 +1,10 @@
+/**
+ * RustCraft – Biome Color Multiplier Fragment Shader (Cg / psp2cgc, DST_COLOR * SRC_COLOR blend)
+ * Compilation: psp2cgc -profile sce_fp_psp2 biome_tint.frag.cg -o biome_tint.frag.gxp
+ */
+float4 main(
+    uniform float4 uBiomeTint
+) : COLOR
+{
+    return float4(uBiomeTint.rgb, 1.0f);
+}

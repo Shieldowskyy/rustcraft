@@ -1,37 +1,39 @@
 /**
  * RustCraft – Voxel Vertex Shader (Cg / psp2cgc)
  * Compilation: psp2cgc -profile sce_vp_psp2 voxel.vert.cg -o voxel.vert.gxp
- *
- * MATRIX LAYOUT (PS Vita Cg):
- *   - GXM passes column-major matrices (m[col*4+row])
- *   - Cg mul(v, M): row-vector × column-major matrix = M*v (correct!)
- *   - Cg mul(M, v): column-major × column-vector = TRANSPOSED (incorrect!)
- *   - SDL2/GXM uses mul(pos, wvp) — identically to below.
  */
 void main(
     float3  aPosition : POSITION,
     float2  aUV       : TEXCOORD0,
-    float   aAO       : TEXCOORD1,
+    float4  aLight    : TEXCOORD1,
 
     uniform float4x4 uViewProj,
-    uniform float4   uCameraPosAndFog,
+    uniform float4   uSkyBotAndDaylight,
+    uniform float4   uChunkOffset,
 
-    float4  out oPosition : POSITION,
-    float2  out oUV       : TEXCOORD0,
-    float   out oAO       : TEXCOORD1,
-    float   out oFog      : TEXCOORD2
+    float4  out oPosition   : POSITION,
+    float2  out oUV         : TEXCOORD0,
+    float3  out oLightColor : TEXCOORD1,
+    float3  out oWorldPos   : TEXCOORD2
 )
 {
-    oPosition = mul(float4(aPosition, 1.0f), uViewProj);
+    float3 pos = aPosition + uChunkOffset.xyz;
+    oPosition = mul(float4(pos, 1.0f), uViewProj);
     oUV       = aUV;
-    oAO       = aAO;
+    oWorldPos = pos;
 
-    float max_fog = uCameraPosAndFog.w;
-    if (max_fog > 0.0f) {
-        float dist = distance(aPosition, uCameraPosAndFog.xyz);
-        float fog_start = max_fog * 0.45f;
-        oFog = saturate((dist - fog_start) / max(max_fog - fog_start, 1.0f));
-    } else {
-        oFog = 0.0f;
-    }
+    float daylight = uSkyBotAndDaylight.w;
+    float3 sky_ambient = lerp(float3(0.05f, 0.07f, 0.14f), uSkyBotAndDaylight.xyz, saturate(daylight * 1.1f));
+    float3 sun_color = lerp(float3(0.14f, 0.18f, 0.28f), float3(1.06f, 0.98f, 0.88f), saturate(daylight));
+    // DLACZEGO: PowerVR SGX543 evaluates pow(0, p) via log2(0) -> NaN; guard positive light inputs.
+    float sky_factor = (aLight.y > 0.0f) ? pow(aLight.y, 1.25f) : 0.0f;
+    float3 natural_light = (sun_color * 0.85f + sky_ambient * 0.35f) * (sky_factor * daylight);
+
+    float3 torch_color = float3(1.30f, 0.88f, 0.42f);
+    float block_factor = (aLight.z > 0.0f) ? pow(aLight.z, 1.15f) : 0.0f;
+    float3 torch_light = torch_color * block_factor;
+
+    float3 cave_ambient = float3(0.045f, 0.045f, 0.055f);
+    float3 total_light = (natural_light + torch_light + cave_ambient) * aLight.x;
+    oLightColor = clamp(total_light, float3(0.04f, 0.04f, 0.04f), float3(1.35f, 1.35f, 1.35f));
 }

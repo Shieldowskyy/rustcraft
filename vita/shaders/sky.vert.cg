@@ -1,0 +1,14 @@
+/**
+ * RustCraft – Procedural Sky Vertex Shader (Cg / psp2cgc, Early-Z depth=1.0)
+ * Compilation: psp2cgc -profile sce_vp_psp2 sky.vert.cg -o sky.vert.gxp
+ */
+void main(
+    float2  aPosition : POSITION,
+
+    float4  out oPosition : POSITION,
+    float2  out oNdc      : TEXCOORD0
+)
+{
+    oPosition = float4(aPosition.x, aPosition.y, 1.0f, 1.0f);
+    oNdc      = aPosition;
+}

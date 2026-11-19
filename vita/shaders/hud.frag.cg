@@ -1,0 +1,12 @@
+/**
+ * RustCraft – Premultiplied-Alpha HUD Compositor Fragment Shader (Cg / psp2cgc)
+ * Compilation: psp2cgc -profile sce_fp_psp2 hud.frag.cg -o hud.frag.gxp
+ */
+float4 main(
+    float2 oUV : TEXCOORD0,
+
+    uniform sampler2D uHudTex
+) : COLOR
+{
+    return tex2D(uHudTex, oUV);
+}

@@ -1,0 +1,27 @@
+/**
+ * RustCraft – Dynamic Entity, Cloud, Weather & Hand Fragment Shader (Cg / psp2cgc)
+ * Compilation: psp2cgc -profile sce_fp_psp2 entity.frag.cg -o entity.frag.gxp
+ */
+float4 main(
+    float2  oUV       : TEXCOORD0,
+    float3  oWorldPos : TEXCOORD1,
+    float4  oColor    : TEXCOORD2,
+    float4  oTint     : TEXCOORD3,
+
+    uniform sampler2D uTexture,
+    uniform float4    uCameraPosAndFog,
+    uniform float4    uFogColor
+) : COLOR
+{
+    float4 texel = (oUV.x >= 0.0f) ? tex2D(uTexture, oUV) : float4(1.0f, 1.0f, 1.0f, 1.0f);
+    if (texel.a < 0.05f) {
+        discard;
+    }
+    float3 rgb = texel.rgb * oColor.rgb;
+    rgb = lerp(rgb, oTint.rgb, oTint.a);
+    float dist = distance(oWorldPos, uCameraPosAndFog.xyz);
+    float max_fog_dist = (uCameraPosAndFog.w > 0.0f) ? uCameraPosAndFog.w : 180.0f;
+    float fog_t = saturate((dist - max_fog_dist * 0.45f) / (max_fog_dist * 0.55f)) * uFogColor.w;
+    float3 final_rgb = lerp(rgb, uFogColor.rgb, fog_t);
+    return float4(final_rgb, texel.a * oColor.a);
+}

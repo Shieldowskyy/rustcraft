@@ -1,0 +1,22 @@
+/**
+ * RustCraft – Transparent Voxel Fragment Shader (Cg / psp2cgc, water & glass)
+ * Compilation: psp2cgc -profile sce_fp_psp2 voxel_trans.frag.cg -o voxel_trans.frag.gxp
+ */
+float4 main(
+    float2  oUV         : TEXCOORD0,
+    float3  oLightColor : TEXCOORD1,
+    float3  oWorldPos   : TEXCOORD2,
+
+    uniform sampler2D uTexture,
+    uniform float4    uCameraPosAndFog,
+    uniform float4    uFogColor
+) : COLOR
+{
+    float4 texel = tex2D(uTexture, oUV);
+    float dist = distance(oWorldPos, uCameraPosAndFog.xyz);
+    float3 lit_rgb = texel.rgb * oLightColor;
+    float max_fog_dist = (uCameraPosAndFog.w > 0.0f) ? uCameraPosAndFog.w : 180.0f;
+    float fog_t = saturate((dist - max_fog_dist * 0.45f) / (max_fog_dist * 0.55f)) * uFogColor.w;
+    float3 final_rgb = lerp(lit_rgb, uFogColor.rgb, fog_t);
+    return float4(final_rgb, texel.a);
+}

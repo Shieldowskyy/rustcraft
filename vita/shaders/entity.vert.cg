@@ -1,0 +1,26 @@
+/**
+ * RustCraft – Dynamic Entity, Cloud, Weather & Hand Vertex Shader (Cg / psp2cgc)
+ * Compilation: psp2cgc -profile sce_vp_psp2 entity.vert.cg -o entity.vert.gxp
+ */
+void main(
+    float3  aPosition : POSITION,
+    float2  aUV       : TEXCOORD0,
+    float4  aColor    : COLOR0,
+    float4  aTint     : COLOR1,
+
+    uniform float4x4 uViewProj,
+
+    float4  out oPosition : POSITION,
+    float2  out oUV       : TEXCOORD0,
+    float3  out oWorldPos : TEXCOORD1,
+    float4  out oColor    : TEXCOORD2,
+    float4  out oTint     : TEXCOORD3
+)
+{
+    // DLACZEGO: Pass color/tint through TEXCOORD* so SGX543 does not clamp HDR >1.0 lighting to [0, 1].
+    oPosition = mul(float4(aPosition, 1.0f), uViewProj);
+    oUV       = aUV;
+    oWorldPos = aPosition;
+    oColor    = aColor;
+    oTint     = aTint;
+}

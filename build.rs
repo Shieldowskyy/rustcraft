@@ -5,6 +5,22 @@ use std::path::PathBuf;
 use std::env;
 use std::process::Command;
 
+const VITA_SHADERS: &[(&str, &str, &str)] = &[
+    ("voxel.vert.cg", "voxel.vert.gxp", "sce_vp_psp2"),
+    ("voxel.frag.cg", "voxel.frag.gxp", "sce_fp_psp2"),
+    ("voxel_opaque.frag.cg", "voxel_opaque.frag.gxp", "sce_fp_psp2"),
+    ("voxel_cutout.frag.cg", "voxel_cutout.frag.gxp", "sce_fp_psp2"),
+    ("voxel_trans.frag.cg", "voxel_trans.frag.gxp", "sce_fp_psp2"),
+    ("sky.vert.cg", "sky.vert.gxp", "sce_vp_psp2"),
+    ("sky.frag.cg", "sky.frag.gxp", "sce_fp_psp2"),
+    ("entity.vert.cg", "entity.vert.gxp", "sce_vp_psp2"),
+    ("entity.frag.cg", "entity.frag.gxp", "sce_fp_psp2"),
+    ("postfx.vert.cg", "postfx.vert.gxp", "sce_vp_psp2"),
+    ("postfx.frag.cg", "postfx.frag.gxp", "sce_fp_psp2"),
+    ("biome_tint.frag.cg", "biome_tint.frag.gxp", "sce_fp_psp2"),
+    ("hud.frag.cg", "hud.frag.gxp", "sce_fp_psp2"),
+];
+
 fn main() {
     emit_build_info();
 
@@ -14,8 +30,9 @@ fn main() {
 
     // For non-Vita platforms – empty placeholders (GXM is not used)
     if target != "vita" {
-        std::fs::write(out_dir.join("voxel.vert.gxp"), b"").unwrap();
-        std::fs::write(out_dir.join("voxel.frag.gxp"), b"").unwrap();
+        for &(_, out_gxp, _) in VITA_SHADERS {
+            std::fs::write(out_dir.join(out_gxp), b"").unwrap();
+        }
         return;
     }
 
@@ -30,47 +47,49 @@ fn main() {
     match psp2cgc {
         Some(ref compiler) => {
             println!("cargo:warning=Found psp2cgc: {}", compiler);
-            compile_shader(
-                compiler,
-                shader_dir.join("voxel.vert.cg"),
-                out_dir.join("voxel.vert.gxp"),
-                "sce_vp_psp2",
-            );
-            compile_shader(
-                compiler,
-                shader_dir.join("voxel.frag.cg"),
-                out_dir.join("voxel.frag.gxp"),
-                "sce_fp_psp2",
-            );
+            for &(src_cg, out_gxp, profile) in VITA_SHADERS {
+                compile_shader(
+                    compiler,
+                    shader_dir.join(src_cg),
+                    out_dir.join(out_gxp),
+                    profile,
+                );
+            }
             println!("cargo:warning=✓ Shaders compiled successfully!");
         }
         None => {
-            let vert_src = shader_dir.join("voxel.vert.gxp");
-            let frag_src = shader_dir.join("voxel.frag.gxp");
             let prebuilt = PathBuf::from("vita/shaders/prebuilt");
-            let vert_pb = prebuilt.join("voxel.vert.gxp");
-            let frag_pb = prebuilt.join("voxel.frag.gxp");
-
-            if vert_src.exists() && frag_src.exists() {
-                std::fs::copy(&vert_src, out_dir.join("voxel.vert.gxp")).unwrap();
-                std::fs::copy(&frag_src, out_dir.join("voxel.frag.gxp")).unwrap();
-                println!("cargo:warning=✓ GXP shaders copied from vita/shaders/");
-            } else if vert_pb.exists() && frag_pb.exists() {
-                std::fs::copy(&vert_pb, out_dir.join("voxel.vert.gxp")).unwrap();
-                std::fs::copy(&frag_pb, out_dir.join("voxel.frag.gxp")).unwrap();
-                println!("cargo:warning=✓ Pre-compiled shaders loaded from vita/shaders/prebuilt/");
-            } else {
+            let mut missing = false;
+            for &(_, out_gxp, profile) in VITA_SHADERS {
+                let src = shader_dir.join(out_gxp);
+                let pb = prebuilt.join(out_gxp);
+                if src.exists() {
+                    std::fs::copy(&src, out_dir.join(out_gxp)).unwrap();
+                } else if pb.exists() {
+                    std::fs::copy(&pb, out_dir.join(out_gxp)).unwrap();
+                } else {
+                    missing = true;
+                    let fallback = if profile == "sce_vp_psp2" {
+                        MINIMAL_VERT_GXP
+                    } else {
+                        MINIMAL_FRAG_GXP
+                    };
+                    std::fs::write(out_dir.join(out_gxp), fallback).unwrap();
+                }
+            }
+            if missing {
                 eprintln!("\n================================================================");
                 eprintln!("BUILD ERROR: Unable to find psp2cgc shader compiler!");
                 eprintln!("================================================================\n");
-                std::fs::write(out_dir.join("voxel.vert.gxp"), MINIMAL_VERT_GXP).unwrap();
-                std::fs::write(out_dir.join("voxel.frag.gxp"), MINIMAL_FRAG_GXP).unwrap();
+            } else {
+                println!("cargo:warning=✓ Pre-compiled shaders loaded from vita/shaders/");
             }
         }
     }
 
-    println!("cargo:rerun-if-changed=vita/shaders/voxel.vert.cg");
-    println!("cargo:rerun-if-changed=vita/shaders/voxel.frag.cg");
+    for &(src_cg, _, _) in VITA_SHADERS {
+        println!("cargo:rerun-if-changed=vita/shaders/{}", src_cg);
+    }
     println!("cargo:rerun-if-changed=vita/shaders/prebuilt/");
 }
 
