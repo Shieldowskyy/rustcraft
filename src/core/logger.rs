@@ -35,12 +35,7 @@ pub fn log(level: &str, target: &str, message: &str) {
     if !is_enabled() {
         return;
     }
-    #[cfg(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360"))]
-    let elapsed = crate::platform::xbox360::get_xbox_elapsed_ms() as f64 / 1000.0;
-    #[cfg(not(any(target_os = "xbox360", target_os = "xenon", target_arch = "powerpc", feature = "xbox360")))]
-    let elapsed = unsafe {
-        START_TIME.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0)
-    };
+    let elapsed = crate::platform::system::elapsed_log_seconds(unsafe { START_TIME });
     println!("[{:8.3}s] [{:<5}] [{}] {}", elapsed, level, target, message);
 }
 

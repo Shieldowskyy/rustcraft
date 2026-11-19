@@ -1,36 +1,40 @@
-//! Main RustCraft application state machine, game loop coordinator, and UI controller.
-//!
-//! Orchestrates player movement, voxel interaction, mob AI, particle simulation,
-//! audio cues, inventory management, rendering backend dispatches, and menus.
+//! Główna maszyna stanów aplikacji (`RustCraftApp`), fasada pętli gry, kontenerów, menu i trybu wieloosobowego.
 
-pub mod types;
 pub mod audio;
 pub mod containers;
+mod frame;
 pub mod gameplay;
+mod init;
 pub mod menus;
 pub mod multiplayer;
 pub mod profiler;
+mod progress;
+pub mod types;
 
 pub use types::*;
 
-use crate::core::controls::ControlsManager;
+use crate::core::controls::{Action, ControlsManager};
 use crate::core::math::{IVec3, Mat4, Vec3};
 use crate::core::profiler::FrameProfiler;
+use crate::core::profiler_server::ProfilerServer;
 use crate::core::settings::GameSettings;
-use crate::gameplay::item::ItemEntity;
-use crate::gameplay::achievements::{AchievementId, AchievementProgress};
-use crate::gameplay::quests::QuestProgress;
-use crate::gameplay::mob::MobManager;
-use crate::gameplay::particles::ParticleSystem;
-use crate::gameplay::physics::{STANDING_EYE_OFFSET, STANDING_HEIGHT};
-use crate::gameplay::player::{GameMode, Player};
-use crate::gameplay::recipe::RecipeBook;
-use crate::graphics::camera::Camera;
-use crate::graphics::software::Renderer;
-use crate::ui::VISIBLE_SAVE_ROWS;
-use crate::world::block::BlockId;
-use crate::world::storage::{get_save_metadata, SaveMetadata};
-use crate::world::{World, WorldGeneratorType};
+use crate::features::audio::{AmbientContext, AudioEngine, SoundtrackManager};
+use crate::features::autotest::AutoTestRunner;
+use crate::features::entities::{ArrowEntity, ItemEntity, MobManager, ParticleSystem};
+use crate::features::net::{
+    EmbeddedServer, LanDiscoveryClient, NetworkClient, NetworkEvent, ReverseTunnelHost,
+};
+use crate::features::player::{
+    AchievementId, AchievementProgress, Camera, GameMode, Player, QuestProgress, RecipeBook,
+};
+use crate::features::rendering::software::Renderer;
+use crate::features::ui::chat::ChatState;
+use crate::features::ui::controls_ui::RebindSlot;
+use crate::features::ui::dev_logo::DevLogo;
+use crate::features::ui::inventory::InventorySlotTarget;
+use crate::features::ui::minimap::{MinimapState, WorldMapState};
+use crate::features::ui::{MULTIPLAYER_RECT_COUNT, VISIBLE_SAVE_ROWS};
+use crate::features::world::{SaveMetadata, World, WorldGeneratorType};
 
 pub struct RustCraftApp {
     pub width: usize,
@@ -42,7 +46,7 @@ pub struct RustCraftApp {
     pub mob_manager: MobManager,
     pub player: Player,
     pub items: Vec<ItemEntity>,
-    pub arrows: Vec<crate::gameplay::ArrowEntity>,
+    pub arrows: Vec<ArrowEntity>,
     pub fishing_bobber: Option<FishingBobber>,
     pub recipe_book: RecipeBook,
     pub crafting_table_open: bool,
@@ -103,7 +107,7 @@ pub struct RustCraftApp {
     pub nickname_dialog_rects: [(i32, i32, i32, i32); 4],
     pub ime_requested: Option<(String, String)>,
     pub is_ime_active: bool,
-    pub multiplayer_menu_rects: [(i32, i32, i32, i32); crate::ui::MULTIPLAYER_RECT_COUNT],
+    pub multiplayer_menu_rects: [(i32, i32, i32, i32); MULTIPLAYER_RECT_COUNT],
     pub multiplayer_server_addr: String,
     pub multiplayer_focus: usize,
     pub multiplayer_status: Option<String>,
@@ -120,17 +124,17 @@ pub struct RustCraftApp {
     pub questbook_scroll: usize,
     pub quest_toast: Option<(usize, f32)>,
     pub pending_quest_toasts: std::collections::VecDeque<usize>,
-    pub lan_discovery: crate::net::LanDiscoveryClient,
+    pub lan_discovery: LanDiscoveryClient,
     pub selected_lan_server: Option<usize>,
     pub main_menu_nick_hovered: bool,
-    pub net_client: Option<crate::net::NetworkClient>,
-    pub(crate) pending_network_events: Vec<crate::net::NetworkEvent>,
+    pub net_client: Option<NetworkClient>,
+    pub(crate) pending_network_events: Vec<NetworkEvent>,
     pub is_multiplayer: bool,
     pub is_hosting_multiplayer: bool,
     pub death_message_sent: bool,
     pub multiplayer_invite: Option<String>,
-    pub embedded_server: Option<crate::net::EmbeddedServer>,
-    pub relay_host: Option<crate::net::ReverseTunnelHost>,
+    pub embedded_server: Option<EmbeddedServer>,
+    pub relay_host: Option<ReverseTunnelHost>,
     pub save_card_rects: [(i32, i32, i32, i32); VISIBLE_SAVE_ROWS],
     pub save_btn_rects: [(i32, i32, i32, i32); 4],
     pub create_world_rects: [(i32, i32, i32, i32); 8],
@@ -144,13 +148,13 @@ pub struct RustCraftApp {
     pub settings_debug_rects: [(i32, i32, i32, i32); 5],
     pub rebind_search: String,
     pub rebind_scroll: usize,
-    pub rebinding_target: Option<(crate::core::controls::Action, crate::ui::controls_ui::RebindSlot)>,
+    pub rebinding_target: Option<(Action, RebindSlot)>,
     pub rebind_cursor_timer: f32,
     pub rebind_search_focused: bool,
     pub is_gamepad_active: bool,
     pub last_mouse_pos: Option<(f32, f32)>,
     pub pending_rumble: Option<RumbleRequest>,
-    pub profiler_server: Option<crate::core::profiler_server::ProfilerServer>,
+    pub profiler_server: Option<ProfilerServer>,
     pub pause_menu_rects: [(i32, i32, i32, i32); 7],
     pub death_screen_rects: [(i32, i32, i32, i32); 2],
     pub create_world_name: String,
@@ -164,958 +168,61 @@ pub struct RustCraftApp {
     pub seed: u32,
     pub fps_display: u32,
     pub frozen_frame: Option<Vec<u32>>,
-    pub right_drag_visited: Vec<crate::ui::inventory_ui::InventorySlotTarget>,
+    pub right_drag_visited: Vec<InventorySlotTarget>,
     pub profiler_frame_count: u64,
     pub profiler_copied_timer: f32,
     pub telemetry_timer: f32,
     pub camera_perspective: CameraPerspective,
-    pub autotest: Option<crate::gameplay::autotest::AutoTestRunner>,
-    pub audio: crate::audio::AudioEngine,
-    pub soundtrack: crate::audio::SoundtrackManager,
+    pub autotest: Option<AutoTestRunner>,
+    pub audio: AudioEngine,
+    pub soundtrack: SoundtrackManager,
     pub was_on_ground: bool,
     pub ambient_probe_timer: f32,
-    pub cached_ambient_ctx: crate::audio::AmbientContext,
+    pub cached_ambient_ctx: AmbientContext,
 
-    // Controls toggle states
     pub sprint_toggled: bool,
     pub crouch_toggled: bool,
 
-    // Previous input state for edge detection
-    prev_left_down: bool,
-    prev_right_down: bool,
-    prev_middle_down: bool,
-    prev_escape_down: bool,
-    prev_p_down: bool,
-    prev_e_down: bool,
-    prev_f_down: bool,
-    prev_q_down: bool,
-    prev_m_down: bool,
-    prev_g_down: bool,
-    prev_f5_down: bool,
-    prev_enter_down: bool,
-    prev_up_arrow_down: bool,
-    prev_down_arrow_down: bool,
-    prev_left_arrow_down: bool,
-    prev_right_arrow_down: bool,
-    prev_n_down: bool,
-    prev_del_down: bool,
-    prev_backspace_down: bool,
-    prev_tab_down: bool,
-    prev_a_down: bool,
-    prev_c_down: bool,
-    prev_v_down: bool,
-    prev_x_down: bool,
-    prev_sprint_btn: bool,
-    prev_sneak_btn: bool,
-    prev_l1_btn: bool,
-    prev_r1_btn: bool,
-    prev_key_digits: [bool; 10],
-    pub chat: crate::gameplay::chat::ChatState,
-    prev_t_down: bool,
-    prev_slash_down: bool,
-    prev_b_down: bool,
-    prev_u_down: bool,
-    prev_space_down: bool,
+    pub(crate) prev_left_down: bool,
+    pub(crate) prev_right_down: bool,
+    pub(crate) prev_middle_down: bool,
+    pub(crate) prev_escape_down: bool,
+    pub(crate) prev_p_down: bool,
+    pub(crate) prev_e_down: bool,
+    pub(crate) prev_f_down: bool,
+    pub(crate) prev_q_down: bool,
+    pub(crate) prev_m_down: bool,
+    pub(crate) prev_g_down: bool,
+    pub(crate) prev_f5_down: bool,
+    pub(crate) prev_enter_down: bool,
+    pub(crate) prev_up_arrow_down: bool,
+    pub(crate) prev_down_arrow_down: bool,
+    pub(crate) prev_left_arrow_down: bool,
+    pub(crate) prev_right_arrow_down: bool,
+    pub(crate) prev_n_down: bool,
+    pub(crate) prev_del_down: bool,
+    pub(crate) prev_backspace_down: bool,
+    pub(crate) prev_tab_down: bool,
+    pub(crate) prev_a_down: bool,
+    pub(crate) prev_c_down: bool,
+    pub(crate) prev_v_down: bool,
+    pub(crate) prev_x_down: bool,
+    pub(crate) prev_sprint_btn: bool,
+    pub(crate) prev_sneak_btn: bool,
+    pub(crate) prev_l1_btn: bool,
+    pub(crate) prev_r1_btn: bool,
+    pub(crate) prev_key_digits: [bool; 10],
+    pub chat: ChatState,
+    pub(crate) prev_t_down: bool,
+    pub(crate) prev_slash_down: bool,
+    pub(crate) prev_b_down: bool,
+    pub(crate) prev_u_down: bool,
+    pub(crate) prev_space_down: bool,
     pub controls: ControlsManager,
-    pub minimap: crate::ui::minimap::MinimapState,
-    pub worldmap: crate::ui::minimap::WorldMapState,
+    pub minimap: MinimapState,
+    pub worldmap: WorldMapState,
     pub splash_index: usize,
-    /// Developer logo shown at startup (None if missing / skipped).
-    pub dev_logo: Option<crate::ui::dev_logo::DevLogo>,
-    /// Elapsed seconds of the dev logo splash.
+    pub dev_logo: Option<DevLogo>,
     pub dev_logo_timer: f32,
-    /// Remaining seconds of the black fade-in over the menu after the logo.
     pub menu_fade_timer: f32,
-}
-
-impl RustCraftApp {
-    pub fn new(width: usize, height: usize, renderer_choice: &str, seed: u32) -> Self {
-        #[cfg(target_os = "vita")]
-        crate::vita_log!("[App::new 1/6] Loading settings, mods and language...");
-        crate::log_info!("APP", "[Step 1/5] Loading game configuration, mods and language...");
-        let mut settings = GameSettings::load();
-        settings.apply_ram_limit();
-        crate::core::i18n::set_language(settings.language);
-
-        let mut recipe_book = RecipeBook::new();
-        crate::engine::modding::ModManager::load_mods(&mut recipe_book);
-
-        #[cfg(target_os = "vita")]
-        crate::vita_log!("[App::new 2/6] Initializing software/2D renderer ({}x{})...", width, height);
-        crate::log_info!("APP", "[Step 2/5] Initializing renderer ({})...", renderer_choice);
-        let mut renderer = match renderer_choice {
-            #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "android"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
-            "vulkan" => Renderer::new_vulkan(width, height).unwrap_or_else(|error| {
-                eprintln!("Failed to initialize Vulkan renderer: {error}, falling back to software renderer");
-                Renderer::new(width, height)
-            }),
-            #[cfg(all(not(target_arch = "wasm32"), not(target_arch = "powerpc"), not(target_os = "vita"), not(target_os = "xbox360"), not(target_os = "xenon"), not(feature = "xbox360")))]
-            "opengl" | "gl" => Renderer::new_opengl(width, height).unwrap_or_else(|error| {
-                eprintln!("Failed to initialize OpenGL renderer: {error}, falling back to software renderer");
-                Renderer::new(width, height)
-            }),
-            _ => Renderer::new(width, height),
-        };
-        renderer.fog_enabled = settings.fog;
-        renderer.render_distance = settings.render_distance;
-        if !settings.fancy_leaves {
-            renderer.update_textures(false);
-        }
-
-        #[cfg(target_os = "vita")]
-        crate::vita_log!("[App::new 3/6] Initializing World::new_with_seed({})...", seed);
-        crate::log_info!("APP", "[Step 3/5] Initializing world instance (seed: {})...", seed);
-        let world = World::new_with_seed(seed);
-        let start_player_pos = world.player_position;
-        let (initial_biome, _) = crate::world::get_biome_at(start_player_pos.x.floor() as i32, start_player_pos.z.floor() as i32, world.seed);
-        let initial_biome_tint = initial_biome.color_filter();
-
-        #[cfg(target_os = "vita")]
-        crate::vita_log!("[App::new 4/6] Initializing camera, player & UI layout...");
-        crate::log_info!("APP", "[Step 4/5] Initializing camera, player & UI layout...");
-        let camera = Camera::new(start_player_pos);
-
-        let mut player = Player::new();
-        player.gamemode = GameMode::Survival;
-
-        let main_menu_rects = renderer.main_menu_button_rects();
-        let main_menu_nick_rect = renderer.main_menu_nickname_rect();
-        let nickname_dialog_rects = renderer.nickname_dialog_rects();
-        let default_nickname = settings.nickname.clone();
-        let multiplayer_menu_rects = renderer.multiplayer_menu_rects();
-        let save_card_rects = renderer.save_card_rects();
-        let save_btn_rects = renderer.save_bottom_button_rects();
-        renderer.render_distance = settings.render_distance;
-        renderer.brightness = settings.brightness;
-        let create_world_rects = renderer.create_world_rects();
-        let settings_tab_rects = renderer.settings_tab_rects();
-        let settings_rects = renderer.settings_graphics_rects();
-        let settings_audio_rects = renderer.settings_audio_rects();
-        let settings_controls_rects = renderer.settings_controls_rects();
-        let settings_debug_rects = renderer.settings_debug_rects();
-        let pause_menu_rects = renderer.pause_menu_button_rects();
-        let death_screen_rects = renderer.death_screen_button_rects();
-
-        let profiler_server = if settings.profiler_server {
-            crate::core::profiler_server::ProfilerServer::start(settings.profiler_server_port).ok()
-        } else {
-            None
-        };
-
-        let aspect = width as f32 / height as f32;
-        let last_fov = camera.fov_y;
-        let proj_matrix = camera.projection_matrix(aspect);
-
-        crate::log_info!("APP", "[Step 5/5] Checking save slots cache...");
-        let save_metadata_cache = std::array::from_fn(|index| {
-            get_save_metadata(index as u8 + 1)
-        });
-        crate::log_info!("APP", "RustCraftApp state initialization complete.");
-
-        let autotest_enabled = crate::cli::parse_autotest_enabled();
-        let (initial_state, autotest) = if autotest_enabled {
-            crate::log_info!("AUTOTEST", "AutoTest Mode ENABLED: auto-starting automated bot test sequence in active world");
-            (GameState::Playing, Some(crate::gameplay::autotest::AutoTestRunner::new()))
-        } else {
-            (GameState::MainMenu, None)
-        };
-
-        #[cfg(target_os = "vita")]
-        crate::vita_log!("[App::new 5/6] Initializing AudioEngine...");
-        let mut audio = crate::audio::AudioEngine::new();
-        audio.set_master_volume(settings.master_volume);
-        audio.set_sfx_volume(settings.sfx_volume);
-        audio.set_music_volume(settings.music_volume);
-        audio.set_ambient_volume(settings.ambient_volume);
-        audio.set_ui_volume(settings.ui_volume);
-        if settings.mute_audio {
-            audio.toggle_mute();
-        }
-
-        #[cfg(target_os = "vita")]
-        crate::vita_log!("[App::new 6/6] Initializing SoundtrackManager...");
-        let mut soundtrack = crate::audio::take_preloaded_manager().unwrap_or_else(|| {
-            #[allow(unused_mut)]
-            let mut m = crate::audio::SoundtrackManager::new(crate::world::storage::soundtracks_dir());
-            // On PS Vita, skip synchronous full-track PCM decode during startup to conserve contiguous Newlib heap
-            #[cfg(not(target_os = "vita"))]
-            m.preload_intro(crate::audio::SoundtrackCategory::Menu);
-            m
-        });
-        let dev_logo = if autotest_enabled || cfg!(test) { None } else { crate::ui::dev_logo::DevLogo::load() };
-        let intro_allowed = !settings.mute_audio && settings.music_volume > 0.001 && !autotest_enabled;
-        if !intro_allowed {
-            soundtrack.pending_intro = None;
-        } else if dev_logo.is_none() {
-            soundtrack.start_intro(&mut audio);
-            soundtrack.show_current_toast();
-        }
-
-        let app = Self {
-            width,
-            height,
-            renderer,
-            world,
-            camera,
-            particles: ParticleSystem::new(),
-            mob_manager: MobManager::new(),
-            player,
-            items: Vec::new(),
-            arrows: Vec::new(),
-            fishing_bobber: None,
-            recipe_book,
-            crafting_table_open: false,
-            recipe_book_open: false,
-            recipe_book_scroll: 0,
-            recipe_book_status: None,
-            settings,
-            state: initial_state,
-            autotest,
-            save_slot: 1,
-            save_select_slot: 1,
-            save_select_scroll: 0,
-            save_metadata_cache,
-            save_card_double_click_timer: 0.0,
-            save_card_last_clicked_slot: None,
-            settings_tab: 0,
-            settings_hovered_opt: Some(0),
-            menu_hovered_btn: Some(0),
-            pause_hovered_btn: Some(0),
-            death_hovered_btn: Some(0),
-            vertical_velocity: 0.0,
-            horiz_velocity: Vec3::zero(),
-            fly_velocity: Vec3::zero(),
-            on_ground: false,
-            fly_mode: false,
-            jump_double_tap_timer: 0.0,
-            current_eye_offset: STANDING_EYE_OFFSET,
-            current_player_height: STANDING_HEIGHT,
-            break_progress: 0.0,
-            break_target: None,
-            dig_sound_timer: 0.0,
-            creative_break_cooldown: 0.0,
-            total_time: 0.0,
-            material_timer: 0.0,
-            hand_animation: 0.0,
-            walk_phase: 0.0,
-            damage_tilt_timer: 0.0,
-            damage_tilt_dir: 1.0,
-            lava_damage_timer: 0.45,
-            drown_damage_timer: 0.0,
-            biome_filter_tint: initial_biome_tint,
-            debug_lines: (0..10).map(|_| String::with_capacity(96)).collect(),
-            debug_right_lines: (0..14).map(|_| String::with_capacity(96)).collect(),
-            profiler: FrameProfiler::default(),
-            profiler_enabled: cfg!(feature = "profiler"),
-            debug_timer: 0.15,
-            cpu_time_ms: 16.6,
-            gpu_triangles: 0,
-            cdram_mb: 0.0,
-            ram_mb: 0.0,
-            chunk_slots_info: (0, 144),
-            last_fov,
-            last_aspect: aspect,
-            proj_matrix,
-            main_menu_rects,
-            main_menu_nick_rect,
-            nickname_input: default_nickname,
-            nickname_selected: false,
-            nickname_dialog_hovered_btn: Some(0),
-            nickname_dialog_rects,
-            ime_requested: None,
-            is_ime_active: false,
-            multiplayer_menu_rects,
-            multiplayer_server_addr: "127.0.0.1:26656".to_string(),
-            multiplayer_focus: 0,
-            multiplayer_status: None,
-            multiplayer_is_connecting: false,
-            multiplayer_toast: None,
-            achievement_toast: None,
-            pending_achievement_toasts: std::collections::VecDeque::new(),
-            achievements: AchievementProgress::default(),
-            field_guide_tab: 0,
-            field_guide_scroll: 0,
-            quests: QuestProgress::default(),
-            questbook_tab: 0,
-            questbook_selected: 0,
-            questbook_scroll: 0,
-            quest_toast: None,
-            pending_quest_toasts: std::collections::VecDeque::new(),
-            lan_discovery: crate::net::LanDiscoveryClient::new(),
-            selected_lan_server: None,
-            main_menu_nick_hovered: false,
-            net_client: None,
-            pending_network_events: Vec::new(),
-            is_multiplayer: false,
-            is_hosting_multiplayer: false,
-            death_message_sent: false,
-            multiplayer_invite: None,
-            embedded_server: None,
-            relay_host: None,
-            save_card_rects,
-            save_btn_rects,
-            create_world_rects,
-            create_world_generator_type: WorldGeneratorType::Default,
-            create_world_quests_enabled: true,
-            settings_tab_rects,
-            settings_rects,
-            settings_audio_rects,
-            settings_controls_rects,
-            settings_debug_rects,
-            rebind_search: String::new(),
-            rebind_scroll: 0,
-            rebinding_target: None,
-            rebind_cursor_timer: 0.0,
-            rebind_search_focused: true,
-            is_gamepad_active: false,
-            last_mouse_pos: None,
-            pending_rumble: None,
-            profiler_server,
-            pause_menu_rects,
-            death_screen_rects,
-            create_world_name: String::new(),
-            create_world_seed: String::new(),
-            create_world_gamemode: GameMode::Survival,
-            create_world_focus: 0,
-            create_world_slot: 1,
-            create_world_selected: false,
-            last_clean_thumbnail: None,
-            thumbnail_timer: 0.0,
-            seed,
-            fps_display: 60,
-            frozen_frame: None,
-            right_drag_visited: Vec::new(),
-            profiler_frame_count: 0,
-            profiler_copied_timer: 0.0,
-            telemetry_timer: 0.0,
-            camera_perspective: CameraPerspective::FirstPerson,
-            audio,
-            soundtrack,
-            was_on_ground: false,
-            ambient_probe_timer: 0.0,
-            cached_ambient_ctx: crate::audio::AmbientContext::default(),
-
-            sprint_toggled: false,
-            crouch_toggled: false,
-
-            prev_left_down: false,
-            prev_right_down: false,
-            prev_middle_down: false,
-            prev_escape_down: false,
-            prev_p_down: false,
-            prev_e_down: false,
-            prev_f_down: false,
-            prev_q_down: false,
-            prev_m_down: false,
-            prev_g_down: false,
-            prev_f5_down: false,
-            prev_enter_down: false,
-            prev_up_arrow_down: false,
-            prev_down_arrow_down: false,
-            prev_left_arrow_down: false,
-            prev_right_arrow_down: false,
-            prev_n_down: false,
-            prev_del_down: false,
-            prev_backspace_down: false,
-            prev_tab_down: false,
-            prev_a_down: false,
-            prev_c_down: false,
-            prev_v_down: false,
-            prev_x_down: false,
-            prev_sprint_btn: false,
-            prev_sneak_btn: false,
-            prev_l1_btn: false,
-            prev_r1_btn: false,
-            prev_key_digits: [false; 10],
-            chat: crate::gameplay::chat::ChatState::new(),
-            prev_t_down: false,
-            prev_slash_down: false,
-            prev_b_down: false,
-            prev_u_down: false,
-            prev_space_down: false,
-            controls: ControlsManager::new(),
-            minimap: crate::ui::minimap::MinimapState::new(1, 0),
-            worldmap: crate::ui::minimap::WorldMapState::new(start_player_pos),
-            splash_index: (seed as usize) % crate::ui::splashes::SPLASH_TEXTS.len(),
-            dev_logo,
-            dev_logo_timer: 0.0,
-            menu_fade_timer: 0.0,
-        };
-        #[cfg(target_os = "vita")]
-        crate::vita_log!("[App::new DONE] RustCraftApp constructed successfully.");
-        crate::log_info!("INIT", "RustCraftApp initialized ({}x{}, renderer: {}, seed: {})", width, height, renderer_choice, seed);
-        app
-    }
-
-    pub fn pixel_buffer(&self) -> &[u32] {
-        self.renderer.pixel_buffer()
-    }
-
-    pub fn pixel_buffer_mut(&mut self) -> &mut [u32] {
-        self.renderer.pixel_buffer_mut()
-    }
-
-    /// Alias for PS Vita – full update of game logic and software state.
-    /// On Vita the software framebuffer draw is bypassed in favor of native GXM GPU rendering.
-    #[cfg(target_os = "vita")]
-    pub fn update(&mut self, dt: f32, input: &crate::app::InputState) -> AppOutput {
-        self.update_and_render(dt, input)
-    }
-
-    pub fn update_and_render(&mut self, dt: f32, input: &InputState) -> AppOutput {
-        let mut bot_input = input.clone();
-        if let Some(mut runner) = self.autotest.take() {
-            runner.update(self, dt, &mut bot_input);
-            self.autotest = Some(runner);
-        }
-        let input = &bot_input;
-
-        self.total_time += dt;
-        if let Some((_, remaining, _)) = &mut self.multiplayer_toast {
-            *remaining = (*remaining - dt).max(0.0);
-            if *remaining == 0.0 {
-                self.multiplayer_toast = None;
-            }
-        }
-        if let Some((_, remaining)) = &mut self.achievement_toast {
-            *remaining = (*remaining - dt).max(0.0);
-            if *remaining == 0.0 {
-                self.achievement_toast = self
-                    .pending_achievement_toasts
-                    .pop_front()
-                    .map(|id| (id, 6.0));
-            }
-        }
-        if let Some((_, remaining)) = &mut self.quest_toast {
-            *remaining = (*remaining - dt).max(0.0);
-            if *remaining == 0.0 {
-                self.quest_toast = self
-                    .pending_quest_toasts
-                    .pop_front()
-                    .map(|id| (id, 5.5));
-            }
-        }
-        self.renderer.total_time = self.total_time;
-        self.renderer.chunk_anim = self.settings.chunk_anim;
-        self.hand_animation = (self.hand_animation - dt * 3.5).max(0.0);
-        self.profiler_copied_timer = (self.profiler_copied_timer - dt).max(0.0);
-        self.controls.update(input);
-
-        let mut out = AppOutput {
-            request_capture_mouse: false,
-            request_release_mouse: false,
-            quit_requested: false,
-            is_playing: matches!(self.state, GameState::Playing),
-            title: String::new(),
-            rumble_request: None,
-            cursor_visible: None,
-        };
-
-        // Active input device detection (Gamepad vs Keyboard/Mouse)
-        let mouse_moved = match (input.mouse_pos, self.last_mouse_pos) {
-            (Some((mx, my)), Some((lx, ly))) => (mx - lx).abs() > 1.5 || (my - ly).abs() > 1.5,
-            (Some(_), None) => true,
-            _ => false,
-        };
-        self.last_mouse_pos = input.mouse_pos;
-
-        let kb_mouse_activity = mouse_moved
-            || input.mouse_left
-            || input.mouse_right
-            || input.mouse_dx.abs() > 1.0
-            || input.mouse_dy.abs() > 1.0
-            || input.scroll_delta.abs() > 0.1
-            || input.key_w || input.key_s || input.key_a || input.key_d
-            || input.key_space || input.key_shift || input.key_ctrl
-            || input.key_escape || input.key_e || input.key_q
-            || input.key_enter || input.key_up || input.key_down || input.key_left || input.key_right
-            || !input.typed_chars.is_empty();
-
-        let gp_stick_moved = input.gp_left_stick_x.abs() > 0.25
-            || input.gp_left_stick_y.abs() > 0.25
-            || input.gp_right_stick_x.abs() > 0.25
-            || input.gp_right_stick_y.abs() > 0.25
-            || input.gp_left_trigger > 0.25
-            || input.gp_right_trigger > 0.25;
-
-        let gp_activity = input.gp_connected && (
-            gp_stick_moved
-            || input.gp_btn_south || input.gp_btn_east || input.gp_btn_west || input.gp_btn_north
-            || input.gp_btn_lb || input.gp_btn_rb || input.gp_btn_l3 || input.gp_btn_r3
-            || input.gp_btn_start || input.gp_btn_select
-            || input.gp_dpad_up || input.gp_dpad_down || input.gp_dpad_left || input.gp_dpad_right
-            || input.gp_south_just_pressed || input.gp_east_just_pressed || input.gp_west_just_pressed || input.gp_north_just_pressed
-            || input.gp_lb_just_pressed || input.gp_rb_just_pressed || input.gp_r3_just_pressed
-            || input.gp_start_just_pressed || input.gp_select_just_pressed
-            || input.gp_dpad_up_just_pressed || input.gp_dpad_down_just_pressed || input.gp_dpad_left_just_pressed || input.gp_dpad_right_just_pressed
-            || input.gp_menu_up || input.gp_menu_down || input.gp_menu_left || input.gp_menu_right
-            || input.gp_right_trigger_just_pressed || input.gp_left_trigger_just_pressed
-        );
-
-        if gp_activity {
-            self.is_gamepad_active = true;
-        } else if kb_mouse_activity || !input.gp_connected {
-            self.is_gamepad_active = false;
-        }
-
-        let left_down = input.mouse_left;
-        let right_down = input.mouse_right;
-        let escape_down = input.key_escape;
-        let p_down = input.key_p;
-        let f_down = input.key_f;
-        let e_down = input.key_e;
-        let q_down = input.key_q;
-        let m_down = input.key_m;
-        let g_down = input.key_g;
-        let a_down = input.key_a;
-        let c_down = input.key_c;
-        let v_down = input.key_v;
-        let x_down = input.key_x;
-        let f5_down = input.key_f5;
-        let enter_down = input.key_enter;
-        let n_down = input.key_n;
-        let del_down = input.key_del;
-        let backspace_down = input.key_backspace;
-        let tab_down = input.key_tab;
-        let left_arrow_down = input.key_left;
-        let right_arrow_down = input.key_right;
-        let up_arrow_down = input.key_up;
-        let down_arrow_down = input.key_down;
-        let t_down = input.key_t;
-        let slash_down = input.key_slash;
-        let b_down = input.key_b;
-        let u_down = input.key_u;
-        let space_down = input.key_space;
-
-        let showing_logo = self.update_and_render_dev_logo(dt, input);
-        if !showing_logo { match self.state {
-            GameState::MainMenu => self.update_and_render_main_menu(input, mouse_moved, &mut out),
-            GameState::MultiplayerMenu => self.update_and_render_multiplayer_menu(dt, input, &mut out),
-            GameState::EditNickname(prev) => self.update_and_render_nickname_dialog(input, prev, &mut out),
-            GameState::MultiplayerConnecting { .. } => self.update_and_render_multiplayer_connecting(dt, input, &mut out),
-            GameState::SaveSelect => self.update_and_render_save_select(dt, input, mouse_moved, &mut out),
-            GameState::CreateWorld => self.update_and_render_create_world(input, mouse_moved, &mut out),
-            GameState::Settings(prev) => self.update_and_render_settings(input, prev, mouse_moved, &mut out),
-            GameState::ControlsRebind(prev) => self.update_and_render_controls_rebind(prev, dt, input, mouse_moved, &mut out),
-            #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
-            GameState::Loading(ref rx) => {
-                let res = rx.try_recv().ok();
-                self.update_and_render_loading(res);
-            }
-            #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
-            GameState::Loading => self.update_and_render_loading(),
-            GameState::Playing => self.update_and_render_playing(dt, input, &mut out),
-            GameState::Paused => self.update_and_render_paused(dt, input, mouse_moved, &mut out),
-            GameState::AchievementTree => self.update_and_render_achievement_tree(input, &mut out),
-            GameState::Questbook => self.update_and_render_questbook(input, &mut out),
-            GameState::Inventory => self.update_and_render_inventory(dt, input, mouse_moved, &mut out),
-            GameState::Chest { pos } => self.update_and_render_chest(dt, input, pos, &mut out),
-            GameState::Furnace { pos } => self.update_and_render_furnace(dt, input, pos, &mut out),
-            GameState::VillagerTrade { mob_id, selected_trade } => self.update_and_render_villager_trade(dt, input, mob_id, selected_trade, &mut out),
-            GameState::DeathScreen => self.update_and_render_death_screen(input, mouse_moved, &mut out),
-            GameState::WorldMap => self.update_and_render_worldmap(dt, input, mouse_moved, &mut out),
-        } }
-
-        if !matches!(self.state, GameState::Playing | GameState::MultiplayerConnecting { .. }) {
-            let events = self
-                .net_client
-                .as_mut()
-                .filter(|client| client.is_connected)
-                .map(|client| client.update(dt));
-            if let Some(events) = events {
-                if let Some(reason) = events.iter().find_map(|event| match event {
-                    crate::net::NetworkEvent::Disconnected { reason } => Some(reason.clone()),
-                    _ => None,
-                }) {
-                    self.handle_multiplayer_disconnect(reason);
-                    out.request_release_mouse = true;
-                } else {
-                    self.pending_network_events.extend(events);
-                }
-            }
-        }
-
-        // Context-aware soundtrack update (Creative vs Survival vs Menu)
-        let soundtrack_category = match self.state {
-            GameState::Playing
-            | GameState::Paused
-            | GameState::AchievementTree
-            | GameState::Questbook
-            | GameState::Inventory
-            | GameState::Chest { .. }
-            | GameState::Furnace { .. }
-            | GameState::VillagerTrade { .. }
-            | GameState::DeathScreen
-            | GameState::WorldMap => {
-                match self.player.gamemode {
-                    GameMode::Creative => crate::audio::SoundtrackCategory::Creative,
-                    GameMode::Survival => crate::audio::SoundtrackCategory::Survival,
-                }
-            }
-            _ => crate::audio::SoundtrackCategory::Menu,
-        };
-
-        self.soundtrack.update(
-            dt,
-            soundtrack_category,
-            &mut self.audio,
-            self.settings.music_volume,
-            self.settings.mute_audio,
-        );
-
-        self.prev_left_down = left_down;
-        self.prev_right_down = right_down;
-        self.prev_middle_down = input.mouse_middle;
-        self.prev_escape_down = escape_down;
-        self.prev_p_down = p_down;
-        self.prev_e_down = e_down;
-        self.prev_f_down = f_down;
-        self.prev_q_down = q_down;
-
-        self.prev_m_down = m_down;
-        self.prev_g_down = g_down;
-        self.prev_f5_down = f5_down;
-        self.prev_enter_down = enter_down;
-        self.prev_up_arrow_down = up_arrow_down;
-        self.prev_down_arrow_down = down_arrow_down;
-        self.prev_left_arrow_down = left_arrow_down;
-        self.prev_right_arrow_down = right_arrow_down;
-        self.prev_n_down = n_down;
-        self.prev_del_down = del_down;
-        self.prev_backspace_down = backspace_down;
-        self.prev_tab_down = tab_down;
-        self.prev_a_down = a_down;
-        self.prev_c_down = c_down;
-        self.prev_v_down = v_down;
-        self.prev_x_down = x_down;
-        self.prev_key_digits = input.key_digits;
-        self.prev_t_down = t_down;
-        self.prev_slash_down = slash_down;
-        self.prev_b_down = b_down;
-        self.prev_u_down = u_down;
-        self.prev_space_down = space_down;
-
-        out.title = format!(
-            "RustCraft [{} renderer] - {} FPS - block: {}{}{}",
-            self.renderer.backend_name(),
-            self.fps_display,
-            BlockId::from_u8(self.renderer.selected_block()).display_name(),
-            if self.fly_mode { " - [FLYING]" } else { "" },
-            if matches!(self.state, GameState::Paused | GameState::AchievementTree | GameState::Questbook) { " - [PAUSED]" } else { "" }
-        );
-
-        if let Some(ref server) = self.profiler_server {
-            if server.is_screenshot_requested() {
-                let bmp_bytes = crate::core::profiler_server::encode_bmp(
-                    self.renderer.pixel_buffer(),
-                    self.width,
-                    self.height,
-                );
-                let bpos = self.camera.position.floor_to_ivec();
-                let biome = self.world.biome_name_at(bpos.x, bpos.z).to_string();
-                let game_state_str = match &self.state {
-                    GameState::MainMenu => "Main Menu",
-                    GameState::SaveSelect => "Save Select",
-                    GameState::CreateWorld => "Create World",
-                    GameState::Settings(_) => "Settings",
-                    GameState::ControlsRebind(_) => "Controls Rebind",
-                    GameState::EditNickname(_) => "Change Nickname",
-                    #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
-                    GameState::Loading(_) => "Loading",
-                    #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
-                    GameState::Loading => "Loading",
-                    GameState::Playing => "Playing",
-                    GameState::Paused => "Paused",
-                    GameState::AchievementTree => "Achievement Tree",
-                    GameState::Questbook => "Questbook",
-                    GameState::Inventory => "Inventory",
-                    GameState::Chest { .. } => "Chest",
-                    GameState::Furnace { .. } => "Furnace",
-                    GameState::VillagerTrade { .. } => "Villager Trade",
-                    GameState::DeathScreen => "Death Screen",
-                    GameState::WorldMap => "World Map",
-                    GameState::MultiplayerMenu => "Multiplayer Menu",
-                    GameState::MultiplayerConnecting { .. } => "Multiplayer Connecting",
-                };
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0);
-
-                server.set_screenshot(crate::core::profiler_server::ScreenshotData {
-                    bmp_bytes,
-                    width: self.width,
-                    height: self.height,
-                    timestamp_ms: now_ms,
-                    fps: self.fps_display,
-                    player_pos: [
-                        self.camera.position.x,
-                        self.camera.position.y,
-                        self.camera.position.z,
-                    ],
-                    biome,
-                    game_state: game_state_str.to_string(),
-                    gamemode: match self.player.gamemode {
-                        GameMode::Survival => "Survival".to_string(),
-                        GameMode::Creative => "Creative".to_string(),
-                    },
-                });
-            }
-        }
-
-        if let Some(ref runner) = self.autotest {
-            runner.render_overlay(self.renderer.pixel_buffer_mut(), self.width, self.height);
-        }
-
-        // Fade the menu in from black after the intro logo.
-        if self.menu_fade_timer > 0.0 {
-            self.menu_fade_timer = (self.menu_fade_timer - dt.min(0.05)).max(0.0);
-            let a = (self.menu_fade_timer / crate::ui::dev_logo::MENU_FADE_IN).clamp(0.0, 1.0);
-            crate::ui::fill_rect_alpha(self.renderer.pixel_buffer_mut(), self.width, self.height, 0, 0, self.width as i32, self.height as i32, 0, a);
-        }
-
-        // Draw Now-Playing soundtrack toast in bottom-right corner (with progress bar on pause menu)
-        let is_paused = matches!(self.state, GameState::Paused | GameState::AchievementTree | GameState::Questbook);
-        if self.settings.show_music_toast {
-            self.soundtrack.draw_toast(self.renderer.pixel_buffer_mut(), self.width, self.height, is_paused, &self.audio);
-        }
-        if let Some((message, _, is_error)) = &self.multiplayer_toast {
-            crate::ui::draw_multiplayer_toast(
-                self.renderer.pixel_buffer_mut(),
-                self.width,
-                self.height,
-                message,
-                *is_error,
-            );
-        }
-        if let Some((id, _)) = self.achievement_toast {
-            crate::ui::draw_achievement_toast(
-                self.renderer.pixel_buffer_mut(),
-                self.width,
-                self.height,
-                crate::core::i18n::t(id.name_key()),
-                crate::core::i18n::t(id.description_key()),
-            );
-        }
-        if let Some((quest_idx, _)) = self.quest_toast {
-            let key_hint = self.questbook_key_hint();
-            crate::ui::draw_quest_toast(
-                self.renderer.pixel_buffer_mut(),
-                self.width,
-                self.height,
-                quest_idx,
-                key_hint,
-            );
-        }
-
-        out.is_playing = matches!(self.state, GameState::Playing) && !self.chat.is_open;
-        out.rumble_request = self.pending_rumble.take();
-        if !input.is_mouse_captured && !matches!(self.state, GameState::Playing) {
-            out.cursor_visible = Some(!self.is_gamepad_active);
-        }
-
-        out
-    }
-
-    pub fn resize(&mut self, width: usize, height: usize) {
-        if width == 0 || height == 0 || (self.width == width && self.height == height) {
-            return;
-        }
-        self.width = width;
-        self.height = height;
-        self.renderer.resize(width, height);
-
-        self.main_menu_rects = self.renderer.main_menu_button_rects();
-        self.main_menu_nick_rect = self.renderer.main_menu_nickname_rect();
-        self.nickname_dialog_rects = self.renderer.nickname_dialog_rects();
-        self.multiplayer_menu_rects = self.renderer.multiplayer_menu_rects();
-        self.save_card_rects = self.renderer.save_card_rects();
-        self.save_btn_rects = self.renderer.save_bottom_button_rects();
-        self.create_world_rects = self.renderer.create_world_rects();
-        self.settings_tab_rects = self.renderer.settings_tab_rects();
-        self.settings_rects = self.renderer.settings_graphics_rects();
-        self.settings_audio_rects = self.renderer.settings_audio_rects();
-        self.settings_controls_rects = self.renderer.settings_controls_rects();
-        self.settings_debug_rects = self.renderer.settings_debug_rects();
-        self.pause_menu_rects = self.renderer.pause_menu_button_rects();
-        self.death_screen_rects = self.renderer.death_screen_button_rects();
-
-        let aspect = width as f32 / height as f32;
-        self.last_aspect = aspect;
-        self.proj_matrix = self.camera.projection_matrix(aspect);
-    }
-}
-
-impl RustCraftApp {
-    pub(crate) fn process_achievement_unlocks(&mut self, unlocked: Vec<AchievementId>) {
-        if unlocked.is_empty() {
-            return;
-        }
-        self.pending_achievement_toasts.extend(unlocked);
-        if self.achievement_toast.is_none() {
-            self.achievement_toast = self
-                .pending_achievement_toasts
-                .pop_front()
-                .map(|id| (id, 6.0));
-        }
-        self.persist_achievement_progress();
-    }
-
-    pub(crate) fn record_discovered_block(&mut self, block: BlockId) {
-        if self.achievements.record_block_discovered(block) {
-            self.persist_achievement_progress();
-        }
-    }
-
-    pub(crate) fn record_collected_item(&mut self, block: BlockId) {
-        if self.achievements.record_item_collected(block) {
-            self.persist_achievement_progress();
-        }
-        let q_inv = self.quests.sync_inventory(&self.player.inventory);
-        self.process_quest_completions(q_inv);
-    }
-
-    pub(crate) fn record_inventory_items_collected(&mut self) {
-        let inventory = &self.player.inventory;
-        let blocks: Vec<BlockId> = inventory
-            .hotbar
-            .iter()
-            .chain(inventory.main.iter())
-            .chain(inventory.crafting_2x2.iter())
-            .chain(inventory.crafting_3x3.iter())
-            .chain(inventory.armor.iter())
-            .chain(std::iter::once(&inventory.offhand))
-            .chain(std::iter::once(&inventory.held_item))
-            .filter_map(|slot| slot.map(|stack| stack.block))
-            .collect();
-        let mut changed = false;
-        for block in blocks {
-            changed |= self.achievements.record_item_collected(block);
-        }
-        if changed {
-            self.persist_achievement_progress();
-        }
-    }
-
-    pub(crate) fn persist_achievement_progress(&self) {
-        if let Err(error) =
-            crate::world::storage::save_achievement_progress(self.save_slot, &self.achievements)
-        {
-            crate::log_error!("ACHIEVEMENT", "{}", error);
-        }
-    }
-
-    pub(crate) fn reset_achievements_for_slot(&mut self, slot: u8) {
-        self.achievements = AchievementProgress::default();
-        self.achievement_toast = None;
-        self.pending_achievement_toasts.clear();
-        if let Err(error) =
-            crate::world::storage::save_achievement_progress(slot, &self.achievements)
-        {
-            crate::log_error!("ACHIEVEMENT", "{}", error);
-        }
-    }
-
-    pub(crate) fn load_achievements_for_slot(&mut self, slot: u8) {
-        self.achievement_toast = None;
-        self.pending_achievement_toasts.clear();
-        match crate::world::storage::load_achievement_progress(slot) {
-            Ok(progress) => self.achievements = progress,
-            Err(error) => {
-                crate::log_error!("ACHIEVEMENT", "{}", error);
-                self.achievements = AchievementProgress::default();
-            }
-        }
-    }
-
-    pub(crate) fn questbook_key_hint(&self) -> &'static str {
-        let binding = &self.controls.config.bindings[crate::core::controls::Action::Questbook.index()];
-        binding
-            .keys
-            .first()
-            .map(|k| k.display_name())
-            .or_else(|| binding.mouse.first().map(|m| m.display_name()))
-            .or_else(|| binding.gamepad.first().map(|g| g.display_name()))
-            .unwrap_or("Esc")
-    }
-
-    pub(crate) fn process_quest_completions(&mut self, completed: Vec<usize>) {
-        if !self.quests.enabled || completed.is_empty() {
-            return;
-        }
-        self.pending_quest_toasts.extend(completed);
-        if self.quest_toast.is_none() {
-            self.quest_toast = self
-                .pending_quest_toasts
-                .pop_front()
-                .map(|id| (id, 5.5));
-        }
-        self.audio.play_sound(crate::audio::SoundId::UiClick, 0.75, 1.35);
-        if let Err(error) = crate::world::storage::save_quest_progress(self.save_slot, &self.quests) {
-            crate::log_error!("QUEST", "{}", error);
-        }
-    }
-
-    pub(crate) fn reset_quests_for_slot(&mut self, slot: u8, enabled: bool) {
-        self.quests = QuestProgress::default();
-        self.quests.enabled = enabled;
-        self.quest_toast = None;
-        self.pending_quest_toasts.clear();
-        if let Err(error) = crate::world::storage::save_quest_progress(slot, &self.quests) {
-            crate::log_error!("QUEST", "{}", error);
-        }
-    }
-
-    pub(crate) fn load_quests_for_slot(&mut self, slot: u8) {
-        self.quest_toast = None;
-        self.pending_quest_toasts.clear();
-        match crate::world::storage::load_quest_progress(slot) {
-            Ok(progress) => self.quests = progress,
-            Err(error) => {
-                crate::log_error!("QUEST", "{}", error);
-                self.quests = QuestProgress::default();
-            }
-        }
-    }
-
-    pub(crate) fn save_world_progress(&mut self) -> Result<(), String> {
-        let world_result = crate::world::storage::save_current_world(
-            &mut self.world,
-            &self.camera,
-            &self.player,
-            self.save_slot,
-            self.last_clean_thumbnail.as_deref(),
-        );
-        let achievement_result = crate::world::storage::save_achievement_progress(
-            self.save_slot,
-            &self.achievements,
-        );
-        let quest_result = crate::world::storage::save_quest_progress(
-            self.save_slot,
-            &self.quests,
-        );
-        let result = world_result.and(achievement_result).and(quest_result);
-        if let Err(error) = &result {
-            crate::log_error!("SAVE", "Failed to save world progress: {}", error);
-        }
-        result
-    }
-}
-
-impl crate::engine::EngineApp for RustCraftApp {
-    fn update(&mut self, dt: f32, input: &InputState) -> AppOutput {
-        self.update_and_render(dt, input)
-    }
-
-    fn render(&mut self) {
-        // Frame rendering is integrated into the update_and_render pipeline
-    }
-
-    fn resize(&mut self, width: usize, height: usize) {
-        self.resize(width, height);
-    }
-
-    fn pixel_buffer(&self) -> &[u32] {
-        self.pixel_buffer()
-    }
 }

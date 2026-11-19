@@ -32,3 +32,6 @@ crash-reports/
 RustCraft-Xbox360.zip
 playerdata/
 ops.txt
+
+# Local handoff notes (not versioned)
+/untracked/

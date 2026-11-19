@@ -86,13 +86,7 @@ impl RustCraftApp {
             player_pos: [self.camera.position.x, self.camera.position.y, self.camera.position.z],
             biome,
             daylight_factor: self.world.day_fraction(),
-            platform: if cfg!(target_os = "vita") {
-                "PS Vita".to_string()
-            } else if cfg!(target_arch = "wasm32") {
-                "WebAssembly".to_string()
-            } else {
-                "PC / Desktop".to_string()
-            },
+            platform: crate::platform::capabilities().display_name.to_string(),
             is_paused,
             game_state: game_state_str,
             gamemode: gamemode_str,

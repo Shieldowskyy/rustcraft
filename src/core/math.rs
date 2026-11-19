@@ -119,7 +119,7 @@ impl Neg for Vec3 {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub struct IVec3 {
     pub x: i32,
     pub y: i32,

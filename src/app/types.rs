@@ -1,4 +1,5 @@
-#[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
+//! Podstawowe typy stanu aplikacji (`GameState`, `PreviousMenu`, `InputState`, `AppOutput`, `CameraPerspective`, `FishingBobber`).
+
 use std::sync::mpsc;
 
 use crate::core::math::{IVec3, Vec3};
@@ -48,12 +49,8 @@ pub enum GameState {
     ControlsRebind(PreviousMenu),
     /// Change nickname modal dialogue.
     EditNickname(PreviousMenu),
-    /// Asynchronous world generation / loading screen.
-    #[cfg(not(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360")))]
-    Loading(mpsc::Receiver<WorldLoadResult>),
-    /// Synchronous world loading state for embedded platforms.
-    #[cfg(any(target_arch = "wasm32", target_os = "vita", target_arch = "powerpc", target_os = "xbox360", target_os = "xenon", feature = "xbox360"))]
-    Loading,
+    /// Asynchronous or synchronous world generation / loading screen.
+    Loading(Option<mpsc::Receiver<WorldLoadResult>>),
     /// Active 3D gameplay.
     Playing,
     /// In-game pause menu overlay.

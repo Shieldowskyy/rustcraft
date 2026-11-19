@@ -358,16 +358,13 @@ impl RustCraftApp {
                             crate::log_info!("SETTINGS", "Damage tilt changed to {}", self.settings.damage_tilt);
                         }
                         9 => {
-                            if is_click {
-                                #[cfg(not(any(target_os = "vita", target_os = "xbox360", target_os = "xenon", target_os = "android")))]
-                                {
-                                    self.rebind_search.clear();
-                                    self.rebind_scroll = 0;
-                                    self.rebinding_target = None;
-                                    self.rebind_cursor_timer = 0.0;
-                                    self.state = GameState::ControlsRebind(prev);
-                                    crate::log_info!("SETTINGS", "Opened Controls Rebinding menu");
-                                }
+                            if is_click && crate::platform::capabilities().supports_rebind_controls {
+                                self.rebind_search.clear();
+                                self.rebind_scroll = 0;
+                                self.rebinding_target = None;
+                                self.rebind_cursor_timer = 0.0;
+                                self.state = GameState::ControlsRebind(prev);
+                                crate::log_info!("SETTINGS", "Opened Controls Rebinding menu");
                             }
                         }
                         10 => {
@@ -453,15 +450,7 @@ impl RustCraftApp {
 
         self.renderer.fog_enabled = self.settings.fog;
         if prev == PreviousMenu::Paused {
-            #[cfg(not(target_os = "vita"))]
-            {
-                self.renderer.render_frame(&mut self.world, &self.camera);
-                self.renderer.apply_biome_color_filter(self.biome_filter_tint);
-            }
-            #[cfg(target_os = "vita")]
-            {
-                self.renderer.color_buffer.fill(0x0C0C10);
-            }
+            self.render_menu_world_backdrop();
         }
         let server_ip = self.profiler_server.as_ref().map(|s| s.ip_address.as_str()).unwrap_or("127.0.0.1");
         self.renderer.draw_settings_menu(&self.settings, self.settings_tab, hovered_tab, hovered_opt, server_ip, self.profiler_copied_timer > 0.0, mouse_pos, self.is_gamepad_active);
