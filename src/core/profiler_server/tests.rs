@@ -24,6 +24,7 @@ fn test_profiler_snapshot_json_and_csv_formatting() {
         world_gen_ms: 0.4,
         world_mesh_ms: 0.8,
         render_cull_ms: 0.2,
+        gpu_sync_ms: 0.1,
         total_ram_bytes: 32 * 1024 * 1024,
         chunk_voxels_bytes: 12 * 1024 * 1024,
         mesh_cache_bytes: 8 * 1024 * 1024,
@@ -141,5 +142,70 @@ fn test_profiler_server_lifecycle() {
 
     server.stop();
     assert!(!server.running.load(std::sync::atomic::Ordering::Relaxed));
+}
+
+#[test]
+fn test_profiler_server_http_full_bmp_transfer() {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+
+    let mut server = (18081..18120)
+        .find_map(|port| ProfilerServer::start(port).ok())
+        .expect("Failed to bind test profiler server for HTTP BMP transfer");
+    let port = server.port;
+
+    let width = 960;
+    let height = 544;
+    let expected_bmp_len = 54 + width * 3 * height;
+
+    let client_handle = std::thread::spawn(move || {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect failed");
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .write_all(b"GET /api/screenshot/take HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .unwrap();
+        let mut raw = Vec::with_capacity(expected_bmp_len + 1024);
+        stream.read_to_end(&mut raw).expect("read_to_end failed");
+        raw
+    });
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while !server.is_screenshot_requested() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(server.is_screenshot_requested());
+
+    let pixels = vec![0x00123456u32; width * height];
+    let bmp_bytes = encode_bmp(&pixels, width, height);
+    assert_eq!(bmp_bytes.len(), expected_bmp_len);
+    server.set_screenshot(ScreenshotData {
+        bmp_bytes,
+        width,
+        height,
+        timestamp_ms: 999,
+        fps: 30,
+        player_pos: [1.0, 2.0, 3.0],
+        biome: "PLAINS".to_string(),
+        game_state: "Playing".to_string(),
+        gamemode: "Survival".to_string(),
+    });
+
+    let raw = client_handle.join().expect("client thread panicked");
+    let hdr_end = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .expect("missing HTTP header terminator");
+    let header_str = std::str::from_utf8(&raw[..hdr_end]).unwrap();
+    let body = &raw[hdr_end + 4..];
+
+    assert!(header_str.starts_with("HTTP/1.1 200 OK"), "hdr={header_str}");
+    assert!(header_str.contains(&format!("Content-Length: {expected_bmp_len}")));
+    assert!(header_str.contains("Connection: close"));
+    assert_eq!(body.len(), expected_bmp_len);
+    assert_eq!(&body[0..2], b"BM");
+
+    server.stop();
 }
 

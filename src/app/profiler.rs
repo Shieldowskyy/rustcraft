@@ -64,6 +64,7 @@ impl RustCraftApp {
             world_gen_ms: cur_profiler.world_gen_ms,
             world_mesh_ms: cur_profiler.world_mesh_ms,
             render_cull_ms: cur_profiler.render_cull_ms,
+            gpu_sync_ms: cur_profiler.gpu_sync_ms,
             total_ram_bytes: cur_profiler.memory.total_ram_bytes,
             chunk_voxels_bytes: cur_profiler.memory.chunk_voxels_bytes,
             mesh_cache_bytes: cur_profiler.memory.mesh_cache_bytes,

@@ -1,11 +1,11 @@
 //! Background TCP HTTP listener serving profiler telemetry, exports, and screenshots.
 
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::snapshot::escape_json;
 use super::{ProfilerSnapshot, ScreenshotData, DASHBOARD_HTML};
@@ -47,11 +47,16 @@ impl ProfilerServer {
         let shot_data_clone = latest_screenshot.clone();
 
         let server_handle = std::thread::spawn(move || {
+            crate::platform::threading::configure_background_decoder_affinity();
             while running_clone.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((stream, _)) => {
-                        let _ = stream.set_read_timeout(Some(Duration::from_millis(1500)));
-                        let _ = stream.set_write_timeout(Some(Duration::from_millis(3000)));
+                        // DLACZEGO: On PS Vita SceNet accepted sockets inherit SO_NONBLOCK from the
+                        // non-blocking TcpListener, truncating 1.57 MB BMP transfers with WouldBlock.
+                        let _ = stream.set_nonblocking(false);
+                        let _ = stream.set_nodelay(true);
+                        let _ = stream.set_read_timeout(Some(Duration::from_millis(2000)));
+                        let _ = stream.set_write_timeout(Some(Duration::from_millis(15_000)));
                         Self::handle_connection(
                             stream,
                             &snapshot_clone,
@@ -97,8 +102,8 @@ impl ProfilerServer {
         if let Ok(mut lock) = self.latest_screenshot.write() {
             *lock = Some(data);
         }
-        self.screenshot_counter.fetch_add(1, Ordering::SeqCst);
-        self.screenshot_requested.store(false, Ordering::Relaxed);
+        self.screenshot_counter.fetch_add(1, Ordering::Release);
+        self.screenshot_requested.store(false, Ordering::Release);
     }
 
     pub fn get_screenshot(&self) -> Option<ScreenshotData> {
@@ -144,8 +149,9 @@ impl ProfilerServer {
         let path = parts.next().unwrap_or("/");
 
         if method == "OPTIONS" {
-            let response = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: *\r\nAccess-Control-Expose-Headers: *\r\nContent-Length: 0\r\n\r\n";
-            let _ = stream.write_all(response.as_bytes());
+            let response = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: *\r\nAccess-Control-Expose-Headers: *\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+            let _ = write_all_reliable(&mut stream, response.as_bytes());
+            finish_stream(&mut stream);
             return;
         }
 
@@ -189,12 +195,14 @@ impl ProfilerServer {
                 .unwrap_or_else(|_| "{\"status\":\"error\"}".to_string());
             write_response(&mut stream, "application/json; charset=utf-8", None, &json);
         } else {
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-cache\r\nContent-Length: {}\r\n\r\n{}",
-                DASHBOARD_HTML.len(),
-                DASHBOARD_HTML
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-cache\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+                DASHBOARD_HTML.len()
             );
-            let _ = stream.write_all(response.as_bytes());
+            if write_all_reliable(&mut stream, header.as_bytes()).is_ok() {
+                let _ = write_all_reliable(&mut stream, DASHBOARD_HTML.as_bytes());
+            }
+            finish_stream(&mut stream);
         }
     }
 }
@@ -205,15 +213,53 @@ impl Drop for ProfilerServer {
     }
 }
 
+fn write_all_reliable(stream: &mut TcpStream, data: &[u8]) -> std::io::Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    for chunk in data.chunks(16 * 1024) {
+        let mut rem = chunk;
+        while !rem.is_empty() {
+            match stream.write(rem) {
+                Ok(0) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::WriteZero,
+                        "failed to write whole buffer",
+                    ));
+                }
+                Ok(n) => rem = &rem[n..],
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= deadline {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "socket write timed out",
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn finish_stream(stream: &mut TcpStream) {
+    let _ = stream.flush();
+    let _ = stream.shutdown(Shutdown::Write);
+}
+
 fn write_response(stream: &mut TcpStream, content_type: &str, disposition: Option<&str>, body: &str) {
     let disp_hdr = disposition
         .map(|d| format!("Content-Disposition: {d}\r\n"))
         .unwrap_or_default();
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\n{disp_hdr}Access-Control-Allow-Origin: *\r\nAccess-Control-Expose-Headers: *\r\nCache-Control: no-cache, no-store, must-revalidate\r\nContent-Length: {}\r\n\r\n{body}",
+    let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\n{disp_hdr}Access-Control-Allow-Origin: *\r\nAccess-Control-Expose-Headers: *\r\nCache-Control: no-cache, no-store, must-revalidate\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
         body.len()
     );
-    let _ = stream.write_all(response.as_bytes());
+    if write_all_reliable(stream, header.as_bytes()).is_ok() {
+        let _ = write_all_reliable(stream, body.as_bytes());
+    }
+    finish_stream(stream);
 }
 
 fn serve_screenshot(
@@ -222,45 +268,52 @@ fn serve_screenshot(
     screenshot_counter: &Arc<AtomicU32>,
     latest_screenshot: &Arc<RwLock<Option<ScreenshotData>>>,
 ) {
-    let start_count = screenshot_counter.load(Ordering::Relaxed);
+    let start_count = screenshot_counter.load(Ordering::Acquire);
     screenshot_req.store(true, Ordering::SeqCst);
 
-    for _ in 0..60 {
-        if screenshot_counter.load(Ordering::Relaxed) > start_count {
+    let mut captured_fresh = false;
+    for _ in 0..166 {
+        if screenshot_counter.load(Ordering::Acquire) > start_count {
+            captured_fresh = true;
             break;
         }
         std::thread::sleep(Duration::from_millis(15));
     }
 
-    if let Ok(lock) = latest_screenshot.read() {
-        if let Some(ref data) = *lock {
-            let header = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: image/bmp\r\nContent-Disposition: inline; filename=\"rustcraft_screenshot_{}.bmp\"\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Expose-Headers: *\r\nCache-Control: no-cache, no-store, must-revalidate\r\nX-Rustcraft-Width: {}\r\nX-Rustcraft-Height: {}\r\nX-Rustcraft-Timestamp: {}\r\nX-Rustcraft-FPS: {}\r\nX-Rustcraft-Biome: {}\r\nX-Rustcraft-State: {}\r\nX-Rustcraft-Gamemode: {}\r\nX-Rustcraft-Player: {:.1},{:.1},{:.1}\r\nContent-Length: {}\r\n\r\n",
-                data.timestamp_ms,
-                data.width,
-                data.height,
-                data.timestamp_ms,
-                data.fps,
-                escape_json(&data.biome),
-                escape_json(&data.game_state),
-                escape_json(&data.gamemode),
-                data.player_pos[0],
-                data.player_pos[1],
-                data.player_pos[2],
-                data.bmp_bytes.len()
-            );
-            let _ = stream.write_all(header.as_bytes());
-            let _ = stream.write_all(&data.bmp_bytes);
-            return;
+    if captured_fresh {
+        if let Ok(lock) = latest_screenshot.read() {
+            if let Some(ref data) = *lock {
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: image/bmp\r\nContent-Disposition: inline; filename=\"rustcraft_screenshot_{}.bmp\"\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Expose-Headers: *\r\nCache-Control: no-cache, no-store, must-revalidate\r\nConnection: close\r\nX-Rustcraft-Width: {}\r\nX-Rustcraft-Height: {}\r\nX-Rustcraft-Timestamp: {}\r\nX-Rustcraft-FPS: {}\r\nX-Rustcraft-Biome: {}\r\nX-Rustcraft-State: {}\r\nX-Rustcraft-Gamemode: {}\r\nX-Rustcraft-Player: {:.1},{:.1},{:.1}\r\nContent-Length: {}\r\n\r\n",
+                    data.timestamp_ms,
+                    data.width,
+                    data.height,
+                    data.timestamp_ms,
+                    data.fps,
+                    escape_json(&data.biome),
+                    escape_json(&data.game_state),
+                    escape_json(&data.gamemode),
+                    data.player_pos[0],
+                    data.player_pos[1],
+                    data.player_pos[2],
+                    data.bmp_bytes.len()
+                );
+                if write_all_reliable(stream, header.as_bytes()).is_ok() {
+                    let _ = write_all_reliable(stream, &data.bmp_bytes);
+                }
+                finish_stream(stream);
+                return;
+            }
         }
     }
 
-    let err_json = "{\"error\":\"Screenshot not ready yet. Please ensure the game session is active.\"}";
+    let err_json = "{\"error\":\"Screenshot capture timed out. Ensure a renderable frame is running.\"}";
     let response = format!(
-        "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Expose-Headers: *\r\nContent-Length: {}\r\n\r\n{}",
+        "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Expose-Headers: *\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
         err_json.len(),
         err_json
     );
-    let _ = stream.write_all(response.as_bytes());
+    let _ = write_all_reliable(stream, response.as_bytes());
+    finish_stream(stream);
 }
 

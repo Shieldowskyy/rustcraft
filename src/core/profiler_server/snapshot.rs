@@ -22,6 +22,7 @@ pub struct ProfilerSnapshot {
     pub world_gen_ms: f32,
     pub world_mesh_ms: f32,
     pub render_cull_ms: f32,
+    pub gpu_sync_ms: f32,
     pub total_ram_bytes: usize,
     pub chunk_voxels_bytes: usize,
     pub mesh_cache_bytes: usize,
@@ -85,6 +86,7 @@ impl ProfilerSnapshot {
 \"hand_3d\":{:.2},\
 \"cull\":{:.2},\
 \"ui\":{:.2},\
+\"gpu_sync\":{:.2},\
 \"total\":{:.2}\
 }},\
 \"memory\":{{\
@@ -156,6 +158,7 @@ impl ProfilerSnapshot {
             self.render_hand_ms,
             self.render_cull_ms,
             self.render_ui_ms,
+            self.gpu_sync_ms,
             self.frame_time_ms,
             self.total_ram_bytes as f32 / (1024.0 * 1024.0),
             self.chunk_voxels_bytes as f32 / (1024.0 * 1024.0),
@@ -201,7 +204,7 @@ impl ProfilerSnapshot {
 
     pub fn to_csv_row(&self) -> String {
         format!(
-            "{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{},{},{},{},\"{}\",{},\"{}\",{},{:.1},{},{}\n",
+            "{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{},{},{},{},{},\"{}\",{},\"{}\",{},{:.1},{},{}\n",
             self.timestamp_ms,
             self.fps,
             self.frame_time_ms,
@@ -290,35 +293,34 @@ pub fn encode_bmp(color_buffer: &[u32], width: usize, height: usize) -> Vec<u8> 
     let image_size = row_stride * height;
     let file_size = 54 + image_size;
 
-    let mut bmp = Vec::with_capacity(file_size);
-    bmp.extend_from_slice(b"BM");
-    bmp.extend_from_slice(&(file_size as u32).to_le_bytes());
-    bmp.extend_from_slice(&0u32.to_le_bytes());
-    bmp.extend_from_slice(&54u32.to_le_bytes());
+    let mut bmp = vec![0u8; file_size];
+    bmp[0..2].copy_from_slice(b"BM");
+    bmp[2..6].copy_from_slice(&(file_size as u32).to_le_bytes());
+    bmp[6..10].copy_from_slice(&0u32.to_le_bytes());
+    bmp[10..14].copy_from_slice(&54u32.to_le_bytes());
 
-    bmp.extend_from_slice(&40u32.to_le_bytes());
-    bmp.extend_from_slice(&(width as i32).to_le_bytes());
-    bmp.extend_from_slice(&(height as i32).to_le_bytes());
-    bmp.extend_from_slice(&1u16.to_le_bytes());
-    bmp.extend_from_slice(&24u16.to_le_bytes());
-    bmp.extend_from_slice(&0u32.to_le_bytes());
-    bmp.extend_from_slice(&(image_size as u32).to_le_bytes());
-    bmp.extend_from_slice(&2835u32.to_le_bytes());
-    bmp.extend_from_slice(&2835u32.to_le_bytes());
-    bmp.extend_from_slice(&0u32.to_le_bytes());
-    bmp.extend_from_slice(&0u32.to_le_bytes());
+    bmp[14..18].copy_from_slice(&40u32.to_le_bytes());
+    bmp[18..22].copy_from_slice(&(width as i32).to_le_bytes());
+    bmp[22..26].copy_from_slice(&(height as i32).to_le_bytes());
+    bmp[26..28].copy_from_slice(&1u16.to_le_bytes());
+    bmp[28..30].copy_from_slice(&24u16.to_le_bytes());
+    bmp[30..34].copy_from_slice(&0u32.to_le_bytes());
+    bmp[34..38].copy_from_slice(&(image_size as u32).to_le_bytes());
+    bmp[38..42].copy_from_slice(&2835u32.to_le_bytes());
+    bmp[42..46].copy_from_slice(&2835u32.to_le_bytes());
+    bmp[46..50].copy_from_slice(&0u32.to_le_bytes());
+    bmp[50..54].copy_from_slice(&0u32.to_le_bytes());
 
-    let pad_bytes = [0u8; 3];
-    for y in (0..height).rev() {
-        let row_start = y * width;
-        for x in 0..width {
-            let pixel = color_buffer[row_start + x];
-            bmp.push((pixel & 0xFF) as u8);
-            bmp.push(((pixel >> 8) & 0xFF) as u8);
-            bmp.push(((pixel >> 16) & 0xFF) as u8);
-        }
-        if padding > 0 {
-            bmp.extend_from_slice(&pad_bytes[..padding]);
+    for y in 0..height {
+        let src_y = height - 1 - y;
+        let src_row = &color_buffer[src_y * width..(src_y + 1) * width];
+        let dst_row_off = 54 + y * row_stride;
+        let dst_row = &mut bmp[dst_row_off..dst_row_off + row_bytes];
+        for (x, &pixel) in src_row.iter().enumerate() {
+            let out_idx = x * 3;
+            dst_row[out_idx] = (pixel & 0xFF) as u8;
+            dst_row[out_idx + 1] = ((pixel >> 8) & 0xFF) as u8;
+            dst_row[out_idx + 2] = ((pixel >> 16) & 0xFF) as u8;
         }
     }
     bmp

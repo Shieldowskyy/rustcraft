@@ -53,6 +53,21 @@ pub struct ProfilerSlice {
     pub color: u32,
 }
 
+/// External hardware-renderer per-stage frame timings submitted after `update_and_render` (in milliseconds).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ExternalRenderTimings {
+    pub cull_ms: f32,
+    pub chunk_mesh_upload_ms: f32,
+    pub terrain_ms: f32,
+    pub sky_ms: f32,
+    pub trans_ms: f32,
+    pub clouds_ms: f32,
+    pub entities_ms: f32,
+    pub hand_ms: f32,
+    pub hud_and_postfx_ms: f32,
+    pub gpu_sync_ms: f32,
+}
+
 /// Comprehensive engine profiler capturing microsecond execution times, RAM allocations, and render telemetry.
 #[derive(Clone, Debug, Default)]
 pub struct FrameProfiler {
@@ -75,6 +90,7 @@ pub struct FrameProfiler {
     pub world_gen_ms: f32,
     pub world_mesh_ms: f32,
     pub render_cull_ms: f32,
+    pub gpu_sync_ms: f32,
 
     pub fps: u32,
     pub memory: MemoryBreakdown,
@@ -135,6 +151,7 @@ impl FrameProfiler {
         self.world_gen_ms = lerp(self.world_gen_ms, other.world_gen_ms);
         self.world_mesh_ms = lerp(self.world_mesh_ms, other.world_mesh_ms);
         self.render_cull_ms = lerp(self.render_cull_ms, other.render_cull_ms);
+        self.gpu_sync_ms = lerp(self.gpu_sync_ms, other.gpu_sync_ms);
 
         self.fps = other.fps;
         self.memory = other.memory.clone();
@@ -166,6 +183,7 @@ mod tests {
             world_gen_ms: 0.5,
             world_mesh_ms: 1.0,
             render_cull_ms: 0.2,
+            gpu_sync_ms: 0.1,
             fps: 60,
             memory: MemoryBreakdown::default(),
             render_stats: RenderStats::default(),

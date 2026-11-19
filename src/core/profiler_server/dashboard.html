@@ -427,6 +427,7 @@
           <tr><td>Item Entity & Particle Sim</td><td id="proc-items" style="color: #f85149;">-- ms</td></tr>
           <tr><td>3D Viewmodel & Hand Bobbing</td><td id="proc-hand" style="color: #d4408c;">-- ms</td></tr>
           <tr><td>HUD, Inventory & Font Draw</td><td id="proc-ui" style="color: #2ea043;">-- ms</td></tr>
+          <tr><td>GPU Sync / Swap Wait</td><td id="proc-gpusync" style="color: #79c0ff;">-- ms</td></tr>
         </tbody>
       </table>
     </div>
@@ -449,10 +450,14 @@
       world_gen: '#39c5cf',
       tick_physics: '#e36209',
       tick_mobs: '#f0883e',
+      tick_entities: '#ff7b72',
+      tick_world: '#a5d6ff',
       entities: '#f85149',
       hand_3d: '#d4408c',
       clouds_sky: '#bc8cff',
-      ui: '#2ea043'
+      cull: '#8b949e',
+      ui: '#2ea043',
+      gpu_sync: '#79c0ff'
     };
 
     let isPaused = false;
@@ -462,6 +467,7 @@
     const MAX_HISTORY = 90;
 
     let currentShotBlob = null;
+    let currentShotUrl = null;
     let currentShotTimestamp = 0;
     let shotAutoRefreshInterval = null;
     let isCapturing = false;
@@ -512,7 +518,6 @@
 
       document.getElementById('val-fps').textContent = data.fps;
       document.getElementById('val-fps').style.color = data.fps >= 55 ? 'var(--accent-green)' : (data.fps >= 28 ? 'var(--accent-amber)' : 'var(--accent-red)');
-      document.getElementById('val-frametime').textContent = `Frame time: ${data.frame_time_ms.toFixed(2)} ms (1% low: ${(data.frame_time_ms * 1.25).toFixed(1)}ms)`;
 
       document.getElementById('val-ram').textContent = `${data.memory.total_mb.toFixed(2)} MB`;
       document.getElementById('val-ram-detail').textContent = `Voxels: ${data.memory.voxels_mb.toFixed(2)}MB | Mesh: ${data.memory.mesh_cache_mb.toFixed(2)}MB`;
@@ -549,21 +554,29 @@
 
       if (data.times) {
         const t = data.times;
-        document.getElementById('proc-terrain').textContent = `${t.terrain.toFixed(2)} ms`;
-        document.getElementById('proc-trans').textContent = `${t.trans.toFixed(2)} ms`;
-        document.getElementById('proc-mesh').textContent = `${(t.world_mesh || t.meshing_io * 0.7).toFixed(2)} ms`;
-        document.getElementById('proc-gen').textContent = `${(t.world_gen || t.meshing_io * 0.3).toFixed(2)} ms`;
-        document.getElementById('proc-cull').textContent = `${(t.cull || 0.15).toFixed(2)} ms`;
-        document.getElementById('proc-phys').textContent = `${(t.tick_physics || t.tick * 0.5).toFixed(2)} ms`;
-        document.getElementById('proc-mobs').textContent = `${(t.tick_mobs || t.tick * 0.3).toFixed(2)} ms`;
-        document.getElementById('proc-items').textContent = `${(t.tick_entities || t.entities * 0.4).toFixed(2)} ms`;
-        document.getElementById('proc-hand').textContent = `${(t.hand_3d || 0.25).toFixed(2)} ms`;
-        document.getElementById('proc-ui').textContent = `${t.ui.toFixed(2)} ms`;
+        document.getElementById('proc-terrain').textContent = `${(t.terrain ?? 0).toFixed(2)} ms`;
+        document.getElementById('proc-trans').textContent = `${(t.trans ?? 0).toFixed(2)} ms`;
+        document.getElementById('proc-mesh').textContent = `${(t.world_mesh ?? 0).toFixed(2)} ms`;
+        document.getElementById('proc-gen').textContent = `${(t.world_gen ?? 0).toFixed(2)} ms`;
+        document.getElementById('proc-cull').textContent = `${(t.cull ?? 0).toFixed(2)} ms`;
+        document.getElementById('proc-phys').textContent = `${(t.tick_physics ?? 0).toFixed(2)} ms`;
+        document.getElementById('proc-mobs').textContent = `${(t.tick_mobs ?? 0).toFixed(2)} ms`;
+        document.getElementById('proc-items').textContent = `${(t.tick_entities ?? 0).toFixed(2)} ms`;
+        document.getElementById('proc-hand').textContent = `${(t.hand_3d ?? 0).toFixed(2)} ms`;
+        document.getElementById('proc-ui').textContent = `${(t.ui ?? 0).toFixed(2)} ms`;
+        const gpuSyncEl = document.getElementById('proc-gpusync');
+        if (gpuSyncEl) gpuSyncEl.textContent = `${(t.gpu_sync ?? 0).toFixed(2)} ms`;
       }
 
       history.push(data);
       if (history.length > MAX_HISTORY) history.shift();
       if (isRecording) recordBuffer.push(data);
+
+      const sortedTimes = history.map(h => h.frame_time_ms ?? 0).sort((a, b) => a - b);
+      const p95Idx = Math.min(sortedTimes.length - 1, Math.floor((sortedTimes.length - 1) * 0.95));
+      const p95Ms = sortedTimes[p95Idx] ?? data.frame_time_ms;
+      const maxFrameMs = sortedTimes[sortedTimes.length - 1] ?? data.frame_time_ms;
+      document.getElementById('val-frametime').textContent = `Frame time: ${data.frame_time_ms.toFixed(2)} ms (P95: ${p95Ms.toFixed(1)}ms | Max: ${maxFrameMs.toFixed(1)}ms)`;
 
       renderTimeline();
       renderPie(data.times);
@@ -575,8 +588,34 @@
       const h = timelineCanvas.height;
       tCtx.clearRect(0, 0, w, h);
 
-      // Target lines
-      const maxMs = 35.0;
+      const layers = [
+        { key: 'terrain', col: COLORS.terrain },
+        { key: 'trans', col: COLORS.trans },
+        { key: 'world_mesh', col: COLORS.world_mesh },
+        { key: 'world_gen', col: COLORS.world_gen },
+        { key: 'tick_physics', col: COLORS.tick_physics },
+        { key: 'tick_mobs', col: COLORS.tick_mobs },
+        { key: 'tick_entities', col: COLORS.tick_entities },
+        { key: 'tick_world', col: COLORS.tick_world },
+        { key: 'entities', col: COLORS.entities },
+        { key: 'hand_3d', col: COLORS.hand_3d },
+        { key: 'clouds', col: COLORS.clouds_sky },
+        { key: 'sky', col: COLORS.clouds_sky },
+        { key: 'cull', col: COLORS.cull },
+        { key: 'ui', col: COLORS.ui },
+        { key: 'gpu_sync', col: COLORS.gpu_sync }
+      ];
+
+      let maxHistoryTotal = 0;
+      for (const item of history) {
+        let sumLayers = 0;
+        if (item.times) {
+          for (const l of layers) sumLayers += (item.times[l.key] ?? 0);
+        }
+        maxHistoryTotal = Math.max(maxHistoryTotal, item.frame_time_ms ?? 0, sumLayers);
+      }
+      const maxMs = Math.max(35.0, maxHistoryTotal * 1.15);
+
       const y60 = h - (16.6 / maxMs) * h;
       const y30 = h - (33.3 / maxMs) * h;
 
@@ -593,48 +632,57 @@
       tCtx.stroke();
       tCtx.setLineDash([]);
 
-      if (history.length < 2) return;
-      const stepX = w / (MAX_HISTORY - 1);
+      if (history.length >= 2) {
+        const stepX = w / (MAX_HISTORY - 1);
 
-      const layers = [
-        { key: 'terrain', col: COLORS.terrain },
-        { key: 'trans', col: COLORS.trans },
-        { key: 'world_mesh', col: COLORS.world_mesh, fallback: 'meshing_io' },
-        { key: 'tick_physics', col: COLORS.tick_physics, fallback: 'tick' },
-        { key: 'tick_mobs', col: COLORS.tick_mobs, fallback: 'tick' },
-        { key: 'entities', col: COLORS.entities },
-        { key: 'hand_3d', col: COLORS.hand_3d },
-        { key: 'clouds', col: COLORS.clouds_sky },
-        { key: 'ui', col: COLORS.ui }
-      ];
+        for (let i = 0; i < history.length - 1; i++) {
+          const x1 = i * stepX;
+          const x2 = (i + 1) * stepX;
+          let base1 = 0;
+          let base2 = 0;
 
-      for (let i = 0; i < history.length - 1; i++) {
-        const x1 = i * stepX;
-        const x2 = (i + 1) * stepX;
-        let base1 = 0;
-        let base2 = 0;
+          for (const l of layers) {
+            const v1 = history[i].times?.[l.key] ?? 0;
+            const v2 = history[i + 1].times?.[l.key] ?? 0;
+            const y1_bot = h - (base1 / maxMs) * h;
+            const y1_top = h - ((base1 + v1) / maxMs) * h;
+            const y2_bot = h - (base2 / maxMs) * h;
+            const y2_top = h - ((base2 + v2) / maxMs) * h;
 
-        for (const l of layers) {
-          const v1 = history[i].times[l.key] || (l.fallback ? history[i].times[l.fallback] * 0.5 : 0) || 0;
-          const v2 = history[i + 1].times[l.key] || (l.fallback ? history[i + 1].times[l.fallback] * 0.5 : 0) || 0;
-          const y1_bot = h - (base1 / maxMs) * h;
-          const y1_top = h - ((base1 + v1) / maxMs) * h;
-          const y2_bot = h - (base2 / maxMs) * h;
-          const y2_top = h - ((base2 + v2) / maxMs) * h;
+            tCtx.fillStyle = l.col;
+            tCtx.beginPath();
+            tCtx.moveTo(x1, y1_bot);
+            tCtx.lineTo(x1, y1_top);
+            tCtx.lineTo(x2, y2_top);
+            tCtx.lineTo(x2, y2_bot);
+            tCtx.closePath();
+            tCtx.fill();
 
-          tCtx.fillStyle = l.col;
-          tCtx.beginPath();
-          tCtx.moveTo(x1, y1_bot);
-          tCtx.lineTo(x1, y1_top);
-          tCtx.lineTo(x2, y2_top);
-          tCtx.lineTo(x2, y2_bot);
-          tCtx.closePath();
-          tCtx.fill();
-
-          base1 += v1;
-          base2 += v2;
+            base1 += v1;
+            base2 += v2;
+          }
         }
+
+        // Overlay actual full frame_time_ms polyline
+        tCtx.strokeStyle = '#f0f6fc';
+        tCtx.lineWidth = 1.5;
+        tCtx.beginPath();
+        for (let i = 0; i < history.length; i++) {
+          const x = i * stepX;
+          const y = h - ((history[i].frame_time_ms ?? 0) / maxMs) * h;
+          if (i === 0) tCtx.moveTo(x, y);
+          else tCtx.lineTo(x, y);
+        }
+        tCtx.stroke();
       }
+
+      tCtx.font = '10px sans-serif';
+      tCtx.fillStyle = 'rgba(240, 246, 252, 0.75)';
+      tCtx.fillText(`${maxMs.toFixed(0)}ms`, 4, 11);
+      tCtx.fillStyle = 'rgba(63, 185, 80, 0.9)';
+      tCtx.fillText('16.6ms (60fps)', 4, Math.max(22, y60 - 3));
+      tCtx.fillStyle = 'rgba(210, 153, 34, 0.9)';
+      tCtx.fillText('33.3ms (30fps)', 4, Math.max(33, y30 - 3));
     }
 
     function renderPie(times) {
@@ -642,20 +690,22 @@
       const h = pieCanvas.height;
       pCtx.clearRect(0, 0, w, h);
 
+      const t = times || {};
       const items = [
-        { name: 'terrain (opaque)', val: times.terrain, col: COLORS.terrain },
-        { name: 'water/translucent', val: times.trans, col: COLORS.trans },
-        { name: 'meshing & AO', val: times.world_mesh || times.meshing_io * 0.7, col: COLORS.world_mesh },
-        { name: 'world generation', val: times.world_gen || times.meshing_io * 0.3, col: COLORS.world_gen },
-        { name: 'player & physics', val: times.tick_physics || times.tick * 0.5, col: COLORS.tick_physics },
-        { name: 'mob AI & sensors', val: times.tick_mobs || times.tick * 0.3, col: COLORS.tick_mobs },
-        { name: '3D entities/drops', val: times.entities, col: COLORS.entities },
-        { name: '3D hand/tools', val: times.hand_3d || 0.2, col: COLORS.hand_3d },
-        { name: 'clouds & sky', val: times.clouds + times.sky, col: COLORS.clouds_sky },
-        { name: 'gui/hud & text', val: times.ui, col: COLORS.ui }
+        { name: 'terrain (opaque)', val: t.terrain ?? 0, col: COLORS.terrain },
+        { name: 'water/translucent', val: t.trans ?? 0, col: COLORS.trans },
+        { name: 'meshing & upload', val: t.world_mesh ?? 0, col: COLORS.world_mesh },
+        { name: 'world generation', val: t.world_gen ?? 0, col: COLORS.world_gen },
+        { name: 'player & physics', val: t.tick_physics ?? 0, col: COLORS.tick_physics },
+        { name: 'mob AI & world tick', val: (t.tick_mobs ?? 0) + (t.tick_entities ?? 0) + (t.tick_world ?? 0), col: COLORS.tick_mobs },
+        { name: '3D entities/drops', val: t.entities ?? 0, col: COLORS.entities },
+        { name: '3D hand/tools', val: t.hand_3d ?? 0, col: COLORS.hand_3d },
+        { name: 'clouds & sky', val: (t.clouds ?? 0) + (t.sky ?? 0), col: COLORS.clouds_sky },
+        { name: 'gpu sync & cull', val: (t.gpu_sync ?? 0) + (t.cull ?? 0), col: COLORS.gpu_sync },
+        { name: 'gui/hud & text', val: t.ui ?? 0, col: COLORS.ui }
       ];
 
-      const sum = items.reduce((acc, it) => acc + Math.max(it.val, 0.01), 0);
+      const sum = items.reduce((acc, it) => acc + Math.max(it.val, 0.001), 0);
       const cx = w / 2;
       const cy = h / 2;
       const r = Math.min(cx, cy) - 10;
@@ -741,10 +791,15 @@
         }
 
         const blob = await res.blob();
+        if (blob.size <= 54) {
+          throw new Error('Incomplete or empty screenshot received (' + blob.size + ' B)');
+        }
         currentShotBlob = blob;
         currentShotTimestamp = res.headers.get('X-Rustcraft-Timestamp') || Date.now();
 
-        const imgUrl = URL.createObjectURL(blob);
+        if (currentShotUrl) URL.revokeObjectURL(currentShotUrl);
+        currentShotUrl = URL.createObjectURL(blob);
+        const imgUrl = currentShotUrl;
         const imgEl = document.getElementById('shot-img');
         const placeholder = document.getElementById('shot-placeholder');
         const hud = document.getElementById('shot-hud');
@@ -781,10 +836,19 @@
         const badge = document.getElementById('shot-status-badge');
         if (badge) {
           badge.style.display = 'inline-flex';
+          badge.style.color = '';
+          badge.style.borderColor = '';
           badge.textContent = `Captured in ${elapsed}ms (${(blob.size / (1024 * 1024)).toFixed(2)} MB)`;
         }
       } catch (err) {
         console.error('Screenshot capture failed:', err);
+        const badge = document.getElementById('shot-status-badge');
+        if (badge) {
+          badge.style.display = 'inline-flex';
+          badge.style.color = 'var(--accent-red)';
+          badge.style.borderColor = 'rgba(248, 81, 73, 0.4)';
+          badge.textContent = `Capture failed: ${err.message || err}`;
+        }
       } finally {
         isCapturing = false;
         if (capBtn) {
