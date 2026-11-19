@@ -106,3 +106,42 @@ pub(super) struct FrameRenderStats {
     pub(super) subchunks_rendered: u32,
     pub(super) subchunks_culled: u32,
 }
+
+/// High-resolution PS Vita microsecond monotonic clock (`sceKernelGetProcessTimeWide`).
+#[inline(always)]
+pub(super) fn now_us() -> u64 {
+    unsafe { super::super::sceKernelGetProcessTimeWide() }
+}
+
+/// Per-stage microsecond CPU/submit timings recorded inside `GxmRenderer::render_frame`.
+#[derive(Clone, Copy, Default)]
+pub(super) struct FrameTimingsUs {
+    pub(super) cull_us: u64,
+    pub(super) chunk_mesh_upload_us: u64,
+    pub(super) terrain_us: u64,
+    pub(super) sky_us: u64,
+    pub(super) trans_us: u64,
+    pub(super) clouds_us: u64,
+    pub(super) entities_us: u64,
+    pub(super) hand_us: u64,
+    pub(super) hud_and_postfx_us: u64,
+    pub(super) gpu_sync_us: u64,
+}
+
+impl FrameTimingsUs {
+    #[inline]
+    pub(super) fn to_external(self) -> crate::core::profiler::ExternalRenderTimings {
+        crate::core::profiler::ExternalRenderTimings {
+            cull_ms: self.cull_us as f32 * 0.001,
+            chunk_mesh_upload_ms: self.chunk_mesh_upload_us as f32 * 0.001,
+            terrain_ms: self.terrain_us as f32 * 0.001,
+            sky_ms: self.sky_us as f32 * 0.001,
+            trans_ms: self.trans_us as f32 * 0.001,
+            clouds_ms: self.clouds_us as f32 * 0.001,
+            entities_ms: self.entities_us as f32 * 0.001,
+            hand_ms: self.hand_us as f32 * 0.001,
+            hud_and_postfx_ms: self.hud_and_postfx_us as f32 * 0.001,
+            gpu_sync_ms: self.gpu_sync_us as f32 * 0.001,
+        }
+    }
+}

@@ -24,7 +24,7 @@ use super::entities::{
 use super::ffi::*;
 use super::models::{append_hand_3d, append_offhand_3d, append_player_model, append_remote_player};
 use super::renderer::GxmRenderer;
-use super::types::{FrameRenderStats, GxmEntityVertex};
+use super::types::{now_us, FrameRenderStats, FrameTimingsUs, GxmEntityVertex};
 use super::weather::{append_lightning_bolts, append_precipitation};
 
 pub(super) struct WorldEntitiesInput<'a> {
@@ -67,7 +67,10 @@ impl GxmRenderer {
         buf_idx: usize,
         input: &WorldEntitiesInput<'_>,
         stats: &mut FrameRenderStats,
+        timings: &mut FrameTimingsUs,
     ) -> (usize, usize) {
+        let t_ent_start = now_us();
+        let mut cloud_build_us = 0u64;
         let vb_base = (self.entity_vb_mem.as_mut_ptr::<GxmEntityVertex>()).add(buf_idx * Self::MAX_ENTITY_VERTS);
         let ib_base = (self.entity_ib_mem.as_mut_ptr::<u16>()).add(buf_idx * Self::MAX_ENTITY_INDICES);
         let mut batch = EntityBatch::new(vb_base, ib_base, Self::MAX_ENTITY_VERTS, Self::MAX_ENTITY_INDICES);
@@ -123,6 +126,7 @@ impl GxmRenderer {
         let b1_start = a2_end;
         if !input.is_occluded {
             if input.clouds_enabled {
+                let t_cld = now_us();
                 append_clouds(
                     &mut batch,
                     input.camera.position,
@@ -132,6 +136,8 @@ impl GxmRenderer {
                     input.world.weather.rain_strength,
                     input.world.weather.thunder_strength,
                 );
+                cloud_build_us = now_us().saturating_sub(t_cld);
+                timings.clouds_us += cloud_build_us;
             }
             for item in input.items {
                 append_item_shadow(&mut batch, item, input.world, input.daylight, input.brightness);
@@ -150,6 +156,7 @@ impl GxmRenderer {
         let b2_end = batch.i_count;
 
         if b2_end == 0 {
+            timings.entities_us += now_us().saturating_sub(t_ent_start).saturating_sub(cloud_build_us);
             return (batch.v_count, batch.i_count);
         }
 
@@ -164,6 +171,7 @@ impl GxmRenderer {
         self.draw_entity_subbatch(vb_base, ib_base, b1_start, b1_end, false, input.fog_enabled, input.camera.position, input.max_fog, input.fog_col, stats);
         self.draw_entity_subbatch(vb_base, ib_base, b2_start, b2_end, false, false, input.camera.position, 0.0, input.fog_col, stats);
 
+        timings.entities_us += now_us().saturating_sub(t_ent_start).saturating_sub(cloud_build_us);
         (batch.v_count, batch.i_count)
     }
 
@@ -220,7 +228,9 @@ impl GxmRenderer {
         v_start: usize,
         i_start: usize,
         stats: &mut FrameRenderStats,
+        timings: &mut FrameTimingsUs,
     ) {
+        let t_hand = now_us();
         let vb_base = (self.entity_vb_mem.as_mut_ptr::<GxmEntityVertex>()).add(buf_idx * Self::MAX_ENTITY_VERTS);
         let ib_base = (self.entity_ib_mem.as_mut_ptr::<u16>()).add(buf_idx * Self::MAX_ENTITY_INDICES);
         let mut batch = EntityBatch::with_cursor(vb_base, ib_base, v_start, i_start, Self::MAX_ENTITY_VERTS, Self::MAX_ENTITY_INDICES);
@@ -274,6 +284,7 @@ impl GxmRenderer {
             stats.tri_count += hand_indices as u32 / 3;
             stats.draw_calls += 1;
         }
+        timings.hand_us += now_us().saturating_sub(t_hand);
     }
 }
 

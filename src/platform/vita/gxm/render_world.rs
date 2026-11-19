@@ -11,7 +11,7 @@ use crate::world::World;
 use super::ffi::*;
 use super::programs::LinkedGxmShaders;
 use super::renderer::GxmRenderer;
-use super::types::{FrameRenderStats, GxmVertex};
+use super::types::{now_us, FrameRenderStats, FrameTimingsUs, GxmVertex};
 
 impl GxmRenderer {
     #[allow(clippy::too_many_arguments)]
@@ -33,22 +33,31 @@ impl GxmRenderer {
         chunk_anim: bool,
         total_time: f32,
         stats: &mut FrameRenderStats,
+        timings: &mut FrameTimingsUs,
     ) -> bool {
+        let t_cull = now_us();
         self.chunk_coords_scratch.clear();
+        let render_dist_sq = render_dist * render_dist;
         for dz in -render_dist..=render_dist {
             for dx in -render_dist..=render_dist {
-                self.chunk_coords_scratch.push((dx, dz));
+                if dx * dx + dz * dz <= render_dist_sq {
+                    self.chunk_coords_scratch.push((dx, dz));
+                }
             }
         }
         self.chunk_coords_scratch.sort_unstable_by_key(|&(dx, dz)| (dx * dx + dz * dz, dx, dz));
         let is_occluded = world.is_view_fully_occluded(camera.position, camera.yaw, camera.pitch);
+        timings.cull_us += now_us().saturating_sub(t_cull);
 
+        let t_stream = now_us();
         self.stream_chunk_slots(buf_idx, world, mvp, cam_chunk_x, cam_chunk_z, render_dist, is_occluded, total_time);
+        timings.chunk_mesh_upload_us += now_us().saturating_sub(t_stream);
 
         let max_fog = if fog_enabled { (render_dist as f32 * 16.0).max(32.0) } else { 0.0 };
 
         // 4-pass render order matching desktop VulkanContext:
         // Pass 1: Opaque (Front-to-Back, CW cull, LESS, depth-write ON)
+        let t_terrain = now_us();
         self.draw_chunk_pass(
             0, false, mvp, camera.position, sky_bottom, fog_col, daylight, max_fog,
             fog_enabled, chunk_anim, total_time, cam_chunk_x, cam_chunk_z, is_occluded, stats,
@@ -59,20 +68,25 @@ impl GxmRenderer {
             1, false, mvp, camera.position, sky_bottom, fog_col, daylight, max_fog,
             fog_enabled, chunk_anim, total_time, cam_chunk_x, cam_chunk_z, is_occluded, stats,
         );
+        timings.terrain_us += now_us().saturating_sub(t_terrain);
 
         // Pass 3: Early-Z Procedural Sky (depth == 1.0, no depth writes)
         if !is_occluded {
+            let t_sky = now_us();
             render_early_z_sky(
                 self.context, &self.shaders, &self.clear_vb_mem, &self.clear_ib_mem,
                 mvp, camera.position, daylight, sky_top, sky_bottom, sun_dir, stats,
             );
+            timings.sky_us += now_us().saturating_sub(t_sky);
         }
 
         // Pass 4: Transparent Water & Glass (Back-to-Front, cull NONE, LESS_EQUAL, depth-write OFF)
+        let t_trans = now_us();
         self.draw_chunk_pass(
             2, true, mvp, camera.position, sky_bottom, fog_col, daylight, max_fog,
             fog_enabled, chunk_anim, total_time, cam_chunk_x, cam_chunk_z, is_occluded, stats,
         );
+        timings.trans_us += now_us().saturating_sub(t_trans);
 
         is_occluded
     }

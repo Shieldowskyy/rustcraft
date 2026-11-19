@@ -75,7 +75,8 @@ pub fn run_vita_app() {
         let current_time = unsafe { sceKernelGetProcessTimeWide() };
         let dt_us = current_time.saturating_sub(last_time);
         last_time = current_time;
-        let dt = (dt_us as f32 / 1_000_000.0).clamp(0.001, 0.1);
+        let real_dt_secs = (dt_us as f32 / 1_000_000.0).max(0.0001);
+        let dt = real_dt_secs.clamp(0.001, 0.1);
 
         if let Some((ref title, ref initial)) = app.ime_requested.take() {
             ime_mgr.start(title, initial);
@@ -203,28 +204,39 @@ pub fn run_vita_app() {
                 .profiler_server
                 .as_ref()
                 .is_some_and(|s| s.is_screenshot_requested());
-            let mut need_thumb = false;
             if !is_menu_backdrop {
-                app.thumbnail_timer += dt;
-                if app.thumbnail_timer >= 0.5 {
+                app.thumbnail_timer += real_dt_secs;
+                if app.thumbnail_timer >= 2.0 {
                     app.thumbnail_timer = 0.0;
-                    need_thumb = true;
+                    if let Some(thumb) = gxm.capture_thumbnail_xrgb(crate::world::storage::THUMB_SIZE) {
+                        app.last_clean_thumbnail = Some(thumb);
+                    }
                 }
             }
-            if (need_thumb || need_shot) && gxm.capture_completed_xrgb(&mut capture_buf, need_shot) {
-                if need_thumb {
-                    app.last_clean_thumbnail = Some(crate::world::storage::capture_thumbnail(
-                        &capture_buf,
-                        app.width,
-                        app.height,
-                    ));
-                }
-                if need_shot {
-                    app.submit_profiler_screenshot(&capture_buf);
-                }
+
+            let work_end_us = unsafe { sceKernelGetProcessTimeWide() };
+            let full_frame_work_ms = work_end_us.saturating_sub(current_time) as f32 * 0.001;
+            app.finalize_external_render_profiler(real_dt_secs, full_frame_work_ms, gxm.last_frame_timings());
+
+            if need_shot && gxm.capture_completed_xrgb(&mut capture_buf, true) {
+                app.submit_profiler_screenshot(&capture_buf);
             }
         } else {
+            let present_start_us = unsafe { sceKernelGetProcessTimeWide() };
             gxm.present_2d_buffer(app.renderer.pixel_buffer(), app.width, app.height);
+            let present_end_us = unsafe { sceKernelGetProcessTimeWide() };
+            let present_ms = present_end_us.saturating_sub(present_start_us) as f32 * 0.001;
+            let full_frame_work_ms = present_end_us.saturating_sub(current_time) as f32 * 0.001;
+            if app.profiler_server.is_some() {
+                app.finalize_external_render_profiler(
+                    real_dt_secs,
+                    full_frame_work_ms,
+                    crate::core::profiler::ExternalRenderTimings {
+                        hud_and_postfx_ms: present_ms,
+                        ..Default::default()
+                    },
+                );
+            }
         }
 
         if app.settings.fps_limit > 0 {

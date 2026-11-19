@@ -31,7 +31,7 @@ impl GxmRenderer {
 
         let vb_base = self.vb_mem.as_mut_ptr::<GxmVertex>();
         let ib_base = self.ib_mem.as_mut_ptr::<u16>();
-        let max_dist = render_dist + 1;
+        let max_dist_sq = (render_dist + 1) * (render_dist + 1);
 
         self.freed_slots_scratch.clear();
         let freed_ref = &mut self.freed_slots_scratch;
@@ -39,7 +39,7 @@ impl GxmRenderer {
             let dx = cx - cam_chunk_x;
             let dz = cz - cam_chunk_z;
             let chunk_unloaded = !world.chunks.contains_key(&(cx, cz));
-            if dx.abs() > max_dist || dz.abs() > max_dist || chunk_unloaded {
+            if dx * dx + dz * dz > max_dist_sq || chunk_unloaded {
                 freed_ref.push(slot_idx);
                 false
             } else {
@@ -50,24 +50,25 @@ impl GxmRenderer {
         self.chunk_spawn_times.retain(|k, _| self.chunk_slots.contains_key(k));
 
         self.completed_meshes.extend(self.mesh_worker.drain_completed());
+        // Sort farthest-first so `pop()` removes the closest chunk in O(1).
         self.completed_meshes.sort_unstable_by_key(|((mx, mz), _)| {
             let dx = *mx - cam_chunk_x;
             let dz = *mz - cam_chunk_z;
-            (dx * dx + dz * dz, *mx, *mz)
+            core::cmp::Reverse((dx * dx + dz * dz, *mx, *mz))
         });
 
-        if !self.completed_meshes.is_empty() {
-            let (mesh_key, mesh_tris) = self.completed_meshes.remove(0);
+        if let Some((mesh_key, mesh_tris)) = self.completed_meshes.pop() {
             self.pending_meshes.remove(&mesh_key);
             let (mcx, mcz) = mesh_key;
             let mdx = mcx - cam_chunk_x;
             let mdz = mcz - cam_chunk_z;
-            let in_range = mdx.abs() <= max_dist && mdz.abs() <= max_dist;
+            let in_range = mdx * mdx + mdz * mdz <= max_dist_sq;
             let still_exists = world.chunks.contains_key(&mesh_key);
             let still_visible = Self::is_chunk_in_frustum(mcx, mcz, mvp);
+            let allow_store = still_visible || !self.free_slots.is_empty();
             let changed_during_build = world.chunks.get(&mesh_key).map(|c| c.dirty).unwrap_or(false);
 
-            if in_range && still_exists && still_visible && !changed_during_build {
+            if in_range && still_exists && allow_store && !changed_during_build {
                 let existing_slot = self.chunk_slots.get(&mesh_key).copied();
                 let target_slot = if let Some(old_slot) = existing_slot {
                     if let Some(fresh) = self.free_slots.pop() {
@@ -111,6 +112,7 @@ impl GxmRenderer {
 
         const MAX_PENDING_MESHES: usize = 4;
         if self.pending_meshes.len() < MAX_PENDING_MESHES {
+            let mut dirty_fallback: Option<(i32, i32)> = None;
             for &(dx, dz) in &self.chunk_coords_scratch {
                 if is_occluded && (dx != 0 || dz != 0) {
                     continue;
@@ -119,18 +121,31 @@ impl GxmRenderer {
                 if self.pending_meshes.contains(&key) || !Self::is_chunk_in_frustum(key.0, key.1, mvp) {
                     continue;
                 }
-                let needs_mesh = !self.chunk_slots.contains_key(&key)
-                    || world.chunks.get(&key).map(|c| c.dirty).unwrap_or(false);
-                if !needs_mesh {
+                let Some(chunk) = world.chunks.get(&key) else {
                     continue;
+                };
+                if !self.chunk_slots.contains_key(&key) {
+                    if let Some(job) = world.create_mesh_job(key) {
+                        if self.mesh_worker.submit_job(job) {
+                            self.pending_meshes.insert(key);
+                            if let Some(c) = world.chunks.get_mut(&key) {
+                                c.dirty = false;
+                            }
+                            dirty_fallback = None;
+                            break;
+                        }
+                    }
+                } else if dirty_fallback.is_none() && chunk.dirty {
+                    dirty_fallback = Some(key);
                 }
+            }
+            if let Some(key) = dirty_fallback {
                 if let Some(job) = world.create_mesh_job(key) {
                     if self.mesh_worker.submit_job(job) {
                         self.pending_meshes.insert(key);
-                        if let Some(chunk) = world.chunks.get_mut(&key) {
-                            chunk.dirty = false;
+                        if let Some(c) = world.chunks.get_mut(&key) {
+                            c.dirty = false;
                         }
-                        break;
                     }
                 }
             }

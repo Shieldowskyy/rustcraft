@@ -20,7 +20,7 @@ use super::ffi::*;
 use super::mem::DisplayData;
 use super::render_dynamic::WorldEntitiesInput;
 use super::renderer::GxmRenderer;
-use super::types::FrameRenderStats;
+use super::types::{now_us, FrameRenderStats, FrameTimingsUs};
 
 /// Borrowed per-frame inputs needed by `GxmRenderer::render_frame`.
 pub struct GxmFrameParams<'a> {
@@ -94,6 +94,8 @@ impl GxmRenderer {
         let max_fog = if params.fog_enabled { (render_dist as f32 * 16.0).max(32.0) } else { 0.0 };
 
         unsafe {
+            let mut timings = FrameTimingsUs::default();
+            let t_begin = now_us();
             sceGxmBeginScene(
                 self.context,
                 0,
@@ -104,8 +106,10 @@ impl GxmRenderer {
                 &self.color_surfaces[buf_idx],
                 &self.depth_surface,
             );
+            timings.gpu_sync_us += now_us().saturating_sub(t_begin);
 
             // 1. Hardware clear (write Z = 1.0 across screen and sky_top base color)
+            let t_clear = now_us();
             sceGxmSetDefaultRegionClipAndViewport(self.context, VITA_WIDTH - 1, VITA_HEIGHT - 1);
             sceGxmSetViewportEnable(self.context, SCE_GXM_VIEWPORT_ENABLED);
             sceGxmSetViewport(self.context, 480.0, 480.0, 272.0, -272.0, 1.0, 0.0);
@@ -134,6 +138,7 @@ impl GxmRenderer {
                 self.clear_ib_mem.ptr,
                 3,
             );
+            timings.terrain_us += now_us().saturating_sub(t_clear);
 
             let mut stats = FrameRenderStats::default();
             if clear_rc == SCE_OK {
@@ -159,6 +164,7 @@ impl GxmRenderer {
                 params.chunk_anim,
                 params.total_time,
                 &mut stats,
+                &mut timings,
             );
 
             // 3. Dynamic 3D entities + environmental post-FX (skipped during static menu backdrops)
@@ -196,7 +202,8 @@ impl GxmRenderer {
                     total_time: params.total_time,
                     is_occluded,
                 };
-                (v_cur, i_cur) = self.render_world_entities(buf_idx, &dyn_input, &mut stats);
+                (v_cur, i_cur) = self.render_world_entities(buf_idx, &dyn_input, &mut stats, &mut timings);
+                let t_env = now_us();
                 self.render_env_postfx(
                     params.is_underwater,
                     params.is_in_lava,
@@ -204,10 +211,13 @@ impl GxmRenderer {
                     params.total_time,
                     &mut stats,
                 );
+                timings.hud_and_postfx_us += now_us().saturating_sub(t_env);
             }
 
             // 4. Atmospheric biome tint multiplier (applies in Playing and 3D menu backdrops)
+            let t_tint = now_us();
             self.render_biome_tint(params.biome_tint, &mut stats);
+            timings.hud_and_postfx_us += now_us().saturating_sub(t_tint);
 
             // 5. Vitals post-FX + 1st-person main/offhand (Batch C)
             if !params.is_menu_backdrop {
@@ -216,7 +226,9 @@ impl GxmRenderer {
                 } else {
                     0.0
                 };
+                let t_vitals = now_us();
                 self.render_vitals_postfx(damage_alpha, params.low_health, params.total_time, &mut stats);
+                timings.hud_and_postfx_us += now_us().saturating_sub(t_vitals);
 
                 if params.camera_perspective == CameraPerspective::FirstPerson {
                     self.render_first_person_hand(
@@ -233,13 +245,16 @@ impl GxmRenderer {
                         v_cur,
                         i_cur,
                         &mut stats,
+                        &mut timings,
                     );
                 }
             }
 
             // 6. GPU premultiplied-alpha HUD / UI overlay
             if let Some(hud) = params.hud_pixels {
+                let t_hud = now_us();
                 self.render_hud_overlay(buf_idx, hud, params.hud_width, params.hud_height, &mut stats);
+                timings.hud_and_postfx_us += now_us().saturating_sub(t_hud);
             }
 
             self.last_draw_calls = stats.draw_calls;
@@ -248,6 +263,7 @@ impl GxmRenderer {
             self.last_subchunks_rendered = stats.subchunks_rendered;
             self.last_subchunks_culled = stats.subchunks_culled;
 
+            let t_end = now_us();
             sceGxmEndScene(self.context, core::ptr::null(), core::ptr::null());
 
             // DLACZEGO: HUD compositing runs on GPU via hud.frag.cg inside the scene, so we queue the
@@ -257,6 +273,8 @@ impl GxmRenderer {
                 self.display_sync[buf_idx],
                 &self.display_data[buf_idx] as *const DisplayData as *const core::ffi::c_void,
             );
+            timings.gpu_sync_us += now_us().saturating_sub(t_end);
+            self.last_timings = timings.to_external();
 
             self.front_buf = buf_idx;
             self.back_buf = (buf_idx + 1) % DISPLAY_BUFFER_COUNT;
@@ -267,7 +285,7 @@ impl GxmRenderer {
         }
     }
 
-    /// Reads a completed 3D display buffer as 960x544 XRGB8888 using 32-bit aligned transfers.
+    /// Reads a completed 3D display buffer as 960x544 XRGB8888 via burst CDRAM copy + cached swizzle.
     /// When `wait_latest` is false, reads `back_buf` (completed 2 frames ago) with zero GPU stall.
     pub fn capture_completed_xrgb(&self, dst: &mut Vec<u32>, wait_latest: bool) -> bool {
         let src_idx = if wait_latest {
@@ -284,22 +302,53 @@ impl GxmRenderer {
 
         let width = VITA_WIDTH as usize;
         let height = VITA_HEIGHT as usize;
-        dst.resize(width * height, 0);
+        let stride = VITA_STRIDE as usize;
+        let total = width * height;
+        dst.resize(total, 0);
         let src_buf = self.display_bufs[src_idx].ptr as *const u32;
         unsafe {
-            for y in 0..height {
-                let src_ptr = src_buf.add(y * VITA_STRIDE as usize);
-                let dst_ptr = dst.as_mut_ptr().add(y * width);
-                for x in 0..width {
-                    let abgr = *src_ptr.add(x);
-                    let r = abgr & 0xFF;
-                    let g = (abgr >> 8) & 0xFF;
-                    let b = (abgr >> 16) & 0xFF;
-                    *dst_ptr.add(x) = (r << 16) | (g << 8) | b;
+            if stride == width {
+                core::ptr::copy_nonoverlapping(src_buf, dst.as_mut_ptr(), total);
+            } else {
+                for y in 0..height {
+                    core::ptr::copy_nonoverlapping(src_buf.add(y * stride), dst.as_mut_ptr().add(y * width), width);
                 }
             }
         }
+        for px in dst.iter_mut() {
+            let abgr = *px;
+            *px = ((abgr & 0xFF) << 16) | (abgr & 0x0000_FF00) | ((abgr >> 16) & 0xFF);
+        }
         true
+    }
+
+    /// Samples only a `thumb_size x thumb_size` square thumbnail directly from CDRAM with zero GPU stall.
+    pub fn capture_thumbnail_xrgb(&self, thumb_size: usize) -> Option<Vec<u32>> {
+        if thumb_size == 0 || self.rendered_3d_frames < DISPLAY_BUFFER_COUNT as u32 {
+            return None;
+        }
+        let width = VITA_WIDTH as usize;
+        let height = VITA_HEIGHT as usize;
+        let stride = VITA_STRIDE as usize;
+        let crop_size = width.min(height);
+        let start_x = (width - crop_size) / 2;
+        let start_y = (height - crop_size) / 2;
+        let src_buf = self.display_bufs[self.back_buf].ptr as *const u32;
+        let mut thumb = Vec::with_capacity(thumb_size * thumb_size);
+
+        unsafe {
+            for ty in 0..thumb_size {
+                let sy = start_y + ty * crop_size / thumb_size;
+                let row_ptr = src_buf.add(sy * stride);
+                for tx in 0..thumb_size {
+                    let sx = start_x + tx * crop_size / thumb_size;
+                    let abgr = *row_ptr.add(sx);
+                    let xrgb = ((abgr & 0xFF) << 16) | (abgr & 0x0000_FF00) | ((abgr >> 16) & 0xFF);
+                    thumb.push(xrgb);
+                }
+            }
+        }
+        Some(thumb)
     }
 
     /// Presents a full-screen CPU 2D framebuffer (main menu, save list, loading screen, splash).

@@ -29,7 +29,7 @@
 - **Priority Targets (100% support & verified on every commit):**
   - **Linux (`x86_64-unknown-linux-gnu`) + `rustcraft-server`:** `minifb`, `wgpu 0.19` (Vulkan/GL), `pollster`, `rayon`, `gilrs`, `sentry`, `x11-dl`.
   - **Windows (`x86_64-pc-windows-gnu`):** same + `windows-sys` (Win32 mouse capture, WaveOut/JobObject); `wgpu` (DX12/Vulkan).
-  - **Sony PS Vita (`armv7-sony-vita-newlibeabihf`):** nightly + `-Z build-std=std,panic_abort`, zero external GPU/UI crates; raw VitaSDK FFI (`libgxm` Cg→GXP via `build.rs`, `SceAudioOut`, `SceCtrl`, `ux0:`/`app0:` storage, 180 MB `_newlib_heap_size_user`, core affinity masks `0x2`/`0x4`).
+  - **Sony PS Vita (`armv7-sony-vita-newlibeabihf`):** nightly + `-Z build-std=std,panic_abort`, zero external GPU/UI crates; raw VitaSDK FFI (`libgxm` Cg→GXP via `build.rs`, `SceAudioOut`, `SceCtrl`, `ux0:`/`app0:` storage, 180 MB `_newlib_heap_size_user`, core affinity masks `0x00010000`/`0x00020000`/`0x00040000`).
 - **Secondary Targets (kept clean in `src/platform/`):**
   - **Android (`aarch64-linux-android`):** `cdylib`, `jni-sys`, `rayon`, `wgpu`, `ANativeWindow` + multi-touch virtual controls.
   - **Web / WASM (`wasm32-unknown-unknown`):** `cdylib`, `wasm-bindgen`, `web-sys`, `js-sys`, HTML5 2D Canvas software backend, single-threaded.

@@ -308,6 +308,7 @@ impl GxmRenderer {
             atlas_tex,
             hud_bufs,
             hud_texs,
+            hud_row_bounds: [[(0, 0); VITA_HEIGHT as usize]; DISPLAY_BUFFER_COUNT],
             vb_mem,
             ib_mem,
             entity_vb_mem,
@@ -335,6 +336,7 @@ impl GxmRenderer {
             last_triangles_culled: 0,
             last_subchunks_rendered: 0,
             last_subchunks_culled: 0,
+            last_timings: crate::core::profiler::ExternalRenderTimings::default(),
         }
     }
 }

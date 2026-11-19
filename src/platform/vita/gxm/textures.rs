@@ -158,44 +158,113 @@ pub(super) fn build_hud_textures() -> ([GpuMem; DISPLAY_BUFFER_COUNT], [SceGxmTe
     (bufs, texs)
 }
 
-/// Copies premultiplied-alpha ARGB8888 HUD pixels to a 960x544 ABGR8888 GXM texture using 32-bit aligned transfers.
-pub(super) unsafe fn upload_hud_buffer(dst: *mut u32, src: &[u32], width: usize, height: usize) {
+#[inline]
+fn find_nonzero_span(row: &[u32]) -> (u16, u16) {
+    let n = row.len();
+    let mut i = 0usize;
+    while i + 4 <= n {
+        if (row[i] | row[i + 1] | row[i + 2] | row[i + 3]) != 0 {
+            break;
+        }
+        i += 4;
+    }
+    while i < n && row[i] == 0 {
+        i += 1;
+    }
+    if i >= n {
+        return (0, 0);
+    }
+    let mut j = n;
+    while j >= i + 4 {
+        if (row[j - 4] | row[j - 3] | row[j - 2] | row[j - 1]) != 0 {
+            break;
+        }
+        j -= 4;
+    }
+    while j > i && row[j - 1] == 0 {
+        j -= 1;
+    }
+    (i as u16, j as u16)
+}
+
+#[inline]
+unsafe fn zero_u32_range(dst_row: *mut u32, start: usize, end: usize) {
+    let mut x = start;
+    while x < end {
+        *dst_row.add(x) = 0;
+        x += 1;
+    }
+}
+
+#[inline]
+unsafe fn swizzle_copy_u32_range(dst_row: *mut u32, src_row: *const u32, start: usize, end: usize) {
+    let mut x = start;
+    while x + 4 <= end {
+        let p0 = *src_row.add(x);
+        let p1 = *src_row.add(x + 1);
+        let p2 = *src_row.add(x + 2);
+        let p3 = *src_row.add(x + 3);
+        // DLACZEGO: Strict 32-bit aligned reads/writes avoid ARMv7 LDRD/VLDR alignment faults;
+        // ARGB->ABGR swap preserves premultiplied alpha byte (A) and green (G) untouched.
+        *dst_row.add(x) = (p0 & 0xFF00FF00) | ((p0 & 0x00FF0000) >> 16) | ((p0 & 0x000000FF) << 16);
+        *dst_row.add(x + 1) = (p1 & 0xFF00FF00) | ((p1 & 0x00FF0000) >> 16) | ((p1 & 0x000000FF) << 16);
+        *dst_row.add(x + 2) = (p2 & 0xFF00FF00) | ((p2 & 0x00FF0000) >> 16) | ((p2 & 0x000000FF) << 16);
+        *dst_row.add(x + 3) = (p3 & 0xFF00FF00) | ((p3 & 0x00FF0000) >> 16) | ((p3 & 0x000000FF) << 16);
+        x += 4;
+    }
+    while x < end {
+        let p = *src_row.add(x);
+        *dst_row.add(x) = (p & 0xFF00FF00) | ((p & 0x00FF0000) >> 16) | ((p & 0x000000FF) << 16);
+        x += 1;
+    }
+}
+
+/// Copies dirty non-zero ARGB8888 HUD spans to a 960x544 ABGR8888 GXM texture using 32-bit aligned writes.
+pub(super) unsafe fn upload_hud_buffer(
+    dst: *mut u32,
+    src: &[u32],
+    width: usize,
+    height: usize,
+    prev_bounds: &mut [(u16, u16); VITA_HEIGHT as usize],
+) {
     let vita_w = VITA_WIDTH as usize;
     let vita_h = VITA_HEIGHT as usize;
     let copy_w = width.min(vita_w);
     let copy_h = height.min(vita_h).min(src.len() / width.max(1));
 
-    if copy_w < vita_w || copy_h < vita_h {
-        let mut p = 0usize;
-        let total = vita_w * vita_h;
-        while p < total {
-            *dst.add(p) = 0;
-            p += 1;
+    for y in 0..copy_h {
+        let row_slice = &src[y * width..y * width + copy_w];
+        let (new_min, new_max) = find_nonzero_span(row_slice);
+        let (prev_min, prev_max) = prev_bounds[y];
+        let dst_row = dst.add(y * vita_w);
+
+        if new_min >= new_max {
+            if prev_min < prev_max {
+                zero_u32_range(dst_row, prev_min as usize, prev_max as usize);
+            }
+        } else {
+            if prev_min < prev_max {
+                if prev_max <= new_min || new_max <= prev_min {
+                    zero_u32_range(dst_row, prev_min as usize, prev_max as usize);
+                } else {
+                    if prev_min < new_min {
+                        zero_u32_range(dst_row, prev_min as usize, new_min as usize);
+                    }
+                    if new_max < prev_max {
+                        zero_u32_range(dst_row, new_max as usize, prev_max as usize);
+                    }
+                }
+            }
+            swizzle_copy_u32_range(dst_row, row_slice.as_ptr(), new_min as usize, new_max as usize);
         }
+        prev_bounds[y] = (new_min, new_max);
     }
 
-    let src_ptr = src.as_ptr();
-    for y in 0..copy_h {
-        let src_row = src_ptr.add(y * width);
-        let dst_row = dst.add(y * vita_w);
-        let mut x = 0usize;
-        while x + 4 <= copy_w {
-            let p0 = *src_row.add(x);
-            let p1 = *src_row.add(x + 1);
-            let p2 = *src_row.add(x + 2);
-            let p3 = *src_row.add(x + 3);
-            // DLACZEGO: Strict 32-bit aligned reads/writes avoid ARMv7 LDRD/VLDR alignment faults;
-            // ARGB->ABGR swap preserves premultiplied alpha byte (A) and green (G) untouched.
-            *dst_row.add(x) = (p0 & 0xFF00FF00) | ((p0 & 0x00FF0000) >> 16) | ((p0 & 0x000000FF) << 16);
-            *dst_row.add(x + 1) = (p1 & 0xFF00FF00) | ((p1 & 0x00FF0000) >> 16) | ((p1 & 0x000000FF) << 16);
-            *dst_row.add(x + 2) = (p2 & 0xFF00FF00) | ((p2 & 0x00FF0000) >> 16) | ((p2 & 0x000000FF) << 16);
-            *dst_row.add(x + 3) = (p3 & 0xFF00FF00) | ((p3 & 0x00FF0000) >> 16) | ((p3 & 0x000000FF) << 16);
-            x += 4;
-        }
-        while x < copy_w {
-            let p = *src_row.add(x);
-            *dst_row.add(x) = (p & 0xFF00FF00) | ((p & 0x00FF0000) >> 16) | ((p & 0x000000FF) << 16);
-            x += 1;
+    for y in copy_h..vita_h {
+        let (prev_min, prev_max) = prev_bounds[y];
+        if prev_min < prev_max {
+            zero_u32_range(dst.add(y * vita_w), prev_min as usize, prev_max as usize);
+            prev_bounds[y] = (0, 0);
         }
     }
 }

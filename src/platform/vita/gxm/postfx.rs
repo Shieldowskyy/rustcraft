@@ -85,14 +85,20 @@ impl GxmRenderer {
 
     /// Uploads the 960x544 premultiplied-alpha HUD/UI buffer into CDRAM and composites it on the GPU.
     pub(super) unsafe fn render_hud_overlay(
-        &self,
+        &mut self,
         buf_idx: usize,
         hud_pixels: &[u32],
         width: usize,
         height: usize,
         stats: &mut FrameRenderStats,
     ) {
-        upload_hud_buffer(self.hud_bufs[buf_idx].ptr as *mut u32, hud_pixels, width, height);
+        upload_hud_buffer(
+            self.hud_bufs[buf_idx].ptr as *mut u32,
+            hud_pixels,
+            width,
+            height,
+            &mut self.hud_row_bounds[buf_idx],
+        );
 
         self.prepare_fullscreen_overlay_state();
         sceGxmSetVertexProgram(self.context, self.shaders.postfx_vert_prog);

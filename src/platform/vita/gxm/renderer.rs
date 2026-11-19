@@ -48,6 +48,7 @@ pub struct GxmRenderer {
     pub(super) atlas_tex: SceGxmTexture,
     pub(super) hud_bufs: [GpuMem; DISPLAY_BUFFER_COUNT],
     pub(super) hud_texs: [SceGxmTexture; DISPLAY_BUFFER_COUNT],
+    pub(super) hud_row_bounds: [[(u16, u16); VITA_HEIGHT as usize]; DISPLAY_BUFFER_COUNT],
 
     pub(super) vb_mem: GpuMem,
     pub(super) ib_mem: GpuMem,
@@ -79,17 +80,18 @@ pub struct GxmRenderer {
     pub last_triangles_culled: u32,
     pub last_subchunks_rendered: u32,
     pub last_subchunks_culled: u32,
+    pub(super) last_timings: crate::core::profiler::ExternalRenderTimings,
 }
 
 unsafe impl Send for GxmRenderer {}
 unsafe impl Sync for GxmRenderer {}
 
 impl GxmRenderer {
-    // DLACZEGO: Chunk pool sizes are kept strict to fit alongside triple-buffered display, HUD,
-    // and dynamic entity buffers within PS Vita's 112 MB CDRAM (~47 MB used total).
-    pub const MAX_CHUNK_SLOTS: usize = 64;
+    // DLACZEGO: 96 slots cover all 81 radius-5 circular chunks with 15 slots of eviction headroom;
+    // paired with 18432 indices/slot (~44 MB chunk pool + display/HUD/entity buffers <= 66 MB CDRAM).
+    pub const MAX_CHUNK_SLOTS: usize = 96;
     pub const MAX_VERTS_PER_SLOT: usize = 18432;
-    pub const MAX_INDICES_PER_SLOT: usize = 27648;
+    pub const MAX_INDICES_PER_SLOT: usize = 18432;
     const _MATCH_VITA_TRI_CAP: () = assert!(
         Self::MAX_VERTS_PER_SLOT / 3 == crate::features::meshing::constants::VITA_MAX_MESH_TRIANGLES
     );
@@ -114,5 +116,10 @@ impl GxmRenderer {
     #[inline(always)]
     pub fn gpu_info(&self) -> (&'static str, &'static str, &'static str) {
         ("PowerVR SGX543MP4+", "SCE libgxm", "PS Vita Hardware")
+    }
+
+    #[inline(always)]
+    pub fn last_frame_timings(&self) -> crate::core::profiler::ExternalRenderTimings {
+        self.last_timings
     }
 }
