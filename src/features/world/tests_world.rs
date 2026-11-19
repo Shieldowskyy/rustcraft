@@ -12,7 +12,7 @@ use super::*;
 
     #[test]
     fn test_chunk_index_and_local_blocks() {
-        let mut chunk = Chunk { cx: 0, cz: 0, blocks: vec![0u8; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize], dirty: false };
+        let mut chunk = Chunk::new(0, 0, vec![0u8; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize], false);
         chunk.set_local(0, 0, 0, BlockId::Stone);
         assert_eq!(chunk.get_local(0, 0, 0), BlockId::Stone);
         assert!(chunk.dirty);
@@ -44,15 +44,15 @@ use super::*;
         world.chunks.clear();
         world.chunks.insert(
             (0, 0),
-                            Chunk {
-                                cx: 0,
-                                cz: 0,
-                                blocks: vec![
+                            Chunk::new(
+                                0,
+                                0,
+                                vec![
                                     BlockId::Air.to_u8();
                                     (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize
                                 ],
-                                dirty: false,
-                            },
+                                false,
+                            ),
         );
         let foot = IVec3::new(4, 20, 4);
         let head = IVec3::new(4, 20, 5);
@@ -74,15 +74,15 @@ use super::*;
             world.chunks.clear();
             world.chunks.insert(
                 (0, 0),
-                                Chunk {
-                                    cx: 0,
-                                    cz: 0,
-                                    blocks: vec![
+                                Chunk::new(
+                                    0,
+                                    0,
+                                    vec![
                                         BlockId::Air.to_u8();
                                         (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize
                                     ],
-                                    dirty: false,
-                                },
+                                    false,
+                                ),
             );
             let source = IVec3::new(8, 48, 8);
             world.set_block(source, fluid);
@@ -104,15 +104,15 @@ use super::*;
         world.chunks.clear();
         world.chunks.insert(
             (0, 0),
-                            Chunk {
-                                cx: 0,
-                                cz: 0,
-                                blocks: vec![
+                            Chunk::new(
+                                0,
+                                0,
+                                vec![
                                     BlockId::Air.to_u8();
                                     (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize
                                 ],
-                                dirty: false,
-                            },
+                                false,
+                            ),
         );
         let listener = Vec3::new(8.5, 32.5, 8.5);
         let open_air = world.calculate_acoustic_reverb(listener);
@@ -175,7 +175,7 @@ use super::*;
     #[test]
     fn test_leaf_support_and_decay_after_trunk_removal() {
         let mut world = World::new();
-        world.chunks.insert((0, 0), Chunk { cx: 0, cz: 0, blocks: vec![0u8; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize], dirty: false });
+        world.chunks.insert((0, 0), Chunk::new(0, 0, vec![0u8; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize], false));
         for pos in [IVec3::new(5, 10, 5), IVec3::new(5, 11, 5)] { world.set_block(pos, BlockId::Wood); }
         for pos in [IVec3::new(5, 12, 5), IVec3::new(6, 11, 5), IVec3::new(4, 11, 5)] { world.set_block(pos, BlockId::Leaves); }
 
@@ -326,5 +326,37 @@ use super::*;
         assert!(max_highland >= 45, "mountain ranges should rise above the lowlands");
         assert!(found_river, "river biomes should occur in the sampled region");
         assert!(max_river <= 20, "river channels should reach the sea-level basin");
+    }
+
+    #[test]
+    fn chunk_set_local_cow_preserves_shared_mesh_snapshot() {
+        let mut world = World::new();
+        let mut chunk = Chunk::new(1, 2, vec![0u8; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize], false);
+        chunk.set_local(3, 12, 7, BlockId::Stone);
+        world.chunks.insert((1, 2), chunk);
+
+        let job = world.create_mesh_job((1, 2)).expect("mesh job should be created");
+        assert_eq!(job.center_blocks[Chunk::index(3, 12, 7)], BlockId::Stone.to_u8());
+
+        // Mutating chunk after snapshot creation must copy-on-write without altering the snapshot.
+        world.chunks.get_mut(&(1, 2)).unwrap().set_local(3, 12, 7, BlockId::Glass);
+        assert_eq!(world.chunks.get(&(1, 2)).unwrap().get_local(3, 12, 7), BlockId::Glass);
+        assert_eq!(job.center_blocks[Chunk::index(3, 12, 7)], BlockId::Stone.to_u8());
+    }
+
+    #[test]
+    fn linear_index_chunk_lights_decodes_exact_world_coords() {
+        let mut world = World::new();
+        world.torches.clear();
+        world.ruststone_lights.clear();
+        let mut chunk = Chunk::new(-2, 3, vec![0u8; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize], false);
+        chunk.set_local(5, 42, 11, BlockId::Torch);
+        chunk.set_local(15, 63, 0, BlockId::RustStoneLampLit);
+        world.index_chunk_lights(&chunk);
+
+        let expected_torch = IVec3::new(-2 * CHUNK_SIZE_X + 5, 42, 3 * CHUNK_SIZE_Z + 11);
+        let expected_lamp = IVec3::new(-2 * CHUNK_SIZE_X + 15, 63, 3 * CHUNK_SIZE_Z);
+        assert!(world.torches.contains(&expected_torch));
+        assert_eq!(world.ruststone_lights.get(&expected_lamp), Some(&(14.0, 1.0)));
     }
 

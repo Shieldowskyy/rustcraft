@@ -42,7 +42,7 @@ impl AsyncMesher {
         let (res_tx, res_rx) = std::sync::mpsc::channel::<(u64, (i32, i32), Vec<Triangle>)>();
 
         let req_rx = std::sync::Arc::new(std::sync::Mutex::new(req_rx));
-        let num_threads = worker_thread_count(1, 4, 2);
+        let num_threads = worker_thread_count(1, 4, 1);
 
         let mut worker_count = 0usize;
         for i in 0..num_threads {
@@ -109,5 +109,19 @@ impl AsyncMesher {
     pub fn invalidate_pending(&mut self) {
         self.generation = self.generation.wrapping_add(1);
         while self.res_rx.try_recv().is_ok() {}
+    }
+
+    /// Creates a zero-thread inert mesher when 3D world rendering uses an external GPU pipeline.
+    pub fn disabled() -> Self {
+        let (req_tx, _req_rx) = std::sync::mpsc::channel::<(u64, ChunkMeshJob)>();
+        let (res_tx, res_rx) = std::sync::mpsc::channel::<(u64, (i32, i32), Vec<Triangle>)>();
+        Self {
+            req_tx,
+            res_rx,
+            res_tx,
+            worker_count: 0,
+            max_triangles: None,
+            generation: 0,
+        }
     }
 }

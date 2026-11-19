@@ -2,6 +2,7 @@
 //! Uses PAL threading & capabilities for zero platform `#[cfg]` inside `features::world`.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::core::math::Vec3;
 use crate::features::meshing::{ChunkMeshJob, LightSource};
@@ -21,7 +22,7 @@ impl World {
 
     pub fn new_with_generator(seed: u32, generator_type: WorldGeneratorType) -> Self {
         crate::log_info!("WORLD", "Initializing world with seed {} (type: {:?})", seed, generator_type);
-        let num_threads = worker_thread_count(2, 6, 2);
+        let num_threads = worker_thread_count(2, 6, 1);
         let (chunk_req_tx, chunk_res_rx) = if num_threads > 0 {
             let (req_tx, req_rx) = std::sync::mpsc::channel::<(i32, i32, u32, WorldGeneratorType)>();
             let (res_tx, res_rx) = std::sync::mpsc::channel::<Chunk>();
@@ -167,28 +168,35 @@ impl World {
         let (center_x, center_z) = (cx * CHUNK_SIZE_X + 8, cz * CHUNK_SIZE_Z + 8);
 
         let mut lights = Vec::new();
-        for &pos in &self.torches {
-            if (pos.x - center_x).abs() <= 24 && (pos.z - center_z).abs() <= 24 {
-                lights.push(LightSource { pos, radius: 14.0, intensity: 1.0 });
+        if !self.torches.is_empty() {
+            for &pos in &self.torches {
+                if (pos.x - center_x).abs() <= 24 && (pos.z - center_z).abs() <= 24 {
+                    lights.push(LightSource { pos, radius: 14.0, intensity: 1.0 });
+                }
             }
         }
-        for (&pos, &(radius, intensity)) in &self.ruststone_lights {
-            if (pos.x - center_x).abs() <= 24 && (pos.z - center_z).abs() <= 24 {
-                lights.push(LightSource { pos, radius, intensity });
+        if !self.ruststone_lights.is_empty() {
+            for (&pos, &(radius, intensity)) in &self.ruststone_lights {
+                if (pos.x - center_x).abs() <= 24 && (pos.z - center_z).abs() <= 24 {
+                    lights.push(LightSource { pos, radius, intensity });
+                }
             }
         }
 
-        let get_nb = |dx: i32, dz: i32| self.chunks.get(&(cx + dx, cz + dz)).map(|c| c.blocks.clone());
-        let fluid_map: HashMap<_, _> = self
-            .fluid_levels
-            .iter()
-            .filter(|(pos, _)| (pos.x - center_x).abs() <= 10 && (pos.z - center_z).abs() <= 10)
-            .map(|(&pos, &lvl)| (pos, lvl))
-            .collect();
+        let get_nb = |dx: i32, dz: i32| self.chunks.get(&(cx + dx, cz + dz)).map(|c| Arc::clone(&c.blocks));
+        let fluid_map: HashMap<_, _> = if self.fluid_levels.is_empty() {
+            HashMap::new()
+        } else {
+            self.fluid_levels
+                .iter()
+                .filter(|(pos, _)| (pos.x - center_x).abs() <= 10 && (pos.z - center_z).abs() <= 10)
+                .map(|(&pos, &lvl)| (pos, lvl))
+                .collect()
+        };
 
         Some(ChunkMeshJob {
             key,
-            center_blocks: chunk.blocks.clone(),
+            center_blocks: Arc::clone(&chunk.blocks),
             east_blocks: get_nb(1, 0),
             west_blocks: get_nb(-1, 0),
             south_blocks: get_nb(0, 1),
@@ -243,11 +251,15 @@ impl World {
         };
         let stream_key: Vec<_> = regions.clone();
 
-        let mut received_chunks = Vec::new();
+        let max_integrate = crate::platform::capabilities().max_chunks_integrated_per_frame.max(1);
+        let mut received_chunks = Vec::with_capacity(max_integrate);
         if let Some(rx_mutex) = &self.chunk_res_rx {
             if let Ok(rx) = rx_mutex.lock() {
-                while let Ok(chunk) = rx.try_recv() {
-                    received_chunks.push(chunk);
+                while received_chunks.len() < max_integrate {
+                    match rx.try_recv() {
+                        Ok(chunk) => received_chunks.push(chunk),
+                        Err(_) => break,
+                    }
                 }
             }
         }
@@ -270,7 +282,7 @@ impl World {
             }
         }
 
-        if self.last_stream_regions == stream_key && self.pending_chunks.is_empty() {
+        if self.last_stream_regions == stream_key && (self.chunk_req_tx.is_some() || self.pending_chunks.is_empty()) {
             return;
         }
 
@@ -319,7 +331,7 @@ impl World {
             }
         }
 
-        self.last_stream_regions = if self.pending_chunks.is_empty() && !has_missing_chunks {
+        self.last_stream_regions = if self.chunk_req_tx.is_some() || (self.pending_chunks.is_empty() && !has_missing_chunks) {
             stream_key
         } else {
             Vec::new()

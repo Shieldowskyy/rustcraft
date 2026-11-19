@@ -122,20 +122,32 @@ impl World {
     #[inline(always)]
 
     pub fn index_chunk_lights(&mut self, chunk: &Chunk) {
+        let torch_id = BlockId::Torch.to_u8();
+        let ore_id = BlockId::RustStoneOre.to_u8();
+        let block_id = BlockId::RustStoneBlock.to_u8();
+        let lamp_id = BlockId::RustStoneLampLit.to_u8();
+        let wire_id = BlockId::RustStoneWireLit.to_u8();
         let (base_x, base_z) = (chunk.cx * CHUNK_SIZE_X, chunk.cz * CHUNK_SIZE_Z);
-        for ly in 0..CHUNK_SIZE_Y {
-            for lz in 0..CHUNK_SIZE_Z {
-                for lx in 0..CHUNK_SIZE_X {
-                    let b = chunk.get_local(lx, ly, lz);
-                    if b == BlockId::Torch {
-                        let pos = IVec3::new(base_x + lx, ly, base_z + lz);
-                        self.torches.insert(pos);
-                        self.mark_light_affected_chunks_dirty(pos);
-                    } else if let Some(params) = ruststone_light_params(b) {
-                        let pos = IVec3::new(base_x + lx, ly, base_z + lz);
-                        self.ruststone_lights.insert(pos, params);
-                        self.mark_light_affected_chunks_dirty(pos);
-                    }
+
+        // Linear slice scan keeps 16 KB chunk block reads sequential in L1 cache.
+        for (idx, &b_u8) in chunk.blocks.iter().enumerate() {
+            if b_u8 == torch_id
+                || b_u8 == ore_id
+                || b_u8 == block_id
+                || b_u8 == lamp_id
+                || b_u8 == wire_id
+            {
+                let lx = (idx >> 10) as i32;
+                let ly = ((idx >> 4) & 63) as i32;
+                let lz = (idx & 15) as i32;
+                let pos = IVec3::new(base_x + lx, ly, base_z + lz);
+                let b = BlockId::from_u8(b_u8);
+                if b == BlockId::Torch {
+                    self.torches.insert(pos);
+                    self.mark_light_affected_chunks_dirty(pos);
+                } else if let Some(params) = ruststone_light_params(b) {
+                    self.ruststone_lights.insert(pos, params);
+                    self.mark_light_affected_chunks_dirty(pos);
                 }
             }
         }

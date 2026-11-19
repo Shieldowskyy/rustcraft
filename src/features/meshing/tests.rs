@@ -20,12 +20,12 @@ fn empty_superflat_world() -> World {
 }
 
 fn empty_chunk(cx: i32, cz: i32) -> Chunk {
-    Chunk {
+    Chunk::new(
         cx,
         cz,
-        blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
-        dirty: false,
-    }
+        vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
+        false,
+    )
 }
 
 fn fill_dense_caves(chunk: &mut Chunk) {

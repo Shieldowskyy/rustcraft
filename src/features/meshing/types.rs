@@ -2,6 +2,7 @@
 //! Thread-safe snapshot structures decoupled from GPU buffers and OS threading.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::core::math::{IVec3, Vec3};
 use crate::features::rendering::atlas::TextureId;
@@ -58,15 +59,15 @@ pub struct LightSource {
 #[derive(Clone)]
 pub struct ChunkMeshJob {
     pub key: (i32, i32),
-    pub center_blocks: Vec<u8>,
-    pub east_blocks: Option<Vec<u8>>,
-    pub west_blocks: Option<Vec<u8>>,
-    pub south_blocks: Option<Vec<u8>>,
-    pub north_blocks: Option<Vec<u8>>,
-    pub se_blocks: Option<Vec<u8>>,
-    pub sw_blocks: Option<Vec<u8>>,
-    pub ne_blocks: Option<Vec<u8>>,
-    pub nw_blocks: Option<Vec<u8>>,
+    pub center_blocks: Arc<Vec<u8>>,
+    pub east_blocks: Option<Arc<Vec<u8>>>,
+    pub west_blocks: Option<Arc<Vec<u8>>>,
+    pub south_blocks: Option<Arc<Vec<u8>>>,
+    pub north_blocks: Option<Arc<Vec<u8>>>,
+    pub se_blocks: Option<Arc<Vec<u8>>>,
+    pub sw_blocks: Option<Arc<Vec<u8>>>,
+    pub ne_blocks: Option<Arc<Vec<u8>>>,
+    pub nw_blocks: Option<Arc<Vec<u8>>>,
     pub seed: u32,
     pub generator_type: WorldGeneratorType,
     pub lights: Vec<LightSource>,
@@ -79,7 +80,7 @@ impl ChunkMeshJob {
     pub fn from_world(chunk: &Chunk, world: &World) -> Self {
         let (cx, cz) = (chunk.cx, chunk.cz);
         let copy_blocks = |x: i32, z: i32| {
-            world.chunks.get(&(x, z)).map(|neighbor| neighbor.blocks.clone())
+            world.chunks.get(&(x, z)).map(|neighbor| Arc::clone(&neighbor.blocks))
         };
         let base_x = cx * CHUNK_SIZE_X;
         let base_z = cz * CHUNK_SIZE_Z;
@@ -102,7 +103,7 @@ impl ChunkMeshJob {
 
         Self {
             key: (cx, cz),
-            center_blocks: chunk.blocks.clone(),
+            center_blocks: Arc::clone(&chunk.blocks),
             east_blocks: copy_blocks(cx + 1, cz),
             west_blocks: copy_blocks(cx - 1, cz),
             south_blocks: copy_blocks(cx, cz + 1),

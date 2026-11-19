@@ -245,12 +245,12 @@ fn test_ground_mob_steers_around_walls() {
     world.chunks.clear();
     world.chunks.insert(
         (0, 0),
-        Chunk {
-            cx: 0,
-            cz: 0,
-            blocks: vec![BlockId::Air.to_u8(); (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
-            dirty: false,
-        },
+        Chunk::new(
+            0,
+            0,
+            vec![BlockId::Air.to_u8(); (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
+            false,
+        ),
     );
     for x in 0..CHUNK_SIZE_X {
         for z in 0..CHUNK_SIZE_Z {
@@ -280,12 +280,12 @@ fn test_skeleton_does_not_shoot_through_walls() {
     world.chunks.clear();
     world.chunks.insert(
         (0, 0),
-        Chunk {
-            cx: 0,
-            cz: 0,
-            blocks: vec![BlockId::Air.to_u8(); (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
-            dirty: false,
-        },
+        Chunk::new(
+            0,
+            0,
+            vec![BlockId::Air.to_u8(); (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
+            false,
+        ),
     );
     for x in 0..CHUNK_SIZE_X {
         for z in 0..CHUNK_SIZE_Z {
@@ -310,12 +310,12 @@ fn test_villagers_return_to_their_home_after_wandering() {
     world.chunks.clear();
     world.chunks.insert(
         (0, 0),
-        Chunk {
-            cx: 0,
-            cz: 0,
-            blocks: vec![BlockId::Air.to_u8(); (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
-            dirty: false,
-        },
+        Chunk::new(
+            0,
+            0,
+            vec![BlockId::Air.to_u8(); (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
+            false,
+        ),
     );
     for x in 0..CHUNK_SIZE_X {
         for z in 0..CHUNK_SIZE_Z {
@@ -343,12 +343,12 @@ fn test_daytime_natural_spawns_stay_underground() {
     world.time_of_day = 120.0;
     for cx in -3..=2 {
         for cz in -3..=2 {
-            let mut chunk = Chunk {
+            let mut chunk = Chunk::new(
                 cx,
                 cz,
-                blocks: vec![0; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
-                dirty: false,
-            };
+                vec![0; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
+                false,
+            );
             for x in 0..CHUNK_SIZE_X {
                 for z in 0..CHUNK_SIZE_Z {
                     chunk.set_local(x, 20, z, BlockId::Grass);

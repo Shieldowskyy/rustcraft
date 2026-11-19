@@ -152,7 +152,7 @@ impl World {
                 return Err("invalid chunk data length in world file".to_owned());
             }
             let blocks = read_bytes(&bytes, &mut cursor, block_len)?.to_vec();
-            world.chunks.insert((cx, cz), Chunk { cx, cz, blocks, dirty: true });
+            world.chunks.insert((cx, cz), Chunk::new(cx, cz, blocks, true));
         }
 
         if version >= 3 {

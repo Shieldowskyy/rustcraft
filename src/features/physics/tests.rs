@@ -10,12 +10,12 @@ use super::*;
 #[test]
 fn ladder_contact_covers_player_hitbox_and_ends_at_ladder_top() {
     let mut world = World::new();
-    let mut chunk = Chunk {
-        cx: 0,
-        cz: 0,
-        blocks: vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
-        dirty: false,
-    };
+    let mut chunk = Chunk::new(
+        0,
+        0,
+        vec![0; CHUNK_SIZE_X as usize * CHUNK_SIZE_Y as usize * CHUNK_SIZE_Z as usize],
+        false,
+    );
     chunk.set_local(0, 10, 0, BlockId::Ladder);
     world.chunks.insert((0, 0), chunk);
 

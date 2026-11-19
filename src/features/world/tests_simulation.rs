@@ -135,12 +135,7 @@ use super::*;
             for cz in 0..=1 {
                 world.chunks.insert(
                     (cx, cz),
-                                    Chunk {
-                                        cx,
-                                        cz,
-                                        blocks: vec![0; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
-                                    dirty: false,
-                                    },
+                    Chunk::new(cx, cz, vec![0; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize], false),
                 );
             }
         }
@@ -167,12 +162,7 @@ use super::*;
         );
 
         world.chunks.get_mut(&(1, 1)).unwrap().dirty = false;
-        let mut streamed_chunk = Chunk {
-            cx: 0,
-            cz: 0,
-            blocks: vec![0; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
-            dirty: false,
-        };
+        let mut streamed_chunk = Chunk::new(0, 0, vec![0; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize], false);
         streamed_chunk.set_local(14, 32, 14, BlockId::Torch);
         world.index_chunk_lights(&streamed_chunk);
         assert!(
@@ -267,12 +257,7 @@ use super::*;
         for cx in 0..=1 {
             world.chunks.insert(
                 (cx, 0),
-                Chunk {
-                    cx,
-                    cz: 0,
-                    blocks: vec![0; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
-                    dirty: false,
-                },
+                Chunk::new(cx, 0, vec![0; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize], false),
             );
         }
 

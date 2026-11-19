@@ -51,7 +51,11 @@ impl Renderer {
             last_triangles_culled: 0,
             last_subchunks_rendered: 0,
             last_subchunks_culled: 0,
-            async_mesher: AsyncMesher::new(),
+            async_mesher: if capabilities().uses_hardware_gxm {
+                AsyncMesher::disabled()
+            } else {
+                AsyncMesher::new()
+            },
             pending_mesh_keys: HashSet::new(),
             textures_version: 0,
             mesh_cache_version: 0,

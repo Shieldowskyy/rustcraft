@@ -2,13 +2,15 @@
 //! Accelerates face culling, smooth AO/light sampling, and worker-thread meshing without borrowing `World`.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 use crate::core::math::IVec3;
 use crate::features::blocks::BlockId;
 use crate::features::world::{get_biome_at, Biome, Chunk, World, WorldGeneratorType, CHUNK_SIZE_X, CHUNK_SIZE_Y, CHUNK_SIZE_Z};
 
 use super::types::{ChunkMeshJob, LightSource};
+
+const BLOCK_LIGHT_CACHE_LEN: usize =
+    (CHUNK_SIZE_X as usize + 2) * (CHUNK_SIZE_Y as usize + 2) * (CHUNK_SIZE_Z as usize + 2);
 
 pub struct ChunkNeighborCache<'a> {
     pub center_blocks: &'a [u8],
@@ -30,7 +32,7 @@ pub struct ChunkNeighborCache<'a> {
     pub lights: Vec<LightSource>,
     pub fluid_map: Option<&'a std::collections::HashMap<IVec3, u8>>,
     block_light_cache: RefCell<Vec<f32>>,
-    biome_cache: RefCell<HashMap<(i32, i32), Biome>>,
+    biome_cache: RefCell<[Option<Biome>; 256]>,
 }
 
 impl<'a> ChunkNeighborCache<'a> {
@@ -74,6 +76,12 @@ impl<'a> ChunkNeighborCache<'a> {
             }
         }
 
+        let block_light_cache = if lights.is_empty() {
+            Vec::new()
+        } else {
+            vec![-1.0; BLOCK_LIGHT_CACHE_LEN]
+        };
+
         let mut cache = Self {
             center_blocks: chunk.blocks.as_slice(),
             east_blocks,
@@ -93,13 +101,8 @@ impl<'a> ChunkNeighborCache<'a> {
             max_non_air_y: 0,
             lights,
             fluid_map: None,
-            block_light_cache: RefCell::new(vec![
-                -1.0;
-                (CHUNK_SIZE_X as usize + 2)
-                    * (CHUNK_SIZE_Y as usize + 2)
-                    * (CHUNK_SIZE_Z as usize + 2)
-            ]),
-            biome_cache: RefCell::new(HashMap::with_capacity(256)),
+            block_light_cache: RefCell::new(block_light_cache),
+            biome_cache: RefCell::new([None; 256]),
         };
 
         cache.populate_heightmaps();
@@ -110,17 +113,22 @@ impl<'a> ChunkNeighborCache<'a> {
         let (cx, cz) = job.key;
         let base_x = cx * CHUNK_SIZE_X;
         let base_z = cz * CHUNK_SIZE_Z;
+        let block_light_cache = if job.lights.is_empty() {
+            Vec::new()
+        } else {
+            vec![-1.0; BLOCK_LIGHT_CACHE_LEN]
+        };
 
         let mut cache = Self {
             center_blocks: job.center_blocks.as_slice(),
-            east_blocks: job.east_blocks.as_deref(),
-            west_blocks: job.west_blocks.as_deref(),
-            south_blocks: job.south_blocks.as_deref(),
-            north_blocks: job.north_blocks.as_deref(),
-            se_blocks: job.se_blocks.as_deref(),
-            sw_blocks: job.sw_blocks.as_deref(),
-            ne_blocks: job.ne_blocks.as_deref(),
-            nw_blocks: job.nw_blocks.as_deref(),
+            east_blocks: job.east_blocks.as_deref().map(Vec::as_slice),
+            west_blocks: job.west_blocks.as_deref().map(Vec::as_slice),
+            south_blocks: job.south_blocks.as_deref().map(Vec::as_slice),
+            north_blocks: job.north_blocks.as_deref().map(Vec::as_slice),
+            se_blocks: job.se_blocks.as_deref().map(Vec::as_slice),
+            sw_blocks: job.sw_blocks.as_deref().map(Vec::as_slice),
+            ne_blocks: job.ne_blocks.as_deref().map(Vec::as_slice),
+            nw_blocks: job.nw_blocks.as_deref().map(Vec::as_slice),
             base_x,
             base_z,
             seed: job.seed,
@@ -130,13 +138,8 @@ impl<'a> ChunkNeighborCache<'a> {
             max_non_air_y: 0,
             lights: job.lights.clone(),
             fluid_map: Some(&job.fluid_map),
-            block_light_cache: RefCell::new(vec![
-                -1.0;
-                (CHUNK_SIZE_X as usize + 2)
-                    * (CHUNK_SIZE_Y as usize + 2)
-                    * (CHUNK_SIZE_Z as usize + 2)
-            ]),
-            biome_cache: RefCell::new(HashMap::with_capacity(256)),
+            block_light_cache: RefCell::new(block_light_cache),
+            biome_cache: RefCell::new([None; 256]),
         };
 
         cache.populate_heightmaps();
@@ -359,6 +362,9 @@ impl<'a> ChunkNeighborCache<'a> {
 
     #[inline(always)]
     pub fn sample_block_light(&self, wx: f32, wy: f32, wz: f32) -> f32 {
+        if self.lights.is_empty() {
+            return 0.0;
+        }
         if let Some(index) = self.block_light_cache_index(wx, wy, wz) {
             let cached = self.block_light_cache.borrow()[index];
             if cached >= 0.0 {
@@ -377,11 +383,17 @@ impl<'a> ChunkNeighborCache<'a> {
         if self.generator_type == WorldGeneratorType::Superflat {
             return Biome::Plains;
         }
-        if let Some(biome) = self.biome_cache.borrow().get(&(wx, wz)).cloned() {
+        let lx = wx - self.base_x;
+        let lz = wz - self.base_z;
+        if (lx as u32) < CHUNK_SIZE_X as u32 && (lz as u32) < CHUNK_SIZE_Z as u32 {
+            let idx = ((lx as usize) << 4) | (lz as usize);
+            if let Some(biome) = self.biome_cache.borrow()[idx] {
+                return biome;
+            }
+            let biome = get_biome_at(wx, wz, self.seed).0;
+            self.biome_cache.borrow_mut()[idx] = Some(biome);
             return biome;
         }
-        let biome = get_biome_at(wx, wz, self.seed).0;
-        self.biome_cache.borrow_mut().insert((wx, wz), biome.clone());
-        biome
+        get_biome_at(wx, wz, self.seed).0
     }
 }

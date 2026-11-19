@@ -39,7 +39,7 @@ impl Chunk {
             DarkOakTree(i32, i32, i32), BirchTree(i32, i32, i32), IceSpike(i32, i32, i32, i32),
             HugeRedMushroom(i32, i32, i32), HugeBrownMushroom(i32, i32, i32),
         }
-        let mut decorations = Vec::new();
+        let mut decorations = Vec::with_capacity(32);
 
         enum Structure {
             DesertWell(i32, i32, i32), StoneRuins(i32, i32, i32), ForestCabin(i32, i32, i32),
@@ -338,7 +338,7 @@ impl Chunk {
             }
         }
 
-        Chunk { cx, cz, blocks, dirty: true }
+        Chunk::new(cx, cz, blocks, true)
     }
 
     pub fn generate_superflat(cx: i32, cz: i32) -> Chunk {
@@ -351,12 +351,7 @@ impl Chunk {
                 blocks[Chunk::index(lx, 3, lz)] = BlockId::Grass.to_u8();
             }
         }
-        Chunk {
-            cx,
-            cz,
-            blocks,
-            dirty: true,
-        }
+        Chunk::new(cx, cz, blocks, true)
     }
 
     pub fn generate_with_type(cx: i32, cz: i32, seed: u32, generator_type: WorldGeneratorType) -> Chunk {
