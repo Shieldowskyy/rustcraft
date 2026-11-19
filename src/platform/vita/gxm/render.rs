@@ -142,60 +142,54 @@ impl GxmRenderer {
                 &mut stats,
             );
 
-            // Re-bind voxel pipeline temporarily for legacy entity pass until Etap 5
-            sceGxmSetVertexProgram(self.context, self.shaders.vert_prog);
-            sceGxmSetFragmentProgram(self.context, self.shaders.frag_prog_opaque);
-            sceGxmSetFragmentTexture(self.context, 0, &self.atlas_tex);
-            let mut uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
-            sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut uniform_buf);
-            if !uniform_buf.is_null() {
-                if !self.shaders.param_voxel_mvp.is_null() {
-                    sceGxmSetUniformDataF(uniform_buf, self.shaders.param_voxel_mvp, 0, 16, mvp.m.as_ptr());
-                }
-                if !self.shaders.param_voxel_sky_daylight.is_null() {
-                    let sky_day = [sky_bottom[0], sky_bottom[1], sky_bottom[2], daylight];
-                    sceGxmSetUniformDataF(uniform_buf, self.shaders.param_voxel_sky_daylight, 0, 4, sky_day.as_ptr());
-                }
-                if !self.shaders.param_voxel_chunk_offset.is_null() {
-                    let zero = [0.0f32; 4];
-                    sceGxmSetUniformDataF(uniform_buf, self.shaders.param_voxel_chunk_offset, 0, 4, zero.as_ptr());
-                }
-            }
-            let mut frag_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
-            sceGxmReserveFragmentDefaultUniformBuffer(self.context, &mut frag_uniform_buf);
-            if !frag_uniform_buf.is_null() {
-                let max_fog = if fog_enabled { (render_dist as f32 * 16.0).max(32.0) } else { 0.0 };
-                let fog_data = [camera.position.x, camera.position.y, camera.position.z, max_fog];
-                if !self.shaders.param_trans_cam_fog.is_null() {
-                    sceGxmSetUniformDataF(frag_uniform_buf, self.shaders.param_trans_cam_fog, 0, 4, fog_data.as_ptr());
-                }
-                if !self.shaders.param_trans_fog_color.is_null() {
-                    let fog_rgba = [fog_col[0], fog_col[1], fog_col[2], if fog_enabled { 1.0 } else { 0.0 }];
-                    sceGxmSetUniformDataF(frag_uniform_buf, self.shaders.param_trans_fog_color, 0, 4, fog_rgba.as_ptr());
-                }
-            }
-
-            self.render_cracks_and_entities(
+            let _ = (damage_flash, is_underwater, is_in_lava, low_health);
+            let max_fog = if fog_enabled { (render_dist as f32 * 16.0).max(32.0) } else { 0.0 };
+            let swing = break_progress.max(attack_animation);
+            let dyn_input = super::render_dynamic::WorldEntitiesInput {
                 camera,
                 world,
+                mvp: &mvp,
+                player_feet_pos: camera.position - crate::core::math::Vec3::new(0.0, crate::features::physics::STANDING_EYE_OFFSET, 0.0),
+                player_yaw: camera.yaw,
+                player_pitch: camera.pitch,
+                walk_phase,
+                swing_progress: swing,
+                player_crouching: false,
+                damage_tilt_timer: 0.0,
+                held_block: hand_block,
+                player_armor: &[None, None, None, None],
+                camera_perspective: crate::app::CameraPerspective::FirstPerson,
                 break_target,
                 break_progress,
                 items,
                 mobs,
+                particles,
+                arrows: &[],
+                fishing_bobber: None,
+                remote_players: None,
+                clouds_enabled,
+                fog_enabled,
+                max_fog,
+                fog_col,
+                daylight,
+                brightness: 0.0,
+                total_time,
+                is_occluded,
+            };
+            let (v_cur, i_cur) = self.render_world_entities(buf_idx, &dyn_input, &mut stats);
+            self.render_first_person_hand(
+                buf_idx,
+                camera,
                 hand_block,
+                None,
+                false,
                 walk_phase,
                 speed,
                 attack_animation,
-                clouds_enabled,
-                total_time,
-                particles,
-                damage_flash,
-                is_underwater,
-                is_in_lava,
-                low_health,
                 daylight,
-                sun_dir,
-                is_occluded,
+                0.0,
+                v_cur,
+                i_cur,
                 &mut stats,
             );
 

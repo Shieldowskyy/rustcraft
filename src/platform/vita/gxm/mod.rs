@@ -19,6 +19,7 @@ mod render_world;
 mod renderer;
 mod textures;
 mod types;
+mod weather;
 
 pub use renderer::GxmRenderer;
 pub use types::{GxmEntityVertex, GxmPackedVertex, GxmVertex};
