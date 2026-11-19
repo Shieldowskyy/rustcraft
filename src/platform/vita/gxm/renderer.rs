@@ -30,6 +30,7 @@ pub struct GxmRenderer {
     pub(super) front_buf: usize,
     pub(super) back_buf: usize,
     pub(super) last_was_3d: bool,
+    pub(super) rendered_3d_frames: u32,
 
     pub(super) _depth_mem: GpuMem,
     pub(super) depth_surface: SceGxmDepthStencilSurface,

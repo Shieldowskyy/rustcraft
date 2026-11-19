@@ -294,6 +294,7 @@ impl GxmRenderer {
             front_buf: DISPLAY_BUFFER_COUNT - 1,
             back_buf: 0,
             last_was_3d: false,
+            rendered_3d_frames: 0,
             _depth_mem: depth_mem,
             depth_surface,
             patcher,

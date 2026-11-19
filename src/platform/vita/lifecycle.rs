@@ -3,16 +3,12 @@
 
 #![allow(dead_code)]
 
-use crate::app::RustCraftApp;
+use crate::app::{GameState, RustCraftApp};
 
 use super::ffi::*;
 use super::ime::VitaImeManager;
 use super::input::VitaInputTracker;
 use super::panic_log::{install_vita_panic_hook, write_crash_bytes};
-
-// ============================================================================
-// 4. PS Vita Main Loop Entry Point
-// ============================================================================
 
 /// Loads a PS Vita system PRX module if not already loaded.
 fn load_module(path: &[u8]) {
@@ -29,9 +25,8 @@ fn load_module(path: &[u8]) {
     }
 }
 
-/// Main application entry point for PlayStation Vita – launches GXM hardware renderer.
+/// Main application entry point for PlayStation Vita — launches GXM hardware renderer.
 pub fn run_vita_app() {
-    // 0. Install panic hook immediately at startup before any allocations or PRX calls
     install_vita_panic_hook();
 
     #[cfg(debug_assertions)]
@@ -41,16 +36,12 @@ pub fn run_vita_app() {
         false,
     );
 
-    // 1. Load required Vita system modules
-    //    NOTE: Do NOT load `libc.suprx` on `armv7-sony-vita-newlibeabihf` because Newlib
-    //    already provides `malloc`/`free` statically and `libc.suprx` wastes RAM on a second heap.
+    // Do NOT load `libc.suprx` on `armv7-sony-vita-newlibeabihf`: Newlib provides `malloc`/`free`
+    // statically and `libc.suprx` wastes RAM on a second heap.
     load_module(b"vs0:sys/external/libSceGxm.suprx\0");
     load_module(b"vs0:sys/external/libSceIme.suprx\0");
 
     crate::vita_log!("Modules loaded. Setting clock frequencies...");
-
-    // 2. Overclock PS Vita clocks to maximum performance
-    //    444MHz ARM, 222MHz BUS, 222MHz GPU, 166MHz XBAR
     unsafe {
         scePowerSetArmClockFrequency(444);
         scePowerSetBusClockFrequency(222);
@@ -59,10 +50,6 @@ pub fn run_vita_app() {
     }
 
     crate::vita_log!("Initializing RustCraftApp on heap...");
-
-    // 3. Initialize game engine (boxed on heap to prevent stack frame overflow).
-    //    CRITICAL: Use `"gxm"` (not `"software"`) so `app.update_and_render` skips
-    //    CPU 3D software rasterization and only draws the 2D HUD/UI overlay!
     let seed = unsafe { sceKernelGetProcessTimeWide() } as u32;
     let mut app = Box::new(RustCraftApp::new(960, 544, "gxm", seed));
     #[cfg(feature = "profiler")]
@@ -72,33 +59,28 @@ pub fn run_vita_app() {
     }
 
     crate::vita_log!("Initializing GxmRenderer...");
-
-    // 4. Initialize GXM Hardware Renderer
-    //    Allocates CDRAM triple-buffering, ShaderPatcher, GPU texture atlas, render targets.
     let mut gxm = Box::new(crate::platform::vita_gxm::GxmRenderer::new(&app.renderer.textures));
 
-    crate::vita_log!("Initializing controller...");
+    let mut synced_textures_ver = app.renderer.textures_version;
+    let mut synced_mesh_ver = app.renderer.mesh_cache_version;
+    let mut capture_buf: Vec<u32> = Vec::with_capacity(960 * 544);
 
-    // 5. Initialize gamepad controller and touchscreen tracker
     let mut input_tracker = VitaInputTracker::new();
     let mut ime_mgr = VitaImeManager::new();
     let mut last_time = unsafe { sceKernelGetProcessTimeWide() };
 
     crate::vita_log!("Entering main game loop...");
 
-    // Main game loop
     loop {
         let current_time = unsafe { sceKernelGetProcessTimeWide() };
         let dt_us = current_time.saturating_sub(last_time);
         last_time = current_time;
         let dt = (dt_us as f32 / 1_000_000.0).clamp(0.001, 0.1);
 
-        // Check if app requested opening Vita on-screen keyboard (IME)
         if let Some((ref title, ref initial)) = app.ime_requested.take() {
             ime_mgr.start(title, initial);
         }
 
-        // Update IME dialog if running
         if let Some(ime_result) = ime_mgr.update() {
             match ime_result {
                 Some(text) => app.apply_ime_text(&text),
@@ -106,11 +88,8 @@ pub fn run_vita_app() {
             }
         }
 
-        // Poll Vita controller (in menus free cursor is active, in-game camera is locked to analog stick)
-        let is_captured = matches!(app.state, crate::app::GameState::Playing);
+        let is_captured = matches!(app.state, GameState::Playing);
         let input = input_tracker.poll(is_captured, dt);
-
-        // Update game logic (physics, camera, world streaming, AI, 2D UI)
         let output = app.update_and_render(dt, &input);
 
         if output.quit_requested {
@@ -120,15 +99,36 @@ pub fn run_vita_app() {
                 &app.camera,
                 &app.player,
                 app.save_slot,
-                None,
+                app.last_clean_thumbnail.as_deref(),
             );
             break;
         }
 
-        if matches!(app.state, crate::app::GameState::Playing) {
-            let hand_block: Option<u8> = app.player.inventory.hotbar
+        if app.renderer.textures_version != synced_textures_ver {
+            gxm.update_textures(&app.renderer.textures);
+            synced_textures_ver = app.renderer.textures_version;
+        }
+        if app.renderer.mesh_cache_version != synced_mesh_ver {
+            gxm.clear_mesh_cache();
+            synced_mesh_ver = app.renderer.mesh_cache_version;
+        }
+
+        if app.uses_live_3d_scene() {
+            let is_menu_backdrop = !matches!(app.state, GameState::Playing);
+            let active_cam = if is_menu_backdrop {
+                &app.camera
+            } else {
+                &app.last_effective_camera
+            };
+            let feet_pos = crate::core::math::Vec3::new(
+                app.camera.position.x,
+                app.camera.position.y - app.current_eye_offset,
+                app.camera.position.z,
+            );
+            let hand_block = app.player.inventory.hotbar
                 [app.player.selected_hotbar_slot as usize]
                 .map(|s| s.block.to_u8());
+            let offhand_block = app.player.inventory.offhand.as_ref().map(|s| s.block.to_u8());
             let hand_speed = (app.horiz_velocity.length() + app.fly_velocity.length()).max(0.0);
 
             let block_at_camera = app.world.get_block(app.camera.position.floor_to_ivec());
@@ -144,37 +144,47 @@ pub fn run_vita_app() {
                 && app.player.health <= 2.0
                 && app.player.health > 0.0;
 
-            let tri_count = gxm.render_frame(
-                &app.camera,
-                &mut app.world,
-                Some(app.renderer.pixel_buffer()),
-                app.break_target,
-                app.break_progress,
-                &app.items,
-                &app.mob_manager.mobs,
+            let frame_params = crate::platform::vita_gxm::GxmFrameParams {
+                camera: active_cam,
+                player_feet_pos: feet_pos,
+                player_yaw: app.camera.yaw,
+                player_pitch: app.camera.pitch,
+                player_crouching: app.crouch_toggled,
+                player_armor: &app.player.inventory.armor,
+                camera_perspective: app.camera_perspective,
+                is_menu_backdrop,
+                hud_pixels: Some(app.renderer.pixel_buffer()),
+                hud_width: app.width,
+                hud_height: app.height,
+                break_target: app.break_target,
+                break_progress: app.break_progress,
+                items: &app.items,
+                mobs: &app.mob_manager.mobs,
+                particles: if app.settings.particles { &app.particles.particles } else { &[] },
+                arrows: &app.arrows,
+                fishing_bobber: app.fishing_bobber.as_ref(),
+                remote_players: app.net_client.as_ref().map(|c| &c.remote_players),
                 hand_block,
-                app.walk_phase,
-                hand_speed,
-                app.hand_animation,
-                app.settings.render_distance,
-                app.settings.fog,
-                app.settings.clouds,
-                app.settings.chunk_anim,
-                app.total_time,
-                if app.settings.particles {
-                    &app.particles.particles
-                } else {
-                    &[]
-                },
-                if app.settings.damage_tilt {
-                    app.damage_tilt_timer
-                } else {
-                    0.0
-                },
+                offhand_block,
+                is_blocking: app.player.is_blocking,
+                walk_phase: app.walk_phase,
+                speed: hand_speed,
+                attack_animation: app.hand_animation,
+                render_distance: app.settings.render_distance,
+                fog_enabled: app.settings.fog,
+                clouds_enabled: app.settings.clouds,
+                chunk_anim: app.settings.chunk_anim,
+                brightness: app.settings.brightness,
+                total_time: app.total_time,
+                biome_tint: app.biome_filter_tint,
+                damage_tilt_timer: app.damage_tilt_timer,
                 is_underwater,
                 is_in_lava,
+                is_burning: app.player.fire_timer > 0.0,
                 low_health,
-            );
+            };
+
+            let tri_count = gxm.render_frame(&mut app.world, &frame_params);
             app.gpu_triangles = tri_count;
             let (slots_used, max_slots, cdram, ram) = gxm.get_perf_stats();
             app.chunk_slots_info = (slots_used, max_slots);
@@ -188,6 +198,31 @@ pub fn run_vita_app() {
             app.renderer.last_triangles_culled = tris_culled;
             app.renderer.last_subchunks_rendered = subchunks_rendered;
             app.renderer.last_subchunks_culled = subchunks_culled;
+
+            let need_shot = app
+                .profiler_server
+                .as_ref()
+                .is_some_and(|s| s.is_screenshot_requested());
+            let mut need_thumb = false;
+            if !is_menu_backdrop {
+                app.thumbnail_timer += dt;
+                if app.thumbnail_timer >= 0.5 {
+                    app.thumbnail_timer = 0.0;
+                    need_thumb = true;
+                }
+            }
+            if (need_thumb || need_shot) && gxm.capture_completed_xrgb(&mut capture_buf, need_shot) {
+                if need_thumb {
+                    app.last_clean_thumbnail = Some(crate::world::storage::capture_thumbnail(
+                        &capture_buf,
+                        app.width,
+                        app.height,
+                    ));
+                }
+                if need_shot {
+                    app.submit_profiler_screenshot(&capture_buf);
+                }
+            }
         } else {
             gxm.present_2d_buffer(app.renderer.pixel_buffer(), app.width, app.height);
         }

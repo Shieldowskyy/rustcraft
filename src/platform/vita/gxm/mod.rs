@@ -11,6 +11,7 @@ mod frustum;
 mod init;
 mod mem;
 mod models;
+mod postfx;
 mod programs;
 mod programs_fx;
 mod render;
@@ -21,5 +22,6 @@ mod textures;
 mod types;
 mod weather;
 
+pub use render::GxmFrameParams;
 pub use renderer::GxmRenderer;
 pub use types::{GxmEntityVertex, GxmPackedVertex, GxmVertex};
