@@ -42,6 +42,7 @@ pub struct RustCraftApp {
     pub renderer: Renderer,
     pub world: World,
     pub camera: Camera,
+    pub last_effective_camera: Camera,
     pub particles: ParticleSystem,
     pub mob_manager: MobManager,
     pub player: Player,

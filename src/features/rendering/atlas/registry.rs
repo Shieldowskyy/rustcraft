@@ -16,6 +16,14 @@ use super::mobs_passive::{chicken_beak, chicken_face, chicken_feathers, chicken_
 use super::mobs_hostile::{player_face, player_hair, player_pants, player_shirt, player_shirt_front, player_shoes, player_skin, reaper_face, reaper_skin, skeleton_body, skeleton_bone, skeleton_face, spider_face, spider_skin, zombie_face, zombie_pants, zombie_shirt, zombie_skin};
 use super::mobs_npcs::{iron_golem_body, iron_golem_head, villager_arms, villager_face, villager_robe, villager_robe_blacksmith, villager_robe_butcher, villager_robe_cleric, villager_robe_librarian, villager_skin};
 
+/// Render pass bucket used by GPU and software renderers for chunk geometry sorting.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum TextureRenderPass {
+    Opaque,
+    Cutout,
+    Transparent,
+}
+
 pub const BUILTIN_TEXTURE_COUNT: usize = 222;
 /// Must satisfy: BUILTIN_TEXTURE_COUNT + CUSTOM_TEXTURE_LAYERS <= 256
 /// (wgpu minimum guaranteed max_texture_array_layers on all Vulkan adapters).
@@ -324,6 +332,36 @@ define_builtin_textures! {
 }
 
 impl TextureId {
+    #[inline(always)]
+    pub const fn render_pass(self) -> TextureRenderPass {
+        match self {
+            Self::Water | Self::Glass => TextureRenderPass::Transparent,
+            Self::Leaves
+            | Self::SnowLeaves
+            | Self::CherryLeaves
+            | Self::AutumnLeaves
+            | Self::LeavesSwamp
+            | Self::LeavesSavanna
+            | Self::Door
+            | Self::DoorTop
+            | Self::Torch
+            | Self::Ladder
+            | Self::RustStoneWire
+            | Self::RustStoneWireLit
+            | Self::Lever
+            | Self::Button
+            | Self::PressurePlate
+            | Self::WheatCrop
+            | Self::CarrotCrop
+            | Self::PotatoCrop
+            | Self::Sapling
+            | Self::Kelp
+            | Self::Seagrass
+            | Self::DriedKelp => TextureRenderPass::Cutout,
+            _ => TextureRenderPass::Opaque,
+        }
+    }
+
     #[inline(always)]
     pub fn is_destroy_stage(self) -> bool {
         matches!(

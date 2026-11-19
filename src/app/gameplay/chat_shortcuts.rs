@@ -170,11 +170,13 @@ impl RustCraftApp {
         }
 
         if !self.chat.is_open && !chat_was_open && self.controls.is_just_pressed(Action::Pause) {
-            self.last_clean_thumbnail = Some(crate::world::storage::capture_thumbnail(
-                self.renderer.pixel_buffer(),
-                self.width,
-                self.height,
-            ));
+            if !crate::platform::capabilities().uses_hardware_gxm {
+                self.last_clean_thumbnail = Some(crate::world::storage::capture_thumbnail(
+                    self.renderer.pixel_buffer(),
+                    self.width,
+                    self.height,
+                ));
+            }
             self.state = GameState::Paused;
             out.request_release_mouse = true;
             self.horiz_velocity = Vec3::zero();

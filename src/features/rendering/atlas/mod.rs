@@ -22,6 +22,6 @@ mod types;
 mod tests;
 
 pub use registry::{
-    TextureAtlas, TextureId, BUILTIN_TEXTURE_COUNT, CUSTOM_TEXTURE_LAYERS,
+    TextureAtlas, TextureId, TextureRenderPass, BUILTIN_TEXTURE_COUNT, CUSTOM_TEXTURE_LAYERS,
 };
-pub use types::{Texture, TEX_SIZE};
+pub use types::{downsample_texels_rgba, texel_to_rgba8, Texture, TEX_SIZE};

@@ -53,6 +53,8 @@ impl Renderer {
             last_subchunks_culled: 0,
             async_mesher: AsyncMesher::new(),
             pending_mesh_keys: HashSet::new(),
+            textures_version: 0,
+            mesh_cache_version: 0,
         }
     }
 
@@ -157,6 +159,7 @@ impl Renderer {
 
     pub fn update_textures(&mut self, fancy_leaves: bool) {
         self.textures = TextureAtlas::generate_with_fancy(fancy_leaves);
+        self.textures_version = self.textures_version.wrapping_add(1);
         self.gpu.update_textures(&self.textures);
     }
 
@@ -167,6 +170,7 @@ impl Renderer {
         self.pending_mesh_keys.clear();
         self.async_mesher.invalidate_pending();
         self.chunk_spawn_times.clear();
+        self.mesh_cache_version = self.mesh_cache_version.wrapping_add(1);
         self.gpu.clear_chunk_buffers();
         crate::log_info!(
             "RENDER",

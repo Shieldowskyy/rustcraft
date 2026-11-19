@@ -80,4 +80,6 @@ pub struct Renderer {
     pub last_subchunks_culled: u32,
     pub async_mesher: AsyncMesher,
     pub pending_mesh_keys: HashSet<(i32, i32)>,
+    pub textures_version: u64,
+    pub mesh_cache_version: u64,
 }

@@ -27,7 +27,8 @@ impl GameSettings {
                 let default_fps_limit = caps.default_fps_limit;
 
                 let render_distance =
-                    i32::from_le_bytes(bytes[4..8].try_into().unwrap_or([6, 0, 0, 0])).clamp(2, 16);
+                    i32::from_le_bytes(bytes[4..8].try_into().unwrap_or([6, 0, 0, 0]))
+                        .clamp(2, caps.max_render_distance);
                 let clouds = bytes[8] != 0;
                 let underwater_fx = bytes.get(9).copied().unwrap_or(1) != 0;
                 let fov_deg = if bytes.len() >= 14 {

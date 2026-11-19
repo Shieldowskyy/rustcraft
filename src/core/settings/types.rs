@@ -19,15 +19,17 @@ pub fn max_ram_mb() -> Option<u64> {
     }
 }
 
-/// Largest render distance (in chunks) that fits the RAM budget.
+/// Largest render distance (in chunks) that fits the RAM and GPU budget.
 pub fn max_render_distance() -> i32 {
-    match max_ram_mb() {
+    let platform_cap = crate::platform::capabilities().max_render_distance;
+    let ram_cap = match max_ram_mb() {
         None => 16,
         Some(mb) => {
             let chunks = mb.saturating_sub(300) as f64;
             (((chunks.sqrt() - 1.0) / 2.0).floor() as i32).clamp(2, 16)
         }
-    }
+    };
+    ram_cap.min(platform_cap).max(2)
 }
 
 /// Delegates OS-specific hard RAM enforcement to `crate::platform::system`.
@@ -205,7 +207,7 @@ impl Default for GameSettings {
         let caps = crate::platform::capabilities();
         Self {
             language: Language::English,
-            render_distance: 6,
+            render_distance: 6.min(caps.max_render_distance),
             fancy_leaves: true,
             leaf_quality: LeafQuality::Fancy,
             fog: true,

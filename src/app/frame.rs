@@ -321,7 +321,26 @@ impl RustCraftApp {
         self.prev_space_down = input.key_space;
     }
 
-    fn handle_profiler_screenshot(&self) {
+    /// Returns true when the current game state renders the live 3D world (Playing or in-game menu overlay).
+    pub fn uses_live_3d_scene(&self) -> bool {
+        self.dev_logo.is_none()
+            && matches!(
+                self.state,
+                GameState::Playing
+                    | GameState::Paused
+                    | GameState::AchievementTree
+                    | GameState::Questbook
+                    | GameState::Inventory
+                    | GameState::Chest { .. }
+                    | GameState::Furnace { .. }
+                    | GameState::VillagerTrade { .. }
+                    | GameState::DeathScreen
+                    | GameState::Settings(super::PreviousMenu::Paused)
+            )
+    }
+
+    /// Encodes and delivers a requested profiler screenshot from an `XRGB` pixel buffer.
+    pub fn submit_profiler_screenshot(&self, xrgb_pixels: &[u32]) {
         let Some(ref server) = self.profiler_server else {
             return;
         };
@@ -329,7 +348,7 @@ impl RustCraftApp {
             return;
         }
         let bmp_bytes = crate::core::profiler_server::encode_bmp(
-            self.renderer.pixel_buffer(),
+            xrgb_pixels,
             self.width,
             self.height,
         );
@@ -379,6 +398,13 @@ impl RustCraftApp {
                 GameMode::Creative => "Creative".to_string(),
             },
         });
+    }
+
+    fn handle_profiler_screenshot(&self) {
+        if crate::platform::capabilities().uses_hardware_gxm && self.uses_live_3d_scene() {
+            return;
+        }
+        self.submit_profiler_screenshot(self.renderer.pixel_buffer());
     }
 
     fn render_post_frame_overlays(&mut self, dt: f32) {

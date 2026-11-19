@@ -5,6 +5,7 @@ use crate::core::math::{Mat4, Vec3};
 use crate::features::meshing::{NUM_SUBCHUNKS, SUBCHUNK_SIZE};
 use crate::features::player::Camera;
 use crate::features::rendering::atlas::TextureId;
+use crate::features::rendering::chunk_spawn_y_offset;
 use crate::features::world::{CHUNK_SIZE_X, CHUNK_SIZE_Z, World};
 use crate::platform::threading;
 
@@ -177,14 +178,7 @@ impl Renderer {
             let mut local_transparent = Vec::with_capacity(64);
 
             let spawn_time = chunk_spawn_times.get(key).copied().unwrap_or(current_time);
-            let elapsed = current_time - spawn_time;
-            let y_offset = if chunk_anim && elapsed >= 0.0 && elapsed < 0.35 {
-                let t = (elapsed / 0.35).clamp(0.0, 1.0);
-                let ease = 1.0 - (1.0 - t).powi(3);
-                (1.0 - ease) * -14.0
-            } else {
-                0.0
-            };
+            let y_offset = chunk_spawn_y_offset(chunk_anim, current_time, spawn_time);
 
             let chunk_vp = if y_offset != 0.0 {
                 view_proj.mul(&Mat4::translation(0.0, y_offset, 0.0))

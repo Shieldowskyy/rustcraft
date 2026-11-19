@@ -186,6 +186,7 @@ impl RustCraftApp {
             height,
             renderer,
             world,
+            last_effective_camera: camera.clone(),
             camera,
             particles: ParticleSystem::new(),
             mob_manager: MobManager::new(),

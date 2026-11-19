@@ -258,10 +258,16 @@ pub fn draw_minimap(
             if is_circle {
                 if dist_sq > rad_sq {
                     let cur = buffer[idx];
-                    let r = (((cur >> 16) & 0xFF) * 140) >> 8;
-                    let g = (((cur >> 8) & 0xFF) * 140) >> 8;
-                    let b = ((cur & 0xFF) * 140) >> 8;
-                    buffer[idx] = (0xFF << 24) | (r << 16) | (g << 8) | b;
+                    if cur == 0 && capabilities().uses_hardware_gxm {
+                        // DLACZEGO: Premultiplied-alpha HUD background uses alpha=(255-140) with RGB=0
+                        // to darken the underlying 3D GXM framebuffer identically to PC.
+                        buffer[idx] = 115 << 24;
+                    } else {
+                        let r = (((cur >> 16) & 0xFF) * 140) >> 8;
+                        let g = (((cur >> 8) & 0xFF) * 140) >> 8;
+                        let b = ((cur & 0xFF) * 140) >> 8;
+                        buffer[idx] = (0xFF << 24) | (r << 16) | (g << 8) | b;
+                    }
                     continue;
                 } else if dist_sq >= inner_rad_sq {
                     buffer[idx] = 0xFF2A2A38;

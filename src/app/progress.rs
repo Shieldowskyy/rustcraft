@@ -12,11 +12,11 @@ use super::{AppOutput, InputState, RustCraftApp};
 
 impl RustCraftApp {
     pub(crate) fn render_menu_world_backdrop(&mut self) {
-        if !crate::platform::capabilities().is_vita {
+        if !crate::platform::capabilities().uses_hardware_gxm {
             self.renderer.render_frame(&mut self.world, &self.camera);
             self.renderer.apply_biome_color_filter(self.biome_filter_tint);
         } else {
-            self.renderer.color_buffer.fill(0x0C0C10);
+            self.renderer.color_buffer.fill(0);
         }
     }
 

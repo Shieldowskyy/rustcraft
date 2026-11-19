@@ -6,38 +6,9 @@ use bytemuck::Zeroable;
 use rayon::prelude::*;
 
 use crate::features::meshing::{Triangle, Vertex};
-use crate::features::rendering::atlas::TextureId;
+use crate::features::rendering::atlas::TextureRenderPass;
 
 use super::types::{GpuChunk, GpuVertex, VulkanContext};
-
-#[inline]
-fn is_cutout_texture(texture: TextureId) -> bool {
-    matches!(
-        texture,
-        TextureId::Leaves
-            | TextureId::SnowLeaves
-            | TextureId::CherryLeaves
-            | TextureId::AutumnLeaves
-            | TextureId::LeavesSwamp
-            | TextureId::LeavesSavanna
-            | TextureId::Door
-            | TextureId::DoorTop
-            | TextureId::Torch
-            | TextureId::Ladder
-            | TextureId::RustStoneWire
-            | TextureId::RustStoneWireLit
-            | TextureId::Lever
-            | TextureId::Button
-            | TextureId::PressurePlate
-            | TextureId::WheatCrop
-            | TextureId::CarrotCrop
-            | TextureId::PotatoCrop
-            | TextureId::Sapling
-            | TextureId::Kelp
-            | TextureId::Seagrass
-            | TextureId::DriedKelp
-    )
-}
 
 #[inline]
 fn pack_gpu_vertex(v: &Vertex, texture_layer: u32) -> GpuVertex {
@@ -96,13 +67,10 @@ impl VulkanContext {
 
                     for triangle in triangles {
                         let layer = Self::texture_layer(triangle.texture);
-                        let is_trans = matches!(triangle.texture, TextureId::Water | TextureId::Glass);
-                        let dest = if is_trans {
-                            &mut trans
-                        } else if is_cutout_texture(triangle.texture) {
-                            &mut cutout
-                        } else {
-                            &mut opaque
+                        let dest = match triangle.texture.render_pass() {
+                            TextureRenderPass::Transparent => &mut trans,
+                            TextureRenderPass::Cutout => &mut cutout,
+                            TextureRenderPass::Opaque => &mut opaque,
                         };
 
                         dest.push(pack_gpu_vertex(&triangle.v0, layer));

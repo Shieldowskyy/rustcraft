@@ -4,6 +4,7 @@
 use crate::core::math::Mat4;
 use crate::features::meshing::Triangle;
 use crate::features::rendering::atlas::{Texture, TextureAtlas, TextureId};
+use crate::features::rendering::compute_entity_light_rgb;
 
 use super::clip::{
     clip_near_ao, edge, orient_screen_triangle, pack_color, project_to_screen_ao, to_clip_ao,
@@ -400,20 +401,7 @@ fn shade_and_write_pixel(
     let block =
         (l0 * a.block_light_over_w + l1 * b.block_light_over_w + l2 * c.block_light_over_w) * depth;
 
-    let sky_lit = sky * daylight;
-    let natural_r = 1.14 * sky_lit;
-    let natural_g = 1.12 * sky_lit;
-    let natural_b = 1.10 * sky_lit;
-
-    let torch_r = 1.30 * block;
-    let torch_g = 0.88 * block;
-    let torch_b = 0.42 * block;
-
-    let ambient_boost = brightness * 0.16;
-    let bright_scale = 1.0 + brightness * 0.22;
-    let lr = (((natural_r + torch_r + 0.045 + ambient_boost) * ao) * bright_scale).clamp(0.04, 1.45);
-    let lg = (((natural_g + torch_g + 0.045 + ambient_boost) * ao) * bright_scale).clamp(0.04, 1.45);
-    let lb = (((natural_b + torch_b + 0.055 + ambient_boost) * ao) * bright_scale).clamp(0.04, 1.45);
+    let [lr, lg, lb] = compute_entity_light_rgb(ao, sky, block, daylight, brightness);
 
     let mut r = texel[0] * lr;
     let mut g = texel[1] * lg;

@@ -77,3 +77,28 @@ where
         emit(p101, p100, p110, p111, 0.78);
     }
 }
+
+/// Computes the time-of-day and weather-modulated base RGB color for 3D clouds.
+#[inline]
+pub fn compute_cloud_color(
+    daylight: f32,
+    fog_col: [f32; 3],
+    rain_strength: f32,
+    thunder_strength: f32,
+) -> [f32; 3] {
+    let dl = daylight.clamp(0.0, 1.0);
+    let day_cloud = [0.94, 0.95, 0.98];
+    let night_cloud = [0.07, 0.09, 0.16];
+    let storm_factor = (rain_strength * 0.50 + thunder_strength * 0.40).clamp(0.0, 0.85);
+    let storm_cloud = [0.15, 0.17, 0.22];
+    [
+        (night_cloud[0] + (day_cloud[0] - night_cloud[0]) * dl + (fog_col[0] - 0.72).max(0.0) * 0.35)
+            * (1.0 - storm_factor)
+            + storm_cloud[0] * storm_factor,
+        (night_cloud[1] + (day_cloud[1] - night_cloud[1]) * dl + (fog_col[1] - 0.84).max(0.0) * 0.35)
+            * (1.0 - storm_factor)
+            + storm_cloud[1] * storm_factor,
+        (night_cloud[2] + (day_cloud[2] - night_cloud[2]) * dl) * (1.0 - storm_factor)
+            + storm_cloud[2] * storm_factor,
+    ]
+}

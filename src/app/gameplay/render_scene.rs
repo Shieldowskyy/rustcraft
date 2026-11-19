@@ -60,10 +60,23 @@ impl RustCraftApp {
         };
         effective_camera.position += shake_offset;
         effective_camera.roll += roll;
+        self.last_effective_camera = effective_camera.clone();
 
         // DLACZEGO: Na PS Vita 3D renderuje bezposrednio backend libgxm; color_buffer sluzy wylacznie jako warstwa HUD (alpha=0).
         if capabilities().uses_hardware_gxm {
             self.renderer.color_buffer.fill(0);
+            if let Some(client) = &self.net_client {
+                let view_proj = self.proj_matrix.mul(&effective_camera.view_matrix());
+                for rp in client.remote_players.values() {
+                    let feet_pos = Vec3::new(
+                        rp.pos.x,
+                        rp.pos.y - crate::features::physics::STANDING_EYE_OFFSET,
+                        rp.pos.z,
+                    );
+                    self.renderer
+                        .draw_floating_nametag(feet_pos, &rp.nickname, &view_proj);
+                }
+            }
             return effective_camera;
         }
 

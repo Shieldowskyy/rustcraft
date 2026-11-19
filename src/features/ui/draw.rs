@@ -104,7 +104,7 @@ pub fn fill_rect_alpha(
             let dst_rb = ((bg & 0x00FF00FF) * inv_a) & 0xFF00FF00;
             let dst_g = ((bg & 0x0000FF00) * inv_a) & 0x00FF0000;
             let rgb = (src_rb.wrapping_add(dst_rb) | src_g.wrapping_add(dst_g)) >> 8;
-            let out_a = (bg_a + a_byte).min(255);
+            let out_a = (a_byte + ((bg_a * inv_a) >> 8)).min(255);
             *pixel = (out_a << 24) | rgb;
         }
         row_start += buf_w;

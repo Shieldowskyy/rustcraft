@@ -25,40 +25,6 @@ impl Renderer {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[inline]
-    pub(super) fn draw_uniform_oriented_box(
-        &mut self,
-        origin: Vec3,
-        center: Vec3,
-        size: Vec3,
-        forward: Vec3,
-        right: Vec3,
-        up: Vec3,
-        tex: TextureId,
-        hurt_tint: f32,
-        camera_pos: Vec3,
-        view_proj: &Mat4,
-    ) {
-        self.draw_oriented_box(
-            origin,
-            center,
-            size,
-            forward,
-            right,
-            up,
-            tex,
-            tex,
-            tex,
-            tex,
-            tex,
-            tex,
-            hurt_tint,
-            camera_pos,
-            view_proj,
-        );
-    }
-
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn draw_oriented_box(
         &mut self,
         origin: Vec3,

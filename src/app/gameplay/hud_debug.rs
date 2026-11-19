@@ -118,14 +118,16 @@ impl RustCraftApp {
             self.renderer.draw_capture_prompt(true);
         }
 
-        self.thumbnail_timer += dt;
-        if self.thumbnail_timer >= 0.5 {
-            self.thumbnail_timer = 0.0;
-            self.last_clean_thumbnail = Some(crate::world::storage::capture_thumbnail(
-                self.renderer.pixel_buffer(),
-                self.width,
-                self.height,
-            ));
+        if !caps.uses_hardware_gxm {
+            self.thumbnail_timer += dt;
+            if self.thumbnail_timer >= 0.5 {
+                self.thumbnail_timer = 0.0;
+                self.last_clean_thumbnail = Some(crate::world::storage::capture_thumbnail(
+                    self.renderer.pixel_buffer(),
+                    self.width,
+                    self.height,
+                ));
+            }
         }
     }
 

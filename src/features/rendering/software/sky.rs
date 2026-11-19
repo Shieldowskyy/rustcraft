@@ -6,7 +6,7 @@ use crate::features::meshing::Vertex;
 use crate::features::player::Camera;
 use crate::features::rendering::clouds::{
     CLOUD_CELL_SIZE, CLOUD_MAX_VERTICAL_DISTANCE, CLOUD_SCROLL_SPEED, CLOUD_THICKNESS, CLOUD_Y,
-    cloud_origin_cell, emit_cloud_faces, is_cloud_cell,
+    cloud_origin_cell, compute_cloud_color, emit_cloud_faces, is_cloud_cell,
 };
 
 use super::clip::{
@@ -135,34 +135,13 @@ impl Renderer {
                                             let depth = 1.0 / inv_w;
                                             let idx = row_offset + px as usize;
                                             if depth < renderer.depth_buffer[idx] {
-                                                let daylight =
-                                                    renderer.current_daylight.clamp(0.0, 1.0);
                                                 let fog_col = renderer.current_fog_color;
-                                                let day_cloud = [0.94, 0.95, 0.98];
-                                                let night_cloud = [0.07, 0.09, 0.16];
-                                                let storm_factor = (rain_strength * 0.50
-                                                    + thunder_strength * 0.40)
-                                                    .clamp(0.0, 0.85);
-                                                let storm_cloud = [0.15, 0.17, 0.22];
-                                                let cloud_base = [
-                                                    (night_cloud[0]
-                                                        + (day_cloud[0] - night_cloud[0])
-                                                            * daylight
-                                                        + (fog_col[0] - 0.72).max(0.0) * 0.35)
-                                                        * (1.0 - storm_factor)
-                                                        + storm_cloud[0] * storm_factor,
-                                                    (night_cloud[1]
-                                                        + (day_cloud[1] - night_cloud[1])
-                                                            * daylight
-                                                        + (fog_col[1] - 0.84).max(0.0) * 0.35)
-                                                        * (1.0 - storm_factor)
-                                                        + storm_cloud[1] * storm_factor,
-                                                    (night_cloud[2]
-                                                        + (day_cloud[2] - night_cloud[2])
-                                                            * daylight)
-                                                        * (1.0 - storm_factor)
-                                                        + storm_cloud[2] * storm_factor,
-                                                ];
+                                                let cloud_base = compute_cloud_color(
+                                                    renderer.current_daylight,
+                                                    fog_col,
+                                                    rain_strength,
+                                                    thunder_strength,
+                                                );
 
                                                 let ao = (l0 * sa.ao_over_w
                                                     + l1 * sb.ao_over_w

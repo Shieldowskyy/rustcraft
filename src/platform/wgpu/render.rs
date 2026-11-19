@@ -4,28 +4,19 @@ use std::collections::{HashMap, HashSet};
 
 use crate::core::math::{Mat4, Vec3};
 use crate::features::meshing::Triangle;
+use crate::features::rendering::chunk_spawn_y_offset;
 
 use super::types::{Globals, VulkanContext};
 
 #[inline]
-fn chunk_spawn_y_offset(
+fn chunk_y_offset(
     chunk_anim: bool,
     total_time: f32,
     spawn_times: &HashMap<(i32, i32), f32>,
     key: &(i32, i32),
 ) -> f32 {
-    if !chunk_anim {
-        return 0.0;
-    }
     let spawn_time = spawn_times.get(key).copied().unwrap_or(total_time);
-    let elapsed = total_time - spawn_time;
-    if elapsed >= 0.0 && elapsed < 0.35 {
-        let t = (elapsed / 0.35).clamp(0.0, 1.0);
-        let ease = 1.0 - (1.0 - t).powi(3);
-        (1.0 - ease) * -14.0
-    } else {
-        0.0
-    }
+    chunk_spawn_y_offset(chunk_anim, total_time, spawn_time)
 }
 
 impl VulkanContext {
@@ -193,7 +184,7 @@ impl VulkanContext {
         let mut cutout_draws = Vec::with_capacity(culled_visible_keys.len());
         for key in &culled_visible_keys {
             if let Some(chunk) = self.chunk_buffers.get(key) {
-                let y_offset = chunk_spawn_y_offset(chunk_anim, total_time, chunk_spawn_times, key);
+                let y_offset = chunk_y_offset(chunk_anim, total_time, chunk_spawn_times, key);
                 if chunk.opaque_count > 0 {
                     opaque_draws.push((chunk, y_offset));
                 }
@@ -214,7 +205,7 @@ impl VulkanContext {
         for key in &trans_visible_keys {
             if let Some(chunk) = self.chunk_buffers.get(key) {
                 if chunk.transparent_count > 0 {
-                    let y_offset = chunk_spawn_y_offset(chunk_anim, total_time, chunk_spawn_times, key);
+                    let y_offset = chunk_y_offset(chunk_anim, total_time, chunk_spawn_times, key);
                     trans_draws.push((chunk, y_offset));
                 }
             }
