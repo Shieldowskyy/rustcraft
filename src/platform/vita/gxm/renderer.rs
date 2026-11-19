@@ -10,7 +10,8 @@ use crate::world::mesher::{AsyncMesher, Triangle};
 
 use super::ffi::*;
 use super::mem::{DisplayData, GpuMem};
-use super::types::{ChunkSlotRanges, GxmVertex};
+use super::programs::LinkedGxmShaders;
+use super::types::{ChunkSlotRanges, GxmEntityVertex, GxmVertex};
 
 pub struct GxmRenderer {
     pub(super) context: *mut SceGxmContext,
@@ -28,6 +29,7 @@ pub struct GxmRenderer {
     pub(super) display_data: [DisplayData; DISPLAY_BUFFER_COUNT],
     pub(super) front_buf: usize,
     pub(super) back_buf: usize,
+    pub(super) last_was_3d: bool,
 
     pub(super) _depth_mem: GpuMem,
     pub(super) depth_surface: SceGxmDepthStencilSurface,
@@ -36,34 +38,22 @@ pub struct GxmRenderer {
     pub(super) _patcher_buf_mem: GpuMem,
     pub(super) _patcher_vert_usse: GpuMem,
     pub(super) _patcher_frag_usse: GpuMem,
+    pub(super) shaders: LinkedGxmShaders,
 
-    pub(super) _aligned_voxel_vert_gxp: Vec<u64>,
-    pub(super) _aligned_voxel_frag_gxp: Vec<u64>,
-    pub(super) vert_prog_id: SceGxmShaderPatcherId,
-    pub(super) frag_prog_id: SceGxmShaderPatcherId,
-    pub(super) clear_vert_id: SceGxmShaderPatcherId,
-    pub(super) clear_frag_id: SceGxmShaderPatcherId,
-
-    pub(super) vert_prog: *mut SceGxmVertexProgram,
-    pub(super) frag_prog_opaque: *mut SceGxmFragmentProgram,
-    pub(super) frag_prog_trans: *mut SceGxmFragmentProgram,
-    pub(super) param_mvp: *const SceGxmProgramParameter,
-    pub(super) param_fog: *const SceGxmProgramParameter,
-    pub(super) param_fog_color: *const SceGxmProgramParameter,
-
-    pub(super) clear_vert_prog: *mut SceGxmVertexProgram,
-    pub(super) clear_frag_prog: *mut SceGxmFragmentProgram,
-    pub(super) param_clear_color: *const SceGxmProgramParameter,
     pub(super) clear_vb_mem: GpuMem,
     pub(super) clear_ib_mem: GpuMem,
 
     pub(super) _atlas_mem: GpuMem,
     pub(super) atlas_tex: SceGxmTexture,
+    pub(super) hud_bufs: [GpuMem; DISPLAY_BUFFER_COUNT],
+    pub(super) hud_texs: [SceGxmTexture; DISPLAY_BUFFER_COUNT],
 
     pub(super) vb_mem: GpuMem,
     pub(super) ib_mem: GpuMem,
+    pub(super) entity_vb_mem: GpuMem,
+    pub(super) entity_ib_mem: GpuMem,
 
-    // Cached CPU staging buffers for burst-copying meshes into uncached GPU memory
+    // Cached CPU staging buffers for burst-copying chunk meshes into GPU memory
     pub(super) scratch_vb: Vec<GxmVertex>,
     pub(super) scratch_opaque_ib: Vec<u16>,
     pub(super) scratch_cutout_ib: Vec<u16>,
@@ -75,19 +65,13 @@ pub struct GxmRenderer {
     pub(super) pending_meshes: HashSet<(i32, i32)>,
     pub(super) completed_meshes: Vec<((i32, i32), Vec<Triangle>)>,
 
-    pub(super) crack_vb_mem: GpuMem,
-    pub(super) crack_ib_mem: GpuMem,
-
-    pub(super) entity_vb_mem: GpuMem,
-    pub(super) entity_ib_mem: GpuMem,
-
     pub(super) chunk_slots: HashMap<(i32, i32), usize>,
     pub chunk_spawn_times: HashMap<(i32, i32), f32>,
     pub(super) free_slots: Vec<usize>,
+    pub(super) evicted_slots_ring: [Vec<usize>; DISPLAY_BUFFER_COUNT],
     pub(super) slot_ranges: [ChunkSlotRanges; GxmRenderer::MAX_CHUNK_SLOTS],
     pub(super) freed_slots_scratch: Vec<usize>,
     pub(super) chunk_coords_scratch: Vec<(i32, i32)>,
-    pub(super) last_daylight_bucket: i32,
 
     pub last_draw_calls: u32,
     pub last_triangles_rendered: u32,
@@ -100,8 +84,8 @@ unsafe impl Send for GxmRenderer {}
 unsafe impl Sync for GxmRenderer {}
 
 impl GxmRenderer {
-    // DLACZEGO: Chunk pool sizes fit alongside the 180 MB Newlib heap inside PS Vita's 256 MB RAM
-    // (~18 MB VB + ~2.25 MB IB in uncached kernel memory).
+    // DLACZEGO: Chunk pool sizes are kept strict to fit alongside triple-buffered display, HUD,
+    // and dynamic entity buffers within PS Vita's 112 MB CDRAM (~47 MB used total).
     pub const MAX_CHUNK_SLOTS: usize = 64;
     pub const MAX_VERTS_PER_SLOT: usize = 18432;
     pub const MAX_INDICES_PER_SLOT: usize = 27648;
@@ -109,11 +93,13 @@ impl GxmRenderer {
         Self::MAX_VERTS_PER_SLOT / 3 == crate::features::meshing::constants::VITA_MAX_MESH_TRIANGLES
     );
 
-    pub const MAX_ENTITY_VERTS: usize = 8192;
-    pub const MAX_ENTITY_INDICES: usize = 12288;
+    pub const MAX_ENTITY_VERTS: usize = 12288;
+    pub const MAX_ENTITY_INDICES: usize = 18432;
 
     pub(super) const VB_SIZE: usize = Self::MAX_CHUNK_SLOTS * Self::MAX_VERTS_PER_SLOT * core::mem::size_of::<GxmVertex>();
     pub(super) const IB_SIZE: usize = Self::MAX_CHUNK_SLOTS * Self::MAX_INDICES_PER_SLOT * core::mem::size_of::<u16>();
+    pub(super) const ENTITY_VB_SIZE: usize = DISPLAY_BUFFER_COUNT * Self::MAX_ENTITY_VERTS * core::mem::size_of::<GxmEntityVertex>();
+    pub(super) const ENTITY_IB_SIZE: usize = DISPLAY_BUFFER_COUNT * Self::MAX_ENTITY_INDICES * core::mem::size_of::<u16>();
 
     pub fn new(atlas: &TextureAtlas) -> Self {
         unsafe { Self::init_unsafe(atlas) }

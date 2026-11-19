@@ -5,11 +5,13 @@
 
 mod entities;
 mod ffi;
+mod ffi_defs;
 mod frustum;
 mod init;
 mod mem;
 mod models;
 mod programs;
+mod programs_fx;
 mod render;
 mod render_dynamic;
 mod render_world;
@@ -18,4 +20,4 @@ mod textures;
 mod types;
 
 pub use renderer::GxmRenderer;
-pub use types::{GxmPackedVertex, GxmVertex};
+pub use types::{GxmEntityVertex, GxmPackedVertex, GxmVertex};

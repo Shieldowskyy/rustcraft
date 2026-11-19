@@ -7,7 +7,6 @@ use std::process::Command;
 
 const VITA_SHADERS: &[(&str, &str, &str)] = &[
     ("voxel.vert.cg", "voxel.vert.gxp", "sce_vp_psp2"),
-    ("voxel.frag.cg", "voxel.frag.gxp", "sce_fp_psp2"),
     ("voxel_opaque.frag.cg", "voxel_opaque.frag.gxp", "sce_fp_psp2"),
     ("voxel_cutout.frag.cg", "voxel_cutout.frag.gxp", "sce_fp_psp2"),
     ("voxel_trans.frag.cg", "voxel_trans.frag.gxp", "sce_fp_psp2"),

@@ -11,7 +11,8 @@ use crate::world::World;
 use super::ffi::*;
 use super::renderer::GxmRenderer;
 use super::textures::atlas_uv;
-use super::types::{classify_texture_pass, ChunkSlotRanges, FrameRenderStats, GxmVertex};
+use super::types::{ChunkSlotRanges, FrameRenderStats, GxmVertex};
+use crate::features::rendering::atlas::TextureRenderPass;
 
 impl GxmRenderer {
     #[allow(clippy::too_many_arguments)]
@@ -194,11 +195,11 @@ impl GxmRenderer {
             let chunk_count = self.chunk_coords_scratch.len();
             for pass_kind in 0..3u8 {
                 if pass_kind == 2 {
-                    sceGxmSetFragmentProgram(self.context, self.frag_prog_trans);
+                    sceGxmSetFragmentProgram(self.context, self.shaders.frag_prog_trans);
                     sceGxmSetFrontDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_DISABLED);
                     sceGxmSetBackDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_DISABLED);
                 } else if pass_kind == 0 {
-                    sceGxmSetFragmentProgram(self.context, self.frag_prog_opaque);
+                    sceGxmSetFragmentProgram(self.context, self.shaders.frag_prog_opaque);
                     sceGxmSetFrontDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
                     sceGxmSetBackDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
                 }
@@ -257,13 +258,8 @@ impl GxmRenderer {
                             };
                             let mut chunk_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
                             sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut chunk_uniform_buf);
-                            if !self.param_mvp.is_null() && !chunk_uniform_buf.is_null() {
-                                sceGxmSetUniformDataF(chunk_uniform_buf, self.param_mvp, 0, 16, target_mvp.m.as_ptr());
-                            }
-                            if !self.param_fog.is_null() && !chunk_uniform_buf.is_null() {
-                                let max_fog = if fog_enabled { (render_distance as f32 * 16.0).max(32.0) } else { -1.0 };
-                                let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
-                                sceGxmSetUniformDataF(chunk_uniform_buf, self.param_fog, 0, 4, fog_data.as_ptr());
+                            if !self.shaders.param_voxel_mvp.is_null() && !chunk_uniform_buf.is_null() {
+                                sceGxmSetUniformDataF(chunk_uniform_buf, self.shaders.param_voxel_mvp, 0, 16, target_mvp.m.as_ptr());
                             }
                             last_had_offset = y_offset != 0.0;
                         }
@@ -293,13 +289,8 @@ impl GxmRenderer {
                 if last_had_offset {
                     let mut chunk_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
                     sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut chunk_uniform_buf);
-                    if !self.param_mvp.is_null() && !chunk_uniform_buf.is_null() {
-                        sceGxmSetUniformDataF(chunk_uniform_buf, self.param_mvp, 0, 16, mvp.m.as_ptr());
-                    }
-                    if !self.param_fog.is_null() && !chunk_uniform_buf.is_null() {
-                        let max_fog = if fog_enabled { (render_distance as f32 * 16.0).max(32.0) } else { -1.0 };
-                        let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
-                        sceGxmSetUniformDataF(chunk_uniform_buf, self.param_fog, 0, 4, fog_data.as_ptr());
+                    if !self.shaders.param_voxel_mvp.is_null() && !chunk_uniform_buf.is_null() {
+                        sceGxmSetUniformDataF(chunk_uniform_buf, self.shaders.param_voxel_mvp, 0, 16, mvp.m.as_ptr());
                     }
                 }
             }
@@ -325,6 +316,7 @@ impl GxmRenderer {
         scratch_cutout_ib.clear();
         scratch_trans_ib.clear();
 
+        let _ = daylight;
         for tri in tris {
             let total_idx = scratch_opaque_ib.len() + scratch_cutout_ib.len() + scratch_trans_ib.len();
             if scratch_vb.len() + 3 > max_verts || total_idx + 3 > max_idx {
@@ -332,14 +324,14 @@ impl GxmRenderer {
             }
             let (u0, v0, u1, v1) = atlas_uv(tri.texture);
             let base = scratch_vb.len() as u16;
-            scratch_vb.push(GxmVertex::from_vertex(&tri.v0, u0, v0, u1, v1, daylight));
-            scratch_vb.push(GxmVertex::from_vertex(&tri.v1, u0, v0, u1, v1, daylight));
-            scratch_vb.push(GxmVertex::from_vertex(&tri.v2, u0, v0, u1, v1, daylight));
+            scratch_vb.push(GxmVertex::from_vertex(&tri.v0, u0, v0, u1, v1));
+            scratch_vb.push(GxmVertex::from_vertex(&tri.v1, u0, v0, u1, v1));
+            scratch_vb.push(GxmVertex::from_vertex(&tri.v2, u0, v0, u1, v1));
 
-            let target_ib = match classify_texture_pass(tri.texture) {
-                2 => &mut *scratch_trans_ib,
-                1 => &mut *scratch_cutout_ib,
-                _ => &mut *scratch_opaque_ib,
+            let target_ib = match tri.texture.render_pass() {
+                TextureRenderPass::Transparent => &mut *scratch_trans_ib,
+                TextureRenderPass::Cutout => &mut *scratch_cutout_ib,
+                TextureRenderPass::Opaque => &mut *scratch_opaque_ib,
             };
             target_ib.push(base);
             target_ib.push(base + 1);

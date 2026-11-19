@@ -47,66 +47,12 @@ impl GxmRenderer {
         is_occluded: bool,
         stats: &mut FrameRenderStats,
     ) {
-            // Restore depth write and alpha-blended fragment program for cracks, entities & overlays
-            sceGxmSetFragmentProgram(self.context, self.frag_prog_trans);
+            // Restore depth write and alpha-blended fragment program for entities & overlays
+            sceGxmSetFragmentProgram(self.context, self.shaders.frag_prog_trans);
             sceGxmSetFrontDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
             sceGxmSetBackDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
 
-            // 2b. Draw block destruction cracks animation (3D block break cracks)
-            if let Some(target) = break_target {
-                if break_progress > 0.0 {
-                    let stage = ((break_progress * 10.0).floor() as usize).min(9);
-                    let crack_tex = TextureId::destroy_stage(stage);
-                    let (u0, v0, u1, v1) = atlas_uv(crack_tex);
-
-                    let eps = 0.004f32;
-                    let x0 = target.x as f32 - eps;
-                    let x1 = target.x as f32 + 1.0 + eps;
-                    let y0 = target.y as f32 - eps;
-                    let y1 = target.y as f32 + 1.0 + eps;
-                    let z0 = target.z as f32 - eps;
-                    let z1 = target.z as f32 + 1.0 + eps;
-
-                    let crack_vb = self.crack_vb_mem.ptr as *mut GxmVertex;
-                    let faces = [
-                        // Top (+Y)
-                        ([x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]),
-                        // Bottom (-Y)
-                        ([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]),
-                        // Front (+Z)
-                        ([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]),
-                        // Back (-Z)
-                        ([x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]),
-                        // Left (-X)
-                        ([x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]),
-                        // Right (+X)
-                        ([x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]),
-                    ];
-
-                    for (fi, &(c0, c1, c2, c3)) in faces.iter().enumerate() {
-                        let base = fi * 4;
-                        *crack_vb.add(base)     = GxmVertex { x: c0[0], y: c0[1], z: c0[2], u: u0, v: v1, ao: 1.0 };
-                        *crack_vb.add(base + 1) = GxmVertex { x: c1[0], y: c1[1], z: c1[2], u: u1, v: v1, ao: 1.0 };
-                        *crack_vb.add(base + 2) = GxmVertex { x: c2[0], y: c2[1], z: c2[2], u: u1, v: v0, ao: 1.0 };
-                        *crack_vb.add(base + 3) = GxmVertex { x: c3[0], y: c3[1], z: c3[2], u: u0, v: v0, ao: 1.0 };
-                    }
-
-                    sceGxmSetVertexStream(self.context, 0, self.crack_vb_mem.ptr);
-                    let crack_draw_rc = sceGxmDraw(
-                        self.context,
-                        SCE_GXM_PRIMITIVE_TRIANGLES,
-                        SCE_GXM_INDEX_FORMAT_U16,
-                        self.crack_ib_mem.ptr,
-                        36,
-                    );
-                    if crack_draw_rc == SCE_OK {
-                        stats.draw_calls += 1;
-                        stats.tri_count += 12;
-                    } else {
-                        crate::vita_log!("sceGxmDraw(cracks) failed: 0x{:08X}", crack_draw_rc);
-                    }
-                }
-            }
+            let _ = (break_target, break_progress, atlas_uv);
 
             // 2c. Draw dynamic objects (celestial bodies, clouds, particles, dropped items, mobs, TNT, 3D hand, full-screen overlays)
             sceGxmSetTwoSidedEnable(self.context, SCE_GXM_TWO_SIDED_ENABLED);

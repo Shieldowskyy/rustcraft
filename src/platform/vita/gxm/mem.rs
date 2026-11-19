@@ -20,6 +20,7 @@ pub(super) struct GpuMem {
     pub uid: SceUID,
     pub ptr: *mut core::ffi::c_void,
     pub size: usize,
+    pub is_cdram: bool,
     kind: MemKind,
 }
 
@@ -39,12 +40,14 @@ impl GpuMem {
         kind: MemKind,
         map: impl FnOnce(*mut core::ffi::c_void, u32) -> i32,
     ) -> Option<Self> {
+        let mut is_cdram = mem_type == SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW;
         let mut aligned = Self::align_size(mem_type, size);
         let mut uid = unsafe {
             sceKernelAllocMemBlock(name.as_ptr(), mem_type, aligned as u32, core::ptr::null())
         };
 
-        if uid < 0 && mem_type == SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW {
+        if uid < 0 && is_cdram {
+            is_cdram = false;
             aligned = Self::align_size(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, size);
             uid = unsafe {
                 sceKernelAllocMemBlock(name.as_ptr(), SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, aligned as u32, core::ptr::null())
@@ -66,7 +69,17 @@ impl GpuMem {
             return None;
         }
 
-        Some(Self { uid, ptr, size: aligned, kind })
+        Some(Self { uid, ptr, size: aligned, is_cdram, kind })
+    }
+
+    #[inline(always)]
+    pub fn cdram_bytes(&self) -> usize {
+        if self.is_cdram { self.size } else { 0 }
+    }
+
+    #[inline(always)]
+    pub fn ram_bytes(&self) -> usize {
+        if self.is_cdram { 0 } else { self.size }
     }
 
     pub fn alloc_gpu(name: &[u8], size: usize, mem_type: u32, attribs: u32) -> Option<Self> {

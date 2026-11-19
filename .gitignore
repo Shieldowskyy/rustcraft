@@ -15,6 +15,7 @@ dist/
 *.bin
 *.psp2dmp
 *.gxp
+!vita/shaders/prebuilt/*.gxp
 *.vpk
 *.apk
 *.idsig

@@ -31,11 +31,13 @@ pub(super) fn append_quad(
     }
     let (u0, v0, u1, v1) = atlas_uv(texture);
     let base = *v_count as u16;
+    let l_byte = (ao.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let light = [l_byte, 255, 0, 255];
     unsafe {
-        *vb.add(*v_count)     = GxmVertex { x: c0.x, y: c0.y, z: c0.z, u: u0, v: v1, ao };
-        *vb.add(*v_count + 1) = GxmVertex { x: c1.x, y: c1.y, z: c1.z, u: u1, v: v1, ao };
-        *vb.add(*v_count + 2) = GxmVertex { x: c2.x, y: c2.y, z: c2.z, u: u1, v: v0, ao };
-        *vb.add(*v_count + 3) = GxmVertex { x: c3.x, y: c3.y, z: c3.z, u: u0, v: v0, ao };
+        *vb.add(*v_count)     = GxmVertex { x: c0.x, y: c0.y, z: c0.z, u: u0, v: v1, light };
+        *vb.add(*v_count + 1) = GxmVertex { x: c1.x, y: c1.y, z: c1.z, u: u1, v: v1, light };
+        *vb.add(*v_count + 2) = GxmVertex { x: c2.x, y: c2.y, z: c2.z, u: u1, v: v0, light };
+        *vb.add(*v_count + 3) = GxmVertex { x: c3.x, y: c3.y, z: c3.z, u: u0, v: v0, light };
 
         *ib.add(*i_count)     = base;
         *ib.add(*i_count + 1) = base + 1;

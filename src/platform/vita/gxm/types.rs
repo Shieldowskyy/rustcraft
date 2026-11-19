@@ -1,11 +1,11 @@
-//! GXM vertex formats, chunk buffer slot ranges, and render-pass texture classification.
-//! Defines `GxmVertex`, `GxmPackedVertex`, `ChunkSlotRanges`, and `FrameRenderStats`.
+//! GXM vertex formats, chunk buffer slot ranges, and frame telemetry.
+//! Defines `GxmVertex`, `GxmEntityVertex`, `GxmPackedVertex`, `ChunkSlotRanges`, and `FrameRenderStats`.
 
 #![allow(dead_code)]
 
-use crate::graphics::atlas::TextureId;
 use crate::world::mesher::Vertex;
 
+/// 24-byte chunk terrain vertex (`SCE_GXM_ATTRIBUTE_FORMAT_U8N` light attribute).
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct GxmVertex {
@@ -14,40 +14,58 @@ pub struct GxmVertex {
     pub z: f32,
     pub u: f32,
     pub v: f32,
-    pub ao: f32,
+    /// Normalized `[ao, sky_light, block_light, 255]`.
+    pub light: [u8; 4],
 }
+
+const _: () = assert!(core::mem::size_of::<GxmVertex>() == 24);
 
 impl GxmVertex {
     #[inline(always)]
-    pub fn from_vertex(v: &Vertex, u0: f32, v0: f32, u1: f32, v1: f32, daylight: f32) -> Self {
+    pub fn from_vertex(v: &Vertex, u0: f32, v0: f32, u1: f32, v1: f32) -> Self {
         let u = u0 + (u1 - u0) * v.uv.0;
         let vv = v0 + (v1 - v0) * v.uv.1;
-        // Feature parity with desktop WGSL lighting curve:
-        // sky_factor = sky_light^1.25 * daylight, block_factor = block_light^1.15 * 1.30, cave ambient = 0.045
-        let sky_factor = v.sky_light.max(0.0).powf(1.25) * daylight.clamp(0.05, 1.0);
-        let block_factor = v.block_light.max(0.0).powf(1.15) * 1.30;
-        let light = (sky_factor + block_factor + 0.045).clamp(0.04, 1.35) * v.ao;
         Self {
             x: v.pos.x,
             y: v.pos.y,
             z: v.pos.z,
             u,
             v: vv,
-            ao: light.clamp(0.05, 1.25),
+            light: [
+                (v.ao.clamp(0.0, 1.0) * 255.0).round() as u8,
+                (v.sky_light.clamp(0.0, 1.0) * 255.0).round() as u8,
+                (v.block_light.clamp(0.0, 1.0) * 255.0).round() as u8,
+                255,
+            ],
         }
     }
 }
 
-/// Compact packed 8-byte vertex format for ultra-fast GPU vertex streaming
+/// 40-byte dynamic geometry vertex for entities, players, clouds, weather, and first-person hand.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct GxmEntityVertex {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    /// Atlas UV coordinates, or `u < 0.0` for untextured flat-color geometry.
+    pub u: f32,
+    pub v: f32,
+    /// HDR RGB lighting multiplier (`0.04..1.45`) and alpha.
+    pub color: [f32; 4],
+    /// Normalized flash/hurt tint overlay `[r, g, b, mix_factor]` (`SCE_GXM_ATTRIBUTE_FORMAT_U8N`).
+    pub tint: [u8; 4],
+}
+
+const _: () = assert!(core::mem::size_of::<GxmEntityVertex>() == 40);
+
+/// Compact packed 8-byte vertex format reserved for streaming experiments.
 #[repr(C, packed)]
 #[derive(Clone, Copy, Default)]
 pub struct GxmPackedVertex {
-    /// Local subchunk position (0..16 packed into 5 bits each)
     pub local_pos: u16,
-    /// Texture coordinates (packed 16-bit fixed point)
     pub u: u16,
     pub v: u16,
-    /// Ambient occlusion (4 bits), sky light (4 bits), block light (4 bits), face normal (4 bits)
     pub lighting_ao: u16,
 }
 
@@ -68,7 +86,7 @@ impl GxmPackedVertex {
     }
 }
 
-/// Render pass index ranges within a single GPU chunk slot (Opaque -> Cutout -> Transparent)
+/// Render pass index ranges within a single GPU chunk slot (Opaque -> Cutout -> Transparent).
 #[derive(Clone, Copy, Default)]
 pub(super) struct ChunkSlotRanges {
     pub(super) opaque_start: u32,
@@ -79,38 +97,7 @@ pub(super) struct ChunkSlotRanges {
     pub(super) trans_count: u32,
 }
 
-#[inline(always)]
-pub(super) fn classify_texture_pass(tex: TextureId) -> u8 {
-    match tex {
-        TextureId::Water | TextureId::Glass => 2, // Transparent pass (alpha blend, depth write off)
-        TextureId::Leaves
-        | TextureId::SnowLeaves
-        | TextureId::CherryLeaves
-        | TextureId::AutumnLeaves
-        | TextureId::LeavesSwamp
-        | TextureId::LeavesSavanna
-        | TextureId::Door
-        | TextureId::DoorTop
-        | TextureId::Torch
-        | TextureId::Ladder
-        | TextureId::RustStoneWire
-        | TextureId::RustStoneWireLit
-        | TextureId::Lever
-        | TextureId::Button
-        | TextureId::PressurePlate
-        | TextureId::WheatCrop
-        | TextureId::CarrotCrop
-        | TextureId::PotatoCrop
-        | TextureId::Sapling
-        | TextureId::Kelp
-        | TextureId::Seagrass
-        | TextureId::DriedKelp => 1, // Cutout pass
-        _ => 0, // Opaque pass (Early-Z / HSR active)
-    }
-}
-
-
-/// Per-frame draw telemetry accumulated across clear, terrain, crack, and entity passes.
+/// Per-frame draw telemetry accumulated across clear, sky, terrain, entity, postfx, and HUD passes.
 #[derive(Clone, Copy, Default)]
 pub(super) struct FrameRenderStats {
     pub(super) tri_count: u32,
