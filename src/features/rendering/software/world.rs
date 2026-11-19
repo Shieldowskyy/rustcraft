@@ -41,9 +41,11 @@ impl Renderer {
 
         // 1. Drain completed meshes from background threads
         for (key, mesh) in self.async_mesher.drain_completed() {
-            self.mesh_cache.insert(key, mesh);
             self.pending_mesh_keys.remove(&key);
-            self.dirty_keys.insert(key);
+            if world.chunks.contains_key(&key) {
+                self.mesh_cache.insert(key, mesh);
+                self.dirty_keys.insert(key);
+            }
         }
 
         self.pending_mesh_keys.retain(|k| world.chunks.contains_key(k));

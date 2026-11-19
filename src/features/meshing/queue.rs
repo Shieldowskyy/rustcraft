@@ -3,17 +3,19 @@
 
 use std::sync::mpsc::{Receiver, Sender};
 
+use crate::platform::capabilities;
 use crate::platform::threading::{configure_worker_thread_affinity, worker_thread_count};
 
-use super::constants::DEFAULT_MAX_MESH_TRIANGLES;
-use super::culling::build_chunk_mesh_from_job_limited;
+use super::culling::{build_chunk_mesh_from_job, build_chunk_mesh_from_job_limited};
 use super::types::{ChunkMeshJob, Triangle};
 
 pub struct AsyncMesher {
-    req_tx: Sender<ChunkMeshJob>,
-    res_rx: Receiver<((i32, i32), Vec<Triangle>)>,
-    res_tx: Sender<((i32, i32), Vec<Triangle>)>,
+    req_tx: Sender<(u64, ChunkMeshJob)>,
+    res_rx: Receiver<(u64, (i32, i32), Vec<Triangle>)>,
+    res_tx: Sender<(u64, (i32, i32), Vec<Triangle>)>,
     worker_count: usize,
+    max_triangles: Option<usize>,
+    generation: u64,
 }
 
 impl Default for AsyncMesher {
@@ -22,10 +24,22 @@ impl Default for AsyncMesher {
     }
 }
 
+#[inline]
+fn build_mesh_for_job(job: &ChunkMeshJob, max_triangles: Option<usize>) -> Vec<Triangle> {
+    match max_triangles {
+        Some(limit) => build_chunk_mesh_from_job_limited(job, limit),
+        None => build_chunk_mesh_from_job(job),
+    }
+}
+
 impl AsyncMesher {
     pub fn new() -> Self {
-        let (req_tx, req_rx) = std::sync::mpsc::channel::<ChunkMeshJob>();
-        let (res_tx, res_rx) = std::sync::mpsc::channel::<((i32, i32), Vec<Triangle>)>();
+        Self::with_max_triangles(capabilities().max_chunk_mesh_triangles)
+    }
+
+    pub fn with_max_triangles(max_triangles: Option<usize>) -> Self {
+        let (req_tx, req_rx) = std::sync::mpsc::channel::<(u64, ChunkMeshJob)>();
+        let (res_tx, res_rx) = std::sync::mpsc::channel::<(u64, (i32, i32), Vec<Triangle>)>();
 
         let req_rx = std::sync::Arc::new(std::sync::Mutex::new(req_rx));
         let num_threads = worker_thread_count(1, 4, 2);
@@ -40,16 +54,16 @@ impl AsyncMesher {
                     configure_worker_thread_affinity(i, true);
 
                     loop {
-                        let job = if let Ok(rx) = req_rx_clone.lock() {
+                        let task = if let Ok(rx) = req_rx_clone.lock() {
                             rx.recv().ok()
                         } else {
                             None
                         };
-                        match job {
-                            Some(job) => {
+                        match task {
+                            Some((job_gen, job)) => {
                                 let key = job.key;
-                                let mesh = build_chunk_mesh_from_job_limited(&job, DEFAULT_MAX_MESH_TRIANGLES);
-                                if res_tx_clone.send((key, mesh)).is_err() {
+                                let mesh = build_mesh_for_job(&job, max_triangles);
+                                if res_tx_clone.send((job_gen, key, mesh)).is_err() {
                                     break;
                                 }
                             }
@@ -62,24 +76,38 @@ impl AsyncMesher {
             }
         }
 
-        Self { req_tx, res_rx, res_tx, worker_count }
+        Self {
+            req_tx,
+            res_rx,
+            res_tx,
+            worker_count,
+            max_triangles,
+            generation: 0,
+        }
     }
 
     pub fn submit_job(&self, job: ChunkMeshJob) -> bool {
         if self.worker_count == 0 {
             let key = job.key;
-            let mesh = build_chunk_mesh_from_job_limited(&job, DEFAULT_MAX_MESH_TRIANGLES);
-            self.res_tx.send((key, mesh)).is_ok()
+            let mesh = build_mesh_for_job(&job, self.max_triangles);
+            self.res_tx.send((self.generation, key, mesh)).is_ok()
         } else {
-            self.req_tx.send(job).is_ok()
+            self.req_tx.send((self.generation, job)).is_ok()
         }
     }
 
     pub fn drain_completed(&self) -> Vec<((i32, i32), Vec<Triangle>)> {
         let mut completed = Vec::new();
-        while let Ok(res) = self.res_rx.try_recv() {
-            completed.push(res);
+        while let Ok((job_gen, key, mesh)) = self.res_rx.try_recv() {
+            if job_gen == self.generation {
+                completed.push((key, mesh));
+            }
         }
         completed
+    }
+
+    pub fn invalidate_pending(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        while self.res_rx.try_recv().is_ok() {}
     }
 }

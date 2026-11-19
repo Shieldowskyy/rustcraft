@@ -73,7 +73,7 @@ impl GxmRenderer {
     pub(super) fn is_chunk_in_frustum(chunk_x: i32, chunk_z: i32, mvp: &crate::core::math::Mat4) -> bool {
         let min_x = (chunk_x * CHUNK_SIZE_X as i32) as f32;
         let max_x = min_x + CHUNK_SIZE_X as f32;
-        let min_y = 0.0f32;
+        let min_y = -16.0f32;
         let max_y = CHUNK_SIZE_Y as f32;
         let min_z = (chunk_z * CHUNK_SIZE_Z as i32) as f32;
         let max_z = min_z + CHUNK_SIZE_Z as f32;
@@ -133,6 +133,9 @@ impl GxmRenderer {
         self.free_slots = (0..Self::MAX_CHUNK_SLOTS).rev().collect();
         self.slot_ranges = [ChunkSlotRanges::default(); Self::MAX_CHUNK_SLOTS];
         self.chunk_spawn_times.clear();
+        self.pending_meshes.clear();
+        self.completed_meshes.clear();
+        self.mesh_worker.invalidate_pending();
     }
 
     /// Alias matching desktop `VulkanContext::clear_chunk_buffers`.

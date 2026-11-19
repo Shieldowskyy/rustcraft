@@ -75,7 +75,10 @@ impl VulkanContext {
         let chunks_to_update: Vec<(i32, i32)> = loaded_keys
             .iter()
             .copied()
-            .filter(|key| dirty_keys.contains(key) || !self.chunk_buffers.contains_key(key))
+            .filter(|key| {
+                mesh_cache.contains_key(key)
+                    && (dirty_keys.contains(key) || !self.chunk_buffers.contains_key(key))
+            })
             .collect();
 
         if chunks_to_update.is_empty() {

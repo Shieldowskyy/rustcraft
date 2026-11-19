@@ -7,6 +7,8 @@ mod culling;
 mod emit;
 mod queue;
 mod shapes;
+#[cfg(test)]
+mod tests;
 mod types;
 
 pub use cache::ChunkNeighborCache;

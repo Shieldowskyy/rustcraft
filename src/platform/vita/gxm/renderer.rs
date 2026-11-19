@@ -105,6 +105,9 @@ impl GxmRenderer {
     pub const MAX_CHUNK_SLOTS: usize = 64;
     pub const MAX_VERTS_PER_SLOT: usize = 18432;
     pub const MAX_INDICES_PER_SLOT: usize = 27648;
+    const _MATCH_VITA_TRI_CAP: () = assert!(
+        Self::MAX_VERTS_PER_SLOT / 3 == crate::features::meshing::constants::VITA_MAX_MESH_TRIANGLES
+    );
 
     pub const MAX_ENTITY_VERTS: usize = 8192;
     pub const MAX_ENTITY_INDICES: usize = 12288;

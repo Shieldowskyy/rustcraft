@@ -26,6 +26,7 @@ pub struct ChunkNeighborCache<'a> {
     pub generator_type: WorldGeneratorType,
     pub heightmap: [u8; 18 * 18],
     pub leaf_heightmap: [u8; 18 * 18],
+    pub max_non_air_y: u8,
     pub lights: Vec<LightSource>,
     pub fluid_map: Option<&'a std::collections::HashMap<IVec3, u8>>,
     block_light_cache: RefCell<Vec<f32>>,
@@ -89,6 +90,7 @@ impl<'a> ChunkNeighborCache<'a> {
             generator_type: world.generator_type,
             heightmap: [0u8; 18 * 18],
             leaf_heightmap: [0u8; 18 * 18],
+            max_non_air_y: 0,
             lights,
             fluid_map: None,
             block_light_cache: RefCell::new(vec![
@@ -125,6 +127,7 @@ impl<'a> ChunkNeighborCache<'a> {
             generator_type: job.generator_type,
             heightmap: [0u8; 18 * 18],
             leaf_heightmap: [0u8; 18 * 18],
+            max_non_air_y: 0,
             lights: job.lights.clone(),
             fluid_map: Some(&job.fluid_map),
             block_light_cache: RefCell::new(vec![
@@ -141,12 +144,19 @@ impl<'a> ChunkNeighborCache<'a> {
     }
 
     fn populate_heightmaps(&mut self) {
+        let mut max_non_air_y = 0u8;
         for lx in -1..=16 {
+            let in_center_x = (lx as u32) < CHUNK_SIZE_X as u32;
             for lz in -1..=16 {
+                let in_center = in_center_x && (lz as u32) < CHUNK_SIZE_Z as u32;
                 let mut h = 0u8;
                 let mut leaf_h = 0u8;
+                let mut col_top = 0u8;
                 for ly in (0..CHUNK_SIZE_Y).rev() {
                     let b = self.sample_block(lx, ly, lz);
+                    if b != BlockId::Air && col_top == 0 {
+                        col_top = (ly + 1) as u8;
+                    }
                     if b.is_leaf() && leaf_h == 0 {
                         leaf_h = (ly + 1) as u8;
                     }
@@ -155,11 +165,15 @@ impl<'a> ChunkNeighborCache<'a> {
                         break;
                     }
                 }
+                if in_center && col_top > max_non_air_y {
+                    max_non_air_y = col_top;
+                }
                 let idx = ((lx + 1) * 18 + (lz + 1)) as usize;
                 self.heightmap[idx] = h;
                 self.leaf_heightmap[idx] = leaf_h;
             }
         }
+        self.max_non_air_y = max_non_air_y;
     }
 
     #[inline(always)]

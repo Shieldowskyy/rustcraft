@@ -164,6 +164,8 @@ impl Renderer {
         let count = self.mesh_cache.len();
         self.mesh_cache.clear();
         self.dirty_keys.clear();
+        self.pending_mesh_keys.clear();
+        self.async_mesher.invalidate_pending();
         self.chunk_spawn_times.clear();
         self.gpu.clear_chunk_buffers();
         crate::log_info!(

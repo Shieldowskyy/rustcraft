@@ -259,3 +259,52 @@ use super::*;
             assert!(y >= 0);
         }
     }
+
+    #[test]
+    fn test_is_view_fully_occluded_matches_camera_basis_and_respects_chunk_borders() {
+        let mut world = World::new_with_generator(1, WorldGeneratorType::Superflat);
+        world.chunks.clear();
+        for cx in 0..=1 {
+            world.chunks.insert(
+                (cx, 0),
+                Chunk {
+                    cx,
+                    cz: 0,
+                    blocks: vec![0; (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize],
+                    dirty: false,
+                },
+            );
+        }
+
+        // Floor beneath player + side/back wall at x=5, while camera faces +X (yaw = 0) into open air.
+        for z in 4..=12 {
+            for y in 18..=24 {
+                world.set_block(IVec3::new(5, y, z), BlockId::Stone);
+            }
+            for x in 5..=12 {
+                world.set_block(IVec3::new(x, 18, z), BlockId::Stone);
+            }
+        }
+        let cam_open = Vec3::new(6.5, 20.5, 8.5);
+        assert!(!world.is_view_fully_occluded(cam_open, 0.0, 0.0));
+        assert!(!world.is_view_fully_occluded(cam_open, 0.0, 1.2));
+
+        // Wide wall across the chunk boundary at x=16 while camera is at x=15.65 facing +X: must NOT cull neighbor chunk.
+        for z in 4..=12 {
+            for y in 18..=24 {
+                world.set_block(IVec3::new(16, y, z), BlockId::Stone);
+            }
+        }
+        assert!(!world.is_view_fully_occluded(Vec3::new(15.65, 20.5, 8.5), 0.0, 0.0));
+
+        // Wide wall inside the same chunk at x=9 right in front of camera at x=8.65 facing +X: occluded.
+        for z in 6..=10 {
+            for y in 19..=22 {
+                world.set_block(IVec3::new(9, y, z), BlockId::Stone);
+            }
+        }
+        assert!(world.is_view_fully_occluded(Vec3::new(8.65, 20.5, 8.5), 0.0, 0.0));
+
+        // Camera embedded inside an opaque block: occluded.
+        assert!(world.is_view_fully_occluded(Vec3::new(9.5, 20.5, 8.5), 0.0, 0.0));
+    }

@@ -5,7 +5,7 @@
 
 use crate::core::math::Mat4;
 use crate::graphics::camera::Camera;
-use crate::world::mesher::{ChunkMeshJob, Triangle};
+use crate::world::mesher::Triangle;
 use crate::world::World;
 
 use super::ffi::*;
@@ -175,8 +175,7 @@ impl GxmRenderer {
                     if !needs_mesh {
                         continue;
                     }
-                    if let Some(chunk) = world.chunks.get(&key) {
-                        let job = ChunkMeshJob::from_world(chunk, world);
+                    if let Some(job) = world.create_mesh_job(key) {
                         if self.mesh_worker.submit_job(job) {
                             self.pending_meshes.insert(key);
                             if let Some(chunk) = world.chunks.get_mut(&key) {

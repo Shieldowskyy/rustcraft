@@ -86,21 +86,37 @@ impl World {
     }
 
     #[inline]
-
     pub fn is_view_fully_occluded(&self, camera_pos: Vec3, yaw: f32, pitch: f32) -> bool {
-        if self.get_block(camera_pos.floor_to_ivec()).is_opaque() {
+        let eye_block = camera_pos.floor_to_ivec();
+        if self.get_block(eye_block).is_opaque() {
             return true;
         }
         let (sin_y, cos_y) = yaw.sin_cos();
         let (sin_p, cos_p) = pitch.sin_cos();
-        let forward = Vec3::new(sin_y * cos_p, -sin_p, cos_y * cos_p);
-        let right = Vec3::new(cos_y, 0.0, -sin_y) * 0.26;
-        let up = Vec3::new(sin_y * sin_p, cos_p, cos_y * sin_p) * 0.20;
+        // DLACZEGO: Match Camera::forward/right/up basis (+X at yaw=0, -Z at yaw=-PI/2, +Y up on +pitch)
+        // and require probes to stay in the camera's chunk so walls on a chunk border never cull the adjacent chunk.
+        let forward = Vec3::new(cos_y * cos_p, sin_p, sin_y * cos_p);
+        let right = Vec3::new(-sin_y, 0.0, cos_y) * 0.85;
+        let up = Vec3::new(-cos_y * sin_p, cos_p, -sin_y * sin_p) * 0.55;
         let c = camera_pos + forward * 0.38;
+        let cam_chunk = (eye_block.x >> 4, eye_block.z >> 4);
 
-        [c, c - right + up, c + right + up, c - right - up, c + right - up]
+        [
+            c,
+            c - right + up,
+            c + right + up,
+            c - right - up,
+            c + right - up,
+            c - right,
+            c + right,
+            c - up,
+            c + up,
+        ]
         .into_iter()
-        .all(|p| self.get_block(p.floor_to_ivec()).is_opaque())
+        .all(|p| {
+            let bp = p.floor_to_ivec();
+            (bp.x >> 4, bp.z >> 4) == cam_chunk && self.get_block(bp).is_opaque()
+        })
     }
 
     #[inline(always)]

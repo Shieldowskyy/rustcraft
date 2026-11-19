@@ -179,22 +179,28 @@ impl World {
         }
 
         let get_nb = |dx: i32, dz: i32| self.chunks.get(&(cx + dx, cz + dz)).map(|c| c.blocks.clone());
+        let fluid_map: HashMap<_, _> = self
+            .fluid_levels
+            .iter()
+            .filter(|(pos, _)| (pos.x - center_x).abs() <= 10 && (pos.z - center_z).abs() <= 10)
+            .map(|(&pos, &lvl)| (pos, lvl))
+            .collect();
 
         Some(ChunkMeshJob {
             key,
             center_blocks: chunk.blocks.clone(),
-             east_blocks: get_nb(1, 0),
-             west_blocks: get_nb(-1, 0),
-             south_blocks: get_nb(0, 1),
-             north_blocks: get_nb(0, -1),
-             se_blocks: get_nb(1, 1),
-             sw_blocks: get_nb(-1, 1),
-             ne_blocks: get_nb(1, -1),
-             nw_blocks: get_nb(-1, -1),
-             seed: self.seed,
-             generator_type: self.generator_type,
-             lights,
-             fluid_map: self.fluid_levels.clone(),
+            east_blocks: get_nb(1, 0),
+            west_blocks: get_nb(-1, 0),
+            south_blocks: get_nb(0, 1),
+            north_blocks: get_nb(0, -1),
+            se_blocks: get_nb(1, 1),
+            sw_blocks: get_nb(-1, 1),
+            ne_blocks: get_nb(1, -1),
+            nw_blocks: get_nb(-1, -1),
+            seed: self.seed,
+            generator_type: self.generator_type,
+            lights,
+            fluid_map,
         })
     }
 

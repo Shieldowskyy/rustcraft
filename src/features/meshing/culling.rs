@@ -21,29 +21,11 @@ pub fn build_subchunk_mesh_from_cache(
     let y_start = (sub_y as i32) * SUBCHUNK_SIZE;
     let y_end = y_start + SUBCHUNK_SIZE;
 
-    // --- OPTYMALIZACJA: Fast-path dla pustych subchunków ---
-    // Sprawdzamy, czy maksymalna wysokość terenu w tym subchunku jest niższa niż y_start.
-    // Jeśli tak, to w tym przedziale Y nie ma żadnych pełnych bloków ziemi/kamienia.
-    let mut max_h_in_subchunk = 0u8;
-    for lx in 0..16 {
-        for lz in 0..16 {
-            let idx = ((lx + 1) * 18 + (lz + 1)) as usize;
-            let h = cache.heightmap[idx];
-            if h > max_h_in_subchunk {
-                max_h_in_subchunk = h;
-            }
-        }
+    // DLACZEGO: Skip genuinely empty upper subchunks using max_non_air_y (not opaque-only heightmap)
+    // so non-opaque blocks like ocean water, tree canopies, glass, slabs, and crops are never culled.
+    if y_start >= cache.max_non_air_y as i32 {
+        return (Vec::new(), Vec::new());
     }
-    // Jeśli cały teren jest poniżej tego subchunka oraz brak świateł/płynów mogących generować geometrię,
-    // możemy pominąć całą iterację po blokach (zabezpieczenie: dla sub_y > 0 sprawdzamy czy y_start >= max_h_in_subchunk).
-    if (y_start as u8) >= max_h_in_subchunk && cache.lights.is_empty() {
-        // Dodatkowo upewniamy się, że nie ma tam płynów (np. oceanu powyżej dna)
-        // Jeśli fluid_map jest pusta, możemy bezpiecznie zwrócić puste wektory.
-        if cache.fluid_map.map_or(true, |fm| fm.is_empty()) {
-            return (Vec::new(), Vec::new());
-        }
-    }
-    // ------------------------------------------------------
 
     let mut solid_tris = Vec::with_capacity(384);
     let mut trans_tris = Vec::with_capacity(64);
@@ -238,22 +220,24 @@ pub fn build_chunk_mesh_from_job_limited(job: &ChunkMeshJob, max_triangles: usiz
     let mut solid_tris = Vec::with_capacity(3072.min(max_triangles));
     let mut trans_tris = Vec::with_capacity(512.min(max_triangles));
 
-    for sub_y in 0..NUM_SUBCHUNKS {
+    // DLACZEGO: Iterate subchunks top-down (3 -> 0) and reserve solid+transparent triangles per
+    // subchunk within the combined budget so surface terrain, trees, and water are never dropped
+    // when deep underground caves exceed hardware vertex caps (e.g. PS Vita).
+    for sub_y in (0..NUM_SUBCHUNKS).rev() {
+        let total_used = solid_tris.len() + trans_tris.len();
+        if total_used >= max_triangles {
+            break;
+        }
         let (sub_solid, sub_trans) = build_subchunk_mesh_from_cache(sub_y, &cache);
-        if solid_tris.len() < max_triangles {
-            let remaining = max_triangles - solid_tris.len();
-            solid_tris.extend(sub_solid.into_iter().take(remaining));
-        }
-        if solid_tris.len() >= max_triangles {
-            return solid_tris;
-        }
-        if trans_tris.len() < max_triangles {
-            let remaining = max_triangles - trans_tris.len();
-            trans_tris.extend(sub_trans.into_iter().take(remaining));
+        let remaining = max_triangles - total_used;
+        solid_tris.extend(sub_solid.into_iter().take(remaining));
+
+        let remaining_for_trans = max_triangles - (solid_tris.len() + trans_tris.len());
+        if remaining_for_trans > 0 && !sub_trans.is_empty() {
+            trans_tris.extend(sub_trans.into_iter().take(remaining_for_trans));
         }
     }
 
-    trans_tris.truncate(max_triangles.saturating_sub(solid_tris.len()));
     solid_tris.extend(trans_tris);
     solid_tris
 }
