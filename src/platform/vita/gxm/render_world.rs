@@ -1,377 +1,294 @@
-//! Terrain chunk streaming, GPU slot LRU eviction, mesh upload, and 3-pass terrain drawing.
-//! Draws Opaque -> Cutout -> Transparent chunk geometry with frustum culling and spawn animation.
+//! 4-pass GPU terrain and Early-Z procedural sky rendering (`Opaque -> Cutout -> Sky -> Transparent`).
+//! Matches desktop `VulkanContext` pass order, culling, depth test/write state, and uniform curves.
 
 #![allow(dead_code)]
 
-use crate::core::math::Mat4;
+use crate::core::math::{Mat4, Vec3};
+use crate::features::rendering::chunk_spawn_y_offset;
 use crate::graphics::camera::Camera;
-use crate::world::mesher::Triangle;
 use crate::world::World;
 
 use super::ffi::*;
+use super::programs::LinkedGxmShaders;
 use super::renderer::GxmRenderer;
-use super::textures::atlas_uv;
-use super::types::{ChunkSlotRanges, FrameRenderStats, GxmVertex};
-use crate::features::rendering::atlas::TextureRenderPass;
+use super::types::{FrameRenderStats, GxmVertex};
 
 impl GxmRenderer {
     #[allow(clippy::too_many_arguments)]
     pub(super) unsafe fn render_terrain(
         &mut self,
+        buf_idx: usize,
         camera: &Camera,
         world: &mut World,
         mvp: &Mat4,
+        sky_top: [f32; 3],
+        sky_bottom: [f32; 3],
+        fog_col: [f32; 3],
         daylight: f32,
+        sun_dir: Vec3,
         cam_chunk_x: i32,
         cam_chunk_z: i32,
-        render_distance: i32,
         render_dist: i32,
         fog_enabled: bool,
         chunk_anim: bool,
         total_time: f32,
         stats: &mut FrameRenderStats,
     ) -> bool {
-        let vb_base = self.vb_mem.as_mut_ptr::<GxmVertex>();
-        let ib_base = self.ib_mem.as_mut_ptr::<u16>();
-        let max_dist = render_dist + 1;
-            // 1. Remove chunk slots that are outside the render distance
-                self.freed_slots_scratch.clear();
-            let freed_ref = &mut self.freed_slots_scratch;
-            self.chunk_slots.retain(|&(cx, cz), &mut slot_idx| {
-                let dx = cx - cam_chunk_x;
-                let dz = cz - cam_chunk_z;
-                let chunk_unloaded = !world.chunks.contains_key(&(cx, cz));
-                if dx.abs() > max_dist || dz.abs() > max_dist || chunk_unloaded {
-                    freed_ref.push(slot_idx);
-                    false
-                } else {
-                    true
-                }
-            });
-            self.free_slots.extend(self.freed_slots_scratch.iter().copied());
-            self.chunk_spawn_times.retain(|k, _| self.chunk_slots.contains_key(k));
-
-
-            // Process nearer chunks first. The order is shared by mesh requests,
-            // uploads and draw calls so the most useful terrain is prioritized.
-            self.chunk_coords_scratch.clear();
-            for dz in -render_dist..=render_dist {
-                for dx in -render_dist..=render_dist {
-                    self.chunk_coords_scratch.push((dx, dz));
-                }
+        self.chunk_coords_scratch.clear();
+        for dz in -render_dist..=render_dist {
+            for dx in -render_dist..=render_dist {
+                self.chunk_coords_scratch.push((dx, dz));
             }
-            self.chunk_coords_scratch.sort_unstable_by_key(|&(dx, dz)| (dx * dx + dz * dz, dx, dz));
-            let is_occluded = world.is_view_fully_occluded(camera.position, camera.yaw, camera.pitch);
+        }
+        self.chunk_coords_scratch.sort_unstable_by_key(|&(dx, dz)| (dx * dx + dz * dz, dx, dz));
+        let is_occluded = world.is_view_fully_occluded(camera.position, camera.yaw, camera.pitch);
 
-            // Drain worker results without waiting.
-            self.completed_meshes.extend(self.mesh_worker.drain_completed());
+        self.stream_chunk_slots(buf_idx, world, mvp, cam_chunk_x, cam_chunk_z, render_dist, is_occluded, total_time);
 
-            // Process at most one completed mesh per frame. Prefer chunks nearest to the player.
-            self.completed_meshes.sort_unstable_by_key(|((mx, mz), _)| {
-                let dx = *mx - cam_chunk_x;
-                let dz = *mz - cam_chunk_z;
-                (dx * dx + dz * dz, *mx, *mz)
-            });
-            if !self.completed_meshes.is_empty() {
-                let (mesh_key, mesh_tris) = self.completed_meshes.remove(0);
-                self.pending_meshes.remove(&mesh_key);
-                let (mcx, mcz) = mesh_key;
-                let mdx = mcx - cam_chunk_x;
-                let mdz = mcz - cam_chunk_z;
-                let in_range = mdx.abs() <= max_dist && mdz.abs() <= max_dist;
-                let still_exists = world.chunks.contains_key(&mesh_key);
-                let still_visible = Self::is_chunk_in_frustum(mcx, mcz, &mvp);
-                let changed_during_build = world.chunks.get(&mesh_key).map(|c| c.dirty).unwrap_or(false);
+        let max_fog = if fog_enabled { (render_dist as f32 * 16.0).max(32.0) } else { 0.0 };
 
-                if in_range && still_exists && still_visible && !changed_during_build {
-                    let existing_slot = self.chunk_slots.get(&mesh_key).copied();
-                    let target_slot = if let Some(slot) = existing_slot {
-                        Some(slot)
-                    } else if let Some(slot) = self.free_slots.pop() {
-                        Some(slot)
-                    } else {
-                        let current_dist_sq = mdx * mdx + mdz * mdz;
+        // 4-pass render order matching desktop VulkanContext:
+        // Pass 1: Opaque (Front-to-Back, CW cull, LESS, depth-write ON)
+        self.draw_chunk_pass(
+            0, false, mvp, camera.position, sky_bottom, fog_col, daylight, max_fog,
+            fog_enabled, chunk_anim, total_time, cam_chunk_x, cam_chunk_z, is_occluded, stats,
+        );
 
-                        // First reclaim a slot from a chunk that is no longer in the current view.
-                        let offscreen = self.chunk_slots.iter()
-                            .filter_map(|(&(scx, scz), &slot)| {
-                                if !Self::is_chunk_in_frustum(scx, scz, &mvp) {
-                                    let sdx = scx - cam_chunk_x;
-                                    let sdz = scz - cam_chunk_z;
-                                    Some(((scx, scz), slot, sdx * sdx + sdz * sdz))
-                                } else {
-                                    None
-                                }
-                            })
-                            .max_by_key(|&(_, _, distance)| distance);
+        // Pass 2: Cutout (Front-to-Back, CW cull, LESS, depth-write ON)
+        self.draw_chunk_pass(
+            1, false, mvp, camera.position, sky_bottom, fog_col, daylight, max_fog,
+            fog_enabled, chunk_anim, total_time, cam_chunk_x, cam_chunk_z, is_occluded, stats,
+        );
 
-                        if let Some((old_key, old_slot, _)) = offscreen {
-                            self.chunk_slots.remove(&old_key);
-                            self.chunk_spawn_times.remove(&old_key);
-                            Some(old_slot)
-                        } else {
-                            let farthest = self.chunk_slots.iter()
-                                .map(|(&(scx, scz), &slot)| {
-                                    let sdx = scx - cam_chunk_x;
-                                    let sdz = scz - cam_chunk_z;
-                                    ((scx, scz), slot, sdx * sdx + sdz * sdz)
-                                })
-                                .max_by_key(|&(_, _, distance)| distance);
-                            if let Some((old_key, old_slot, old_dist_sq)) = farthest {
-                                let replace_farthest = old_dist_sq > current_dist_sq
-                                    || (old_dist_sq == current_dist_sq && old_key > mesh_key);
-                                if replace_farthest {
-                                    self.chunk_slots.remove(&old_key);
-                                    self.chunk_spawn_times.remove(&old_key);
-                                    Some(old_slot)
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        }
-                    };
+        // Pass 3: Early-Z Procedural Sky (depth == 1.0, no depth writes)
+        if !is_occluded {
+            render_early_z_sky(
+                self.context, &self.shaders, &self.clear_vb_mem, &self.clear_ib_mem,
+                mvp, camera.position, daylight, sky_top, sky_bottom, sun_dir, stats,
+            );
+        }
 
-                    if let Some(slot) = target_slot {
-                        let ranges = Self::upload_mesh(
-                            &mesh_tris,
-                            vb_base,
-                            ib_base,
-                            slot,
-                            daylight,
-                            &mut self.scratch_vb,
-                            &mut self.scratch_opaque_ib,
-                            &mut self.scratch_cutout_ib,
-                            &mut self.scratch_trans_ib,
-                        );
-                        self.slot_ranges[slot] = ranges;
-                        self.chunk_slots.insert(mesh_key, slot);
-                        if existing_slot.is_none() {
-                            self.chunk_spawn_times.insert(mesh_key, total_time);
-                        }
-                    } else {
-                        self.pending_meshes.insert(mesh_key);
-                        self.completed_meshes.push((mesh_key, mesh_tris));
-                    }
-                }
-            }
-
-            // Submit at most one new job per frame and keep the in-flight queue bounded.
-            const MAX_PENDING_MESHES: usize = 4;
-            if self.pending_meshes.len() < MAX_PENDING_MESHES {
-                for &(dx, dz) in &self.chunk_coords_scratch {
-                    if is_occluded && (dx != 0 || dz != 0) {
-                        continue;
-                    }
-                    let key = (cam_chunk_x + dx, cam_chunk_z + dz);
-                    if self.pending_meshes.contains(&key) {
-                        continue;
-                    }
-                    if !Self::is_chunk_in_frustum(key.0, key.1, &mvp) {
-                        continue;
-                    }
-                    let needs_mesh = !self.chunk_slots.contains_key(&key)
-                        || world.chunks.get(&key).map(|chunk| chunk.dirty).unwrap_or(false);
-                    if !needs_mesh {
-                        continue;
-                    }
-                    if let Some(job) = world.create_mesh_job(key) {
-                        if self.mesh_worker.submit_job(job) {
-                            self.pending_meshes.insert(key);
-                            if let Some(chunk) = world.chunks.get_mut(&key) {
-                                chunk.dirty = false;
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // 3-pass chunk rendering matching desktop VulkanContext:
-            // Pass 0: Opaque (Front-to-Back, Early-Z/HSR active)
-            // Pass 1: Cutout (Front-to-Back, leaves/doors/torches/crops)
-            // Pass 2: Transparent (Back-to-Front, Alpha Blending, DepthWrite OFF)
-            let chunk_count = self.chunk_coords_scratch.len();
-            for pass_kind in 0..3u8 {
-                if pass_kind == 2 {
-                    sceGxmSetFragmentProgram(self.context, self.shaders.frag_prog_trans);
-                    sceGxmSetFrontDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_DISABLED);
-                    sceGxmSetBackDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_DISABLED);
-                } else if pass_kind == 0 {
-                    sceGxmSetFragmentProgram(self.context, self.shaders.frag_prog_opaque);
-                    sceGxmSetFrontDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
-                    sceGxmSetBackDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
-                }
-
-                let mut last_had_offset = false;
-                for idx in 0..chunk_count {
-                    let (dx, dz) = if pass_kind == 2 {
-                        self.chunk_coords_scratch[chunk_count - 1 - idx]
-                    } else {
-                        self.chunk_coords_scratch[idx]
-                    };
-
-                    let cx = cam_chunk_x + dx;
-                    let cz = cam_chunk_z + dz;
-                    let key = (cx, cz);
-                    if is_occluded && (dx != 0 || dz != 0) {
-                        if pass_kind == 0 {
-                            stats.subchunks_culled += 4;
-                        }
-                        continue;
-                    }
-
-                    if let Some(&slot) = self.chunk_slots.get(&key) {
-                        let ranges = self.slot_ranges[slot];
-                        let (start_idx, index_count) = match pass_kind {
-                            0 => (ranges.opaque_start, ranges.opaque_count),
-                            1 => (ranges.cutout_start, ranges.cutout_count),
-                            _ => (ranges.trans_start, ranges.trans_count),
-                        };
-                        if index_count == 0 {
-                            continue;
-                        }
-                        if !Self::is_chunk_in_frustum(cx, cz, &mvp) {
-                            if pass_kind == 0 {
-                                stats.subchunks_culled += 4;
-                            }
-                            stats.tri_culled += index_count / 3;
-                            continue;
-                        }
-
-                        let spawn_time = self.chunk_spawn_times.get(&key).copied().unwrap_or(0.0);
-                        let elapsed = total_time - spawn_time;
-                        let y_offset = if chunk_anim && elapsed >= 0.0 && elapsed < 0.35 {
-                            let t = (elapsed / 0.35).clamp(0.0, 1.0);
-                            let ease = 1.0 - (1.0 - t).powi(3);
-                            (1.0 - ease) * -14.0
-                        } else {
-                            0.0
-                        };
-
-                        if y_offset != 0.0 || last_had_offset {
-                            let target_mvp = if y_offset != 0.0 {
-                                mvp.mul(&crate::core::math::Mat4::translation(0.0, y_offset, 0.0))
-                            } else {
-                                *mvp
-                            };
-                            let mut chunk_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
-                            sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut chunk_uniform_buf);
-                            if !self.shaders.param_voxel_mvp.is_null() && !chunk_uniform_buf.is_null() {
-                                sceGxmSetUniformDataF(chunk_uniform_buf, self.shaders.param_voxel_mvp, 0, 16, target_mvp.m.as_ptr());
-                            }
-                            last_had_offset = y_offset != 0.0;
-                        }
-
-                        let chunk_vb = vb_base.add(slot * Self::MAX_VERTS_PER_SLOT);
-                        let chunk_ib = ib_base.add(slot * Self::MAX_INDICES_PER_SLOT + start_idx as usize);
-                        sceGxmSetVertexStream(self.context, 0, chunk_vb as *const core::ffi::c_void);
-                        let draw_rc = sceGxmDraw(
-                            self.context,
-                            SCE_GXM_PRIMITIVE_TRIANGLES,
-                            SCE_GXM_INDEX_FORMAT_U16,
-                            chunk_ib as *const core::ffi::c_void,
-                            index_count,
-                        );
-                        if draw_rc == SCE_OK {
-                            stats.tri_count += index_count / 3;
-                            stats.draw_calls += 1;
-                            if pass_kind == 0 {
-                                stats.subchunks_rendered += 4;
-                            }
-                        } else {
-                            crate::vita_log!("sceGxmDraw(chunk {}, {}, pass {}) failed: 0x{:08X}", cx, cz, pass_kind, draw_rc);
-                        }
-                    }
-                }
-
-                if last_had_offset {
-                    let mut chunk_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
-                    sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut chunk_uniform_buf);
-                    if !self.shaders.param_voxel_mvp.is_null() && !chunk_uniform_buf.is_null() {
-                        sceGxmSetUniformDataF(chunk_uniform_buf, self.shaders.param_voxel_mvp, 0, 16, mvp.m.as_ptr());
-                    }
-                }
-            }
+        // Pass 4: Transparent Water & Glass (Back-to-Front, cull NONE, LESS_EQUAL, depth-write OFF)
+        self.draw_chunk_pass(
+            2, true, mvp, camera.position, sky_bottom, fog_col, daylight, max_fog,
+            fog_enabled, chunk_anim, total_time, cam_chunk_x, cam_chunk_z, is_occluded, stats,
+        );
 
         is_occluded
     }
 
-    pub(super) unsafe fn upload_mesh(
-        tris: &[Triangle],
-        vb_base: *mut GxmVertex,
-        ib_base: *mut u16,
-        slot_idx: usize,
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn draw_chunk_pass(
+        &mut self,
+        pass_kind: u8,
+        reverse: bool,
+        mvp: &Mat4,
+        cam_pos: Vec3,
+        sky_bottom: [f32; 3],
+        fog_col: [f32; 3],
         daylight: f32,
-        scratch_vb: &mut Vec<GxmVertex>,
-        scratch_opaque_ib: &mut Vec<u16>,
-        scratch_cutout_ib: &mut Vec<u16>,
-        scratch_trans_ib: &mut Vec<u16>,
-    ) -> ChunkSlotRanges {
-        let max_verts = Self::MAX_VERTS_PER_SLOT;
-        let max_idx = Self::MAX_INDICES_PER_SLOT;
-        scratch_vb.clear();
-        scratch_opaque_ib.clear();
-        scratch_cutout_ib.clear();
-        scratch_trans_ib.clear();
+        max_fog: f32,
+        fog_enabled: bool,
+        chunk_anim: bool,
+        total_time: f32,
+        cam_cx: i32,
+        cam_cz: i32,
+        is_occluded: bool,
+        stats: &mut FrameRenderStats,
+    ) {
+        let (frag_prog, param_cam_fog, param_fog_color, cull, depth_func, depth_write) = match pass_kind {
+            0 => (
+                self.shaders.frag_prog_opaque, self.shaders.param_opaque_cam_fog,
+                self.shaders.param_opaque_fog_color, SCE_GXM_CULL_CW,
+                SCE_GXM_DEPTH_FUNC_LESS, SCE_GXM_DEPTH_WRITE_ENABLED,
+            ),
+            1 => (
+                self.shaders.frag_prog_cutout, self.shaders.param_cutout_cam_fog,
+                self.shaders.param_cutout_fog_color, SCE_GXM_CULL_CW,
+                SCE_GXM_DEPTH_FUNC_LESS, SCE_GXM_DEPTH_WRITE_ENABLED,
+            ),
+            _ => (
+                self.shaders.frag_prog_trans, self.shaders.param_trans_cam_fog,
+                self.shaders.param_trans_fog_color, SCE_GXM_CULL_NONE,
+                SCE_GXM_DEPTH_FUNC_LESS_EQUAL, SCE_GXM_DEPTH_WRITE_DISABLED,
+            ),
+        };
 
-        let _ = daylight;
-        for tri in tris {
-            let total_idx = scratch_opaque_ib.len() + scratch_cutout_ib.len() + scratch_trans_ib.len();
-            if scratch_vb.len() + 3 > max_verts || total_idx + 3 > max_idx {
-                break;
-            }
-            let (u0, v0, u1, v1) = atlas_uv(tri.texture);
-            let base = scratch_vb.len() as u16;
-            scratch_vb.push(GxmVertex::from_vertex(&tri.v0, u0, v0, u1, v1));
-            scratch_vb.push(GxmVertex::from_vertex(&tri.v1, u0, v0, u1, v1));
-            scratch_vb.push(GxmVertex::from_vertex(&tri.v2, u0, v0, u1, v1));
+        sceGxmSetVertexProgram(self.context, self.shaders.vert_prog);
+        sceGxmSetFragmentProgram(self.context, frag_prog);
+        sceGxmSetFragmentTexture(self.context, 0, &self.atlas_tex);
+        sceGxmSetCullMode(self.context, cull);
+        sceGxmSetFrontDepthFunc(self.context, depth_func);
+        sceGxmSetBackDepthFunc(self.context, depth_func);
+        sceGxmSetFrontDepthWriteEnable(self.context, depth_write);
+        sceGxmSetBackDepthWriteEnable(self.context, depth_write);
 
-            let target_ib = match tri.texture.render_pass() {
-                TextureRenderPass::Transparent => &mut *scratch_trans_ib,
-                TextureRenderPass::Cutout => &mut *scratch_cutout_ib,
-                TextureRenderPass::Opaque => &mut *scratch_opaque_ib,
+        bind_voxel_fs_uniforms(self.context, param_cam_fog, param_fog_color, cam_pos, max_fog, fog_col, fog_enabled);
+
+        let vb_base = self.vb_mem.as_mut_ptr::<GxmVertex>();
+        let ib_base = self.ib_mem.as_mut_ptr::<u16>();
+        let chunk_count = self.chunk_coords_scratch.len();
+        let mut last_y_offset = f32::NAN;
+
+        for idx in 0..chunk_count {
+            let (dx, dz) = if reverse {
+                self.chunk_coords_scratch[chunk_count - 1 - idx]
+            } else {
+                self.chunk_coords_scratch[idx]
             };
-            target_ib.push(base);
-            target_ib.push(base + 1);
-            target_ib.push(base + 2);
-        }
+            if is_occluded && (dx != 0 || dz != 0) {
+                if pass_kind == 0 {
+                    stats.subchunks_culled += 4;
+                }
+                continue;
+            }
+            let cx = cam_cx + dx;
+            let cz = cam_cz + dz;
+            let key = (cx, cz);
+            let Some(&slot) = self.chunk_slots.get(&key) else { continue };
+            let ranges = self.slot_ranges[slot];
+            let (start_idx, index_count) = match pass_kind {
+                0 => (ranges.opaque_start, ranges.opaque_count),
+                1 => (ranges.cutout_start, ranges.cutout_count),
+                _ => (ranges.trans_start, ranges.trans_count),
+            };
+            if index_count == 0 {
+                continue;
+            }
+            if !Self::is_chunk_in_frustum(cx, cz, mvp) {
+                if pass_kind == 0 {
+                    stats.subchunks_culled += 4;
+                }
+                stats.tri_culled += index_count / 3;
+                continue;
+            }
 
-        let slot_vb = vb_base.add(slot_idx * Self::MAX_VERTS_PER_SLOT);
-        let slot_ib = ib_base.add(slot_idx * Self::MAX_INDICES_PER_SLOT);
-        if !scratch_vb.is_empty() {
-            core::ptr::copy_nonoverlapping(scratch_vb.as_ptr(), slot_vb, scratch_vb.len());
-        }
+            let spawn_time = self.chunk_spawn_times.get(&key).copied().unwrap_or(total_time);
+            let y_offset = chunk_spawn_y_offset(chunk_anim, total_time, spawn_time);
+            if y_offset != last_y_offset {
+                bind_voxel_vs_uniforms(self.context, &self.shaders, mvp, sky_bottom, daylight, y_offset);
+                last_y_offset = y_offset;
+            }
 
-        let mut offset = 0usize;
-        let opaque_start = offset as u32;
-        let opaque_count = scratch_opaque_ib.len() as u32;
-        if !scratch_opaque_ib.is_empty() {
-            core::ptr::copy_nonoverlapping(scratch_opaque_ib.as_ptr(), slot_ib.add(offset), scratch_opaque_ib.len());
-            offset += scratch_opaque_ib.len();
+            let chunk_vb = vb_base.add(slot * Self::MAX_VERTS_PER_SLOT);
+            let chunk_ib = ib_base.add(slot * Self::MAX_INDICES_PER_SLOT + start_idx as usize);
+            sceGxmSetVertexStream(self.context, 0, chunk_vb as *const core::ffi::c_void);
+            if sceGxmDraw(self.context, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, chunk_ib as *const core::ffi::c_void, index_count) == SCE_OK {
+                stats.tri_count += index_count / 3;
+                stats.draw_calls += 1;
+                if pass_kind == 0 {
+                    stats.subchunks_rendered += 4;
+                }
+            }
         }
+    }
+}
 
-        let cutout_start = offset as u32;
-        let cutout_count = scratch_cutout_ib.len() as u32;
-        if !scratch_cutout_ib.is_empty() {
-            core::ptr::copy_nonoverlapping(scratch_cutout_ib.as_ptr(), slot_ib.add(offset), scratch_cutout_ib.len());
-            offset += scratch_cutout_ib.len();
-        }
+unsafe fn bind_voxel_vs_uniforms(
+    ctx: *mut SceGxmContext,
+    shaders: &LinkedGxmShaders,
+    mvp: &Mat4,
+    sky_bottom: [f32; 3],
+    daylight: f32,
+    y_offset: f32,
+) {
+    let mut buf: *mut core::ffi::c_void = core::ptr::null_mut();
+    sceGxmReserveVertexDefaultUniformBuffer(ctx, &mut buf);
+    if buf.is_null() {
+        return;
+    }
+    if !shaders.param_voxel_mvp.is_null() {
+        sceGxmSetUniformDataF(buf, shaders.param_voxel_mvp, 0, 16, mvp.m.as_ptr());
+    }
+    if !shaders.param_voxel_sky_daylight.is_null() {
+        let sky_day = [sky_bottom[0], sky_bottom[1], sky_bottom[2], daylight];
+        sceGxmSetUniformDataF(buf, shaders.param_voxel_sky_daylight, 0, 4, sky_day.as_ptr());
+    }
+    if !shaders.param_voxel_chunk_offset.is_null() {
+        let off = [0.0f32, y_offset, 0.0, 0.0];
+        sceGxmSetUniformDataF(buf, shaders.param_voxel_chunk_offset, 0, 4, off.as_ptr());
+    }
+}
 
-        let trans_start = offset as u32;
-        let trans_count = scratch_trans_ib.len() as u32;
-        if !scratch_trans_ib.is_empty() {
-            core::ptr::copy_nonoverlapping(scratch_trans_ib.as_ptr(), slot_ib.add(offset), scratch_trans_ib.len());
-        }
+unsafe fn bind_voxel_fs_uniforms(
+    ctx: *mut SceGxmContext,
+    param_cam_fog: *const SceGxmProgramParameter,
+    param_fog_color: *const SceGxmProgramParameter,
+    cam_pos: Vec3,
+    max_fog: f32,
+    fog_col: [f32; 3],
+    fog_enabled: bool,
+) {
+    let mut buf: *mut core::ffi::c_void = core::ptr::null_mut();
+    sceGxmReserveFragmentDefaultUniformBuffer(ctx, &mut buf);
+    if buf.is_null() {
+        return;
+    }
+    if !param_cam_fog.is_null() {
+        let data = [cam_pos.x, cam_pos.y, cam_pos.z, max_fog];
+        sceGxmSetUniformDataF(buf, param_cam_fog, 0, 4, data.as_ptr());
+    }
+    if !param_fog_color.is_null() {
+        let data = [fog_col[0], fog_col[1], fog_col[2], if fog_enabled { 1.0 } else { 0.0 }];
+        sceGxmSetUniformDataF(buf, param_fog_color, 0, 4, data.as_ptr());
+    }
+}
 
-        ChunkSlotRanges {
-            opaque_start,
-            opaque_count,
-            cutout_start,
-            cutout_count,
-            trans_start,
-            trans_count,
+#[allow(clippy::too_many_arguments)]
+unsafe fn render_early_z_sky(
+    ctx: *mut SceGxmContext,
+    shaders: &LinkedGxmShaders,
+    clear_vb: &super::mem::GpuMem,
+    clear_ib: &super::mem::GpuMem,
+    mvp: &Mat4,
+    cam_pos: Vec3,
+    daylight: f32,
+    sky_top: [f32; 3],
+    sky_bottom: [f32; 3],
+    sun_dir: Vec3,
+    stats: &mut FrameRenderStats,
+) {
+    sceGxmSetVertexProgram(ctx, shaders.sky_vert_prog);
+    sceGxmSetFragmentProgram(ctx, shaders.sky_frag_prog);
+    sceGxmSetCullMode(ctx, SCE_GXM_CULL_NONE);
+    sceGxmSetFrontDepthFunc(ctx, SCE_GXM_DEPTH_FUNC_EQUAL);
+    sceGxmSetBackDepthFunc(ctx, SCE_GXM_DEPTH_FUNC_EQUAL);
+    sceGxmSetFrontDepthWriteEnable(ctx, SCE_GXM_DEPTH_WRITE_DISABLED);
+    sceGxmSetBackDepthWriteEnable(ctx, SCE_GXM_DEPTH_WRITE_DISABLED);
+
+    let inv_vp = mvp.inverse().unwrap_or_else(Mat4::identity);
+    let moon_dir = -sun_dir;
+    let mut buf: *mut core::ffi::c_void = core::ptr::null_mut();
+    sceGxmReserveFragmentDefaultUniformBuffer(ctx, &mut buf);
+    if !buf.is_null() {
+        if !shaders.param_sky_inv_vp.is_null() {
+            sceGxmSetUniformDataF(buf, shaders.param_sky_inv_vp, 0, 16, inv_vp.m.as_ptr());
         }
+        if !shaders.param_sky_cam_daylight.is_null() {
+            let v = [cam_pos.x, cam_pos.y, cam_pos.z, daylight];
+            sceGxmSetUniformDataF(buf, shaders.param_sky_cam_daylight, 0, 4, v.as_ptr());
+        }
+        if !shaders.param_sky_top.is_null() {
+            let v = [sky_top[0], sky_top[1], sky_top[2], 1.0];
+            sceGxmSetUniformDataF(buf, shaders.param_sky_top, 0, 4, v.as_ptr());
+        }
+        if !shaders.param_sky_bot.is_null() {
+            let v = [sky_bottom[0], sky_bottom[1], sky_bottom[2], 1.0];
+            sceGxmSetUniformDataF(buf, shaders.param_sky_bot, 0, 4, v.as_ptr());
+        }
+        if !shaders.param_sky_sun_dir.is_null() {
+            let v = [sun_dir.x, sun_dir.y, sun_dir.z, 0.0];
+            sceGxmSetUniformDataF(buf, shaders.param_sky_sun_dir, 0, 4, v.as_ptr());
+        }
+        if !shaders.param_sky_moon_dir.is_null() {
+            let v = [moon_dir.x, moon_dir.y, moon_dir.z, 0.0];
+            sceGxmSetUniformDataF(buf, shaders.param_sky_moon_dir, 0, 4, v.as_ptr());
+        }
+    }
+
+    sceGxmSetVertexStream(ctx, 0, clear_vb.ptr);
+    if sceGxmDraw(ctx, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, clear_ib.ptr, 3) == SCE_OK {
+        stats.draw_calls += 1;
+        stats.tri_count += 1;
     }
 }

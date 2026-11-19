@@ -103,57 +103,18 @@ impl GxmRenderer {
                 3,
             );
 
-            // 2. Render 3D terrain around player (Depth range [0.0, 1.0])
+            // 2. Render 4-pass 3D terrain + Early-Z procedural sky (Depth range [0.0, 1.0])
             sceGxmSetViewport(self.context, 480.0, 480.0, 272.0, -272.0, 0.0, 1.0);
             sceGxmSetTwoSidedEnable(self.context, SCE_GXM_TWO_SIDED_ENABLED);
-            sceGxmSetCullMode(self.context, SCE_GXM_CULL_NONE);
-            sceGxmSetFrontDepthFunc(self.context, SCE_GXM_DEPTH_FUNC_LESS_EQUAL);
-            sceGxmSetBackDepthFunc(self.context, SCE_GXM_DEPTH_FUNC_LESS_EQUAL);
-            sceGxmSetFrontDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
-            sceGxmSetBackDepthWriteEnable(self.context, SCE_GXM_DEPTH_WRITE_ENABLED);
-
-            sceGxmSetVertexProgram(self.context, self.shaders.vert_prog);
-            sceGxmSetFragmentProgram(self.context, self.shaders.frag_prog_opaque);
 
             let aspect = VITA_WIDTH as f32 / VITA_HEIGHT as f32;
             let proj = Self::gxm_perspective_matrix(camera.fov_y, aspect, 0.05, 400.0);
             let view = camera.view_matrix();
             let mvp = proj.mul(&view);
 
-            let mut uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
-            sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut uniform_buf);
-            if !self.shaders.param_voxel_mvp.is_null() && !uniform_buf.is_null() {
-                sceGxmSetUniformDataF(uniform_buf, self.shaders.param_voxel_mvp, 0, 16, mvp.m.as_ptr());
-            }
-            if !self.shaders.param_voxel_sky_daylight.is_null() && !uniform_buf.is_null() {
-                let sky_day = [sky_bottom[0], sky_bottom[1], sky_bottom[2], daylight];
-                sceGxmSetUniformDataF(uniform_buf, self.shaders.param_voxel_sky_daylight, 0, 4, sky_day.as_ptr());
-            }
-            if !self.shaders.param_voxel_chunk_offset.is_null() && !uniform_buf.is_null() {
-                let zero = [0.0f32; 4];
-                sceGxmSetUniformDataF(uniform_buf, self.shaders.param_voxel_chunk_offset, 0, 4, zero.as_ptr());
-            }
-
-            let mut frag_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
-            sceGxmReserveFragmentDefaultUniformBuffer(self.context, &mut frag_uniform_buf);
-            if !frag_uniform_buf.is_null() {
-                let max_fog = if fog_enabled { (render_distance.clamp(2, 5) as f32 * 16.0).max(32.0) } else { 0.0 };
-                let fog_data: [f32; 4] = [camera.position.x, camera.position.y, camera.position.z, max_fog];
-                if !self.shaders.param_opaque_cam_fog.is_null() {
-                    sceGxmSetUniformDataF(frag_uniform_buf, self.shaders.param_opaque_cam_fog, 0, 4, fog_data.as_ptr());
-                }
-                if !self.shaders.param_opaque_fog_color.is_null() {
-                    let fog_rgba: [f32; 4] = [fog_col[0], fog_col[1], fog_col[2], if fog_enabled { 1.0 } else { 0.0 }];
-                    sceGxmSetUniformDataF(frag_uniform_buf, self.shaders.param_opaque_fog_color, 0, 4, fog_rgba.as_ptr());
-                }
-            }
-
-            sceGxmSetFragmentTexture(self.context, 0, &self.atlas_tex);
-
             let cam_chunk_x = (camera.position.x / CHUNK_SIZE_X as f32).floor() as i32;
             let cam_chunk_z = (camera.position.z / CHUNK_SIZE_Z as f32).floor() as i32;
             let render_dist = render_distance.clamp(2, 5);
-
 
             let mut stats = FrameRenderStats::default();
             if clear_draw_rc == SCE_OK {
@@ -163,19 +124,56 @@ impl GxmRenderer {
             }
 
             let is_occluded = self.render_terrain(
+                buf_idx,
                 camera,
                 world,
                 &mvp,
+                sky_top,
+                sky_bottom,
+                fog_col,
                 daylight,
+                sun_dir,
                 cam_chunk_x,
                 cam_chunk_z,
-                render_distance,
                 render_dist,
                 fog_enabled,
                 chunk_anim,
                 total_time,
                 &mut stats,
             );
+
+            // Re-bind voxel pipeline temporarily for legacy entity pass until Etap 5
+            sceGxmSetVertexProgram(self.context, self.shaders.vert_prog);
+            sceGxmSetFragmentProgram(self.context, self.shaders.frag_prog_opaque);
+            sceGxmSetFragmentTexture(self.context, 0, &self.atlas_tex);
+            let mut uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
+            sceGxmReserveVertexDefaultUniformBuffer(self.context, &mut uniform_buf);
+            if !uniform_buf.is_null() {
+                if !self.shaders.param_voxel_mvp.is_null() {
+                    sceGxmSetUniformDataF(uniform_buf, self.shaders.param_voxel_mvp, 0, 16, mvp.m.as_ptr());
+                }
+                if !self.shaders.param_voxel_sky_daylight.is_null() {
+                    let sky_day = [sky_bottom[0], sky_bottom[1], sky_bottom[2], daylight];
+                    sceGxmSetUniformDataF(uniform_buf, self.shaders.param_voxel_sky_daylight, 0, 4, sky_day.as_ptr());
+                }
+                if !self.shaders.param_voxel_chunk_offset.is_null() {
+                    let zero = [0.0f32; 4];
+                    sceGxmSetUniformDataF(uniform_buf, self.shaders.param_voxel_chunk_offset, 0, 4, zero.as_ptr());
+                }
+            }
+            let mut frag_uniform_buf: *mut core::ffi::c_void = core::ptr::null_mut();
+            sceGxmReserveFragmentDefaultUniformBuffer(self.context, &mut frag_uniform_buf);
+            if !frag_uniform_buf.is_null() {
+                let max_fog = if fog_enabled { (render_dist as f32 * 16.0).max(32.0) } else { 0.0 };
+                let fog_data = [camera.position.x, camera.position.y, camera.position.z, max_fog];
+                if !self.shaders.param_trans_cam_fog.is_null() {
+                    sceGxmSetUniformDataF(frag_uniform_buf, self.shaders.param_trans_cam_fog, 0, 4, fog_data.as_ptr());
+                }
+                if !self.shaders.param_trans_fog_color.is_null() {
+                    let fog_rgba = [fog_col[0], fog_col[1], fog_col[2], if fog_enabled { 1.0 } else { 0.0 }];
+                    sceGxmSetUniformDataF(frag_uniform_buf, self.shaders.param_trans_fog_color, 0, 4, fog_rgba.as_ptr());
+                }
+            }
 
             self.render_cracks_and_entities(
                 camera,
