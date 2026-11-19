@@ -68,7 +68,7 @@ cargo test graphics::gpu::tests::test_vulkan_context_texture_array_creation
 ## 5. Living `src/` Directory Map *(update after every structural commit)*
 - `src/lib.rs`, `src/main.rs`, `src/cli.rs`, `src/bin/rustcraft-server.rs` — crate root, entrypoints, CLI, dedicated server/relay.
 - `src/core/` — zero-platform-`#[cfg]` foundational types (`coords`, `events`, `math`, `noise`, `i18n`, `logger`, `build_info`, `controls`, `settings`, `crash_reporter`, `profiler`, `profiler_server`).
-- `src/platform/` — Platform Abstraction Layer (PAL) & all OS/console/GPU/audio `#[cfg]` backends: `traits` (`capabilities()`), `threading`, `storage`, `clipboard`, `system`, `mouse_capture`, `gamepad`, `desktop`, `macos`, `web`, `android/`, `vita/` (`gxm`, `runtime`, `app_loop`), `wgpu/`, `gpu_bridge`, `audio/`, `xbox360.rs` (legacy).
+- `src/platform/` — Platform Abstraction Layer (PAL) & all OS/console/GPU/audio `#[cfg]` backends: `traits` (`capabilities()`), `threading`, `storage`, `clipboard`, `system`, `mouse_capture`, `gamepad`, `desktop`, `macos`, `web`, `android/`, `vita/` (`gxm/` [`ffi_defs`, `programs_fx`, `chunk_pool`, `weather`, `postfx`, ...], `lifecycle`, `display`, `input`, `ime`, `panic_log`), `wgpu/`, `gpu_bridge`, `audio/`, `xbox360.rs` (legacy).
 - `src/features/` — zero-platform-`#[cfg]` modular game domains:
   - `blocks/` — `BlockId`, physical/optical/tool/drop properties, UV/texture mappings.
   - `meshing/` — pure CPU chunk/subchunk mesh builder (face culling, AO diagonal flip, water/foliage).
@@ -76,7 +76,7 @@ cargo test graphics::gpu::tests::test_vulkan_context_texture_array_creation
   - `world/` — chunks, biomes, terrain/caves/structures/villages/trees, lighting, fluids, farming, ruststone, TNT, weather, storage.
   - `entities/` — mobs (AI/spawning/combat/breeding/villager trading), dropped items, arrows, particles.
   - `player/` — `Player`, inventory/hotbar/armor, crafting recipes, quests, achievements.
-  - `rendering/` — procedural `atlas`, `camera`, `clouds`, `font`, `software` rasterizer, `traits`, `wgpu_facade`.
+  - `rendering/` — procedural `atlas`, `camera`, `clouds`, `font`, `lighting`, `player_parts`, `software` rasterizer, `traits`, `wgpu_facade`.
   - `ui/` — `draw`, `widgets`, `hud`, `inventory/`, `minimap/`, `worldmap`, `chat/`, menus (`main_menu`, `pause`, `settings`, `saves`, `multiplayer`, `questbook`, `death`, `loading`, `overlay`).
   - `audio/` — procedural `synth/`, `mixer/`, `engine/`, `spatial`, `sound/` (WAV/OGG/Opus), `soundtrack/`.
   - `net/` — multiplayer `protocol/`, `client/`, `server/`, `relay/`, `discovery`, `server_log`.

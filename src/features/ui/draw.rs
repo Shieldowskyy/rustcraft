@@ -248,3 +248,31 @@ pub fn draw_cursor_pointer(buffer: &mut [u32], buf_w: usize, buf_h: usize, x: i3
         set_px(buffer, buf_w, buf_h, x + dx, y + dy, col);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fill_rect_alpha_porter_duff_premultiplied_stacking() {
+        let mut buf = vec![0u32; 4 * 4];
+        fill_rect_alpha(&mut buf, 4, 4, 0, 0, 4, 4, 0xFFFFFFFF, 0.5);
+        let first = buf[0];
+        let a1 = (first >> 24) & 0xFF;
+        let r1 = (first >> 16) & 0xFF;
+        assert!((126..=129).contains(&a1), "unexpected alpha {a1}");
+        assert!((126..=129).contains(&r1), "unexpected premul r {r1}");
+
+        fill_rect_alpha(&mut buf, 4, 4, 0, 0, 4, 4, 0xFFFFFFFF, 0.5);
+        let second = buf[0];
+        let a2 = (second >> 24) & 0xFF;
+        let r2 = (second >> 16) & 0xFF;
+        assert!(a2 > a1 && (188..=194).contains(&a2), "unexpected stacked alpha {a2}");
+        assert!(r2 > r1 && (188..=195).contains(&r2), "unexpected stacked r {r2}");
+
+        fill_rect(&mut buf, 4, 4, 0, 0, 2, 2, 0x102030);
+        assert_eq!(buf[0], 0xFF102030);
+        fill_rect_alpha(&mut buf, 4, 4, 0, 0, 2, 2, 0xFFFFFFFF, 0.5);
+        assert!((buf[0] >> 24) >= 254);
+    }
+}
