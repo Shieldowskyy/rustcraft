@@ -19,9 +19,10 @@ pub static sceUserMainThreadName: [u8; 10] = *b"RustCraft\0";
 #[no_mangle]
 pub static sceUserMainThreadPriority: i32 = 0x10000100;
 
-// DLACZEGO: Maska `0x7` pozwala wątkowi głównemu działać na wszystkich dostępnych rdzeniach użytkownika (0, 1 i 2), unikając konfliktów z wątkami meszera w tle.
+// DLACZEGO: VitaSDK requires SCE_KERNEL_CPU_MASK_USER_0 (0x00010000) rather than 0x7; pinning
+// the main/GXM thread strictly to Core 0 prevents preemption by Core 1/2 background workers.
 #[no_mangle]
-pub static sceUserMainThreadCpuAffinityMask: i32 = 0x7;
+pub static sceUserMainThreadCpuAffinityMask: i32 = 0x0001_0000;
 
 /// 4 MB stack size for the main thread
 #[no_mangle]

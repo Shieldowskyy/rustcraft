@@ -105,17 +105,27 @@ pub fn configure_worker_thread_affinity(worker_idx: usize, is_mesher: bool) {
         extern "C" {
             fn sceKernelGetThreadId() -> i32;
             fn sceKernelChangeThreadCpuAffinityMask(thid: i32, bitmask: i32) -> i32;
+            fn sceKernelGetThreadCurrentPriority() -> i32;
+            fn sceKernelChangeThreadPriority(thid: i32, priority: i32) -> i32;
         }
-        // DLACZEGO: Main thread runs on user cores (mask 0x7 / core 0 priority); pinning
-        // background chunk workers to cores 1 and 2 prevents frame-time stalls on PS Vita.
+        const SCE_KERNEL_CPU_MASK_USER_1: i32 = 0x0002_0000;
+        const SCE_KERNEL_CPU_MASK_USER_2: i32 = 0x0004_0000;
+        // DLACZEGO: VitaSDK requires bitmasks in bits 16..18 (0x0002_0000 = Core 1, 0x0004_0000 = Core 2);
+        // values like 0x2/0x4 fail with SCE_KERNEL_ERROR_ILLEGAL_CPU_AFFINITY_MASK and leave chunk_gen
+        // workers on Core 0 preempting the render loop. Core 1 runs chunk_gen and Core 2 runs chunk_mesh.
         let mask = if is_mesher {
-            if worker_idx % 2 == 0 { 0x0002_0000 } else { 0x0004_0000 }
+            if worker_idx % 2 == 0 { SCE_KERNEL_CPU_MASK_USER_2 } else { SCE_KERNEL_CPU_MASK_USER_1 }
         } else if worker_idx % 2 == 0 {
-            0x2
+            SCE_KERNEL_CPU_MASK_USER_1
         } else {
-            0x4
+            SCE_KERNEL_CPU_MASK_USER_2
         };
-        let _ = sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), mask);
+        let thid = sceKernelGetThreadId();
+        let _ = sceKernelChangeThreadCpuAffinityMask(thid, mask);
+        let cur = sceKernelGetThreadCurrentPriority();
+        if cur > 0 {
+            let _ = sceKernelChangeThreadPriority(thid, (cur + 16).min(191));
+        }
     }
     #[cfg(not(target_os = "vita"))]
     {
@@ -128,11 +138,12 @@ pub fn configure_background_decoder_affinity() {
     #[cfg(target_os = "vita")]
     unsafe {
         extern "C" {
+            fn sceKernelGetThreadId() -> i32;
             fn sceKernelChangeThreadCpuAffinityMask(thid: i32, mask: i32) -> i32;
         }
-        // DLACZEGO: Main game loop runs on Core 0 (0x00010000); moving background Opus/Vorbis
-        // decoding to cores 1 & 2 (0x00060000) prevents audio decode starvation and frame stalls.
-        let _ = sceKernelChangeThreadCpuAffinityMask(0, 0x0006_0000);
+        // DLACZEGO: Main game loop runs on Core 0 (0x00010000); moving background Opus/Vorbis and
+        // profiler HTTP traffic to cores 1 & 2 (0x00060000) prevents audio/socket stalls on Core 0.
+        let _ = sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), 0x0006_0000);
     }
 }
 
