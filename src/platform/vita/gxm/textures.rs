@@ -161,12 +161,25 @@ pub(super) fn build_hud_textures() -> ([GpuMem; DISPLAY_BUFFER_COUNT], [SceGxmTe
 #[inline]
 fn find_nonzero_span(row: &[u32]) -> (u16, u16) {
     let n = row.len();
+    // DLACZEGO: 64-bit loads halve loop iterations when scanning 960px HUD rows on Cortex-A9.
+    let (prefix, mid, _suffix) = unsafe { row.align_to::<u64>() };
     let mut i = 0usize;
-    while i + 4 <= n {
-        if (row[i] | row[i + 1] | row[i + 2] | row[i + 3]) != 0 {
-            break;
+    while i < prefix.len() && row[i] == 0 {
+        i += 1;
+    }
+    if i == prefix.len() {
+        let mut m = 0usize;
+        let m_len = mid.len();
+        while m + 4 <= m_len {
+            if (mid[m] | mid[m + 1] | mid[m + 2] | mid[m + 3]) != 0 {
+                break;
+            }
+            m += 4;
         }
-        i += 4;
+        while m < m_len && mid[m] == 0 {
+            m += 1;
+        }
+        i += m * 2;
     }
     while i < n && row[i] == 0 {
         i += 1;
