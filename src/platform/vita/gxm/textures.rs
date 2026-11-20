@@ -189,34 +189,12 @@ fn find_nonzero_span(row: &[u32]) -> (u16, u16) {
 
 #[inline]
 unsafe fn zero_u32_range(dst_row: *mut u32, start: usize, end: usize) {
-    let mut x = start;
-    while x < end {
-        *dst_row.add(x) = 0;
-        x += 1;
-    }
+    core::ptr::write_bytes(dst_row.add(start), 0, end - start);
 }
 
 #[inline]
-unsafe fn swizzle_copy_u32_range(dst_row: *mut u32, src_row: *const u32, start: usize, end: usize) {
-    let mut x = start;
-    while x + 4 <= end {
-        let p0 = *src_row.add(x);
-        let p1 = *src_row.add(x + 1);
-        let p2 = *src_row.add(x + 2);
-        let p3 = *src_row.add(x + 3);
-        // DLACZEGO: Strict 32-bit aligned reads/writes avoid ARMv7 LDRD/VLDR alignment faults;
-        // ARGB->ABGR swap preserves premultiplied alpha byte (A) and green (G) untouched.
-        *dst_row.add(x) = (p0 & 0xFF00FF00) | ((p0 & 0x00FF0000) >> 16) | ((p0 & 0x000000FF) << 16);
-        *dst_row.add(x + 1) = (p1 & 0xFF00FF00) | ((p1 & 0x00FF0000) >> 16) | ((p1 & 0x000000FF) << 16);
-        *dst_row.add(x + 2) = (p2 & 0xFF00FF00) | ((p2 & 0x00FF0000) >> 16) | ((p2 & 0x000000FF) << 16);
-        *dst_row.add(x + 3) = (p3 & 0xFF00FF00) | ((p3 & 0x00FF0000) >> 16) | ((p3 & 0x000000FF) << 16);
-        x += 4;
-    }
-    while x < end {
-        let p = *src_row.add(x);
-        *dst_row.add(x) = (p & 0xFF00FF00) | ((p & 0x00FF0000) >> 16) | ((p & 0x000000FF) << 16);
-        x += 1;
-    }
+unsafe fn copy_u32_range(dst_row: *mut u32, src_row: *const u32, start: usize, end: usize) {
+    core::ptr::copy_nonoverlapping(src_row.add(start), dst_row.add(start), end - start);
 }
 
 /// Copies dirty non-zero ARGB8888 HUD spans to a 960x544 ABGR8888 GXM texture using 32-bit aligned writes.
@@ -255,7 +233,7 @@ pub(super) unsafe fn upload_hud_buffer(
                     }
                 }
             }
-            swizzle_copy_u32_range(dst_row, row_slice.as_ptr(), new_min as usize, new_max as usize);
+            copy_u32_range(dst_row, row_slice.as_ptr(), new_min as usize, new_max as usize);
         }
         prev_bounds[y] = (new_min, new_max);
     }
