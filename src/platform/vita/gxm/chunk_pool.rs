@@ -112,7 +112,6 @@ impl GxmRenderer {
 
         const MAX_PENDING_MESHES: usize = 4;
         if self.pending_meshes.len() < MAX_PENDING_MESHES {
-            let mut dirty_fallback: Option<(i32, i32)> = None;
             for &(dx, dz) in &self.chunk_coords_scratch {
                 if is_occluded && (dx != 0 || dz != 0) {
                     continue;
@@ -124,27 +123,14 @@ impl GxmRenderer {
                 let Some(chunk) = world.chunks.get(&key) else {
                     continue;
                 };
-                if !self.chunk_slots.contains_key(&key) {
+                if !self.chunk_slots.contains_key(&key) || chunk.dirty {
                     if let Some(job) = world.create_mesh_job(key) {
                         if self.mesh_worker.submit_job(job) {
                             self.pending_meshes.insert(key);
                             if let Some(c) = world.chunks.get_mut(&key) {
                                 c.dirty = false;
                             }
-                            dirty_fallback = None;
                             break;
-                        }
-                    }
-                } else if dirty_fallback.is_none() && chunk.dirty {
-                    dirty_fallback = Some(key);
-                }
-            }
-            if let Some(key) = dirty_fallback {
-                if let Some(job) = world.create_mesh_job(key) {
-                    if self.mesh_worker.submit_job(job) {
-                        self.pending_meshes.insert(key);
-                        if let Some(c) = world.chunks.get_mut(&key) {
-                            c.dirty = false;
                         }
                     }
                 }
