@@ -217,6 +217,10 @@ impl World {
             self.index_chunk_lights(&chunk);
             self.chunks.insert((cx, cz), chunk);
         }
+        // DLACZEGO: serwer odsyła zmianę także do nadawcy; ponowne ustawienie płynu zresetowałoby jego poziom do 8 (źródło) i rozlewałby się w nieskończoność.
+        if self.get_block(pos) == block && matches!(block, BlockId::Water | BlockId::Lava) {
+            return;
+        }
         self.set_block_inner(pos, block, false);
     }
 
